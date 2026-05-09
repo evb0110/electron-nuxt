@@ -318,10 +318,6 @@ function getFileMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                     }),
                 ],
             },
-            createWindowMenuAction({
-                label: te('menu.convertToPdf'),
-                channel: 'menu:convertToPdf',
-            }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.newTab'),

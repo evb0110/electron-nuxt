@@ -151,6 +151,12 @@
                         :is-placing-page-note="annotationPlacingPageNote"
                         :document-busy="isDocumentBusy"
                         :surface="toolbarSurface"
+                        :show-document-section="isDesktopRuntime"
+                        can-combine-files
+                        can-print-current-page
+                        :can-convert-to-pdf="canUseDjvu && isDjvuMode"
+                        :is-preparing-print="isPreparingPrint"
+                        :is-preparing-current-page-print="isPreparingCurrentPagePrint"
                         trigger-icon="i-lucide-ellipsis"
                         @update:open="handleDropdownOpen('overflow', $event)"
                         @capture-region="handleToolbarCaptureRegion"
@@ -165,6 +171,9 @@
                         @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
                         @quick-note="handleToolbarQuickNote"
                         @open-settings="handleOverflowOpenSettings"
+                        @combine-images="emit('open-combine')"
+                        @print-current-page="handlePrintCurrentPage"
+                        @convert-to-pdf="openConvertDialog"
                     />
                 </template>
             </PdfToolbar>
@@ -1180,6 +1189,9 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleSaveAs,
     handlePrint,
+    handlePrintCurrentPage: () => {
+        void handlePrintCurrentPage();
+    },
     handleUndo: () => {
         void handleUndo();
     },

@@ -49,6 +49,7 @@
                 @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
                 @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
                 @print="runFallbackWorkspaceAction((workspace) => workspace.handlePrint())"
+                @print-current-page="runFallbackWorkspaceAction((workspace) => workspace.handlePrintCurrentPage())"
                 @combine-images="openCombinePage"
                 @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
                 @export-images="runFallbackWorkspaceAction((workspace) => workspace.handleExportImages())"

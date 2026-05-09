@@ -79,6 +79,7 @@ export interface IWorkspaceFilePort {
     handleSave: () => Promise<void>;
     handleSaveAs: () => Promise<void>;
     handlePrint: () => void | Promise<void>;
+    handlePrintCurrentPage: () => void | Promise<void>;
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;

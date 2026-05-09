@@ -615,6 +615,9 @@ const workspaceExpose: IWorkspaceExpose = {
     handlePrint: async () => {
         await withLoadedWorkspace('handlePrint', workspace => workspace.handlePrint());
     },
+    handlePrintCurrentPage: async () => {
+        await withLoadedWorkspace('handlePrintCurrentPage', workspace => workspace.handlePrintCurrentPage());
+    },
     handleUndo: () => {
         void withLoadedWorkspace('handleUndo', workspace => workspace.handleUndo());
     },

@@ -18,7 +18,45 @@
 
         <template #content>
             <div class="overflow-menu">
+                <template v-if="hasDocumentItems">
+                    <div class="overflow-menu-section-header">{{ t('menu.file') }}</div>
+                    <div class="overflow-menu-section">
+                        <button
+                            v-if="canCombineFiles"
+                            class="overflow-menu-item"
+                            @click="emit('combine-images'); close()"
+                        >
+                            <UIcon name="i-lucide-copy-plus" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('menu.combineFiles') }}</span>
+                        </button>
+                        <button
+                            v-if="canPrintCurrentPage"
+                            class="overflow-menu-item"
+                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
+                            @click="emit('print-current-page'); close()"
+                        >
+                            <UIcon
+                                v-if="isPreparingCurrentPagePrint"
+                                name="i-lucide-loader-circle"
+                                class="overflow-menu-icon animate-spin"
+                            />
+                            <PrintCurrentPageIcon v-else class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('menu.printCurrentPage') }}</span>
+                        </button>
+                        <button
+                            v-if="canConvertToPdf"
+                            class="overflow-menu-item"
+                            :disabled="!hasInteractiveDocument"
+                            @click="emit('convert-to-pdf'); close()"
+                        >
+                            <UIcon name="i-lucide-refresh-cw" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('menu.convertToPdf') }}</span>
+                        </button>
+                    </div>
+                </template>
+
                 <template v-if="hasToolItems">
+                    <div v-if="hasDocumentItems" class="overflow-menu-divider" />
                     <div class="overflow-menu-section-header">{{ t('toolbar.annotations') }}</div>
                     <div class="overflow-menu-section">
                         <button
@@ -76,7 +114,7 @@
                 </template>
 
                 <template v-if="hasViewItems">
-                    <div v-if="hasToolItems" class="overflow-menu-divider" />
+                    <div v-if="hasDocumentItems || hasToolItems" class="overflow-menu-divider" />
                     <div class="overflow-menu-section-header">{{ t('menu.view') }}</div>
                     <div class="overflow-menu-section">
                         <button
@@ -221,7 +259,7 @@
                 </template>
 
                 <template v-if="hasShellItems">
-                    <div v-if="hasToolItems || hasViewItems" class="overflow-menu-divider" />
+                    <div v-if="hasDocumentItems || hasToolItems || hasViewItems" class="overflow-menu-divider" />
                     <div class="overflow-menu-section-header">{{ t('toolbar.moreTools') }}</div>
                     <div class="overflow-menu-section">
                         <button
@@ -241,6 +279,7 @@
 
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
+import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import {
     isReaderCommandInMenu,
     isReaderCommandInline,
@@ -272,6 +311,12 @@ interface IProps {
     documentBusy?: boolean
     surface?: IReaderCommandSurface
     triggerIcon: string
+    showDocumentSection?: boolean
+    canCombineFiles?: boolean
+    canPrintCurrentPage?: boolean
+    canConvertToPdf?: boolean
+    isPreparingPrint?: boolean
+    isPreparingCurrentPagePrint?: boolean
 }
 
 const props = defineProps<IProps>();
@@ -290,6 +335,9 @@ const emit = defineEmits<{
     (e: 'crop'): void
     (e: 'quick-note'): void
     (e: 'open-settings'): void
+    (e: 'combine-images'): void
+    (e: 'print-current-page'): void
+    (e: 'convert-to-pdf'): void
 }>();
 
 const {
@@ -303,6 +351,13 @@ const isOpen = computed({
     set: (value: boolean) => emit('update:open', value),
 });
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
+
+const hasDocumentItems = computed(() => (
+    props.showDocumentSection === true
+    && (props.canCombineFiles === true
+        || props.canPrintCurrentPage === true
+        || props.canConvertToPdf === true)
+));
 
 const hasToolItems = computed(() => (
     (props.canCaptureRegion && shouldShowMenuCommand('capture-region', 3))
