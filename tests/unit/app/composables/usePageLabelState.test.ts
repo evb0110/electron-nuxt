@@ -144,12 +144,63 @@ describe('usePageLabelState', () => {
         expect(state.pageLabelsDirty.value).toBe(false);
     });
 
+    it('preserves labels while a loaded document is transiently unavailable', async () => {
+        const state = usePageLabelState({
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+        });
+
+        state.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        await state.syncPageLabelsFromDocument(null);
+
+        expect(state.pageLabels.value).toEqual([
+            'i',
+            'ii',
+            'iii',
+        ]);
+        expect(state.pageLabelRanges.value).toEqual([{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        expect(state.pageLabelsDirty.value).toBe(false);
+    });
+
+    it('clears labels when no document pages remain', async () => {
+        const state = usePageLabelState({
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            totalPages: ref(0),
+            markDirty: vi.fn(),
+        });
+
+        state.pageLabels.value = ['i'];
+        state.pageLabelRanges.value = [{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1,
+        }];
+
+        await state.syncPageLabelsFromDocument(null);
+
+        expect(state.pageLabels.value).toBeNull();
+        expect(state.pageLabelRanges.value).toEqual([]);
+        expect(state.pageLabelsDirty.value).toBe(false);
+    });
+
     it('invokes sync and save callbacks when labels rebaseline', async () => {
         const onPageLabelsSynchronized = vi.fn();
         const onPageLabelsSaved = vi.fn();
         const state = usePageLabelState({
             pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
-            totalPages: ref(1),
+            totalPages: ref(0),
             markDirty: vi.fn(),
             onPageLabelsSynchronized,
             onPageLabelsSaved,

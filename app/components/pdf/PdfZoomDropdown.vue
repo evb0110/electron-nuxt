@@ -309,6 +309,10 @@ function applyCustomZoom() {
     display: flex;
     align-items: center;
     gap: 0.1rem;
+    padding: 0.125rem;
+    border: 1px solid var(--app-toolbar-group-border);
+    border-radius: 0.5625rem;
+    background: var(--app-toolbar-group-bg);
 }
 
 .zoom-controls-item {
@@ -317,9 +321,10 @@ function applyCustomZoom() {
 }
 
 .zoom-controls-item :deep(.toolbar-btn) {
-    width: var(--zoom-control-side-width);
-    min-width: var(--zoom-control-side-width);
-    max-width: var(--zoom-control-side-width);
+    width: calc(var(--zoom-control-side-width) - 0.25rem);
+    min-width: calc(var(--zoom-control-side-width) - 0.25rem);
+    max-width: calc(var(--zoom-control-side-width) - 0.25rem);
+    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
 }
 
 .zoom-controls-item--display {
@@ -334,13 +339,13 @@ function applyCustomZoom() {
     width: 100%;
     min-width: 100%;
     max-width: 100%;
-    height: var(--toolbar-control-height, 2.25rem);
+    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
     background: transparent;
-    border: none;
-    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    border-radius: 0.4375rem;
     cursor: pointer;
     color: var(--ui-text);
-    transition: background-color 0.1s ease, box-shadow 0.1s ease;
+    transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .zoom-controls--compact-2 .zoom-controls-display {
@@ -368,6 +373,7 @@ function applyCustomZoom() {
 
 .zoom-controls-display:hover:not(:disabled) {
     background-color: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
 }
 
 .zoom-controls-display-value {
@@ -388,11 +394,12 @@ function applyCustomZoom() {
 .zoom-dropdown {
     padding: 0.375rem;
     width: 15rem;
+    background: var(--app-toolbar-menu-popover-bg);
 }
 
 .zoom-divider {
     height: 1px;
-    background-color: var(--ui-border);
+    background-color: var(--app-toolbar-separator);
     margin: 0.375rem 0;
 }
 
@@ -419,11 +426,13 @@ function applyCustomZoom() {
 }
 
 .zoom-chip:hover {
-    background-color: var(--ui-bg-elevated);
+    background-color: var(--app-toolbar-menu-item-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
 }
 
 .zoom-chip.is-active {
-    border-color: var(--ui-text);
+    background-color: var(--app-toolbar-menu-item-active-bg);
+    border-color: var(--app-toolbar-menu-item-active-border);
     font-weight: 600;
 }
 
@@ -438,7 +447,7 @@ function applyCustomZoom() {
 }
 
 .zoom-chip-custom:focus-within {
-    border-color: var(--ui-primary);
+    border-color: var(--app-toolbar-focus-ring);
     background-color: var(--ui-bg);
 }
 
@@ -467,7 +476,7 @@ function applyCustomZoom() {
 
 .zoom-toggle-group {
     display: flex;
-    border: 1px solid var(--ui-border);
+    border: 1px solid var(--app-toolbar-group-border);
     border-radius: 0.375rem;
     overflow: hidden;
 }
@@ -488,18 +497,18 @@ function applyCustomZoom() {
 }
 
 .zoom-toggle-btn + .zoom-toggle-btn {
-    border-left: 1px solid var(--ui-border);
+    border-left: 1px solid var(--app-toolbar-group-border);
 }
 
 .zoom-toggle-btn:hover {
-    background-color: var(--ui-bg-elevated);
+    background-color: var(--app-toolbar-menu-item-hover-bg);
     color: var(--ui-text);
 }
 
 .zoom-toggle-btn.is-active {
-    background-color: color-mix(in oklab, var(--ui-primary) 14%, var(--ui-bg) 86%);
-    border-color: var(--ui-primary);
-    color: var(--ui-primary);
+    background-color: var(--app-toolbar-menu-item-active-bg);
+    border-color: var(--app-toolbar-menu-item-active-border);
+    color: var(--ui-text);
     font-weight: 600;
 }
 

@@ -269,7 +269,8 @@ function close() {
 
 .app-menu {
     min-width: 15rem;
-    padding: 0.25rem;
+    padding: 0.3125rem;
+    background: var(--app-toolbar-menu-popover-bg);
 }
 
 .app-menu-trigger {
@@ -279,19 +280,27 @@ function close() {
     height: var(--toolbar-control-height, 2.25rem);
     padding: 0 0.5rem 0 0.625rem;
     border: 1px solid transparent;
-    border-radius: 0.25rem;
+    border-radius: 0.4375rem;
     background: transparent;
-    color: var(--ui-text);
+    color: var(--app-toolbar-menu-trigger-fg);
     font: inherit;
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
 
 .app-menu-trigger:hover,
 .app-menu-trigger.is-open {
     background: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
+    color: var(--ui-text);
+}
+
+.app-menu-trigger.is-open {
+    background: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    box-shadow: var(--app-toolbar-control-active-shadow);
 }
 
 .app-menu-trigger:focus-visible {
@@ -314,7 +323,7 @@ function close() {
 .app-menu-divider {
     height: 1px;
     margin: 0.25rem 0;
-    background-color: var(--ui-border);
+    background-color: var(--app-toolbar-separator);
 }
 
 .app-menu-item {
@@ -323,14 +332,14 @@ function close() {
     gap: 0.75rem;
     width: 100%;
     padding: 0.5rem 0.75rem;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 0.375rem;
     background: transparent;
     color: var(--ui-text);
     font-size: 0.875rem;
     text-align: left;
     cursor: pointer;
-    transition: background-color 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
 .app-menu-item:disabled {
@@ -339,7 +348,8 @@ function close() {
 }
 
 .app-menu-item:hover:not(:disabled) {
-    background-color: var(--ui-bg-elevated);
+    background-color: var(--app-toolbar-menu-item-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
 }
 
 .app-menu-icon {
@@ -347,6 +357,10 @@ function close() {
     height: 1.125rem;
     flex-shrink: 0;
     color: var(--ui-text-muted);
+}
+
+.app-menu-item:hover:not(:disabled) .app-menu-icon {
+    color: var(--ui-text);
 }
 
 .app-menu-label {

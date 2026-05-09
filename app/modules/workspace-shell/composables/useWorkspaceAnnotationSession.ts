@@ -117,6 +117,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationComments,
         markAnnotationDirty,
         updateAnnotationCommentInViewer: (comment, text) => pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false,
+        isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value),
     });
 
     const hasOpenAnnotationNotes = ref(false);

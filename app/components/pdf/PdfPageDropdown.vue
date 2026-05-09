@@ -279,10 +279,19 @@ onClickOutside(pageControlsRef, () => {
     display: flex;
     align-items: center;
     gap: 0.1rem;
+    padding: 0.125rem;
+    border: 1px solid var(--app-toolbar-group-border);
+    border-radius: 0.5625rem;
+    background: var(--app-toolbar-group-bg);
 }
 
 .page-controls-item {
     display: flex;
+}
+
+.page-controls-item :deep(.toolbar-btn) {
+    width: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
+    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
 }
 
 .page-controls-display {
@@ -295,14 +304,14 @@ onClickOutside(pageControlsRef, () => {
     padding: 0 0.5rem;
     width: var(--page-display-width-ch);
     min-width: var(--page-display-width-ch);
-    height: var(--toolbar-control-height, 2.25rem);
+    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
     font-family: var(--app-font-mono);
     background: transparent;
-    border: none;
-    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    border-radius: 0.4375rem;
     cursor: pointer;
     box-sizing: border-box;
-    transition: background-color 0.1s ease, box-shadow 0.1s ease;
+    transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .page-controls-display:disabled {
@@ -320,6 +329,7 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-display:not(.is-editing):hover:not(:disabled) {
     background-color: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
 }
 
 .page-controls-current,

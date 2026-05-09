@@ -490,7 +490,7 @@ onClickOutside(contextMenuRef, () => {
     min-width: 0;
     height: 38px;
     min-height: 38px;
-    background: color-mix(in oklab, var(--app-chrome) 92%, var(--ui-bg) 8%);
+    background: var(--app-tabbar-bg);
     border-bottom: 1px solid var(--ui-border);
     user-select: none;
     -webkit-app-region: drag;
@@ -521,7 +521,6 @@ onClickOutside(contextMenuRef, () => {
     max-width: 200px;
     height: calc(100% - 0.25rem);
     border: none;
-    border-right: 1px solid color-mix(in oklab, var(--ui-border) 76%, transparent);
     border-radius: 0.45rem 0.45rem 0 0;
     background: transparent;
     color: var(--ui-text-dimmed);
@@ -533,15 +532,36 @@ onClickOutside(contextMenuRef, () => {
     transition: background-color 0.1s ease, color 0.1s ease;
 }
 
+.tab:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 30%;
+    bottom: 30%;
+    width: 1px;
+    background: color-mix(in oklab, var(--ui-border) 70%, transparent);
+    pointer-events: none;
+}
+
+.tab.is-active::after,
+.tab:has(+ .tab.is-active)::after,
+.tab:hover::after,
+.tab:has(+ .tab:hover)::after {
+    display: none;
+}
+
 .tab:hover {
     background: var(--app-chrome-hover);
+    color: var(--ui-text);
 }
 
 .tab.is-active {
     background: var(--ui-bg);
     color: var(--ui-text);
-    font-weight: 500;
-    box-shadow: 0 -1px 0 color-mix(in oklab, var(--ui-border) 72%, transparent) inset;
+}
+
+.tab.is-active:hover {
+    background: var(--ui-bg);
 }
 
 .tab-label {

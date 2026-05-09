@@ -343,8 +343,31 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
 
 <style scoped>
 .overflow-menu {
-    padding: 0.25rem;
+    padding: 0.3125rem;
     min-width: 14rem;
+    background: var(--app-toolbar-menu-popover-bg);
+}
+
+.toolbar-icon-button {
+    width: var(--toolbar-control-height, 2.25rem);
+    height: var(--toolbar-control-height, 2.25rem);
+    border: 1px solid transparent;
+    border-radius: 0.4375rem;
+    color: var(--app-toolbar-control-inactive-fg);
+    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.toolbar-icon-button:hover,
+.toolbar-icon-button[aria-expanded='true'] {
+    background: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
+    color: var(--app-toolbar-control-hover-fg);
+}
+
+.toolbar-icon-button[aria-expanded='true'] {
+    background: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    box-shadow: var(--app-toolbar-control-active-shadow);
 }
 
 .overflow-menu-section {
@@ -354,7 +377,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
 
 .overflow-menu-divider {
     height: 1px;
-    background-color: var(--ui-border);
+    background-color: var(--app-toolbar-separator);
     margin: 0.25rem 0;
 }
 
@@ -373,14 +396,14 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
     gap: 0.75rem;
     width: 100%;
     padding: 0.5rem 0.75rem;
-    border: none;
+    border: 1px solid transparent;
     background: transparent;
     cursor: pointer;
     border-radius: 0.375rem;
     color: var(--ui-text);
     font-size: 0.875rem;
     text-align: left;
-    transition: background-color 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
 .overflow-menu-item:disabled {
@@ -389,10 +412,13 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
 }
 
 .overflow-menu-item:hover:not(:disabled) {
-    background-color: var(--ui-bg-elevated);
+    background-color: var(--app-toolbar-menu-item-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
 }
 
 .overflow-menu-item.is-active {
+    background-color: var(--app-toolbar-menu-item-active-bg);
+    border-color: var(--app-toolbar-menu-item-active-border);
     color: var(--ui-text);
 }
 
