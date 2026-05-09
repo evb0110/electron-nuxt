@@ -1,14 +1,59 @@
 <template>
   <main aria-labelledby="home-title">
-    <section class="hero-grid section-reveal">
-      <div class="hero-copy">
-        <UBadge
-          :label="t('home.hero.badge')"
-          color="primary"
-          variant="subtle"
-          class="hero-badge"
+    <div class="home-topbar section-reveal">
+      <div class="home-brand">
+        <NuxtLink
+          class="brand-link"
+          to="/"
+        >
+          <span class="brand-mark">EVB</span>
+          <span class="brand-name">Viewer</span>
+        </NuxtLink>
+
+        <span
+          v-if="releaseData"
+          class="home-version"
+        >
+          {{ releaseData.release.tag }}
+        </span>
+      </div>
+
+      <div class="home-actions">
+        <UButton
+          v-if="webAppUrl"
+          :label="t('home.hero.openInBrowser')"
+          :to="webAppUrl"
+          target="_blank"
+          rel="noreferrer"
+          size="lg"
+          icon="i-lucide-globe"
+          class="home-action-button"
         />
 
+        <UButton
+          :label="downloadPrimaryLabel"
+          icon="i-lucide-download"
+          size="lg"
+          color="neutral"
+          variant="outline"
+          class="home-action-button"
+          @click="downloadActiveInstaller"
+        />
+
+        <UButton
+          :label="t('home.hero.browseInstallers')"
+          color="neutral"
+          variant="ghost"
+          size="lg"
+          icon="i-lucide-list"
+          class="home-action-button"
+          @click="scrollToInstallers"
+        />
+      </div>
+    </div>
+
+    <section class="hero-grid section-reveal section-delay-1">
+      <div class="hero-copy">
         <h1
           id="home-title"
           class="hero-title"
@@ -19,173 +64,22 @@
         <p class="hero-subtitle">
           {{ t('home.hero.subtitle') }}
         </p>
+      </div>
 
-        <div class="hero-cta">
-          <UButton
-            v-if="webAppUrl"
-            :label="t('home.hero.openInBrowser')"
-            :to="webAppUrl"
-            target="_blank"
-            rel="noreferrer"
-            size="xl"
-            icon="i-lucide-globe"
-          />
-
-          <UButton
-            :label="downloadPrimaryLabel"
-            icon="i-lucide-download"
-            size="xl"
-            color="neutral"
-            variant="outline"
-            @click="downloadActiveInstaller"
-          />
-
-          <UButton
-            :label="t('home.hero.browseInstallers')"
-            color="neutral"
-            variant="ghost"
-            size="xl"
-            icon="i-lucide-list"
-            @click="scrollToInstallers"
-          />
-        </div>
-
-        <p class="hero-hint">
-          {{ recommendationHint }}
-        </p>
-
-        <p
-          v-if="releaseData"
-          class="release-meta"
-        >
-          <strong>{{ releaseData.release.tag }}</strong>
-          <span v-if="releaseDateLabel"> &middot; {{ t('home.hero.published', { date: releaseDateLabel }) }}</span>
-        </p>
-
-        <div class="hero-feature-strip">
-          <UCard
-            v-for="feature in featureHighlights"
-            :key="feature.title"
-            class="hero-feature-card"
+      <figure class="hero-preview">
+        <div class="preview-frame">
+          <img
+            class="preview-image"
+            src="/evb-viewer-preview-cropped.png"
+            :alt="t('home.preview.alt')"
+            width="2936"
+            height="1935"
+            loading="eager"
+            decoding="async"
+            fetchpriority="high"
           >
-            <UIcon
-              :name="feature.icon"
-              class="feature-icon"
-            />
-            <h2>{{ feature.title }}</h2>
-            <p>{{ feature.description }}</p>
-          </UCard>
         </div>
-      </div>
-
-      <div class="hero-stack">
-        <figure class="hero-preview">
-          <div class="preview-frame">
-            <img
-              class="preview-image"
-              src="/evb-viewer-preview-cropped.png"
-              :alt="t('home.preview.alt')"
-              width="2936"
-              height="1935"
-              loading="eager"
-              decoding="async"
-              fetchpriority="high"
-            >
-          </div>
-          <figcaption class="preview-caption">
-            {{ t('home.preview.caption') }}
-          </figcaption>
-        </figure>
-
-        <UCard class="hero-side-card">
-          <div class="hero-side-head">
-            <p class="hero-side-eyebrow">
-              {{ t('home.entryPoints.heading') }}
-            </p>
-            <h2 class="hero-side-title">
-              {{ t('home.entryPoints.description') }}
-            </h2>
-            <p class="hero-side-copy">
-              {{ recommendationHint }}
-            </p>
-          </div>
-
-          <div class="hero-side-platforms">
-            <div
-              v-for="entry in entryPointRows"
-              :key="entry.title"
-              class="hero-platform-row"
-            >
-              <div>
-                <p class="hero-platform-name">{{ entry.title }}</p>
-                <p class="hero-platform-meta">{{ entry.description }}</p>
-              </div>
-              <span class="hero-platform-installers">{{ entry.label }}</span>
-            </div>
-          </div>
-        </UCard>
-      </div>
-    </section>
-
-    <section class="content-section section-reveal section-delay-1">
-      <div class="section-head">
-        <h2>{{ t('home.entryPoints.heading') }}</h2>
-        <p>{{ t('home.entryPoints.description') }}</p>
-      </div>
-
-      <div class="docs-grid">
-        <UCard
-          v-for="entry in entryPointCards"
-          :key="entry.title"
-          class="doc-card"
-        >
-          <UIcon
-            :name="entry.icon"
-            class="doc-icon"
-          />
-          <h3>{{ entry.title }}</h3>
-          <p>{{ entry.description }}</p>
-          <ul class="docs-list entry-point-list">
-            <li
-              v-for="point in entry.points"
-              :key="point"
-            >
-              {{ point }}
-            </li>
-          </ul>
-          <UButton
-            :label="entry.action"
-            :to="entry.to"
-            :target="entry.external ? '_blank' : undefined"
-            :rel="entry.external ? 'noreferrer' : undefined"
-            color="neutral"
-            variant="outline"
-            trailing-icon="i-lucide-arrow-right"
-          />
-        </UCard>
-      </div>
-    </section>
-
-    <section class="content-section section-reveal section-delay-1">
-      <div class="section-head">
-        <h2>{{ t('features.capabilities.heading') }}</h2>
-        <p>{{ t('features.capabilities.description') }}</p>
-      </div>
-
-      <div class="features-grid">
-        <UCard
-          v-for="feature in capabilityCards"
-          :key="feature.title"
-          class="feature-card"
-        >
-          <UIcon
-            :name="feature.icon"
-            class="feature-icon"
-          />
-          <h3>{{ feature.title }}</h3>
-          <p>{{ feature.description }}</p>
-        </UCard>
-      </div>
+      </figure>
     </section>
 
     <section
@@ -329,119 +223,6 @@
             <p>{{ t('home.installers.noArtifacts') }}</p>
           </div>
         </div>
-
-        <UCard class="release-sidebar">
-          <div class="release-sidebar-head">
-            <p
-              v-if="releaseData"
-              class="release-sidebar-tag"
-            >
-              {{ releaseData.release.tag }}
-            </p>
-            <h3>{{ t('features.platforms.heading') }}</h3>
-            <p>{{ t('features.platforms.description') }}</p>
-          </div>
-
-          <div class="release-sidebar-platform-list">
-            <div
-              v-for="row in platformRows"
-              :key="row.os"
-              class="release-sidebar-row"
-            >
-              <div>
-                <p class="release-sidebar-os">{{ row.os }}</p>
-                <p class="release-sidebar-arch">{{ row.architectures }}</p>
-              </div>
-              <span class="release-sidebar-type">{{ row.installerTypes }}</span>
-            </div>
-          </div>
-
-          <div class="release-sidebar-actions">
-            <UButton
-              :label="downloadPrimaryLabel"
-              icon="i-lucide-download"
-              color="primary"
-              @click="downloadActiveInstaller"
-            />
-            <UButton
-              v-if="webAppUrl"
-              :label="t('home.hero.openInBrowser')"
-              :to="webAppUrl"
-              target="_blank"
-              rel="noreferrer"
-              color="neutral"
-              variant="outline"
-              icon="i-lucide-globe"
-            />
-          </div>
-        </UCard>
-      </div>
-    </section>
-
-    <section class="content-section section-reveal section-delay-3">
-      <div class="section-head">
-        <h2>{{ t('features.workflow.heading') }}</h2>
-        <p>{{ t('features.workflow.description') }}</p>
-      </div>
-
-      <div class="workflow-grid">
-        <UCard
-          v-for="(step, index) in workflowSteps"
-          :key="step.title"
-          class="workflow-card"
-        >
-          <p class="workflow-index">
-            {{ String(index + 1).padStart(2, '0') }}
-          </p>
-          <h3>{{ step.title }}</h3>
-          <p>{{ step.body }}</p>
-        </UCard>
-      </div>
-    </section>
-
-    <section class="content-section section-reveal section-delay-3">
-      <div class="section-head">
-        <h2>{{ t('home.explore.heading') }}</h2>
-        <p>{{ t('home.explore.description') }}</p>
-      </div>
-
-      <div class="docs-grid">
-        <UCard
-          v-for="entry in docEntryCards"
-          :key="entry.to"
-          class="doc-card"
-        >
-          <UIcon
-            :name="entry.icon"
-            class="doc-icon"
-          />
-          <h3>{{ entry.title }}</h3>
-          <p>{{ entry.description }}</p>
-          <UButton
-            :label="entry.action"
-            :to="entry.to"
-            color="neutral"
-            variant="outline"
-            trailing-icon="i-lucide-arrow-right"
-          />
-        </UCard>
-      </div>
-
-      <div class="section-actions">
-        <UButton
-          :label="t('home.explore.featuresPage')"
-          :to="localePath('/features')"
-          color="neutral"
-          variant="outline"
-          trailing-icon="i-lucide-arrow-right"
-        />
-        <UButton
-          :label="t('home.explore.docsPage')"
-          :to="localePath('/docs')"
-          color="neutral"
-          variant="outline"
-          trailing-icon="i-lucide-arrow-right"
-        />
       </div>
     </section>
   </main>
@@ -476,19 +257,8 @@ interface INavigatorUADataLike {
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
 
-interface IEntryPointCard {
-    icon: string;
-    title: string;
-    description: string;
-    points: string[];
-    action: string;
-    to: string;
-    external: boolean;
-}
-
-const { t, locale } = useTypedI18n();
+const { t } = useTypedI18n();
 const route = useRoute();
-const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
@@ -497,165 +267,6 @@ const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
 const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('home.seo.ogDescription'));
-
-const featureHighlights = computed(() => [
-    {
-        icon: 'i-lucide-file-stack',
-        title: t('home.features.pdfDjvu.title'),
-        description: t('home.features.pdfDjvu.description'),
-    },
-    {
-        icon: 'i-lucide-text-search',
-        title: t('home.features.ocr.title'),
-        description: t('home.features.ocr.description'),
-    },
-    {
-        icon: 'i-lucide-pen-tool',
-        title: t('home.features.annotations.title'),
-        description: t('home.features.annotations.description'),
-    },
-]);
-
-const entryPointCards = computed<IEntryPointCard[]>(() => [
-    {
-        icon: 'i-lucide-globe',
-        title: t('home.entryPoints.web.title'),
-        description: t('home.entryPoints.web.description'),
-        points: [
-            t('home.entryPoints.web.point1'),
-            t('home.entryPoints.web.point2'),
-            t('home.entryPoints.web.point3'),
-        ],
-        action: t('home.entryPoints.web.action'),
-        to: webAppUrl.value || `${localePath('/')}#installers`,
-        external: Boolean(webAppUrl.value),
-    },
-    {
-        icon: 'i-lucide-download',
-        title: t('home.entryPoints.desktop.title'),
-        description: t('home.entryPoints.desktop.description'),
-        points: [
-            t('home.entryPoints.desktop.point1'),
-            t('home.entryPoints.desktop.point2'),
-            t('home.entryPoints.desktop.point3'),
-        ],
-        action: t('home.entryPoints.desktop.action'),
-        to: `${localePath('/')}#installers`,
-        external: false,
-    },
-]);
-
-const capabilityCards = computed(() => [
-    {
-        icon: 'i-lucide-file-stack',
-        title: t('features.cards.pdfDjvu.title'),
-        description: t('features.cards.pdfDjvu.description'),
-    },
-    {
-        icon: 'i-lucide-text-search',
-        title: t('features.cards.ocr.title'),
-        description: t('features.cards.ocr.description'),
-    },
-    {
-        icon: 'i-lucide-pen-tool',
-        title: t('features.cards.annotations.title'),
-        description: t('features.cards.annotations.description'),
-    },
-    {
-        icon: 'i-lucide-scissors-square-dashed-bottom',
-        title: t('features.cards.pages.title'),
-        description: t('features.cards.pages.description'),
-    },
-    {
-        icon: 'i-lucide-layout-panel-left',
-        title: t('features.cards.workspace.title'),
-        description: t('features.cards.workspace.description'),
-    },
-    {
-        icon: 'i-lucide-folder-output',
-        title: t('features.cards.exports.title'),
-        description: t('features.cards.exports.description'),
-    },
-]);
-
-const workflowSteps = computed(() => [
-    {
-        title: t('features.workflow.load.title'),
-        body: t('features.workflow.load.body'),
-    },
-    {
-        title: t('features.workflow.review.title'),
-        body: t('features.workflow.review.body'),
-    },
-    {
-        title: t('features.workflow.edit.title'),
-        body: t('features.workflow.edit.body'),
-    },
-    {
-        title: t('features.workflow.export.title'),
-        body: t('features.workflow.export.body'),
-    },
-]);
-
-const platformRows = computed(() => [
-    {
-        os: t('features.platforms.web'),
-        architectures: t('features.platforms.webArch'),
-        installerTypes: t('features.platforms.webInstallers'),
-    },
-    {
-        os: t('features.platforms.macOs'),
-        architectures: t('features.platforms.macArch'),
-        installerTypes: t('features.platforms.macInstallers'),
-    },
-    {
-        os: t('features.platforms.windows'),
-        architectures: t('features.platforms.winArch'),
-        installerTypes: t('features.platforms.winInstallers'),
-    },
-    {
-        os: t('features.platforms.linux'),
-        architectures: t('features.platforms.linuxArch'),
-        installerTypes: t('features.platforms.linuxInstallers'),
-    },
-]);
-
-const entryPointRows = computed(() => [
-    {
-        title: t('home.entryPoints.web.title'),
-        description: t('home.entryPoints.web.description'),
-        label: t('features.platforms.webInstallers'),
-    },
-    {
-        title: t('home.entryPoints.desktop.title'),
-        description: t('home.entryPoints.desktop.description'),
-        label: `${t('features.platforms.macOs')} / ${t('features.platforms.windows')} / ${t('features.platforms.linux')}`,
-    },
-]);
-
-const docEntryCards = computed(() => [
-    {
-        icon: 'i-lucide-globe',
-        title: t('docs.bookmarks.browserQuickstart'),
-        description: t('docs.browserQuickstart.intro'),
-        action: t('home.explore.docsPage'),
-        to: `${localePath('/docs')}#browser-quickstart`,
-    },
-    {
-        icon: 'i-lucide-layout-panel-left',
-        title: t('docs.bookmarks.workspaceOverview'),
-        description: t('docs.workspace.intro'),
-        action: t('home.explore.docsPage'),
-        to: `${localePath('/docs')}#workspace-overview`,
-    },
-    {
-        icon: 'i-lucide-folder-output',
-        title: t('docs.bookmarks.ocrExport'),
-        description: t('docs.ocrExport.intro'),
-        action: t('home.explore.docsPage'),
-        to: `${localePath('/docs')}#ocr-export`,
-    },
-]);
 
 useSeoMeta({
     title: () => t('home.seo.title'),
@@ -831,41 +442,6 @@ const downloadPrimaryLabel = computed(() => {
     }
 
     return t('home.hero.downloadInstaller', { installerLabel: formatInstallerLabel(installer) });
-});
-
-const recommendationHint = computed(() => {
-    const installer = recommendedInstaller.value;
-    if (!installer) {
-        return t('home.hero.detectionUnavailable');
-    }
-
-    return t('home.hero.suggestedDevice', { installerLabel: formatInstallerLabel(installer) });
-});
-
-const releaseDateLabel = computed(() => {
-    const publishedAt = releaseData.value?.release.publishedAt;
-    if (!publishedAt) {
-        return '';
-    }
-
-    const publishedDate = new Date(publishedAt);
-    if (Number.isNaN(publishedDate.getTime())) {
-        return '';
-    }
-
-    if (typeof Intl !== 'object' || typeof Intl.DateTimeFormat !== 'function') {
-        return publishedDate.toDateString();
-    }
-
-    try {
-        return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(publishedDate);
-    } catch {
-        return new Intl.DateTimeFormat(locale.value, {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-        }).format(publishedDate);
-    }
 });
 
 const pendingDownloadIframes = new Set<HTMLIFrameElement>();

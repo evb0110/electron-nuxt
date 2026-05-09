@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Document workspace for the browser and desktop. Open PDFs and images online, then install the desktop app for DjVu, OCR, and full local workflows.',
+        description: 'Document workspace for browser and desktop. Open local PDFs, DjVu files, and images in the browser; install the desktop app for searchable-PDF OCR and heavier native workflows.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -22,12 +22,12 @@ export default {
         seo: {
             title: 'EVB Viewer web app and desktop downloads',
             ogTitle: 'EVB Viewer for web and desktop document work',
-            ogDescription: 'Use EVB Viewer in the browser for PDF and image work, or install the desktop app for DjVu, OCR, and native file workflows.',
+            ogDescription: 'Use EVB Viewer in the browser for local PDF, DjVu, and image work, or install the desktop app for searchable-PDF OCR and heavier native workflows.',
         },
         hero: {
             badge: 'Browser app + desktop builds',
-            title: 'One document workspace, two ways to use EVB Viewer.',
-            subtitle: 'Open PDFs and common images in the browser when you want a fast, no-install workflow. Install the desktop app when you need DjVu support, OCR, and a fully local document toolchain.',
+            title: 'PDF, DjVu, images',
+            subtitle: 'Open local PDFs, DjVu files, and images in the browser. Use desktop builds for searchable-PDF OCR and larger merge jobs.',
             downloadFor: 'Download for {platform}',
             downloadForArch: 'Download for {platform} ({arch})',
             downloadInstaller: 'Download {installerLabel}',
@@ -39,11 +39,11 @@ export default {
         },
         preview: {
             alt: 'EVB Viewer screenshot',
-            caption: 'The same workspace mindset now spans browser editing and desktop-heavy document work.',
+            caption: 'The browser app opens local files; the desktop app adds searchable-PDF OCR and more headroom for large jobs.',
         },
         installers: {
             heading: 'Desktop downloads',
-            description: 'Desktop builds are for DjVu, OCR, native file handling, and heavier local workflows. The recommended installer is based on your current device, but every build stays selectable.',
+            description: 'Desktop builds are for searchable-PDF OCR, native OS integration, and heavier workflows such as large merges. The recommended installer is based on your current device, but every build stays selectable.',
             loading: 'Loading latest release links...',
             error: 'Could not load release artifacts right now.',
             retry: 'Retry',
@@ -64,12 +64,12 @@ export default {
         },
         features: {
             pdfDjvu: {
-                title: 'Browser for PDFs, desktop for DjVu',
-                description: 'Start in the browser for PDF and image review, then switch to desktop when the job needs DjVu or local conversion.',
+                title: 'Browser for PDFs, DjVu, and images',
+                description: 'Start in the browser for local PDF, DjVu, and image review; switch to desktop when the job needs searchable-PDF OCR or more merge headroom.',
             },
             ocr: {
-                title: 'Desktop OCR when it matters',
-                description: 'High-accuracy OCR stays in the desktop app, where large documents and local language assets make sense.',
+                title: 'Desktop searchable-PDF OCR',
+                description: 'Searchable-PDF OCR stays in the desktop app, where larger documents and local language assets make sense.',
             },
             annotations: {
                 title: 'Shared editing workflow',
@@ -78,21 +78,21 @@ export default {
         },
         entryPoints: {
             heading: 'Choose the right entry point',
-            description: 'Start in the browser for quick PDF and image work, or choose the desktop app for DjVu, OCR, and native file workflows.',
+            description: 'Start in the browser for quick local PDF, DjVu, and image work, or choose the desktop app for searchable-PDF OCR, native OS integration, and larger merges.',
             web: {
                 title: 'Web app',
-                description: 'Best for opening PDFs and common images immediately, sharing a link, and working without installing anything.',
-                point1: 'PDF and image workflows',
+                description: 'Best for opening local PDFs, DjVu files, and common images immediately, then reviewing, marking up, and exporting without installing anything.',
+                point1: 'PDF, DjVu, and image workflows',
                 point2: 'No install or updater friction',
-                point3: 'Great for quick review, markup, and export',
+                point3: 'Great for quick review, markup, page edits, and export',
                 action: 'Open web app',
             },
             desktop: {
                 title: 'Desktop app',
-                description: 'Best for DjVu, OCR, native file workflows, larger jobs, and everything that should stay local on your machine.',
-                point1: 'DjVu support',
-                point2: 'OCR and searchable-PDF workflows',
-                point3: 'Native file access on macOS, Windows, and Linux',
+                description: 'Best for searchable-PDF OCR, native OS integration, larger merge jobs, and workflows that need more than browser memory limits.',
+                point1: 'Searchable-PDF OCR',
+                point2: 'Larger merge and export jobs',
+                point3: 'Native desktop dialogs and OS integration',
                 action: 'Browse desktop builds',
             },
         },
@@ -107,12 +107,12 @@ export default {
         seo: {
             title: 'EVB Viewer features for browser and desktop',
             ogTitle: 'EVB Viewer feature overview',
-            ogDescription: 'See what EVB Viewer covers in the browser today and what the desktop app adds for DjVu, OCR, and native workflows.',
+            ogDescription: 'See what EVB Viewer covers in the browser today and what the desktop app adds for searchable-PDF OCR, native OS integration, and larger jobs.',
         },
         hero: {
             badge: 'Feature overview',
             title: 'A shared document workspace, with the right runtime for the job.',
-            subtitle: 'EVB Viewer is no longer just a desktop download page. The browser app covers fast PDF and image work, while the desktop app adds DjVu, OCR, and deeper local workflows.',
+            subtitle: 'EVB Viewer opens local PDF, DjVu, and image files in the browser. The desktop app adds searchable-PDF OCR, native OS integration, and more room for large merge/export jobs.',
         },
         capabilities: {
             heading: 'Core workspace capabilities',
@@ -121,11 +121,11 @@ export default {
         cards: {
             pdfDjvu: {
                 title: 'PDF, images, and DjVu where it fits',
-                description: 'Browser workflows focus on PDFs and common images. The desktop app extends that workspace to DjVu and local conversion.',
+                description: 'Browser workflows open local PDFs, DjVu files, and common images. The desktop app adds searchable-PDF OCR and avoids browser memory caps on heavier jobs.',
             },
             ocr: {
                 title: 'OCR with searchable output',
-                description: 'Desktop builds run OCR locally and keep the searchable result inside the edited document.',
+                description: 'Desktop builds run searchable-PDF OCR locally and keep the result inside the edited document.',
             },
             annotations: {
                 title: 'Deep annotation tools',
@@ -133,7 +133,7 @@ export default {
             },
             pages: {
                 title: 'Page operations',
-                description: 'Delete, extract, reorder, rotate, crop, merge, and capture the parts of a document you actually need.',
+                description: 'Delete, extract, reorder, rotate, crop, and capture pages. Browser merges are capped for memory; desktop is better for large batches.',
             },
             workspace: {
                 title: 'Workspace management',
@@ -146,18 +146,18 @@ export default {
         },
         workflow: {
             heading: 'How the product fits real work',
-            description: 'A typical EVB Viewer session starts with quick inspection and grows into deeper local processing when needed.',
+            description: 'A typical EVB Viewer session starts with quick browser work and moves to desktop when searchable-PDF OCR or scale requires it.',
             load: {
                 title: 'Start in the browser',
-                body: 'Open a PDF or image immediately when installation would slow the task down.',
+                body: 'Open a local PDF, DjVu file, or image immediately when installation would slow the task down.',
             },
             review: {
                 title: 'Review and annotate',
                 body: 'Search, comment, highlight, compare, and reorganize pages without leaving the workspace.',
             },
             edit: {
-                title: 'Move to desktop when needed',
-                body: 'Install the desktop app for DjVu, OCR, native file handling, and heavier document processing.',
+                title: 'Move to desktop for OCR or scale',
+                body: 'Install the desktop app for searchable-PDF OCR, native OS integration, and larger merge/export jobs.',
             },
             export: {
                 title: 'Export the result',
@@ -186,22 +186,22 @@ export default {
     },
     docs: {
         seo: {
-            title: 'EVB Viewer docs for browser quick starts and desktop workflows',
+            title: 'EVB Viewer docs for browser files and desktop OCR workflows',
             ogTitle: 'EVB Viewer user guide',
-            ogDescription: 'Start with the browser app when you can, install the desktop app when you need DjVu, OCR, and native file workflows.',
+            ogDescription: 'Start with the browser app for local files, then install the desktop app when you need searchable-PDF OCR, native OS integration, or larger merge/export jobs.',
         },
         hero: {
-            title: 'Guides for browser and desktop workflows',
-            subtitle: 'Start with the web app for quick PDF and image work, then move to the desktop app for DjVu, OCR, and native file handling when the job grows.',
+            title: 'Guides for browser files and desktop OCR',
+            subtitle: 'Start with the web app for quick local PDF, DjVu, and image work, then move to the desktop app for searchable-PDF OCR, native OS integration, or larger merge/export jobs.',
         },
         guideCardAction: 'Jump to section',
         browserQuickstart: {
             heading: 'Browser quick start',
-            intro: 'Use the web app when the job starts with a PDF or common image and you want to move immediately.',
-            li1: 'Open a PDF or supported image directly in the browser workspace.',
-            li2: 'Use search, notes, highlights, page reordering, crop, and export without installing the desktop app.',
-            li3: 'Browser workflows are best for lighter files and fast review loops.',
-            li4: 'DjVu and OCR stay desktop-first, so move to the desktop app when the task depends on them.',
+            intro: 'Use the web app when the job starts with a local PDF, DjVu file, or common image and you want to move immediately.',
+            li1: 'Open a PDF, DjVu file, or supported image directly in the browser workspace.',
+            li2: 'Use search, notes, highlights, page reordering, crop, and export without installing the desktop app. Keep very large merge batches for desktop.',
+            li3: 'Browser workflows are best for lighter files, quick review loops, and capped merge batches.',
+            li4: 'Searchable-PDF OCR stays desktop-first, so move to the desktop app when the task depends on it.',
         },
         bookmarks: {
             title: 'On this page',
@@ -222,7 +222,7 @@ export default {
         },
         workspace: {
             heading: 'Workspace overview',
-            intro: 'EVB Viewer is a document workspace that now spans browser and desktop. The browser focuses on quick PDF/image work, while desktop adds DjVu, OCR, and native local workflows.',
+            intro: 'EVB Viewer is a document workspace that spans browser and desktop. The browser opens local PDFs, DjVu files, and images; desktop adds searchable-PDF OCR, native OS integration, and more headroom for large jobs.',
             li1: 'Top: tab bar for opening, reordering, splitting, and moving tabs.',
             li2: 'Under tabs: toolbar for save, export, OCR, zoom, selection/hand mode, and settings.',
             li3: 'Center: document viewer with single page or facing layouts.',
@@ -231,7 +231,7 @@ export default {
         },
         unsigned: {
             heading: 'Installing desktop builds',
-            intro: 'Use desktop builds for DjVu, OCR, native file handling, and heavier local workflows. Download installers from the EVB Viewer download section or official releases.',
+            intro: 'Use desktop builds for searchable-PDF OCR, native OS integration, and heavier workflows such as large merges. Download installers from the EVB Viewer download section or official releases.',
             li1: 'Always install files published under {repo} releases.',
             li2: 'If your OS shows a warning, use the per-platform override steps below.',
             macosHeading: 'macOS (DMG):',
@@ -249,9 +249,9 @@ export default {
         },
         openCombine: {
             heading: 'Open and combine files',
-            intro: 'Use {menuPath} to open supported files. Browser workflows focus on PDFs and common images, while desktop adds DjVu handling and related conversion flows.',
-            li1: 'Supported image types include PNG, JPG/JPEG, TIFF, BMP, WEBP, and GIF.',
-            li2: 'You can select multiple PDFs/images at once. EVB Viewer merges them into one generated PDF.',
+            intro: 'Use {menuPath} to open supported files. Browser workflows cover PDFs, DjVu files, and common images; desktop is better for searchable-PDF OCR and larger merge jobs.',
+            li1: 'Supported file types include PDF, DjVu, PNG, JPG/JPEG, TIFF, BMP, WEBP, and GIF.',
+            li2: 'You can select multiple PDFs, DjVu files, or images at once. Browser merge is memory-capped; use desktop for larger batches.',
             li3: 'Generated file naming follows the first selected file, for example {example}.',
             li4: 'If a document is already open, combined output opens in a new tab so current work stays intact.',
             li5: '{openRecent} keeps history and includes a command to clear recent files.',
@@ -311,7 +311,7 @@ export default {
         },
         ocrExport: {
             heading: 'OCR and exports',
-            intro: 'Exports are available across the product, while OCR stays in the desktop runtime where local processing and language assets are available.',
+            intro: 'Exports are available across the product. Searchable-PDF OCR stays in the desktop runtime, where local processing and language assets are available.',
             li1: 'OCR popup supports all pages, current page, or custom range modes.',
             li2: 'Language selection is grouped by script families for faster setup.',
             li3: 'You can cancel running OCR and monitor progress page-by-page.',
