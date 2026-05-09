@@ -1,10 +1,7 @@
 <template>
   <div class="landing-root">
-    <div class="landing-ambient landing-ambient-left" />
-    <div class="landing-ambient landing-ambient-right" />
-
     <UContainer class="landing-container">
-      <SiteHeader />
+      <SiteHeader v-if="showSiteHeader" />
       <NuxtPage />
       <SiteFooter />
     </UContainer>
@@ -19,11 +16,16 @@ import {
 import SiteFooter from '~/components/SiteFooter.vue';
 import SiteHeader from '~/components/SiteHeader.vue';
 
-const { t, locale } = useTypedI18n();
+const {
+    t,
+    locale,
+} = useTypedI18n();
+const route = useRoute();
 const runtimeConfig = useRuntimeConfig();
 
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const ogImage = computed(() => `${siteUrl.value}${SEO_IMAGE_PATH}`);
+const showSiteHeader = computed(() => route.path !== '/');
 
 const websiteSchema = computed(() => JSON.stringify({
     '@context': 'https://schema.org',
@@ -34,14 +36,10 @@ const websiteSchema = computed(() => JSON.stringify({
     inLanguage: locale.value,
 }));
 
-const localeHead = useLocaleHead({
-    seo: true,
-});
+const localeHead = useLocaleHead({ seo: true });
 
 useHead(() => ({
-    htmlAttrs: {
-        ...localeHead.value.htmlAttrs,
-    },
+    htmlAttrs: { ...localeHead.value.htmlAttrs },
     meta: [
         {
             name: 'viewport',
