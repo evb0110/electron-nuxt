@@ -1,6 +1,6 @@
 <template>
   <main aria-labelledby="features-title">
-    <section class="page-intro section-reveal">
+    <section class="page-intro">
       <UBadge
         :label="t('features.hero.badge')"
         color="primary"
@@ -35,7 +35,7 @@
       </div>
     </section>
 
-    <section class="content-section section-reveal section-delay-1">
+    <section class="content-section">
       <div class="section-head">
         <h2>{{ t('home.entryPoints.heading') }}</h2>
         <p>{{ t('home.entryPoints.description') }}</p>
@@ -65,7 +65,7 @@
       </div>
     </section>
 
-    <section class="content-section section-reveal section-delay-1">
+    <section class="content-section">
       <div class="section-head">
         <h2>{{ t('features.capabilities.heading') }}</h2>
         <p>{{ t('features.capabilities.description') }}</p>
@@ -87,7 +87,7 @@
       </div>
     </section>
 
-    <section class="content-section section-reveal section-delay-2">
+    <section class="content-section">
       <div class="section-head">
         <h2>{{ t('features.workflow.heading') }}</h2>
         <p>{{ t('features.workflow.description') }}</p>
@@ -108,7 +108,7 @@
       </div>
     </section>
 
-    <section class="content-section section-reveal section-delay-3">
+    <section class="content-section">
       <div class="section-head">
         <h2>{{ t('features.platforms.heading') }}</h2>
         <p>{{ t('features.platforms.description') }}</p>

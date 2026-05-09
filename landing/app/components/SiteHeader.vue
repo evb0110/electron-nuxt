@@ -1,5 +1,5 @@
 <template>
-  <header class="site-header section-reveal">
+  <header class="site-header">
     <NuxtLink
       class="brand-link"
       to="/"

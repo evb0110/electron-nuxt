@@ -3,7 +3,7 @@
     <UContainer class="landing-container">
       <SiteHeader v-if="showSiteHeader" />
       <NuxtPage />
-      <SiteFooter />
+      <SiteFooter v-if="showSiteFooter" />
     </UContainer>
   </div>
 </template>
@@ -26,6 +26,7 @@ const runtimeConfig = useRuntimeConfig();
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const ogImage = computed(() => `${siteUrl.value}${SEO_IMAGE_PATH}`);
 const showSiteHeader = computed(() => route.path !== '/');
+const showSiteFooter = computed(() => route.path !== '/');
 
 const websiteSchema = computed(() => JSON.stringify({
     '@context': 'https://schema.org',

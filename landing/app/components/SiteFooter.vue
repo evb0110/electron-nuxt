@@ -1,5 +1,5 @@
 <template>
-  <footer class="site-footer section-reveal section-delay-3">
+  <footer class="site-footer">
     <div class="footer-copy">
       <p class="footer-title">{{ t('app.title') }}</p>
       <p class="footer-meta">{{ t('footer.copyright') }}</p>
