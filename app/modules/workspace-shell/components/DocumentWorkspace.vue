@@ -277,7 +277,7 @@
 
             <WorkspaceViewerHost
                 :has-document="Boolean(pdfSrc) || showNativeDjvuViewer"
-                :suppress-empty-state="suppressEmptyState || isDjvuOpening"
+                :suppress-empty-state="suppressEmptyState || isDocumentOpenPlaceholderVisible"
             >
                 <template #document>
                     <PdfViewer
@@ -888,6 +888,10 @@ const isDjvuOpening = computed(() => (
     Boolean(djvuOpeningPath.value)
     && !showNativeDjvuViewer.value
 ));
+const isDocumentOpenPlaceholderVisible = computed(() => (
+    pendingDocumentOpen.value
+    || isDjvuOpening.value
+));
 const toolbarHasPdf = computed(() => (
     hasPdf.value
     || showNativeDjvuViewer.value
@@ -907,6 +911,7 @@ const canToggleSidebar = computed(() => (
 ));
 const isConversionBusy = computed(() => conversionState.value.isConverting);
 const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
+
 async function revealRecentFile(file: IRecentFile) {
     try {
         await getDocumentsCapability().showItemInFolder(file.originalPath);
@@ -1240,7 +1245,11 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
-    isOpeningDocument: computed(() => pendingDocumentOpen.value || isRestoringSplitPayload.value),
+    isOpeningDocument: computed(() => (
+        pendingDocumentOpen.value
+        || isDjvuOpening.value
+        || isRestoringSplitPayload.value
+    )),
     isPreparingPrint,
     canSave,
     canUndo,

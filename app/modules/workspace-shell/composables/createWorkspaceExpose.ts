@@ -192,7 +192,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleToggleContinuousScroll: deps.handleToggleContinuousScroll,
         handleEnableDragMode: deps.handleEnableDragMode,
         handleDisableDragMode: deps.handleDisableDragMode,
-        handleCaptureRegion: deps.handleCaptureRegion,
+        handleCaptureRegion: () => {
+            if (deps.isDjvuMode.value) {
+                return;
+            }
+            deps.handleCaptureRegion();
+        },
         handleQuickNote: deps.handleQuickNote,
         handleInsertImageFromFile: deps.handleInsertImageFromFile,
         handlePasteImageFromClipboard: deps.handlePasteImageFromClipboard,
