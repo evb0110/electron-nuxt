@@ -1,6 +1,6 @@
 <template>
   <main aria-labelledby="docs-title">
-    <section class="page-intro section-reveal">
+    <section class="page-intro">
       <UBadge
         :label="t('header.nav.docs')"
         color="primary"
@@ -35,7 +35,7 @@
       </div>
     </section>
 
-    <section class="content-section section-reveal section-delay-1">
+    <section class="content-section">
       <div class="section-head">
         <h2>{{ t('home.explore.heading') }}</h2>
         <p>{{ t('home.explore.description') }}</p>
@@ -64,7 +64,7 @@
       </div>
     </section>
 
-    <div class="docs-layout section-reveal section-delay-2">
+    <div class="docs-layout">
       <aside class="docs-bookmark-column">
         <UCard class="docs-bookmark-card">
           <p class="bookmark-title">

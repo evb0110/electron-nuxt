@@ -1,6 +1,9 @@
 <template>
-  <main aria-labelledby="home-title">
-    <div class="home-topbar section-reveal">
+  <main
+    class="home-shell"
+    aria-labelledby="home-title"
+  >
+    <header class="home-topbar">
       <div class="home-brand">
         <NuxtLink
           class="brand-link"
@@ -25,76 +28,43 @@
           :to="webAppUrl"
           target="_blank"
           rel="noreferrer"
-          size="lg"
+          size="md"
           icon="i-lucide-globe"
-          class="home-action-button"
         />
 
         <UButton
-          :label="downloadPrimaryLabel"
-          icon="i-lucide-download"
-          size="lg"
-          color="neutral"
-          variant="outline"
-          class="home-action-button"
-          @click="downloadActiveInstaller"
-        />
-
-        <UButton
-          :label="t('home.hero.browseInstallers')"
+          :to="repositoryUrl"
+          target="_blank"
+          rel="noreferrer"
           color="neutral"
           variant="ghost"
-          size="lg"
-          icon="i-lucide-list"
-          class="home-action-button"
-          @click="scrollToInstallers"
+          size="md"
+          icon="i-simple-icons-github"
+          square
+          :aria-label="t('footer.viewSource')"
         />
       </div>
-    </div>
+    </header>
 
-    <section class="hero-grid section-reveal section-delay-1">
-      <div class="hero-copy">
-        <h1
-          id="home-title"
-          class="hero-title"
-        >
-          {{ t('home.hero.title') }}
-        </h1>
-
-        <p class="hero-subtitle">
-          {{ t('home.hero.subtitle') }}
-        </p>
-      </div>
-
-      <figure class="hero-preview">
-        <div class="preview-frame">
-          <img
-            class="preview-image"
-            src="/evb-viewer-preview-cropped.png"
-            :alt="t('home.preview.alt')"
-            width="2936"
-            height="1935"
-            loading="eager"
-            decoding="async"
-            fetchpriority="high"
+    <section class="home-main">
+      <div class="home-content">
+        <div class="hero-copy">
+          <h1
+            id="home-title"
+            class="hero-title"
           >
+            {{ t('home.hero.title') }}
+          </h1>
+
+          <p class="hero-subtitle">
+            {{ t('home.hero.subtitle') }}
+          </p>
         </div>
-      </figure>
-    </section>
 
-    <section
-      id="installers"
-      class="content-section section-reveal section-delay-2"
-    >
-      <div class="section-head">
-        <h2>{{ t('home.installers.heading') }}</h2>
-        <p>
-          {{ t('home.installers.description') }}
-        </p>
-      </div>
-
-      <div class="installer-layout">
-        <div class="installer-card">
+        <div
+          id="installers"
+          class="installer-card installer-card-compact"
+        >
           <div
             v-if="status === 'pending'"
             class="installer-state"
@@ -116,14 +86,14 @@
           </div>
 
           <div
-            v-else-if="installers.length || legacyInstallers.length"
+            v-else-if="installersForSelectedPlatform.length"
             class="installer-content"
           >
             <div class="installer-platforms">
               <UButton
                 v-for="tab in installerTabs"
                 :key="tab"
-                :label="installerTabLabel(tab)"
+                :label="installerPlatformLabel(tab)"
                 size="sm"
                 :variant="selectedInstallerTab === tab ? 'solid' : 'ghost'"
                 :color="selectedInstallerTab === tab ? 'primary' : 'neutral'"
@@ -132,10 +102,7 @@
               />
             </div>
 
-            <div
-              v-if="selectedInstallerTab !== 'legacy'"
-              class="installer-list"
-            >
+            <div class="installer-list">
               <button
                 v-for="installer in installersForSelectedPlatform"
                 :key="installer.id"
@@ -146,7 +113,7 @@
               >
                 <div class="installer-item-info">
                   <div class="installer-item-header">
-                    <span class="installer-item-variant">{{ formatInstallerLabel(installer) }}</span>
+                    <span class="installer-item-variant">{{ installerLabel(installer) }}</span>
                     <span
                       v-if="isRecommendedInstaller(installer)"
                       class="installer-badge"
@@ -155,7 +122,7 @@
                     </span>
                   </div>
                   <span class="installer-item-meta">
-                    {{ installer.name }} · {{ formatFileSize(installer.size) }}
+                    {{ formatFileSize(installer.size) }}
                   </span>
                 </div>
                 <UIcon
@@ -163,56 +130,6 @@
                   class="installer-item-icon"
                 />
               </button>
-            </div>
-
-            <div
-              v-else
-              class="space-y-4"
-            >
-              <div class="space-y-2">
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-                  {{ t('home.installers.legacy.eyebrow') }}
-                </p>
-                <h3 class="text-lg font-semibold text-highlighted">
-                  {{ t('home.installers.legacy.heading') }}
-                </h3>
-                <p class="max-w-2xl text-sm text-toned">
-                  {{ t('home.installers.legacy.description') }}
-                </p>
-              </div>
-
-              <UBadge
-                :label="t('home.installers.legacy.manualOnly')"
-                color="warning"
-                variant="subtle"
-              />
-
-              <div class="installer-list">
-                <button
-                  v-for="installer in legacyInstallers"
-                  :key="installer.id"
-                  type="button"
-                  class="installer-item"
-                  @click="trackDownload(installer); triggerIframeDownload(installer.downloadUrl)"
-                >
-                  <div class="installer-item-info">
-                    <div class="installer-item-header">
-                      <span class="installer-item-variant">{{ legacyInstallerLabel(installer) }}</span>
-                    </div>
-                    <span class="installer-item-meta">
-                      {{ installer.name }} · {{ formatFileSize(installer.size) }}
-                    </span>
-                  </div>
-                  <UIcon
-                    name="i-lucide-download"
-                    class="installer-item-icon"
-                  />
-                </button>
-              </div>
-
-              <p class="text-sm text-toned">
-                {{ t('home.installers.legacy.note') }}
-              </p>
             </div>
           </div>
 
@@ -224,7 +141,26 @@
           </div>
         </div>
       </div>
+
+      <figure class="hero-preview">
+        <div class="preview-frame">
+          <img
+            class="preview-image"
+            src="/evb-viewer-preview-cropped.png"
+            :alt="t('home.preview.alt')"
+            width="2936"
+            height="1935"
+            loading="eager"
+            decoding="async"
+            fetchpriority="high"
+          >
+        </div>
+      </figure>
     </section>
+
+    <footer class="home-bottom">
+      <span class="home-copyright">{{ t('footer.copyright') }}</span>
+    </footer>
   </main>
 </template>
 
@@ -290,26 +226,18 @@ const {
     error,
     refresh,
     status,
-} = useFetch('/api/releases/latest', { key: 'latest-release-data' });
+} = await useFetch('/api/releases/latest', { key: 'latest-release-data' });
 
 const releaseAssets = computed(() => releaseData.value?.assets || []);
 const installers = computed(() => releaseAssets.value.filter(asset => !asset.isLegacy));
 const legacyInstallers = computed(() => releaseAssets.value.filter(asset => asset.isLegacy));
-type TInstallerTab = TReleasePlatform | 'legacy';
 
 const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
-    platform => installers.value.some(asset => asset.platform === platform),
+    platform => installers.value.some(asset => asset.platform === platform)
+        || (platform === 'windows' && legacyInstallers.value.some(asset => asset.platform === 'windows')),
 ));
 
-const installerTabs = computed<TInstallerTab[]>(() => {
-    const tabs: TInstallerTab[] = [...selectablePlatforms.value];
-
-    if (legacyInstallers.value.length) {
-        tabs.push('legacy');
-    }
-
-    return tabs;
-});
+const installerTabs = computed<TReleasePlatform[]>(() => selectablePlatforms.value);
 
 const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     if (!installers.value.length) {
@@ -332,29 +260,11 @@ const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     return installers.value[0] || null;
 });
 
-const selectedInstallerTabOverride = ref<TInstallerTab | null>(null);
-const assetIdOverride = ref<number | undefined>(undefined);
+const selectedInstallerTabOverride = ref<TReleasePlatform | null>(null);
 
-const selectedInstallerTab = computed<TInstallerTab>(() => {
+const selectedInstallerTab = computed<TReleasePlatform>(() => {
     if (selectedInstallerTabOverride.value && installerTabs.value.includes(selectedInstallerTabOverride.value)) {
         return selectedInstallerTabOverride.value;
-    }
-
-    const recPlatform = recommendedInstaller.value?.platform || 'unknown';
-    if (selectablePlatforms.value.includes(recPlatform)) {
-        return recPlatform;
-    }
-
-    if (!selectablePlatforms.value.length && legacyInstallers.value.length) {
-        return 'legacy';
-    }
-
-    return selectablePlatforms.value[0] || 'unknown';
-});
-
-const selectedPlatform = computed<TReleasePlatform>(() => {
-    if (selectedInstallerTab.value !== 'legacy' && selectablePlatforms.value.includes(selectedInstallerTab.value)) {
-        return selectedInstallerTab.value;
     }
 
     const recPlatform = recommendedInstaller.value?.platform || 'unknown';
@@ -366,41 +276,15 @@ const selectedPlatform = computed<TReleasePlatform>(() => {
 });
 
 const installersForSelectedPlatform = computed(() => {
-    return selectPreferredInstallers(installers.value, selectedPlatform.value).sort(compareInstallersForSelect);
+    const base = selectPreferredInstallers(installers.value, selectedInstallerTab.value).sort(compareInstallersForSelect);
+
+    if (selectedInstallerTab.value === 'windows') {
+        return [...base, ...legacyInstallers.value];
+    }
+
+    return base;
 });
 
-const selectedAssetId = computed(() => {
-    const items = installersForSelectedPlatform.value;
-    if (!items.length) {
-        return undefined;
-    }
-
-    if (assetIdOverride.value != null && items.some(a => a.id === assetIdOverride.value)) {
-        return assetIdOverride.value;
-    }
-
-    const rec = recommendedInstaller.value;
-    if (rec && rec.platform === selectedPlatform.value) {
-        return rec.id;
-    }
-
-    return items[0]?.id;
-});
-
-const selectedInstaller = computed<IReleaseInstaller | null>(() => {
-    if (!installersForSelectedPlatform.value.length) {
-        return null;
-    }
-
-    const found = installersForSelectedPlatform.value.find(asset => asset.id === selectedAssetId.value);
-    if (found) {
-        return found;
-    }
-
-    return installersForSelectedPlatform.value[0] || null;
-});
-
-const activeDownload = computed(() => selectedInstaller.value || recommendedInstaller.value);
 const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || `${repositoryUrl}/releases/latest`);
 const softwareApplicationSchema = computed(() => {
     const latestRelease = releaseData.value?.release;
@@ -434,15 +318,6 @@ useHead(() => ({ script: [{
     type: 'application/ld+json',
     textContent: JSON.stringify(softwareApplicationSchema.value),
 }] }));
-
-const downloadPrimaryLabel = computed(() => {
-    const installer = activeDownload.value || recommendedInstaller.value;
-    if (!installer) {
-        return t('home.hero.browseInstallers');
-    }
-
-    return t('home.hero.downloadInstaller', { installerLabel: formatInstallerLabel(installer) });
-});
 
 const pendingDownloadIframes = new Set<HTMLIFrameElement>();
 const {
@@ -520,40 +395,12 @@ function trackDownload(installer: IReleaseInstaller) {
     }).catch(() => {});
 }
 
-function downloadActiveInstaller() {
-    const installer = activeDownload.value;
-    if (installer) {
-        trackDownload(installer);
-        triggerIframeDownload(installer.downloadUrl);
-        return;
-    }
-
-    window.open(fallbackReleaseUrl.value, '_blank', 'noopener,noreferrer');
-}
-
 function isRecommendedInstaller(installer: IReleaseInstaller) {
     return recommendedInstaller.value?.id === installer.id;
 }
 
-function scrollToInstallers() {
-    const installersElement = document.getElementById('installers');
-    if (!installersElement) {
-        return;
-    }
-
-    try {
-        installersElement.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-        });
-    } catch {
-        installersElement.scrollIntoView();
-    }
-}
-
-function selectInstallerTab(tab: TInstallerTab) {
+function selectInstallerTab(tab: TReleasePlatform) {
     selectedInstallerTabOverride.value = tab;
-    assetIdOverride.value = undefined;
 }
 
 function installerPlatformLabel(platform: TReleasePlatform): string {
@@ -572,15 +419,7 @@ function installerPlatformLabel(platform: TReleasePlatform): string {
     return formatPlatform(platform);
 }
 
-function installerTabLabel(tab: TInstallerTab): string {
-    if (tab === 'legacy') {
-        return t('home.installers.legacy.tab');
-    }
-
-    return installerPlatformLabel(tab);
-}
-
-function legacyInstallerLabel(installer: IReleaseInstaller): string {
+function installerLabel(installer: IReleaseInstaller): string {
     if (installer.platform === 'windows' && installer.name.toLowerCase().includes('win7')) {
         return t('home.installers.legacy.win7Label');
     }
