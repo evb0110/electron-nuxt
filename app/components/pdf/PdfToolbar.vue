@@ -1,5 +1,5 @@
 <template>
-    <header :class="['toolbar', `toolbar--${variant}`]">
+    <header :class="['toolbar', `toolbar--${variant}`, {'toolbar--has-ocr-action': hasOcrAction}]">
         <div class="toolbar-section toolbar-left">
             <slot
                 v-if="isCommandInline('app-menu')"
@@ -304,6 +304,7 @@ const {
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
     documentBusy?: boolean;
+    hasOcrAction?: boolean;
     canToggleSidebar?: boolean;
     canSave: boolean;
     canUndo: boolean;
@@ -433,6 +434,11 @@ function isCollapsed(_tier: number) {
     flex-shrink: 0;
 }
 
+.toolbar--has-ocr-action .toolbar-action--ocr {
+    inline-size: var(--toolbar-control-height);
+    min-inline-size: var(--toolbar-control-height);
+}
+
 .toolbar-separator {
     width: 1px;
     height: 1.25rem;
@@ -477,9 +483,9 @@ function isCollapsed(_tier: number) {
 }
 
 @container (max-width: 1500px) {
-    .toolbar--editor:has(.toolbar-action--ocr > *) .toolbar-action--print-current-page,
-    .toolbar--editor:has(.toolbar-action--ocr > *) .toolbar-action--save-as,
-    .toolbar--editor:has(.toolbar-action--ocr > *) .toolbar-action--export-docx {
+    .toolbar--editor.toolbar--has-ocr-action .toolbar-action--print-current-page,
+    .toolbar--editor.toolbar--has-ocr-action .toolbar-action--save-as,
+    .toolbar--editor.toolbar--has-ocr-action .toolbar-action--export-docx {
         display: none;
     }
 }

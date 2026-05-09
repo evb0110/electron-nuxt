@@ -26,6 +26,7 @@
                 :is-crop-selecting="isCropSelecting"
                 :is-placing-page-note="annotationPlacingPageNote"
                 :document-busy="isDocumentBusy"
+                :has-ocr-action="canUseOcr"
                 :surface="toolbarSurface"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"

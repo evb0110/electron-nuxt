@@ -91,7 +91,7 @@
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-muted) 12%);
     --app-start-rail-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-muted) 30%);
     --app-start-rail-border: color-mix(in oklab, var(--ui-border) 80%, transparent);
-    --app-start-rail-item-active-bg: color-mix(in oklab, var(--ui-bg) 30%, var(--ui-border) 70%);
+    --app-start-rail-item-active-bg: var(--app-toolbar-control-active-bg);
     --app-start-rail-item-active-fg: var(--ui-text);
     --app-start-rail-item-hover-bg: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
     --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
@@ -322,7 +322,7 @@
     --app-start-bg: color-mix(in oklab, var(--ui-bg) 92%, black 8%);
     --app-start-rail-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-bg-elevated) 20%);
     --app-start-rail-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
-    --app-start-rail-item-active-bg: color-mix(in oklab, var(--ui-bg-elevated) 70%, var(--ui-text) 6%);
+    --app-start-rail-item-active-bg: var(--app-toolbar-control-active-bg);
     --app-start-rail-item-active-fg: var(--ui-text);
     --app-start-rail-item-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 80%, transparent);
     --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
