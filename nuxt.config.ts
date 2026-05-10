@@ -419,6 +419,9 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
         '~/assets/css/main.css',
     ],
 
+    // Keep Nuxt's server renderer available for prerender/build-time output and
+    // Nitro endpoints. Personalized browser state is client-seeded, not
+    // request-time SSR-rendered.
     ssr: true,
 
     // Disable SPA loading template - causes jerky size changes due to scrollbar appearance

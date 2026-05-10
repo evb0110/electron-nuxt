@@ -11,8 +11,8 @@ export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath'
 }
 
 export function shouldAutoRequestWorkspace(signals: IWorkspaceHostSignals) {
-    // Keep empty tabs on the lightweight placeholder so SSR and hydration paint
-    // the same shell. Real workspaces still mount eagerly when there is document
+    // Keep empty tabs on the lightweight placeholder so the prerendered shell
+    // paints quickly. Real workspaces still mount eagerly when there is document
     // state or split-restore work to recover.
     return signals.hasQueuedSplitRestore || signals.hasDocumentHint;
 }

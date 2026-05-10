@@ -3,7 +3,7 @@
 ## Project
 
 - Vercel project name: `evb-viewer-web`
-- Runtime target: SSR Nuxt web app
+- Runtime target: prerendered Nuxt web app with client-side runtime personalization
 
 ## Repo Configuration
 
@@ -20,7 +20,7 @@
 - This deploy path is for the browser app, not the Electron shell.
 - The generated app serves the web workspace at `/`.
 - Electron-only routes such as `/electron` are not part of the intended Vercel product surface.
-- Do not switch production Vercel builds to Nuxt static generation or set an explicit output directory: `/` relies on cookie-backed SSR state for browser settings, recent files, and install-hint visibility.
+- Keep `/` prerendered for production Vercel builds. Browser settings, recent files, and install-hint visibility are seeded from client-readable cookies/local runtime storage after the static shell loads; do not reintroduce request-time SSR for that personalization path.
 - `nuxt.config.ts` writes Nitro output to `.vercel/output` for Vercel-hosted builds and local `vercel build`, which lets Vercel consume the Build Output API artifact while Electron and release flows keep using `nuxt-output/`.
 - Desktop release artifacts are intentionally written to `release/`, not `dist/`, so they cannot be mistaken for web output during Vercel deploys.
 - Local Vercel link metadata lives in `.vercel/` and is gitignored.
