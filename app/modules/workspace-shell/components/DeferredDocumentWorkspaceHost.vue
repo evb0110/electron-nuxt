@@ -822,12 +822,13 @@ defineExpose(workspaceExpose);
 
 .workspace-host__loading-label {
     color: var(--ui-text-muted);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
 }
 
 .workspace-host__spinner {
-    width: 1rem;
-    height: 1rem;
+    width: 1.25rem;
+    height: 1.25rem;
     color: var(--ui-text-muted);
     animation: spin 1s linear infinite;
 }
