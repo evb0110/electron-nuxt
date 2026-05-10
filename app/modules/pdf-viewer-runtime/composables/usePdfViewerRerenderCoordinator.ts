@@ -9,6 +9,7 @@ import type {
     IScrollSnapshot,
     TFitMode,
     TPdfViewMode,
+    TZoomMode,
 } from '@app/types/pdf';
 import type {
     ICurrentPageSyncOptions,
@@ -41,6 +42,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<IPageRange>;
     zoom: ComputedRef<number>;
+    zoomMode?: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
     isResizing: ComputedRef<boolean>;
@@ -77,6 +79,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     ) => void;
     cancelInFlightPageRenders?: () => void;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    syncHorizontalScrollForZoomMode?: () => boolean;
     setupPagePlaceholders: () => void;
     scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean }) => void;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
@@ -96,6 +99,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         currentPage,
         visibleRange,
         zoom,
+        zoomMode,
         fitMode,
         viewMode,
         isResizing,
@@ -113,6 +117,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         scheduleResizeAwareRerender,
         cancelInFlightPageRenders,
         computeFitWidthScale,
+        syncHorizontalScrollForZoomMode,
         setupPagePlaceholders,
         scrollToPage,
         getMostVisiblePage,
@@ -124,6 +129,23 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     } = options;
 
     let reRenderSyncRunId = 0;
+
+    function isFitWidthZoomModeActive() {
+        return zoomMode
+            ? zoomMode.value === 'fit-width'
+            : fitMode.value === 'width';
+    }
+
+    function shouldDisableHorizontalAnchorRestore() {
+        if (!isFitWidthZoomModeActive()) {
+            return false;
+        }
+        return syncHorizontalScrollForZoomMode?.() ?? true;
+    }
+
+    function syncHorizontalScrollAfterLayoutUpdate() {
+        syncHorizontalScrollForZoomMode?.();
+    }
 
     function resolveRerenderBufferOverride(source: string) {
         if (source === 'zoom-change' || source === 'zoom-settle' || source === 'fit-mode') {
@@ -201,10 +223,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         await reRenderAllVisiblePages(getVisibleRange, {
             preserveExistingPages,
             anchorSnapshot: syncOptions.resizeAnchor?.snapshot ?? null,
+            disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
             rerenderSource: source,
             renderBufferOverride: resolveRerenderBufferOverride(source),
             maxCanvasPixelsOverride,
         });
+        syncHorizontalScrollAfterLayoutUpdate();
         if (runId !== reRenderSyncRunId) {
             warnZoomRerenderSync(source, `[rerender-sync] stale zoom run=${runId}`, () => ({
                 runId,
@@ -236,6 +260,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
         });
         await syncCurrentPageFromViewport(syncOptions);
+        syncHorizontalScrollAfterLayoutUpdate();
         if (syncOptions.resizeAnchor) {
             scheduleEndResizeTransition(
                 syncOptions.resizeAnchor.transitionToken,
@@ -256,9 +281,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 preserveExistingPages: true,
+                disableHorizontalAnchorRestore: mode === 'width' || shouldDisableHorizontalAnchorRestore(),
                 rerenderSource: 'fit-mode',
                 renderBufferOverride: 0,
             });
+            syncHorizontalScrollAfterLayoutUpdate();
             if (pageToSnapTo === null) {
                 await syncCurrentPageFromViewport({
                     source: 'fit-mode',
@@ -268,6 +295,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             if (pageToSnapTo !== null) {
                 await nextTick();
                 scrollToPage(pageToSnapTo, { preferExactDom: true });
+                syncHorizontalScrollAfterLayoutUpdate();
             }
         }
     });
@@ -285,15 +313,18 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
 
         cancelInFlightPageRenders?.();
-        await reRenderAllVisiblePages(getVisibleRange);
+        await reRenderAllVisiblePages(getVisibleRange, { disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore() });
+        syncHorizontalScrollAfterLayoutUpdate();
         await nextTick();
         scrollToPage(pageToSnapTo);
+        syncHorizontalScrollAfterLayoutUpdate();
     });
 
     watch(currentPage, async (next, previous) => {
         if (
             next === previous
             || fitMode.value !== 'width'
+            || !isFitWidthZoomModeActive()
             || continuousScroll.value
             || !pdfDocument.value
             || isLoading.value
@@ -303,6 +334,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
 
         const updated = computeFitWidthScale(viewerContainer.value);
+        syncHorizontalScrollAfterLayoutUpdate();
         if (!updated) {
             return;
         }
@@ -347,6 +379,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             ) {
                 await nextTick();
                 scrollToPage(pageToSnapTo, { preferExactDom: true });
+                syncHorizontalScrollAfterLayoutUpdate();
             }
         },
     );
