@@ -12,13 +12,18 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 const {
     mockHasElectronAPI,
     mockOpenCombineDialog,
+    mockStatFile,
 } = vi.hoisted(() => ({
     mockHasElectronAPI: vi.fn(() => true),
     mockOpenCombineDialog: vi.fn(async (): Promise<unknown> => null),
+    mockStatFile: vi.fn(async (_path: string): Promise<{ size: number }> => ({size: 1024})),
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
-vi.mock('@app/utils/platform-documents', () => ({getDocumentsCapability: () => ({openCombineDialog: mockOpenCombineDialog})}));
+vi.mock('@app/utils/platform-documents', () => ({getDocumentsCapability: () => ({
+    openCombineDialog: mockOpenCombineDialog,
+    statFile: mockStatFile,
+})}));
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -46,6 +51,8 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         closeFile: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
+        removeRecentFile: vi.fn(async () => {}),
+        notifyMissingRecentFile: vi.fn(),
         ...overrides,
     });
 }
@@ -56,6 +63,8 @@ describe('usePageFileOperations', () => {
         mockHasElectronAPI.mockReturnValue(true);
         mockOpenCombineDialog.mockReset();
         mockOpenCombineDialog.mockResolvedValue(null);
+        mockStatFile.mockReset();
+        mockStatFile.mockResolvedValue({size: 1024});
     });
 
     it('persists unsaved changes before closing by default', async () => {
@@ -216,6 +225,48 @@ describe('usePageFileOperations', () => {
         expect(depsNoDoc.emitOpenInNewTab).not.toHaveBeenCalled();
         expect(depsNoDoc.openFile).toHaveBeenCalledWith(generated);
         expect(depsNoDoc.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('removes a missing recent file and notifies instead of opening it', async () => {
+        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        mockStatFile.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'));
+        const deps = createDeps();
+        const { openRecentFile } = usePageFileOperations(deps);
+        const file = {
+            originalPath: '/tmp/missing.pdf',
+            fileName: 'missing.pdf',
+            timestamp: 0,
+            fileSize: 0,
+        };
+
+        await openRecentFile(file);
+
+        expect(deps.openFileDirect).not.toHaveBeenCalled();
+        expect(deps.removeRecentFile).toHaveBeenCalledWith(file);
+        expect(deps.notifyMissingRecentFile).toHaveBeenCalledWith(file);
+        expect(warnSpy).toHaveBeenCalledWith(
+            'recent-open',
+            'Recent file no longer exists; removing from recents',
+            {path: '/tmp/missing.pdf'},
+        );
+    });
+
+    it('opens a present recent file without removing or notifying', async () => {
+        mockStatFile.mockResolvedValueOnce({size: 4096});
+        const deps = createDeps();
+        const { openRecentFile } = usePageFileOperations(deps);
+        const file = {
+            originalPath: '/tmp/present.pdf',
+            fileName: 'present.pdf',
+            timestamp: 0,
+            fileSize: 4096,
+        };
+
+        await openRecentFile(file);
+
+        expect(deps.openFileDirect).toHaveBeenCalledWith('/tmp/present.pdf');
+        expect(deps.removeRecentFile).not.toHaveBeenCalled();
+        expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
     });
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {

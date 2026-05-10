@@ -69,6 +69,8 @@ function createOptions() {
         closeFileWithDjvuCleanup: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
+        removeRecentFile: vi.fn(async () => {}),
+        notifyMissingRecentFile: vi.fn(),
     };
 }
 

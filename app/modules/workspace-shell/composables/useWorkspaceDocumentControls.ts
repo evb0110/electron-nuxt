@@ -84,6 +84,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         closeFileWithDjvuCleanup,
         closeAllDropdowns,
         emitOpenInNewTab,
+        removeRecentFile,
+        notifyMissingRecentFile,
     } = options;
 
     const pageStatusBar = usePageStatusBar({
@@ -143,6 +145,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         closeFile: closeFileWithDjvuCleanup,
         closeAllDropdowns,
         emitOpenInNewTab,
+        removeRecentFile,
+        notifyMissingRecentFile,
     });
 
     return {

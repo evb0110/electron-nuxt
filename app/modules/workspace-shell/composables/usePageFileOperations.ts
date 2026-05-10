@@ -37,6 +37,8 @@ export interface IPageFileOperationsDeps {
     closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
+    removeRecentFile: (file: IRecentFile) => Promise<void>;
+    notifyMissingRecentFile: (file: IRecentFile) => void;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
@@ -61,6 +63,8 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeFile,
         closeAllDropdowns,
         emitOpenInNewTab,
+        removeRecentFile,
+        notifyMissingRecentFile,
     } = deps;
 
     async function waitUntilAllIdle() {
@@ -313,8 +317,29 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns();
     }
 
-    async function openRecentFile(file: Pick<IRecentFile, 'originalPath'>) {
+    async function recentFilePathExists(path: TDocumentRef) {
+        try {
+            await getDocumentsCapability().statFile(path);
+            return true;
+        } catch (statError) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file stat failed', {
+                path,
+                error: stringifyError(statError),
+            });
+            return false;
+        }
+    }
+
+    async function openRecentFile(file: IRecentFile) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
+
+        if (!await recentFilePathExists(file.originalPath)) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
+            await removeRecentFile(file);
+            notifyMissingRecentFile(file);
+            return;
+        }
+
         await handleOpenFileDirectWithPersist(file.originalPath);
     }
 

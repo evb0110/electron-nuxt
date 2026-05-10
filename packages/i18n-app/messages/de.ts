@@ -776,6 +776,8 @@ export default {
             'load': 'Zuletzt verwendete Dateien konnten nicht geladen werden',
             'remove': 'Datei konnte nicht entfernt werden',
             'clear': 'Zuletzt verwendete Dateien konnten nicht gelöscht werden',
+            'notFoundTitle': 'Zuletzt verwendete Datei ist nicht mehr verfügbar',
+            'notFoundDescription': '„{name}“ wurde nicht gefunden und aus den zuletzt verwendeten Dateien entfernt',
         },
         'file': {
             'open': 'Datei konnte nicht geöffnet werden',

@@ -17,6 +17,7 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platform-api';
+import type { IRecentFile } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
@@ -49,6 +50,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuSourcePath,
         openDjvuFile,
         loadRecentFiles,
+        removeRecentFile,
         pickFileToOpenWithDjvuCleanup,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
@@ -79,6 +81,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         undo,
         redo,
     } = fileLifecycle;
+    const toast = useToast();
+    function notifyMissingRecentFile(file: IRecentFile) {
+        toast.add({
+            color: 'error',
+            title: t('errors.recent.notFoundTitle'),
+            description: t('errors.recent.notFoundDescription', {name: file.fileName}),
+        });
+    }
 
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({workingCopyPath});
     const {
@@ -441,6 +451,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeFileWithDjvuCleanup,
         closeAllDropdowns,
         emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => emit('open-in-new-tab', pathOrResult),
+        removeRecentFile,
+        notifyMissingRecentFile,
     });
 
     async function getPrintableSourceData() {

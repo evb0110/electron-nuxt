@@ -788,6 +788,8 @@ export default {
             'load': 'Falha ao carregar ficheiros recentes',
             'remove': 'Falha ao remover ficheiro',
             'clear': 'Falha ao limpar ficheiros recentes',
+            'notFoundTitle': 'O ficheiro recente já não está disponível',
+            'notFoundDescription': '«{name}» não foi encontrado e foi removido dos ficheiros recentes',
         },
         'file': {
             'open': 'Falha ao abrir ficheiro',
