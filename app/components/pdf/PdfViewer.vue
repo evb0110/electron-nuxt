@@ -22,7 +22,7 @@
             :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
             :pending-image-placement="pendingImagePlacement"
             :is-pending-image-placement-finalizing="isPendingImagePlacementFinalizing"
-            @scroll="handleViewerScroll"
+            @scroll="handleViewportScroll"
             @wheel="handleViewerWheel"
             @mousedown="handleViewerMouseDown"
             @mousemove="handleViewerMouseMove"
@@ -108,6 +108,12 @@ import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
+import { resolvePageBoundedHorizontalScroll } from '@app/composables/pdf/pdfHorizontalScrollClamp';
+import {
+    getPageRowBoundsForViewMode,
+    normalizePageMetrics,
+    resolveCurrentSpreadBaseWidth,
+} from '@app/composables/pdf/pdfPageLayout';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
 import type {
@@ -179,6 +185,11 @@ interface IViewerLoadSettleState {
     settled: boolean;
 }
 
+interface IRenderedSpreadHorizontalBounds {
+    left: number;
+    width: number;
+}
+
 const props = defineProps<IProps>();
 
 const src = computed(() => props.src);
@@ -241,6 +252,7 @@ const emit = defineEmits<{
 
 const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
+const fitWidthHorizontalScrollLocked = ref(false);
 const resizeTransitionVisible = ref(false);
 const resizeTransitionAnchorPage = ref<number | null>(null);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
@@ -249,6 +261,7 @@ const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
+const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 const viewportPagePin = ref<IViewportPagePin | null>(null);
 let viewportPagePinTimer: ReturnType<typeof setTimeout> | null = null;
@@ -874,6 +887,7 @@ const {
     basePageWidth,
     basePageHeight,
     computeFitWidthScale,
+    syncHorizontalScrollForZoomMode,
     invalidateScaleCache,
     resetScale,
     computeSkeletonInsets,
@@ -925,6 +939,7 @@ async function applyFitWidthToCurrentPage() {
     const anchorSnapshot = captureViewerScrollSnapshot();
     const updated = computeFitWidthScale(viewerContainer.value);
     if (!updated) {
+        syncHorizontalScrollForZoomMode();
         return false;
     }
 
@@ -934,26 +949,59 @@ async function applyFitWidthToCurrentPage() {
         {
             preserveExistingPages: true,
             anchorSnapshot,
+            disableHorizontalAnchorRestore: true,
             rerenderSource: 'fit-width-explicit',
             renderBufferOverride: 0,
         },
     );
+    syncHorizontalScrollForZoomMode();
     return true;
 }
 
-watch(currentPage, (next, previous) => {
+function isZoomAtFitWidthBaseline() {
+    return Math.abs(zoom.value - 1) < 0.001;
+}
+
+function syncFitWidthZoomModeForCurrentPage() {
     if (
-        next === previous
-        || !continuousScroll.value
+        !continuousScroll.value
         || fitMode.value !== 'width'
-        || zoomMode.value !== 'fit-width'
-        || isFitWidthScaleCurrent(viewerContainer.value)
+        || !viewerContainer.value
+        || !pdfDocument.value
+        || isLoading.value
     ) {
         return;
     }
 
-    emit('update:zoomMode', 'custom');
-});
+    const isCurrentPageFitWidth = isZoomAtFitWidthBaseline()
+        && isFitWidthScaleCurrent(viewerContainer.value);
+
+    if (isCurrentPageFitWidth && zoomMode.value === 'custom') {
+        emit('update:zoomMode', 'fit-width');
+        return;
+    }
+
+    if (!isCurrentPageFitWidth && zoomMode.value === 'fit-width') {
+        emit('update:zoomMode', 'custom');
+    }
+}
+
+watch(
+    () => [
+        currentPage.value,
+        fitMode.value,
+        continuousScroll.value,
+        zoom.value,
+        effectiveScale.value,
+        viewMode.value,
+        numPages.value,
+        pageMetricsVersion.value,
+    ] as const,
+    () => {
+        syncFitWidthZoomModeForCurrentPage();
+        syncHorizontalScrollForZoomMode();
+    },
+);
 
 const {
     handleViewerMouseDown,
@@ -999,10 +1047,180 @@ const viewerClass = computed(() => ({
     'pdfViewer--mode-facing': viewMode.value === 'facing',
     'pdfViewer--mode-facing-first-single': viewMode.value === 'facing-first-single',
     'pdfViewer--hidden': isLocalViewerLoadingOverlayVisible.value,
+    'pdfViewer--fit-width': zoomMode.value === 'fit-width',
+    'pdfViewer--fit-width-page-fits': fitWidthHorizontalScrollLocked.value,
     'pdfViewer--fit-height': fitMode.value === 'height',
     'pdfViewer--resize-transition': resizeTransitionVisible.value,
     'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed.value,
 }));
+
+function getCurrentSpreadRenderedBoundsFromDom(container: HTMLElement): IRenderedSpreadHorizontalBounds | null {
+    const bounds = getPageRowBoundsForViewMode({
+        pageNumber: currentPage.value,
+        viewMode: viewMode.value,
+        totalPages: numPages.value,
+    });
+    const containerRect = container.getBoundingClientRect();
+    let left = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+
+    for (let pageNumber = bounds.start; pageNumber <= bounds.end; pageNumber += 1) {
+        const pageElement = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"]`,
+        );
+        if (!pageElement) {
+            return null;
+        }
+
+        const pageRect = pageElement.getBoundingClientRect();
+        const pageWidth = pageRect.width || pageElement.offsetWidth || pageElement.clientWidth;
+        if (!Number.isFinite(pageWidth) || pageWidth <= 0) {
+            return null;
+        }
+
+        const pageLeft = Number.isFinite(pageRect.left)
+            ? pageRect.left - containerRect.left + container.scrollLeft
+            : pageElement.offsetLeft;
+        if (!Number.isFinite(pageLeft)) {
+            return null;
+        }
+
+        left = Math.min(left, pageLeft);
+        right = Math.max(right, pageLeft + pageWidth);
+    }
+
+    const width = right - left;
+    return Number.isFinite(width) && width > 0
+        ? {
+            left: Math.max(0, left),
+            width,
+        }
+        : null;
+}
+
+function getCurrentSpreadRenderedBoundsFromMetrics(container: HTMLElement): IRenderedSpreadHorizontalBounds | null {
+    const baseWidth = basePageWidth.value;
+    const baseHeight = basePageHeight.value;
+    if (!baseWidth || !baseHeight || numPages.value <= 0) {
+        return null;
+    }
+
+    const normalizedMetrics = normalizePageMetrics({
+        pageMetrics: pageMetrics.value,
+        totalPages: numPages.value,
+        fallbackWidth: baseWidth,
+        fallbackHeight: baseHeight,
+    });
+    const rowBounds = getPageRowBoundsForViewMode({
+        pageNumber: currentPage.value,
+        viewMode: viewMode.value,
+        totalPages: numPages.value,
+    });
+    const rowPageCount = Math.max(1, rowBounds.end - rowBounds.start + 1);
+    const baseSpreadWidth = resolveCurrentSpreadBaseWidth(
+        normalizedMetrics,
+        viewMode.value,
+        numPages.value,
+        currentPage.value,
+    );
+    if (!baseSpreadWidth) {
+        return null;
+    }
+
+    const renderedSpreadWidth =
+        baseSpreadWidth * effectiveScale.value
+        + Math.max(0, rowPageCount - 1) * scaledMargin.value;
+    if (!Number.isFinite(renderedSpreadWidth) || renderedSpreadWidth <= 0) {
+        return null;
+    }
+
+    return {
+        left: Math.max(
+            scaledMargin.value,
+            (container.clientWidth - renderedSpreadWidth) / 2,
+        ),
+        width: renderedSpreadWidth,
+    };
+}
+
+function resolveHorizontalScrollClampForActiveSpread() {
+    const container = viewerContainer.value;
+    if (
+        !container
+        || fitMode.value !== 'width'
+    ) {
+        fitWidthHorizontalScrollLocked.value = false;
+        return null;
+    }
+
+    const renderedSpreadBounds =
+        getCurrentSpreadRenderedBoundsFromDom(container)
+        ?? getCurrentSpreadRenderedBoundsFromMetrics(container);
+    if (!renderedSpreadBounds) {
+        fitWidthHorizontalScrollLocked.value = false;
+        return null;
+    }
+
+    const scrollClamp = resolvePageBoundedHorizontalScroll({
+        scrollLeft: container.scrollLeft,
+        viewportWidth: container.clientWidth,
+        pageLeft: renderedSpreadBounds.left,
+        pageWidth: renderedSpreadBounds.width,
+        margin: scaledMargin.value,
+        epsilon: HORIZONTAL_SCROLL_CLAMP_EPSILON_PX,
+    });
+
+    fitWidthHorizontalScrollLocked.value = scrollClamp?.shouldLock ?? false;
+    return scrollClamp;
+}
+
+function syncHorizontalScrollForZoomMode() {
+    const container = viewerContainer.value;
+    if (!container) {
+        fitWidthHorizontalScrollLocked.value = false;
+        return false;
+    }
+
+    const scrollClamp = resolveHorizontalScrollClampForActiveSpread();
+    if (scrollClamp) {
+        const scrollDelta = Math.abs(container.scrollLeft - scrollClamp.scrollLeft);
+        if (scrollDelta > HORIZONTAL_SCROLL_CLAMP_EPSILON_PX) {
+            container.scrollLeft = scrollClamp.scrollLeft;
+        }
+        return scrollClamp.shouldLock;
+    }
+
+    if (
+        (zoomMode.value === 'fit-width' || zoomMode.value === 'fit-height')
+        && container.scrollWidth <= container.clientWidth
+        && container.scrollLeft !== 0
+    ) {
+        container.scrollLeft = 0;
+    }
+    return false;
+}
+
+function handleViewportScroll(event: Event) {
+    syncHorizontalScrollForZoomMode();
+    handleViewerScroll(event);
+    syncHorizontalScrollForZoomMode();
+}
+
+watch(
+    () => [
+        zoomMode.value,
+        fitMode.value,
+        currentPage.value,
+        effectiveScale.value,
+        viewMode.value,
+        numPages.value,
+        pageMetricsVersion.value,
+    ] as const,
+    () => {
+        void nextTick(syncHorizontalScrollForZoomMode);
+    },
+    { immediate: true },
+);
 
 watch(
     () => [
@@ -1129,16 +1347,19 @@ function restoreViewerScrollSnapshot(
     const container = viewerContainer.value;
 
     if (snapshot && container && container.scrollWidth > 0 && container.scrollHeight > 0) {
+        const scrollClamp = resolveHorizontalScrollClampForActiveSpread();
         restoreScrollFromSnapshot(container, snapshot, {
-            restoreHorizontal: true,
+            restoreHorizontal: scrollClamp?.shouldLock !== true,
             restoreVertical: true,
             preferPageAnchor: true,
             allowVerticalRatioFallback: true,
         });
+        syncHorizontalScrollForZoomMode();
         return;
     }
 
     singlePageScroll.scrollToPage(fallbackPage);
+    syncHorizontalScrollForZoomMode();
 }
 
 async function saveViewerDocument() {
@@ -1485,6 +1706,11 @@ defineExpose({
 
     &.pdfViewer--fit-height {
         overflow-x: auto;
+    }
+
+    &.pdfViewer--fit-width-page-fits {
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
     }
 
     /*

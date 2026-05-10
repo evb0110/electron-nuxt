@@ -68,6 +68,7 @@ interface IUsePdfViewerCoreOptions {
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    syncHorizontalScrollForZoomMode?: () => boolean;
     invalidateScaleCache: () => void;
     resetScale: () => void;
     computeSkeletonInsets: (
@@ -220,6 +221,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         basePageWidth,
         basePageHeight,
         computeFitWidthScale,
+        syncHorizontalScrollForZoomMode,
         invalidateScaleCache,
         resetScale,
         computeSkeletonInsets,
@@ -483,6 +485,8 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         scheduleResizeAwareRerender: (stage, syncOptions) => scheduleResizeAwareRerenderDelegate.call(stage, syncOptions),
         cancelInFlightPageRenders,
         computeFitWidthScale,
+        zoomMode,
+        syncHorizontalScrollForZoomMode,
         setupPagePlaceholders,
         scrollToPage,
         getMostVisiblePage,
