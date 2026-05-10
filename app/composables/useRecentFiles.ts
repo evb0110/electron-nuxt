@@ -6,6 +6,7 @@ import {
 } from '@app/utils/platform';
 import {
     parseRecentFilesCookieSnapshot,
+    readBrowserRecentFilesSnapshot,
     RECENT_FILES_COOKIE_KEY,
 } from '@app/utils/recent-files-persistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
@@ -24,7 +25,9 @@ export const useRecentFiles = () => {
         watch: false,
         decode: val => decodeURIComponent(val),
     });
-    const initialCookieSnapshot = parseRecentFilesCookieSnapshot(recentFilesCookie.value);
+    const initialCookieSnapshot = import.meta.client
+        ? readBrowserRecentFilesSnapshot()
+        : parseRecentFilesCookieSnapshot(recentFilesCookie.value);
     const hasResolvedCookieSnapshot = initialCookieSnapshot.hasSnapshot && !initialCookieSnapshot.truncated;
     const shouldPreferElectronRuntime = computed(() => (
         shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value)
