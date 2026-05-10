@@ -5,10 +5,7 @@ import {
 } from 'electron';
 import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
-import {
-    existsSync,
-    realpathSync,
-} from 'fs';
+import { existsSync } from 'fs';
 import {
     rename,
     rm,
@@ -19,7 +16,6 @@ import {
     basename,
     extname,
     join,
-    resolve,
 } from 'path';
 import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
@@ -45,7 +41,7 @@ import {
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { createLogger } from '@electron/utils/logger';
-import { isAllowedWritePath } from '@electron/utils/path-validator';
+import { resolveAllowedWritePath } from '@electron/utils/path-validator';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     ensureWorkingCopyDirectory,
@@ -76,30 +72,26 @@ function enqueueWorkingCopyMutation<T>(
     return operationPromise;
 }
 
-function canonicalizePath(path: string) {
-    const resolvedPath = resolve(path);
-    try {
-        return realpathSync.native(resolvedPath);
-    } catch {
-        return resolvedPath;
-    }
-}
-
-function validateWorkingCopyPath(path: unknown): string {
+async function validateWorkingCopyPath(path: unknown): Promise<string> {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
         throw new Error('Invalid working copy path');
     }
 
-    const canonicalPath = canonicalizePath(normalizedPath);
-    if (!isAllowedWritePath(canonicalPath)) {
+    const resolvedPath = await resolveAllowedWritePath(normalizedPath);
+    if (!resolvedPath) {
         throw new Error('Path is outside the allowed working directory');
     }
-    if (!existsSync(canonicalPath)) {
-        throw new Error(`Working copy not found: ${canonicalPath}`);
+    if (!existsSync(resolvedPath)) {
+        throw new Error(`Working copy not found: ${resolvedPath}`);
     }
 
-    return canonicalPath;
+    return resolvedPath;
+}
+
+async function validateQueuedWorkingCopyPath(path: string): Promise<string> {
+    await ensureWorkingCopyDirectory(path);
+    return validateWorkingCopyPath(path);
 }
 
 async function resolveWorkingCopyPath(path: unknown): Promise<string> {
@@ -250,7 +242,7 @@ async function handlePageOpsDelete(
     });
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -298,7 +290,7 @@ async function handlePageOpsExtract(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await extractPages(queuedWorkingCopyPath, destPath, pages);
     });
     allowOpenPath(destPath);
@@ -318,7 +310,7 @@ async function handlePageOpsReorder(
     validateReorderPermutation(newOrder);
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -365,7 +357,7 @@ async function handlePageOpsInsert(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
@@ -504,7 +496,7 @@ async function handlePageOpsRotate(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await rotatePages(queuedWorkingCopyPath, pages, angle);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -526,7 +518,7 @@ async function handlePageOpsInsertFile(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
@@ -561,7 +553,7 @@ async function handlePageOpsCrop(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await cropPages(queuedWorkingCopyPath, pages, margins);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -577,7 +569,7 @@ async function handlePageOpsRemoveCrop(
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await removeCropFromPages(queuedWorkingCopyPath, pages);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });

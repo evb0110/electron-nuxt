@@ -587,6 +587,10 @@ export default {
     },
     'pageNumbering': {
         'numberPages': 'Numerar páginas',
+        'applyTo': 'Aplicar a',
+        'scopeAll': 'Todas las páginas ({count})',
+        'scopeRange': 'Rango de páginas',
+        'scopeSelection': 'Selección',
         'pageRange': 'Rango de páginas',
         'style': 'Estilo',
         'prefix': 'Prefijo',
@@ -605,6 +609,7 @@ export default {
         'targetUnavailableRange': 'Destino no disponible: introduzca una página (7) o un rango (7-14).',
         'targetPages': 'Destino: páginas {range}.',
         'targetSelectedPages': 'Destino: páginas seleccionadas {range}.',
+        'targetAllPages': 'Destino: todas las páginas ({count}).',
         'targetUnavailableNonContiguous': 'Destino no disponible: la selección no es contigua.',
         'targetNone': 'Destino: ninguno. Introduzca un rango o seleccione miniaturas contiguas.',
         'pageWord': plural({

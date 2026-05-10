@@ -172,6 +172,13 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
             pathToFileURL('/tmp/print-pages-print-job-id-source.pdf').toString(),
         );
+        expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
+            expect.objectContaining({pageRanges: [{
+                from: 0,
+                to: 0,
+            }]}),
+            expect.any(Function),
+        );
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-pages-print-job-id-source.pdf');
     });
 

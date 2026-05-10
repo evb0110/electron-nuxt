@@ -4,6 +4,8 @@ import {
     it,
 } from 'vitest';
 import {
+    buildPageLabelsFromRanges,
+    buildWholeDocumentPageLabelRanges,
     findPageByPageLabelInput,
     formatPageIndicator,
     formatPageIndicatorWithOptions,
@@ -199,5 +201,25 @@ describe('pdf-page-labels', () => {
         });
 
         expect(findPageByPageLabelInput('132', totalPages, pageLabels)).toBe(157);
+    });
+
+    it('builds whole-document numbering ranges without depending on existing broken labels', () => {
+        const ranges = buildWholeDocumentPageLabelRanges(348, {
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        });
+
+        expect(ranges).toEqual([{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        expect(buildPageLabelsFromRanges(3, ranges)).toEqual([
+            '1',
+            '2',
+            '3',
+        ]);
     });
 });
