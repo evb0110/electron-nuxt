@@ -54,22 +54,8 @@ jobs:
           path: ${{ runner.temp }}/win-bundle-cache
           key: win7-legacy-native-tools-x64-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
 
-      - name: Pin Electron 22 for Windows 7 compatibility experiments
-        shell: bash
-        run: |
-          node <<'EOF'
-          const fs = require('fs');
-          const path = 'package.json';
-          const packageJson = JSON.parse(fs.readFileSync(path, 'utf8'));
-          packageJson.devDependencies = packageJson.devDependencies || {};
-          packageJson.devDependencies.electron = process.env.LEGACY_ELECTRON_VERSION;
-          fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);
-          EOF
-
       - name: Install dependencies
-        # This lane is intentionally isolated from the locked release matrix:
-        # it patches Electron down to the last major with official Win7 support.
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Verify Electron install
         run: pnpm run check:electron:install
@@ -82,6 +68,26 @@ jobs:
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build:strict
+
+      - name: Pin Electron 22 for Windows 7 packaging
+        shell: bash
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const path = 'package.json';
+          const packageJson = JSON.parse(fs.readFileSync(path, 'utf8'));
+          packageJson.devDependencies = packageJson.devDependencies || {};
+          packageJson.devDependencies.electron = process.env.LEGACY_ELECTRON_VERSION;
+          fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);
+          EOF
+
+      - name: Install legacy Electron
+        # Keep Nuxt and TypeScript builds on the locked dependency graph, then
+        # swap Electron only for the optional Windows 7 packaging experiment.
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify legacy Electron install
+        run: pnpm run check:electron:install
 
       - name: Package installer (Windows 7 legacy)
         id: package
