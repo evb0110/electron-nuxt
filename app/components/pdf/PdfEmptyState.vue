@@ -22,14 +22,6 @@
             </p>
         </div>
 
-        <div v-else-if="!recentFilesResolved" class="empty-state-loading">
-            <UIcon
-                name="i-lucide-loader-circle"
-                class="size-7 animate-spin text-[var(--ui-text-dimmed)]"
-            />
-            <p class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</p>
-        </div>
-
         <div v-else class="start-shell">
             <aside class="start-rail" :aria-label="t('emptyState.start')">
                 <nav class="rail-section" :aria-label="t('emptyState.start')">
@@ -189,6 +181,14 @@
                                     </AppTooltip>
                                 </span>
                             </button>
+                        </div>
+
+                        <div v-else-if="!recentFilesResolved" class="recent-empty">
+                            <UIcon
+                                name="i-lucide-loader-circle"
+                                class="recent-empty-icon animate-spin"
+                            />
+                            <p>{{ t('common.loading') }}</p>
                         </div>
 
                         <div v-else class="recent-empty">
@@ -437,16 +437,6 @@ watch(() => startSection, (section) => {
     background: var(--app-start-bg);
     color: var(--ui-text);
     container-type: inline-size;
-}
-
-.empty-state-loading {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
 }
 
 .batch-progress {
