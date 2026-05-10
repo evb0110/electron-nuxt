@@ -4,6 +4,8 @@ import {
     getOptionalString,
     isRecord,
 } from '@app/services/pdfjs/runtime';
+import { safeGetLocalStorageItem } from '@app/utils/local-storage';
+import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browser-runtime-persistence';
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
 export const RECENT_FILES_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
@@ -155,6 +157,45 @@ export function parseRecentFilesCookieSnapshot(raw: string | null | undefined): 
             truncated: false,
         };
     }
+}
+
+function readCookieValue(key: string) {
+    if (typeof document === 'undefined' || typeof document.cookie !== 'string') {
+        return null;
+    }
+
+    const prefix = `${key}=`;
+    const cookie = document.cookie
+        .split(';')
+        .map(part => part.trim())
+        .find(part => part.startsWith(prefix));
+    if (!cookie) {
+        return null;
+    }
+
+    try {
+        return decodeURIComponent(cookie.slice(prefix.length));
+    } catch {
+        return cookie.slice(prefix.length);
+    }
+}
+
+export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
+    const cookieSnapshot = parseRecentFilesCookieSnapshot(readCookieValue(RECENT_FILES_COOKIE_KEY));
+    if (cookieSnapshot.hasSnapshot && !cookieSnapshot.truncated) {
+        return cookieSnapshot;
+    }
+
+    const rawStorageSnapshot = safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
+    if (rawStorageSnapshot !== null) {
+        return {
+            recentFiles: parseRecentFilesPayload(rawStorageSnapshot),
+            hasSnapshot: true,
+            truncated: false,
+        };
+    }
+
+    return cookieSnapshot;
 }
 
 export function serializeRecentFilesPayload(recentFiles: IRecentFile[]) {

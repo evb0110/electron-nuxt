@@ -1,15 +1,32 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     parseRecentFilesCookieSnapshot,
+    readBrowserRecentFilesSnapshot,
     serializeRecentFilesCookiePayload,
     trimRecentFilesForCookie,
 } from '@app/utils/recent-files-persistence';
+import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browser-runtime-persistence';
+
+function stubBrowserStorage(options: {
+    cookie?: string;
+    storage?: Record<string, string>;
+}) {
+    const storage = options.storage ?? {};
+    vi.stubGlobal('document', {cookie: options.cookie ?? ''});
+    vi.stubGlobal('window', {localStorage: {getItem: (key: string) => storage[key] ?? null}});
+}
 
 describe('recent-files-persistence', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     it('keeps adding recent files to the cookie payload until the encoded-size limit is reached', () => {
         const recentFiles = Array.from({ length: 12 }, (_, index) => ({
             originalPath: `browser://documents/${index}/doc-${index}.pdf`,
@@ -59,6 +76,55 @@ describe('recent-files-persistence', () => {
                 fileName: 'example.pdf',
                 timestamp: 123,
                 fileSize: 456,
+            }],
+            hasSnapshot: true,
+            truncated: false,
+        });
+    });
+
+    it('reads a complete browser cookie snapshot synchronously', () => {
+        const payload = serializeRecentFilesCookiePayload([{
+            originalPath: 'browser://documents/cookie',
+            fileName: 'cookie.pdf',
+            timestamp: 1,
+            fileSize: 2,
+        }]);
+        stubBrowserStorage({
+            cookie: `evb_viewer_recent_files=${encodeURIComponent(payload)}`,
+            storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify([{
+                originalPath: 'browser://documents/storage',
+                fileName: 'storage.pdf',
+                timestamp: 3,
+                fileSize: 4,
+            }])},
+        });
+
+        expect(readBrowserRecentFilesSnapshot()).toEqual({
+            recentFiles: [{
+                originalPath: 'browser://documents/cookie',
+                fileName: 'cookie.pdf',
+                timestamp: 1,
+                fileSize: 2,
+            }],
+            hasSnapshot: true,
+            truncated: false,
+        });
+    });
+
+    it('falls back to localStorage when the browser cookie snapshot is missing', () => {
+        stubBrowserStorage({storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify([{
+            originalPath: 'browser://documents/storage',
+            fileName: 'storage.pdf',
+            timestamp: 3,
+            fileSize: 4,
+        }])}});
+
+        expect(readBrowserRecentFilesSnapshot()).toEqual({
+            recentFiles: [{
+                originalPath: 'browser://documents/storage',
+                fileName: 'storage.pdf',
+                timestamp: 3,
+                fileSize: 4,
             }],
             hasSnapshot: true,
             truncated: false,
