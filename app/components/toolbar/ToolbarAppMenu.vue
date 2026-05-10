@@ -1,22 +1,23 @@
 <template>
     <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
         <UPopover
-            v-model:open="fileMenuOpen"
+            v-model:open="menuOpen"
             mode="click"
             :content="menuContentOptions"
         >
             <button
                 type="button"
-                :class="['app-menu-trigger', { 'is-open': fileMenuOpen }]"
+                :class="['app-menu-trigger', { 'is-open': menuOpen }]"
                 aria-haspopup="menu"
-                :aria-expanded="fileMenuOpen"
+                :aria-expanded="menuOpen"
             >
-                <span>{{ t('menu.file') }}</span>
+                <span>{{ t('toolbar.appMenu') }}</span>
                 <UIcon name="i-lucide-chevron-down" class="app-menu-trigger-chevron" />
             </button>
 
             <template #content>
                 <div class="app-menu">
+                    <div class="app-menu-section-header">{{ t('menu.file') }}</div>
                     <div class="app-menu-section">
                         <button
                             class="app-menu-item"
@@ -115,27 +116,9 @@
                             </button>
                         </template>
                     </div>
-                </div>
-            </template>
-        </UPopover>
 
-        <UPopover
-            v-model:open="editMenuOpen"
-            mode="click"
-            :content="menuContentOptions"
-        >
-            <button
-                type="button"
-                :class="['app-menu-trigger', { 'is-open': editMenuOpen }]"
-                aria-haspopup="menu"
-                :aria-expanded="editMenuOpen"
-            >
-                <span>{{ t('menu.edit') }}</span>
-                <UIcon name="i-lucide-chevron-down" class="app-menu-trigger-chevron" />
-            </button>
-
-            <template #content>
-                <div class="app-menu">
+                    <div class="app-menu-divider" />
+                    <div class="app-menu-section-header">{{ t('menu.edit') }}</div>
                     <div class="app-menu-section">
                         <button
                             class="app-menu-item"
@@ -224,10 +207,7 @@ const emit = defineEmits<{
     (e: 'paste-image-from-clipboard'): void
 }>();
 
-type TAppMenu = 'file' | 'edit';
-
 const shortcutLabels = getShortcutLabels();
-const activeMenu = ref<TAppMenu | null>(null);
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
 const menuContentOptions = {
     side: 'bottom' as const,
@@ -236,27 +216,18 @@ const menuContentOptions = {
     collisionPadding: 8,
 };
 
-const fileMenuOpen = createMenuOpenModel('file');
-const editMenuOpen = createMenuOpenModel('edit');
+const menuOpen = computed({
+    get: () => props.open,
+    set: (open: boolean) => emit('update:open', open),
+});
 
 watch(() => props.open, (open) => {
     if (!open) {
-        activeMenu.value = null;
+        menuOpen.value = false;
     }
 });
 
-function createMenuOpenModel(menu: TAppMenu) {
-    return computed({
-        get: () => activeMenu.value === menu,
-        set: (open: boolean) => {
-            activeMenu.value = open ? menu : activeMenu.value === menu ? null : activeMenu.value;
-            emit('update:open', activeMenu.value !== null);
-        },
-    });
-}
-
 function close() {
-    activeMenu.value = null;
     emit('update:open', false);
 }
 </script>
@@ -273,6 +244,15 @@ function close() {
     min-width: 15rem;
     padding: 0.3125rem;
     background: var(--app-toolbar-menu-popover-bg);
+}
+
+.app-menu-section-header {
+    padding: 0.5rem 0.75rem 0.25rem;
+    color: var(--ui-text-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
 
 .app-menu-trigger {
@@ -315,6 +295,11 @@ function close() {
     height: 0.875rem;
     flex-shrink: 0;
     color: var(--ui-text-muted);
+    transition: transform 150ms ease;
+}
+
+.app-menu-trigger.is-open .app-menu-trigger-chevron {
+    transform: rotate(180deg);
 }
 
 .app-menu-section {

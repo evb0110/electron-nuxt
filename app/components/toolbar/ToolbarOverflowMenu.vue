@@ -2,19 +2,23 @@
     <UPopover
         v-model:open="isOpen"
         mode="click"
-        :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 8 }"
+        :content="contentOptions"
+        :reference="triggerRef ?? undefined"
+        portal="body"
     >
-        <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
-            <UButton
-                :icon="triggerIcon"
-                variant="ghost"
-                color="neutral"
-                class="toolbar-icon-button"
-                :aria-label="t('toolbar.moreTools')"
-                aria-haspopup="menu"
-                :aria-expanded="isOpen"
-            />
-        </AppTooltip>
+        <span ref="triggerRef" class="toolbar-popover-trigger">
+            <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
+                <UButton
+                    :icon="triggerIcon"
+                    variant="ghost"
+                    color="neutral"
+                    class="toolbar-icon-button"
+                    :aria-label="t('toolbar.moreTools')"
+                    aria-haspopup="menu"
+                    :aria-expanded="isOpen"
+                />
+            </AppTooltip>
+        </span>
 
         <template #content>
             <div class="overflow-menu">
@@ -351,6 +355,16 @@ const isOpen = computed({
     set: (value: boolean) => emit('update:open', value),
 });
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
+const triggerRef = ref<HTMLElement | null>(null);
+const contentOptions = {
+    side: 'bottom' as const,
+    align: 'end' as const,
+    sideOffset: 8,
+    collisionPadding: 8,
+    positionStrategy: 'fixed' as const,
+    updatePositionStrategy: 'always' as const,
+    hideWhenDetached: true,
+};
 
 const hasDocumentItems = computed(() => (
     props.showDocumentSection === true
@@ -423,6 +437,10 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
     background: var(--app-toolbar-control-active-bg);
     border-color: var(--app-toolbar-control-active-border);
     box-shadow: var(--app-toolbar-control-active-shadow);
+}
+
+.toolbar-popover-trigger {
+    display: inline-flex;
 }
 
 .overflow-menu-section {
