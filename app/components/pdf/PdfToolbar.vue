@@ -485,7 +485,7 @@ function isCollapsed(_tier: number) {
 /* Container-query thresholds scale with --app-ui-scale: when the UI is denser
    (smaller buttons), more controls fit in a given toolbar width, so the
    threshold drops proportionally. Falls back to 1 when the variable is unset. */
-@container (max-width: calc(1500px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1900px * var(--app-ui-scale, 1))) {
     .toolbar--editor.toolbar--has-ocr-action .toolbar-action--print-current-page,
     .toolbar--editor.toolbar--has-ocr-action .toolbar-action--save-as,
     .toolbar--editor.toolbar--has-ocr-action .toolbar-action--export-docx {
@@ -493,7 +493,7 @@ function isCollapsed(_tier: number) {
     }
 }
 
-@container (max-width: calc(1470px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1840px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--print-current-page,
     .toolbar--editor .toolbar-action--save-as,
     .toolbar--editor .toolbar-action--export-docx {
@@ -501,27 +501,27 @@ function isCollapsed(_tier: number) {
     }
 }
 
-@container (max-width: calc(1380px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1700px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--print,
     .toolbar--editor .toolbar-group-item--continuous-scroll {
         display: none;
     }
 }
 
-@container (max-width: calc(1260px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1560px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-button-group--fit {
         display: none;
     }
 }
 
-@container (max-width: calc(1190px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1420px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-group-item--drag-mode,
     .toolbar--editor .toolbar-group-item--text-select {
         display: none;
     }
 }
 
-@container (max-width: calc(1120px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1320px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--capture-region,
     .toolbar--editor .toolbar-action--crop,
     .toolbar--editor .toolbar-action--ocr {
@@ -529,7 +529,7 @@ function isCollapsed(_tier: number) {
     }
 }
 
-@container (max-width: calc(980px * var(--app-ui-scale, 1))) {
+@container (max-width: calc(1160px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--undo,
     .toolbar--editor .toolbar-action--redo {
         display: none;
