@@ -38,6 +38,7 @@ const allCommands = Object.freeze(Object.fromEntries(READER_COMMANDS.map(command
 const desktopInlineCommands = {
     ...allCommands,
     'open-file': false,
+    'print-current-page': false,
 };
 
 export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createSurface({
