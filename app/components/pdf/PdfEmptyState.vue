@@ -116,15 +116,50 @@
                             </div>
                         </header>
 
-                        <div v-if="filteredRecentFiles.length > 0" class="recent-table" role="table">
+                        <div
+                            v-if="shouldShowRecentTable"
+                            class="recent-table"
+                            role="table"
+                            :aria-busy="!recentFilesResolved"
+                        >
                             <div class="recent-row recent-row--head" role="row">
                                 <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
                                 <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
                                 <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
                                 <span class="recent-col recent-col--actions" aria-hidden="true" />
                             </div>
+                            <template v-if="!recentFilesResolved">
+                                <div
+                                    v-for="index in recentSkeletonRows"
+                                    :key="`recent-skeleton-${index}`"
+                                    class="recent-row recent-row--data recent-row--skeleton"
+                                    role="row"
+                                >
+                                    <span class="recent-col recent-col--name" role="cell">
+                                        <span class="recent-skeleton-icon" aria-hidden="true" />
+                                        <span
+                                            class="recent-skeleton-line recent-skeleton-line--name"
+                                            aria-hidden="true"
+                                        />
+                                    </span>
+                                    <span class="recent-col recent-col--location" role="cell">
+                                        <span
+                                            class="recent-skeleton-line recent-skeleton-line--location"
+                                            aria-hidden="true"
+                                        />
+                                    </span>
+                                    <span class="recent-col recent-col--time" role="cell">
+                                        <span
+                                            class="recent-skeleton-line recent-skeleton-line--time"
+                                            aria-hidden="true"
+                                        />
+                                    </span>
+                                    <span class="recent-col recent-col--actions" role="cell" />
+                                </div>
+                            </template>
                             <button
                                 v-for="file in filteredRecentFiles"
+                                v-else
                                 :key="file.originalPath"
                                 type="button"
                                 class="recent-row recent-row--data"
@@ -183,14 +218,6 @@
                             </button>
                         </div>
 
-                        <div v-else-if="!recentFilesResolved" class="recent-empty">
-                            <UIcon
-                                name="i-lucide-loader-circle"
-                                class="recent-empty-icon animate-spin"
-                            />
-                            <p>{{ t('common.loading') }}</p>
-                        </div>
-
                         <div v-else class="recent-empty">
                             <UIcon
                                 :name="recentFiles.length === 0 ? 'i-lucide-folder-open' : 'i-lucide-search-x'"
@@ -199,7 +226,7 @@
                             <p>{{ recentFiles.length === 0 ? t('emptyState.noRecentFiles') : t('emptyState.noSearchResults') }}</p>
                         </div>
 
-                        <footer v-if="filteredRecentFiles.length > 0" class="recent-footer">
+                        <footer v-if="shouldShowRecentTable" class="recent-footer">
                             <span class="recent-count">{{ recentItemsLabel }}</span>
                         </footer>
                     </section>
@@ -321,6 +348,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+const recentSkeletonRows = 5;
 const recentFilesHeadingId = useId();
 const openPanelButtonId = useId();
 const recentSearch = ref('');
@@ -338,7 +366,12 @@ const filteredRecentFiles = computed(() => {
         return haystack.includes(query);
     });
 });
-const recentItemsLabel = computed(() => t('emptyState.itemsCount', { count: filteredRecentFiles.value.length }));
+const shouldShowRecentTable = computed(() => !recentFilesResolved || filteredRecentFiles.value.length > 0);
+const recentItemsLabel = computed(() => (
+    recentFilesResolved
+        ? t('emptyState.itemsCount', { count: filteredRecentFiles.value.length })
+        : t('common.loading')
+));
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {
@@ -798,6 +831,11 @@ watch(() => startSection, (section) => {
     opacity: 0.6;
 }
 
+.recent-row--skeleton {
+    cursor: default;
+    pointer-events: none;
+}
+
 .recent-col {
     min-width: 0;
 }
@@ -853,6 +891,53 @@ watch(() => startSection, (section) => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.recent-skeleton-icon,
+.recent-skeleton-line {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: 0.35rem;
+    background: color-mix(in oklab, var(--ui-bg-muted) 86%, var(--ui-border) 14%);
+}
+
+.recent-skeleton-icon::after,
+.recent-skeleton-line::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+    background: linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in oklab, var(--ui-bg) 54%, transparent),
+        transparent
+    );
+    animation: recent-skeleton-shimmer 1.2s ease-in-out infinite;
+    transform: translateX(-100%);
+}
+
+.recent-skeleton-icon {
+    width: 2rem;
+    height: 2.25rem;
+    flex: 0 0 auto;
+}
+
+.recent-skeleton-line {
+    height: 0.75rem;
+}
+
+.recent-skeleton-line--name {
+    width: min(25rem, 78%);
+}
+
+.recent-skeleton-line--location {
+    width: 7.5rem;
+}
+
+.recent-skeleton-line--time {
+    width: 5.75rem;
+    margin-left: auto;
 }
 
 .recent-action {
@@ -939,6 +1024,19 @@ watch(() => startSection, (section) => {
 .recent-count {
     color: var(--ui-text-dimmed);
     font-size: 0.78rem;
+}
+
+@keyframes recent-skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .recent-skeleton-icon::after,
+    .recent-skeleton-line::after {
+        animation: none;
+    }
 }
 
 @container (max-width: 880px) {
