@@ -12,17 +12,17 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 const {
     mockHasElectronAPI,
     mockOpenCombineDialog,
-    mockStatFile,
+    mockReadFileRange,
 } = vi.hoisted(() => ({
     mockHasElectronAPI: vi.fn(() => true),
     mockOpenCombineDialog: vi.fn(async (): Promise<unknown> => null),
-    mockStatFile: vi.fn(async (_path: string): Promise<{ size: number }> => ({size: 1024})),
+    mockReadFileRange: vi.fn(async (_path: string, _offset: number, _length: number): Promise<Uint8Array> => new Uint8Array([0])),
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
 vi.mock('@app/utils/platform-documents', () => ({getDocumentsCapability: () => ({
     openCombineDialog: mockOpenCombineDialog,
-    statFile: mockStatFile,
+    readFileRange: mockReadFileRange,
 })}));
 
 function cast<T>(obj: unknown): T {
@@ -63,8 +63,8 @@ describe('usePageFileOperations', () => {
         mockHasElectronAPI.mockReturnValue(true);
         mockOpenCombineDialog.mockReset();
         mockOpenCombineDialog.mockResolvedValue(null);
-        mockStatFile.mockReset();
-        mockStatFile.mockResolvedValue({size: 1024});
+        mockReadFileRange.mockReset();
+        mockReadFileRange.mockResolvedValue(new Uint8Array([0]));
     });
 
     it('persists unsaved changes before closing by default', async () => {
@@ -229,7 +229,7 @@ describe('usePageFileOperations', () => {
 
     it('removes a missing recent file and notifies instead of opening it', async () => {
         const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
-        mockStatFile.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'));
+        mockReadFileRange.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'));
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
         const file = {
@@ -251,8 +251,26 @@ describe('usePageFileOperations', () => {
         );
     });
 
+    it('removes a recent whose browser storage chunks were evicted', async () => {
+        mockReadFileRange.mockRejectedValueOnce(new Error('Browser document chunk missing: browser://documents/uuid/file.pdf#0'));
+        const deps = createDeps();
+        const { openRecentFile } = usePageFileOperations(deps);
+        const file = {
+            originalPath: 'browser://documents/uuid/file.pdf',
+            fileName: 'file.pdf',
+            timestamp: 0,
+            fileSize: 32_000_000,
+        };
+
+        await openRecentFile(file);
+
+        expect(deps.openFileDirect).not.toHaveBeenCalled();
+        expect(deps.removeRecentFile).toHaveBeenCalledWith(file);
+        expect(deps.notifyMissingRecentFile).toHaveBeenCalledWith(file);
+    });
+
     it('opens a present recent file without removing or notifying', async () => {
-        mockStatFile.mockResolvedValueOnce({size: 4096});
+        mockReadFileRange.mockResolvedValueOnce(new Uint8Array([37]));
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
         const file = {
@@ -264,6 +282,7 @@ describe('usePageFileOperations', () => {
 
         await openRecentFile(file);
 
+        expect(mockReadFileRange).toHaveBeenCalledWith('/tmp/present.pdf', 0, 1);
         expect(deps.openFileDirect).toHaveBeenCalledWith('/tmp/present.pdf');
         expect(deps.removeRecentFile).not.toHaveBeenCalled();
         expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();

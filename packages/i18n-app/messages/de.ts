@@ -781,6 +781,7 @@ export default {
         },
         'file': {
             'open': 'Datei konnte nicht geöffnet werden',
+            'openNotFound': '„{name}“ konnte nicht geöffnet werden. Die Datei wurde möglicherweise verschoben, gelöscht oder ihr Speicher wurde geleert.',
             'invalid': 'Ungültige oder nicht vorhandene Datei',
             'emptyPdf': 'Die PDF-Datei ist leer (0 Byte)',
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',

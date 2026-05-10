@@ -793,6 +793,7 @@ export default {
         },
         'file': {
             'open': 'Falha ao abrir ficheiro',
+            'openNotFound': 'Não foi possível abrir "{name}". O ficheiro pode ter sido movido, eliminado ou o seu armazenamento foi limpo.',
             'invalid': 'Ficheiro inválido ou inexistente',
             'emptyPdf': 'O ficheiro PDF está vazio (0 bytes)',
             'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',

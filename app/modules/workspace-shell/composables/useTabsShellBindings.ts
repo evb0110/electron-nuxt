@@ -248,6 +248,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }));
         traceRendererStartup('tabs shell menu bindings registered');
 
+        isStartupOpenClaimPending.value = true;
         void (async () => {
             const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
             dispatchStartupOpenClaimed(startupExternalPaths.length);

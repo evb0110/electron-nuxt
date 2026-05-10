@@ -154,7 +154,7 @@
                                     <template v-else>{{ t('emptyState.locationBrowser') }}</template>
                                 </span>
                                 <span class="recent-col recent-col--time" role="cell">
-                                    {{ formatRelativeTimeLocalized(file.timestamp) }}
+                                    <ClientOnly><template #fallback></template>{{ formatRelativeTimeLocalized(file.timestamp) }}</ClientOnly>
                                 </span>
                                 <span class="recent-col recent-col--actions" role="cell">
                                     <AppTooltip
@@ -326,7 +326,6 @@ const openPanelButtonId = useId();
 const recentSearch = ref('');
 const activeSection = ref<TStartSection>(startSection);
 const clearHistoryDialogOpen = ref(false);
-const relativeTimeNow = useState('empty-state-relative-time-now', () => Date.now());
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
 const filteredRecentFiles = computed(() => {
@@ -350,7 +349,7 @@ function formatRelativeTimeLocalized(timestamp: number) {
         oneMinuteAgo: t('relativeTime.oneMinuteAgo'),
         minutesAgo: (count: number) => t('relativeTime.minutesAgo', { count }),
         justNow: t('relativeTime.justNow'),
-    }, relativeTimeNow.value);
+    });
 }
 
 function getParentFolder(filePath: string) {
