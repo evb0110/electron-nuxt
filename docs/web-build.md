@@ -12,8 +12,8 @@
 ## Intended Use
 
 - `dev` starts one Nuxt dev server plus Electron, with the browser app at `/` and the Electron shell at `/electron`.
-- `build` produces the SSR Nuxt web build used for deployment and is the contract Vercel should use.
-- `build:desktop` adds the Electron bundles on top of the SSR web build for local packaging and release flows.
+- `build` produces the Nuxt web build used for deployment, including prerendered app routes and Nitro server endpoints, and is the contract Vercel should use.
+- `build:desktop` adds the Electron bundles on top of the Nuxt web build for local packaging and release flows.
 - Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
 - `pnpm lint && pnpm typecheck && pnpm build` is the current web-scope verification batch.
 

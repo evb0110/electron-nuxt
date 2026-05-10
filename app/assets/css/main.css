@@ -19,7 +19,7 @@
 
 :root {
     /* Universal UI scale lever — driven by useUiScale composable.
-       Set on <html> via an inline style; this default keeps SSR/initial paint stable. */
+       Set on <html> via an inline style; this default keeps the prerendered shell stable. */
     --app-ui-scale: 1;
 
     /* Chrome-density tokens — kept in rem so they scale with --app-ui-scale via root font-size. */
