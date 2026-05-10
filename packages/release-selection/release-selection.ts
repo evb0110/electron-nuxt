@@ -249,7 +249,22 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const primaryAssets = assets.filter(asset => !asset.isLegacy);
+    const normalizedAssets = assets.map((asset) => {
+        if (
+            asset.platform !== 'unknown'
+            || asset.extension !== 'zip'
+            || /(win|windows|linux|appimage|deb|rpm|msi|setup)/iu.test(asset.name)
+        ) {
+            return asset;
+        }
+
+        return {
+            ...asset,
+            platform: 'macos' as const,
+        };
+    });
+
+    const primaryAssets = normalizedAssets.filter(asset => !asset.isLegacy);
     const windowsExeArchs = new Set(
         primaryAssets
             .filter(asset => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
@@ -258,10 +273,10 @@ export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstal
 
     const hasArchSpecificWindowsBuilds = windowsExeArchs.has('x64') && windowsExeArchs.has('arm64');
     if (!hasArchSpecificWindowsBuilds) {
-        return assets;
+        return normalizedAssets;
     }
 
-    return assets.filter(asset => !(
+    return normalizedAssets.filter(asset => !(
         asset.platform === 'windows'
         && asset.extension === 'exe'
         && asset.arch === 'unknown'
