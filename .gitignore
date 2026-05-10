@@ -10,6 +10,7 @@ dist/
 .DS_Store
 .vercel
 .playwright-cli/
+.playwright-mcp/
 .tmp/
 auto-imports.d.ts
 
