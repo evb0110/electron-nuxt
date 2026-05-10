@@ -23,6 +23,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CROP_WORKER_FILENAME = 'page-ops-crop-worker.js';
 const CROP_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 
+class CropWorkerUnavailableError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'CropWorkerUnavailableError';
+    }
+}
+
 type TCropWorkerInput =
     | {
         type: 'crop';
@@ -48,15 +55,15 @@ function resolveCropWorkerPath() {
 async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
     const workerPath = resolveCropWorkerPath();
     if (!existsSync(workerPath)) {
-        throw new Error(`Crop worker unavailable at path: ${workerPath}`);
+        throw new CropWorkerUnavailableError(`Crop worker unavailable at path: ${workerPath}`);
     }
 
     return measureElectronPerfAsync(`page-ops:${workerInput.type}`, () => runResultWorkerTask<T>({
         workerPath,
         workerData: workerInput,
         invalidPayloadMessage: 'Crop worker returned an invalid payload',
-        createStartError: null,
-        createStartupError: message => new Error(`Crop worker startup failed: ${message}`),
+        createStartupError: message => new CropWorkerUnavailableError(`Crop worker startup failed: ${message}`),
+        createStartupExitError: code => new CropWorkerUnavailableError(`Crop worker exited before startup with code ${code}`),
         createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
         timeoutMs: CROP_WORKER_TIMEOUT_MS,
     }), {
@@ -66,6 +73,10 @@ async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
             pageCount: 'pages' in workerInput ? workerInput.pages.length : 1,
         },
     });
+}
+
+function shouldFallbackToLocalCrop(error: unknown) {
+    return error instanceof CropWorkerUnavailableError;
 }
 
 export async function cropPages(
@@ -81,6 +92,9 @@ export async function cropPages(
             margins,
         });
     } catch (error) {
+        if (!shouldFallbackToLocalCrop(error)) {
+            throw error;
+        }
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
         await cropPagesLocal(workingCopyPath, pages, margins);
     }
@@ -97,6 +111,9 @@ export async function removeCropFromPages(
             pages,
         });
     } catch (error) {
+        if (!shouldFallbackToLocalCrop(error)) {
+            throw error;
+        }
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
         await removeCropFromPagesLocal(workingCopyPath, pages);
     }
@@ -113,6 +130,9 @@ export async function getPageGeometry(
             pageNumber,
         });
     } catch (error) {
+        if (!shouldFallbackToLocalCrop(error)) {
+            throw error;
+        }
         log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
         return getPageGeometryLocal(workingCopyPath, pageNumber);
     }

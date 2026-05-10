@@ -428,9 +428,12 @@ async function seedFromPdfjs(
 ): Promise<boolean> {
     try {
         log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
-        const pageTexts = await extractTextWithPdfjs(pdfPath, {
+        let hasText = false;
+        await extractTextWithPdfjs(pdfPath, {
             signal,
+            collectPages: false,
             onPageText: (pageText) => {
+                hasText ||= pageText.text.length > 0;
                 applyExtractedTexts(pagesByNumber, [pageText], signal);
                 const page = pagesByNumber.get(pageText.pageNumber);
                 if (page) {
@@ -438,8 +441,7 @@ async function seedFromPdfjs(
                 }
             },
         });
-        applyExtractedTexts(pagesByNumber, pageTexts, signal);
-        return pageTexts.some(pt => pt.text.length > 0);
+        return hasText;
     } catch (pdfjsErr) {
         if (isAbortError(pdfjsErr)) {
             throw pdfjsErr;

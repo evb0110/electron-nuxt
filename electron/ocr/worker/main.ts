@@ -596,6 +596,7 @@ async function assembleMergedOcrPdf(
     sessionId: string,
     trackTempFile: (path: string) => string,
     errors: string[],
+    signal: AbortSignal,
 ) {
     try {
         return await assembleSearchablePdf(
@@ -607,6 +608,7 @@ async function assembleMergedOcrPdf(
             sessionId,
             log,
             trackTempFile,
+            signal,
         );
     } catch (mergeErr) {
         const errMsg = getErrorMessage(mergeErr);
@@ -701,6 +703,7 @@ async function processOcrJob(
             sessionId,
             trackTempFile,
             errors,
+            abortController.signal,
         );
         if (!mergedPdfPath) {
             return;
