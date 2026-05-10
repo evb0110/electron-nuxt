@@ -1322,7 +1322,7 @@ async function reloadAndWaitForHydration(
 }> {
     let currentPage = page;
     try {
-        await currentPage.reload({ waitUntil: 'networkidle2' });
+        await currentPage.goto(getElectronAppUrl(), { waitUntil: 'networkidle2' });
     } catch {
         await delay(2000);
         currentPage = await findAppPage(browser) ?? currentPage;

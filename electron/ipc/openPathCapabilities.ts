@@ -54,10 +54,14 @@ function getAllowedOpenPaths(ownerId: number) {
 }
 
 function getOwnerId(owner: number | WebContents) {
-    return typeof owner === 'number' ? owner : owner.id;
+    if (typeof owner === 'number') {
+        return owner;
+    }
+
+    return typeof owner.id === 'number' ? owner.id : 0;
 }
 
-export function allowOpenPathForWebContents(owner: number | WebContents, filePath: string) {
+function allowOpenPathForWebContents(owner: number | WebContents, filePath: string) {
     const normalizedPath = normalizeOpenPath(filePath);
     if (!normalizedPath) {
         return null;
@@ -70,14 +74,10 @@ export function allowOpenPathForWebContents(owner: number | WebContents, filePat
     return normalizedPath as TOpenPath;
 }
 
-export function allowOpenPathsForWebContents(owner: number | WebContents, filePaths: string[]) {
+function allowOpenPathsForWebContents(owner: number | WebContents, filePaths: string[]) {
     for (const filePath of filePaths) {
         allowOpenPathForWebContents(owner, filePath);
     }
-}
-
-export function clearOpenPathsForWebContents(owner: number | WebContents) {
-    allowedOpenPathsByOwner.delete(getOwnerId(owner));
 }
 
 export function allowOpenPath(filePath: string, owner?: number | WebContents) {

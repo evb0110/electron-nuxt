@@ -10,11 +10,11 @@ import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('ocr-ipc');
 
-export function getOcrJobLanguages(pages: IOcrPdfPageRequest[]) {
+function getOcrJobLanguages(pages: IOcrPdfPageRequest[]) {
     return uniq(pages.flatMap(page => page.languages));
 }
 
-export function logMissingLanguageModels(languages: string[]) {
+function logMissingLanguageModels(languages: string[]) {
     const tessdataDir = getOcrToolPaths().tessdata;
     const missingLanguages = languages.filter(languageCode =>
         !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),

@@ -134,7 +134,7 @@ describe('handleSavePdfAs', () => {
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
         expect(mocks.workingCopyMap.get(workingPath)).toBe(targetPath);
-        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath);
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, {});
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
         expect(

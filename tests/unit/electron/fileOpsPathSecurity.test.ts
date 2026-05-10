@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     writeFile: vi.fn(),
     stat: vi.fn(),
     unlink: vi.fn(),
+    rename: vi.fn(),
     open: vi.fn(),
     isAllowedReadPath: vi.fn<(path: string) => boolean>(),
     isAllowedWritePath: vi.fn<(path: string) => boolean>(),
@@ -39,6 +40,7 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
     stat: mocks.stat,
     unlink: mocks.unlink,
+    rename: mocks.rename,
     open: mocks.open,
 }));
 
@@ -109,6 +111,17 @@ describe('fileOps path security', () => {
         mocks.statSync.mockReturnValue({ size: 123 });
         mocks.stat.mockResolvedValue({ size: 123 });
         mocks.writeFile.mockResolvedValue(undefined);
+        mocks.rename.mockResolvedValue(undefined);
+        mocks.unlink.mockResolvedValue(undefined);
+        mocks.open.mockImplementation(async () => ({
+            writeFile: mocks.writeFile,
+            sync: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+            read: vi.fn(async (buffer: Buffer) => ({
+                bytesRead: buffer.byteLength,
+                buffer,
+            })),
+        }));
     });
 
     it('rejects read when path-validator blocks a symlink path', async () => {
@@ -146,7 +159,12 @@ describe('fileOps path security', () => {
         );
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf');
-        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', new Uint8Array([9]));
+        expect(mocks.open).toHaveBeenCalledWith(expect.stringMatching(/\/\.safe\.pdf\.\d+\..+\.tmp$/u), 'wx');
+        expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/\/\.safe\.pdf\.\d+\..+\.tmp$/u),
+            '/tmp/electron-test/safe.pdf',
+        );
     });
 
     it('does not write temp PDF bytes when managed working copy recovery fails', async () => {

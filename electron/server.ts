@@ -12,15 +12,3 @@ export function shouldWaitForExternalDevServer(options: {
         && (options.hasFixedServerPort ?? HAS_FIXED_SERVER_PORT)
         && (options.waitForExternalDevServer ?? WAIT_FOR_EXTERNAL_DEV_SERVER);
 }
-
-export function startServer() {
-    if (!shouldWaitForExternalDevServer()) {
-        return;
-    }
-}
-
-export function waitForServer() {
-}
-
-export function stopServer() {
-}

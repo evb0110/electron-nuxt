@@ -26,6 +26,12 @@ import {
     readPdfRectFromDict,
     resolvePdfPageView,
 } from '@app/composables/pdf/pdfPageBoxes';
+import { parsePdfJsAnnotationRef } from '@app/utils/pdf-annotation-refs';
+export {
+    formatPdfJsAnnotationRef,
+    normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
+} from '@app/utils/pdf-annotation-refs';
 
 const MANAGED_SHAPE_KEY_NAME = PDFName.of('EVBShapeKey');
 const MANAGED_SHAPE_STABLE_KEY_PREFIX = 'evb-shape:';
@@ -49,47 +55,6 @@ export function getPdfPopupDict(doc: PDFDocument, dict: PDFDict | null) {
         return doc.context.lookupMaybe(popupValue, PDFDict) ?? null;
     }
     return null;
-}
-
-export function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
-    if (!annotationId) {
-        return null;
-    }
-    const match = annotationId.trim().match(/^(\d+)R(?:(\d+))?$/i);
-    if (!match) {
-        return null;
-    }
-
-    const objectNumber = Number(match[1]);
-    const generationNumber = match[2] ? Number(match[2]) : 0;
-    if (
-        !Number.isInteger(objectNumber)
-        || objectNumber <= 0
-        || !Number.isInteger(generationNumber)
-        || generationNumber < 0
-    ) {
-        return null;
-    }
-
-    return PDFRef.of(objectNumber, generationNumber);
-}
-
-export function formatPdfJsAnnotationRef(
-    ref: Pick<PDFRef, 'objectNumber' | 'generationNumber'>,
-) {
-    return ref.generationNumber === 0
-        ? `${ref.objectNumber}R`
-        : `${ref.objectNumber}R${ref.generationNumber}`;
-}
-
-export function normalizePdfJsAnnotationId(annotationId: string | null | undefined) {
-    const ref = parsePdfJsAnnotationRef(annotationId);
-    if (ref) {
-        return formatPdfJsAnnotationRef(ref);
-    }
-
-    const trimmed = annotationId?.trim();
-    return trimmed ? trimmed : null;
 }
 
 export function generateManagedShapeStableKey() {

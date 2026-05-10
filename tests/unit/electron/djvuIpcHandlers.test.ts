@@ -140,10 +140,10 @@ describe('registerDjvuHandlers', () => {
             const canonicalRealPath = realpathSync.native(realPath);
 
             const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
-            allowOpenPath(symlinkPath);
+            const event = {sender: {id: 1}};
+            allowOpenPath(symlinkPath, event.sender as never);
             registerDjvuHandlers();
             const handler = getHandler('djvu:releaseViewingPath');
-            const event = {sender: {id: 1}};
 
             handler(event, symlinkPath);
 

@@ -3,7 +3,7 @@ import { getErrorMessage } from '@electron/utils/error';
 
 interface IStartupPlaceholderLogger {warn(msg: string): void;}
 
-export function buildStartupPlaceholderHtml(title: string) {
+function buildStartupPlaceholderHtml(title: string) {
     return `<!doctype html>
 <html>
 <head>

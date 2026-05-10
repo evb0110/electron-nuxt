@@ -24,7 +24,7 @@ type TBrowserSearchWorkerProgressHandler = (progress: {
 
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
 
-export class BrowserSearchWorkerUnavailableError extends Error {
+class BrowserSearchWorkerUnavailableError extends Error {
     public constructor(message: string) {
         super(message);
         this.name = 'BrowserSearchWorkerUnavailableError';

@@ -2,7 +2,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
-} from '@app/composables/pdf/pdfSerializationRefs';
+} from '@app/utils/pdf-annotation-refs';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 export interface IPdfLiveAnnotationChangeSummary {
