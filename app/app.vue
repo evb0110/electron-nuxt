@@ -99,7 +99,7 @@
                         </div>
                     </div>
                     <div class="flex shrink-0 gap-1">
-                        <UTooltip :text="t('errors.runtime.copy')" :delay-duration="400">
+                        <AppTooltip :text="t('errors.runtime.copy')" :delay-duration="400">
                             <UButton
                                 color="neutral"
                                 variant="ghost"
@@ -112,8 +112,8 @@
                                 :aria-label="t('errors.runtime.copy')"
                                 @click="handleCopyReports"
                             />
-                        </UTooltip>
-                        <UTooltip :text="t('errors.runtime.details')" :delay-duration="400">
+                        </AppTooltip>
+                        <AppTooltip :text="t('errors.runtime.details')" :delay-duration="400">
                             <UButton
                                 color="neutral"
                                 variant="ghost"
@@ -122,8 +122,8 @@
                                 :aria-label="t('errors.runtime.details')"
                                 @click="showRuntimeErrorDetails = !showRuntimeErrorDetails"
                             />
-                        </UTooltip>
-                        <UTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
+                        </AppTooltip>
+                        <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
                             <UButton
                                 color="neutral"
                                 variant="ghost"
@@ -132,7 +132,7 @@
                                 :aria-label="t('errors.runtime.dismiss')"
                                 @click="clearRuntimeErrorReports"
                             />
-                        </UTooltip>
+                        </AppTooltip>
                     </div>
                 </div>
             </div>

@@ -7,6 +7,7 @@ import {
     createAllPageNumbers,
     expandPageRange,
     normalizeSelectedPageNumbers,
+    shouldSelectPageFromThumbnailClick,
 } from '@app/utils/pdf-page-selection';
 
 describe('pdf page selection helpers', () => {
@@ -49,5 +50,21 @@ describe('pdf page selection helpers', () => {
             3,
             4,
         ]);
+    });
+
+    it('treats plain thumbnail clicks as navigation-only', () => {
+        expect(shouldSelectPageFromThumbnailClick({
+            shiftKey: false,
+            metaKey: false,
+            ctrlKey: false,
+        })).toBe(false);
+    });
+
+    it.each([
+        { shiftKey: true },
+        { metaKey: true },
+        { ctrlKey: true },
+    ])('selects pages from thumbnail clicks with selection modifier %#', (modifiers) => {
+        expect(shouldSelectPageFromThumbnailClick(modifiers)).toBe(true);
     });
 });

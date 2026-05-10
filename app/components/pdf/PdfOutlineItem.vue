@@ -34,7 +34,7 @@
                     class="size-3.5"
                 />
             </span>
-            <UTooltip
+            <AppTooltip
                 v-if="hasChildren"
                 :text="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
                 :delay-duration="800"
@@ -50,7 +50,7 @@
                         class="size-4"
                     />
                 </button>
-            </UTooltip>
+            </AppTooltip>
             <span
                 v-else
                 class="pdf-bookmark-item-spacer"
@@ -67,7 +67,7 @@
                 @keydown.escape.prevent="cancelEdit"
                 @blur="commitEdit"
             >
-            <UTooltip
+            <AppTooltip
                 v-else
                 :text="item.title || t('bookmarks.untitled')"
                 :delay-duration="800"
@@ -78,9 +78,9 @@
                 >
                     {{ item.title || t('bookmarks.untitled') }}
                 </span>
-            </UTooltip>
+            </AppTooltip>
 
-            <UTooltip
+            <AppTooltip
                 v-if="treeContext.isEditMode.value"
                 :text="t('bookmarks.actions')"
                 :delay-duration="800"
@@ -96,7 +96,7 @@
                         class="size-4"
                     />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </div>
 
         <div

@@ -151,6 +151,7 @@ export default withNuxt(
                         '^U[A-Z]',
                         '^Icon$',
                         '^Nuxt[A-Z]',
+                        '^AppTooltip$',
                         '^Lazy[A-Z]',
                         '^i18n-t$',
                         '^(ClientOnly|DevOnly|RouterLink|RouterView)$',
@@ -265,7 +266,14 @@ export default withNuxt(
             'custom/brace-return-after-if': 'error',
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
+            'custom/app-tooltip-only': 'error',
             ...stylisticRules,
+        },
+    },
+    {
+        files: ['app/components/AppTooltip.vue'],
+        rules: {
+            'custom/app-tooltip-only': 'off',
         },
     },
     {

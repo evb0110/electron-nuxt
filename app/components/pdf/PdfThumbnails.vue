@@ -59,6 +59,7 @@ import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 import {
     arePageNumberListsEqual,
     normalizeSelectedPageNumbers,
+    shouldSelectPageFromThumbnailClick,
 } from '@app/utils/pdf-page-selection';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
 import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRenderQueue';
@@ -241,6 +242,11 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         return;
     }
 
+    if (!shouldSelectPageFromThumbnailClick(event)) {
+        emit('go-to-page', page);
+        return;
+    }
+
     const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
     multiSelection.toggle(page, allPages, {
         shift: event.shiftKey,
@@ -252,7 +258,6 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         props.totalPages,
     );
     emit('update:selected-pages', normalized);
-    emit('go-to-page', page);
 }
 
 function handleThumbnailContextMenu(event: MouseEvent, page: number) {

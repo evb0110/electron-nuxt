@@ -1,5 +1,10 @@
 <template>
-    <UTooltip :text="preview" :delay-duration="200" :open="isDragging ? false : undefined">
+    <AppTooltip
+        :text="preview"
+        :delay-duration="200"
+        :open="isDragging ? false : undefined"
+        usefulness="always"
+    >
         <button
             ref="buttonRef"
             type="button"
@@ -25,7 +30,7 @@
                 {{ clustered.length }}
             </span>
         </button>
-    </UTooltip>
+    </AppTooltip>
 </template>
 
 <script setup lang="ts">

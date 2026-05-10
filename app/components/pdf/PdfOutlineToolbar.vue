@@ -5,7 +5,7 @@
             role="group"
             :aria-label="t('bookmarks.controls')"
         >
-            <UTooltip
+            <AppTooltip
                 v-for="option in displayModeOptions"
                 :key="option.id"
                 :text="option.title"
@@ -23,8 +23,8 @@
                         class="size-4"
                     />
                 </button>
-            </UTooltip>
-            <UTooltip
+            </AppTooltip>
+            <AppTooltip
                 :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                 :delay-duration="800"
             >
@@ -40,11 +40,11 @@
                         class="size-4"
                     />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </div>
 
         <div class="pdf-bookmarks-toolbar-actions">
-            <UTooltip
+            <AppTooltip
                 v-if="isEditMode"
                 :text="t('bookmarks.addTopLevel')"
                 :delay-duration="800"
@@ -60,7 +60,7 @@
                         class="size-4"
                     />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </div>
     </div>
 </template>

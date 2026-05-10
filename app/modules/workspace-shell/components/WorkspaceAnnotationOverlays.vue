@@ -22,7 +22,7 @@
             v-if="minimizedIndicatorTargets[note.comment.stableKey]"
             :to="minimizedIndicatorTargets[note.comment.stableKey]"
         >
-            <UTooltip
+            <AppTooltip
                 :text="getMinimizedNotePreview(note)"
                 :delay-duration="250"
             >
@@ -40,7 +40,7 @@
                 >
                     <UIcon name="i-lucide-message-square" class="size-2.5" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </Teleport>
     </template>
     <template
