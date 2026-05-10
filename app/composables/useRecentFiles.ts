@@ -29,6 +29,9 @@ export const useRecentFiles = () => {
     const shouldPreferElectronRuntime = computed(() => (
         shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value)
     ));
+    const hasUsableInitialSnapshot = computed(() => (
+        !shouldPreferElectronRuntime.value && hasResolvedCookieSnapshot
+    ));
 
     async function getDocumentsCapability() {
         if (shouldPreferElectronRuntime.value) {
@@ -123,6 +126,7 @@ export const useRecentFiles = () => {
         recentFiles,
         isLoading,
         isResolved,
+        hasUsableInitialSnapshot,
         error,
         loadRecentFiles,
         syncCookieFromRuntime,

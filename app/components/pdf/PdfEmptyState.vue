@@ -154,7 +154,7 @@
                                     <template v-else>{{ t('emptyState.locationBrowser') }}</template>
                                 </span>
                                 <span class="recent-col recent-col--time" role="cell">
-                                    <ClientOnly><template #fallback></template>{{ formatRelativeTimeLocalized(file.timestamp) }}</ClientOnly>
+                                    {{ formatRelativeTimeLocalized(file.timestamp) }}
                                 </span>
                                 <span class="recent-col recent-col--actions" role="cell">
                                     <AppTooltip

@@ -265,4 +265,55 @@ describe('useRecentFiles', () => {
         expect(isResolved.value).toBe(true);
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/full.pdf'})]);
     });
+
+    it('marks a complete browser cookie snapshot as usable for startup paint', async () => {
+        desktopRuntime.value = false;
+        electronBridgeReady.value = false;
+        routePath.value = '/';
+        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
+            v: 1,
+            t: false,
+            f: [[
+                '/tmp/cookie.pdf',
+                'cookie.pdf',
+                11,
+                12,
+            ]],
+        })));
+
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const {
+            hasUsableInitialSnapshot,
+            isResolved,
+            recentFiles,
+        } = useRecentFiles();
+
+        expect(hasUsableInitialSnapshot.value).toBe(true);
+        expect(isResolved.value).toBe(true);
+        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/cookie.pdf'})]);
+    });
+
+    it('does not treat cookie snapshots as startup-usable for Electron runtime', async () => {
+        cookieStore.set('evb_viewer_recent_files', ref(JSON.stringify({
+            v: 1,
+            t: false,
+            f: [[
+                '/tmp/electron-cookie.pdf',
+                'electron-cookie.pdf',
+                13,
+                14,
+            ]],
+        })));
+
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const {
+            hasUsableInitialSnapshot,
+            isResolved,
+            recentFiles,
+        } = useRecentFiles();
+
+        expect(hasUsableInitialSnapshot.value).toBe(false);
+        expect(isResolved.value).toBe(false);
+        expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/electron-cookie.pdf'})]);
+    });
 });

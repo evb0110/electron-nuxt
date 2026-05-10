@@ -168,6 +168,7 @@ const {
 } = useUiScale();
 const hostEnvironmentUnsubscribers: Array<() => void> = [];
 const {
+    hasUsableInitialSnapshot: hasUsableInitialRecentFilesSnapshot,
     loadRecentFiles,
     syncCookieFromRuntime: syncRecentFilesCookieFromRuntime,
 } = useRecentFiles();
@@ -316,11 +317,30 @@ async function preloadStartupContent() {
     }
 
     const warmupStartedAt = performance.now();
-    BrowserLogger.debug('loader', 'Startup content warmup started', { isDesktopRuntime: isDesktopRuntime.value });
+    const shouldBlockOnRecentFiles = isDesktopRuntime.value;
+    const shouldBlockOnWorkspacePreload = isDesktopRuntime.value;
+    BrowserLogger.debug('loader', 'Startup content warmup started', {
+        hasUsableInitialRecentFilesSnapshot: hasUsableInitialRecentFilesSnapshot.value,
+        isDesktopRuntime: isDesktopRuntime.value,
+        shouldBlockOnRecentFiles,
+        shouldBlockOnWorkspacePreload,
+    });
 
-    const warmupTasks: Array<Promise<unknown>> = [loadRecentFiles()];
-    if (route.meta.preloadWorkspaceShell !== false) {
-        warmupTasks.unshift(import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'));
+    const warmupTasks: Array<Promise<unknown>> = [];
+    if (shouldBlockOnRecentFiles) {
+        warmupTasks.push(loadRecentFiles());
+    } else {
+        void loadRecentFiles();
+    }
+    const workspacePreload = route.meta.preloadWorkspaceShell === false
+        ? null
+        : import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
+    if (workspacePreload) {
+        if (shouldBlockOnWorkspacePreload) {
+            warmupTasks.unshift(workspacePreload);
+        } else {
+            void workspacePreload;
+        }
     }
 
     const results = await Promise.allSettled(warmupTasks);
