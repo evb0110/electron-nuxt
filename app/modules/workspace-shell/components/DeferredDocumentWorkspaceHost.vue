@@ -28,7 +28,7 @@
                 :recent-files="recentFiles"
                 :recent-files-resolved="isResolved"
                 :open-batch-progress="null"
-                :open-in-progress="isDocumentOpenInFlight"
+                :open-in-progress="isOpenUiBusy"
                 :start-section="startSection"
                 can-combine-files
                 @update:start-section="emit('update:start-section', $event)"
@@ -95,7 +95,6 @@ import {
     getAsyncChunkLoadErrorMessage,
     shouldRetryAsyncChunkLoad,
 } from '@app/modules/workspace-shell/composables/workspace-host-async-load';
-import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/composables/workspace-host-open';
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspace-expose-contract';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
@@ -166,6 +165,7 @@ let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
 const documentOpenInFlightCount = ref(0);
+const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
@@ -249,6 +249,8 @@ function readWorkspaceToolbarSnapshot() {
 }
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
+const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
 let documentOpenQueue: Promise<void> = Promise.resolve();
 const shouldShowWorkspaceMountLoader = computed(() => isDocumentOpenInFlight.value);
 const isHostErrorVisible = computed(() => (
@@ -364,6 +366,21 @@ async function enqueueDocumentOpen(run: () => Promise<void>) {
         .then(() => runWhileOpeningDocument(run));
     documentOpenQueue = queuedRun.catch(() => {});
     await queuedRun;
+}
+
+async function pickFileFromUi() {
+    filePickerInFlightCount.value += 1;
+    try {
+        await nextTick();
+        await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve());
+            });
+        });
+        return await getPlatformAPI().documents.openPdfDialog();
+    } finally {
+        filePickerInFlightCount.value = Math.max(0, filePickerInFlightCount.value - 1);
+    }
 }
 
 async function preloadWorkspaceComponent(reason: string) {
@@ -584,12 +601,13 @@ async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
 }
 
 async function handleOpenFileFromUi() {
+    const result = await pickFileFromUi();
+    if (!result) {
+        return;
+    }
+
     await enqueueDocumentOpen(async () => {
-        await handleWorkspaceHostOpenFileFromUi({
-            mountedWorkspace: mountedWorkspace.value,
-            pickFileToOpen: () => getPlatformAPI().documents.openPdfDialog(),
-            withWorkspace,
-        });
+        await withWorkspace('handleOpenFileWithResultFromUi', workspace => workspace.handleOpenFileWithResult(result));
     });
 }
 
