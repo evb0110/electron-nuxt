@@ -84,6 +84,7 @@ describe('createExternalOpenManager', () => {
         isRendererReady?: boolean;
         hasWindows?: boolean;
         dispatchOpenPaths?: (paths: string[]) => boolean;
+        grantOpenPaths?: (paths: string[]) => void;
     } = {}) {
         const logger = createLogger();
         let rendererReady = options.isRendererReady ?? true;
@@ -108,6 +109,7 @@ describe('createExternalOpenManager', () => {
             }),
             hasWindows: () => hasWindows,
             createWindow,
+            grantOpenPaths: options.grantOpenPaths,
             dispatchOpenPaths,
         });
 
@@ -129,6 +131,24 @@ describe('createExternalOpenManager', () => {
 
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/Users/test/Documents/live.pdf']);
+    });
+
+    it('grants open capabilities before dispatching later external-open paths', () => {
+        const grantOpenPaths = vi.fn();
+        const dispatchOpenPaths = vi.fn(() => true);
+        const harness = createManagerHarness({
+            dispatchOpenPaths,
+            grantOpenPaths,
+        });
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequestFromArgs(['C:\\Users\\test\\Desktop\\book.pdf']);
+
+        expect(grantOpenPaths).toHaveBeenCalledTimes(1);
+        expect(grantOpenPaths).toHaveBeenCalledWith(['C:\\Users\\test\\Desktop\\book.pdf']);
+        expect(dispatchOpenPaths).toHaveBeenCalledTimes(1);
+        expect(dispatchOpenPaths).toHaveBeenCalledWith(['C:\\Users\\test\\Desktop\\book.pdf']);
+        expect(grantOpenPaths.mock.invocationCallOrder[0]).toBeLessThan(dispatchOpenPaths.mock.invocationCallOrder[0]!);
     });
 
     it('delivers later repeated open requests after the initial dispatch', async () => {

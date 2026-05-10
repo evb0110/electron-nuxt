@@ -54,6 +54,7 @@ interface ICreateExternalOpenManagerOptions {
     getMainWindow: () => IWindowLike | null;
     hasWindows: () => boolean;
     createWindow: () => Promise<unknown>;
+    grantOpenPaths?: (paths: string[]) => void;
     dispatchOpenPaths: (paths: string[]) => boolean;
 }
 
@@ -400,6 +401,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
 
         options.logger.info(`Flushing ${paths.length} batched external open path(s)`);
+        options.grantOpenPaths?.(paths);
         const dispatched = options.dispatchOpenPaths(paths);
         if (!dispatched) {
             pendingFlushRequested = true;
