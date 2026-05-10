@@ -89,6 +89,54 @@ export function shouldVerifyPackagedStartup(target, env = process.env) {
     return target.platform === 'mac' && hasDeveloperIdSigningCredentials(env);
 }
 
+export function hasMacPublishUpdaterMetadataPolicy(env = process.env) {
+    if (env.EVB_RELEASE_HAS_MAC_SIGNING === 'true') {
+        return true;
+    }
+    if (env.EVB_RELEASE_HAS_MAC_SIGNING === 'false') {
+        return false;
+    }
+    return hasDeveloperIdSigningCredentials(env);
+}
+
+export function hasWindowsPublishUpdaterMetadataPolicy(env = process.env) {
+    if (env.EVB_RELEASE_HAS_WINDOWS_SIGNING === 'true') {
+        return true;
+    }
+    if (env.EVB_RELEASE_HAS_WINDOWS_SIGNING === 'false') {
+        return false;
+    }
+    return hasWindowsSigningCredentials(env);
+}
+
+export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.env) {
+    const files = [...artifactNames];
+    const hasMacPolicy = hasMacPublishUpdaterMetadataPolicy(env);
+    const hasWindowsPolicy = hasWindowsPublishUpdaterMetadataPolicy(env);
+    const forbidden = files.filter((fileName) => {
+        if (/^latest-mac.*\.yml$/u.test(fileName)) {
+            return !hasMacPolicy;
+        }
+        if (/^latest.*\.yml$/u.test(fileName)) {
+            return !hasWindowsPolicy;
+        }
+        if (fileName.endsWith('.dmg.blockmap') || fileName.endsWith('.zip.blockmap')) {
+            return !hasMacPolicy;
+        }
+        if (fileName.endsWith('.exe.blockmap')) {
+            return !hasWindowsPolicy;
+        }
+        return fileName.endsWith('.blockmap');
+    });
+
+    if (forbidden.length > 0) {
+        throw new Error(
+            'Release artifacts include updater metadata forbidden by publish policy: '
+            + forbidden.sort().join(', '),
+        );
+    }
+}
+
 export function createReleaseVerificationEnvs(baseEnv = process.env) {
     const releaseCiEnv = {
         ...baseEnv,

@@ -96,8 +96,8 @@ function readUpdaterArtifactPath(yamlPath) {
         .replace(/['"]$/, '');
 }
 
-function validateUpdaterMetadata(target) {
-    const shouldExist = expectsUpdaterMetadata(target);
+function validateUpdaterMetadata(target, env = process.env) {
+    const shouldExist = expectsUpdaterMetadata(target, env);
     const distDir = resolve(process.cwd(), RELEASE_DIR);
     const ymlFiles = readdirSync(distDir)
         .filter(name => /^latest.*\.yml$/.test(name))
@@ -219,7 +219,7 @@ function main() {
 
         pruneUpdaterMetadataForLocalParity(target);
         assertReleaseArtifactsExist(target, env);
-        validateUpdaterMetadata(target);
+        validateUpdaterMetadata(target, env);
         verifyLocalPackageArtifacts(target);
 
         process.stdout.write(

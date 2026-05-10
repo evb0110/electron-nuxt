@@ -50,8 +50,10 @@ const IGNORED_PATH_SEGMENTS = new Set([
 
 const IMPORT_PATTERNS = [
     /\bimport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+    /\bimport\s*['"]([^'"]+)['"]/gu,
     /\bexport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
     /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+    /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
 ];
 
 const INTERNAL_LIKE_PREFIXES = [

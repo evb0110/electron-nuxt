@@ -138,8 +138,13 @@ jobs:
 
       - name: Validate updater metadata paths
         shell: bash
+        env:
+          EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+          EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ secrets.WIN_CSC_LINK != '' && secrets.WIN_CSC_KEY_PASSWORD != '' }}
         run: |
           set -euo pipefail
+          node scripts/release/assert-publish-metadata-policy.mjs artifacts
+
           shopt -s nullglob
           yml_files=(artifacts/latest*.yml)
           if [ ${#yml_files[@]} -eq 0 ]; then

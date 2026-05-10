@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 
 const {
     detectHostReleasePlatform,
+    assertPublishUpdaterMetadataPolicy,
     expectsUpdaterMetadata,
     getLocalReleaseTargets,
     getReleaseAutomationEnv,
@@ -99,6 +100,38 @@ describe('release policy', () => {
             expectsUpdaterMetadata: true,
             platform: 'mac',
         }, {}).map((pattern: RegExp) => pattern.source)).toEqual([ '\\.dmg$' ]);
+    });
+
+    it('rejects publish-time updater metadata that does not match signing policy', () => {
+        expect(() => assertPublishUpdaterMetadataPolicy([
+            'EVB Viewer-0.1.0-arm64.dmg',
+            'latest-mac.yml',
+            'EVB Viewer-0.1.0-arm64.dmg.blockmap',
+        ], {
+            EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
+        })).toThrow('latest-mac.yml');
+
+        expect(() => assertPublishUpdaterMetadataPolicy([
+            'EVB Viewer Setup 0.1.0.exe',
+            'latest.yml',
+            'EVB Viewer Setup 0.1.0.exe.blockmap',
+        ], {
+            EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
+        })).toThrow('latest.yml');
+
+        expect(() => assertPublishUpdaterMetadataPolicy([
+            'EVB Viewer-0.1.0-arm64.dmg',
+            'latest-mac.yml',
+            'EVB Viewer-0.1.0-arm64.dmg.blockmap',
+            'EVB Viewer Setup 0.1.0.exe',
+            'latest.yml',
+            'EVB Viewer Setup 0.1.0.exe.blockmap',
+        ], {
+            EVB_RELEASE_HAS_MAC_SIGNING: 'true',
+            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
+        })).not.toThrow();
     });
 
     it('keeps release checks focused on static checks and release-critical tests', () => {

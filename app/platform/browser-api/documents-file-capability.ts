@@ -58,6 +58,17 @@ import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { emitBrowserOpenPdfDirectBatchProgress } from '@app/platform/browser-api/documents-menu-capability';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvu-capability';
 import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
+import {
+    DEFAULT_LOCALE,
+    LOCALE_MESSAGES,
+    type TLocale,
+    type TTranslateFn,
+} from '@i18n-app';
+import {
+    formatTranslationLeaf,
+    getNestedTranslationLeaf,
+    normalizeTranslationParams,
+} from '@i18n-core';
 
 interface IPickedBrowserFile {
     file: File;
@@ -83,7 +94,6 @@ const BROWSER_EAGER_DECRYPT_BYTES = 64 * 1024 * 1024;
 const BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES = 64 * 1024 * 1024;
 const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = 32 * 1024 * 1024;
-const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system access enabled to save large documents.';
 const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
@@ -96,6 +106,42 @@ type TPermissionCapableFileHandle = FileSystemFileHandle & {
     queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
     requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
 };
+
+function getBrowserLocale(): TLocale {
+    const cookieMatch = typeof document !== 'undefined'
+        ? document.cookie.match(/(?:^|;\s*)i18n_redirected=([^;]+)/u)
+        : null;
+    const cookieLocale = cookieMatch?.[1]
+        ? decodeURIComponent(cookieMatch[1])
+        : null;
+
+    if (cookieLocale && cookieLocale in LOCALE_MESSAGES) {
+        return cookieLocale as TLocale;
+    }
+
+    const navigatorLocale = typeof navigator !== 'undefined'
+        ? navigator.language.split('-')[0]
+        : null;
+    return navigatorLocale && navigatorLocale in LOCALE_MESSAGES
+        ? navigatorLocale as TLocale
+        : DEFAULT_LOCALE;
+}
+
+const translateBrowserMessage: TTranslateFn = (key, ...args) => {
+    const params = normalizeTranslationParams(args[0]);
+    const locale = getBrowserLocale();
+    const messages = LOCALE_MESSAGES[locale] ?? LOCALE_MESSAGES[DEFAULT_LOCALE];
+    const fallbackMessages = LOCALE_MESSAGES[DEFAULT_LOCALE];
+    const leaf = getNestedTranslationLeaf(messages, key)
+        ?? getNestedTranslationLeaf(fallbackMessages, key)
+        ?? key;
+
+    return formatTranslationLeaf(leaf, params, locale);
+};
+
+function getBrowserLargeSaveHandleHint(): string {
+    return translateBrowserMessage('errors.browser.largeSaveHandleHint');
+}
 
 function isFileSystemAccessDeniedError(error: unknown) {
     return error instanceof DOMException
@@ -257,7 +303,7 @@ function buildBrowserLargeDownloadFallbackError(
     label: string,
     maxBytes: number,
 ) {
-    return buildBrowserLargeJobError(label, maxBytes, BROWSER_LARGE_SAVE_HANDLE_HINT);
+    return buildBrowserLargeJobError(label, maxBytes, getBrowserLargeSaveHandleHint());
 }
 
 function emitBatchOpenProgress(
@@ -1241,7 +1287,7 @@ async function saveWorkingBytesToSource(workingCopyPath: TDocumentRef) {
         await assertBrowserPathWithinFullReadBudget(
             workingCopyPath,
             'Saving documents',
-            BROWSER_LARGE_SAVE_HANDLE_HINT,
+            getBrowserLargeSaveHandleHint(),
         );
         const bytes = await browserDocumentStore.read(workingCopyPath);
         const saveResult = await saveBytesToPickerOrDownload(bytes, {
@@ -1414,7 +1460,7 @@ export function createBrowserDocumentsFileCapability(
                 await assertBrowserPathWithinFullReadBudget(
                     workingCopyPath,
                     'Saving documents',
-                    BROWSER_LARGE_SAVE_HANDLE_HINT,
+                    getBrowserLargeSaveHandleHint(),
                 );
                 const bytes = await browserDocumentStore.read(workingCopyPath);
                 const downloadResult = await saveBytesToPickerOrDownload(bytes, {
