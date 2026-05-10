@@ -23,14 +23,18 @@ import { getErrorMessage } from '@electron/utils/error';
 import { extractPages } from '@electron/features/page-ops/main/qpdf';
 
 const logger = createLogger('documents-print');
-const PRINT_LOAD_SETTLE_DELAY_MS = 300;
+// Low-end Windows machines can report the PDF plugin as loaded before it has painted.
+const PRINT_LOAD_SETTLE_DELAY_MS = 2_000;
+const PRINT_JOB_RESOURCE_RETENTION_MS = 30_000;
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
+const PRINT_DATA_TEMP_PREFIX = 'print-data-';
 const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
 const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
+const scheduledPrintTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
 
 interface IPrintPdfResult {
     success: boolean;
@@ -89,6 +93,40 @@ async function cleanupDefaultAppTempPath(path: string) {
     await unlink(path).catch(() => undefined);
 }
 
+function schedulePrintTempCleanup(path: string, delayMs = PRINT_JOB_RESOURCE_RETENTION_MS) {
+    const existingTimer = scheduledPrintTempCleanup.get(path);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+        scheduledPrintTempCleanup.delete(path);
+        void unlink(path).catch(() => undefined);
+    }, delayMs);
+    timer.unref?.();
+    scheduledPrintTempCleanup.set(path, timer);
+}
+
+async function cleanupPrintTempPath(path: string) {
+    const existingTimer = scheduledPrintTempCleanup.get(path);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+        scheduledPrintTempCleanup.delete(path);
+    }
+
+    await unlink(path).catch(() => undefined);
+}
+
+function shouldSweepManagedTempPdf(entry: string) {
+    if (extname(entry).toLowerCase() !== '.pdf') {
+        return false;
+    }
+
+    return entry.startsWith(DEFAULT_APP_TEMP_PREFIX)
+        || entry.startsWith(PRINT_DATA_TEMP_PREFIX)
+        || entry.startsWith(PRINT_PAGE_TEMP_PREFIX);
+}
+
 export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_MAX_AGE_MS) {
     const tempDir = app.getPath('temp');
     const now = Date.now();
@@ -101,7 +139,7 @@ export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_M
     }
 
     await Promise.all(entries.map(async (entry) => {
-        if (!entry.startsWith(DEFAULT_APP_TEMP_PREFIX) || extname(entry).toLowerCase() !== '.pdf') {
+        if (!shouldSweepManagedTempPdf(entry)) {
             return;
         }
 
@@ -117,6 +155,7 @@ export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_M
         }
 
         await cleanupDefaultAppTempPath(path);
+        await cleanupPrintTempPath(path);
     }));
 }
 
@@ -184,6 +223,19 @@ function createPrintWindow(ownerWindow?: BrowserWindow) {
     });
 }
 
+function closePrintWindow(printWindow: BrowserWindow) {
+    if (!printWindow.isDestroyed()) {
+        printWindow.close();
+    }
+}
+
+function schedulePrintWindowClose(printWindow: BrowserWindow, delayMs = PRINT_JOB_RESOURCE_RETENTION_MS) {
+    const timer = setTimeout(() => {
+        closePrintWindow(printWindow);
+    }, delayMs);
+    timer.unref?.();
+}
+
 async function runNativePrintDialog(
     printWindow: BrowserWindow,
     printOptions: WebContentsPrintOptions = {},
@@ -227,11 +279,17 @@ async function openNativePrintDialogForPath(
     printOptions: WebContentsPrintOptions = {},
 ): Promise<IPrintPdfResult> {
     const printWindow = createPrintWindow(ownerWindow);
+    let shouldRetainPrintWindow = false;
 
     try {
         await printWindow.loadURL(pathToFileURL(path).toString());
         await new Promise(resolve => setTimeout(resolve, PRINT_LOAD_SETTLE_DELAY_MS));
-        return await runNativePrintDialog(printWindow, printOptions);
+        const result = await runNativePrintDialog(printWindow, printOptions);
+        if (result.success) {
+            shouldRetainPrintWindow = true;
+            schedulePrintWindowClose(printWindow);
+        }
+        return result;
     } catch (error) {
         logger.warn(`Failed to open native print dialog: ${getErrorMessage(error)}`);
         return {
@@ -239,8 +297,8 @@ async function openNativePrintDialogForPath(
             error: error instanceof Error ? error.message : 'Failed to open native print dialog',
         };
     } finally {
-        if (!printWindow.isDestroyed()) {
-            printWindow.close();
+        if (!shouldRetainPrintWindow) {
+            closePrintWindow(printWindow);
         }
     }
 }
@@ -255,14 +313,22 @@ export async function handlePrintPdfData(
     }
 
     const ownerWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-    const tempFileName = `${randomUUID()}-${normalizePrintableFileName(fileName)}`;
+    const tempFileName = `${PRINT_DATA_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
     const tempPath = join(app.getPath('temp'), tempFileName);
+    let shouldRetainTempPdf = false;
 
     try {
         await writeFile(tempPath, toOwnedBuffer(data));
-        return await openNativePrintDialogForPath(ownerWindow, tempPath);
+        const result = await openNativePrintDialogForPath(ownerWindow, tempPath);
+        if (result.success) {
+            shouldRetainTempPdf = true;
+            schedulePrintTempCleanup(tempPath);
+        }
+        return result;
     } finally {
-        await unlink(tempPath).catch(() => undefined);
+        if (!shouldRetainTempPdf) {
+            await cleanupPrintTempPath(tempPath);
+        }
     }
 }
 
@@ -317,13 +383,21 @@ export async function handlePrintPdfPath(
 
     const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
     const tempPath = join(app.getPath('temp'), tempFileName);
+    let shouldRetainTempPdf = false;
     try {
         await extractPages(resolvedPath, tempPath, normalizedPageNumbers);
-        return await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
+        const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
             from: 0,
             to: normalizedPageNumbers.length - 1,
         }]});
+        if (result.success) {
+            shouldRetainTempPdf = true;
+            schedulePrintTempCleanup(tempPath);
+        }
+        return result;
     } finally {
-        await unlink(tempPath).catch(() => undefined);
+        if (!shouldRetainTempPdf) {
+            await cleanupPrintTempPath(tempPath);
+        }
     }
 }

@@ -19,6 +19,8 @@ const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 
+type TRunCommandOptionsExpectation = { allowedExitCodes?: number[] };
+
 vi.mock('node:crypto', () => ({ randomUUID: () => randomUuidMock() }));
 vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
@@ -94,6 +96,46 @@ describe('page-ops qpdf extract', () => {
             await extractPages(srcPath, destPath, [1]);
 
             await expect(readFile(destPath, 'utf8')).resolves.toBe('%PDF-1.7\nextracted');
+            await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('accepts qpdf warning-only extraction when a non-empty PDF was written', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const srcPath = join(workDir, 'source.pdf');
+        const destPath = join(workDir, 'extract.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+
+        try {
+            await writeFile(srcPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockImplementationOnce(async (
+                _qpdf,
+                args: string[],
+                options: TRunCommandOptionsExpectation,
+            ) => {
+                expect(args.at(-1)).toBe(tempOutputPath);
+                expect(options.allowedExitCodes).toEqual([
+                    0,
+                    3,
+                ]);
+                await writeFile(tempOutputPath, '%PDF-1.7\nrepaired extraction');
+                return {
+                    exitCode: 3,
+                    stdout: '',
+                    stderr: 'WARNING: xref entry for the xref stream itself is missing\nqpdf: operation succeeded with warnings',
+                };
+            });
+
+            const { extractPages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await extractPages(srcPath, destPath, [1]);
+
+            await expect(readFile(destPath, 'utf8')).resolves.toBe('%PDF-1.7\nrepaired extraction');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
         } finally {
             await rm(workDir, {

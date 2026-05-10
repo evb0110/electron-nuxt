@@ -10,15 +10,16 @@ import { pathToFileURL } from 'url';
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
+    const printHandler = vi.fn((
+        _options: unknown,
+        callback: (success: boolean, failureReason?: string) => void,
+    ) => callback(true));
 
     class MockBrowserWindow {
         public readonly close = vi.fn();
         public readonly isDestroyed = vi.fn(() => false);
         public readonly loadURL = vi.fn(async () => {});
-        public readonly webContents = { print: vi.fn((
-            _options: unknown,
-            callback: (success: boolean, failureReason?: string) => void,
-        ) => callback(true)) };
+        public readonly webContents = { print: vi.fn(printHandler) };
 
         public constructor(public readonly options: Record<string, unknown>) {
             browserWindowInstances.push(this);
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => {
         appGetPath: vi.fn(() => '/tmp'),
         browserWindowInstances,
         openPath: vi.fn(async () => ''),
+        printHandler,
         readdir: vi.fn<() => Promise<string[]>>(async () => []),
         randomUUID: vi.fn(() => 'print-job-id'),
         resolveAllowedReadPath: vi.fn(async (path: string) => path),
@@ -90,6 +92,10 @@ describe('documents print', () => {
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
         mocks.readdir.mockResolvedValue([]);
+        mocks.printHandler.mockImplementation((
+            _options: unknown,
+            callback: (success: boolean, failureReason?: string) => void,
+        ) => callback(true));
         mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
         mocks.stat.mockResolvedValue({
             ctimeMs: 0,
@@ -107,7 +113,7 @@ describe('documents print', () => {
             await Promise.resolve();
         }
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalled();
-        await vi.advanceTimersByTimeAsync(300);
+        await vi.advanceTimersByTimeAsync(2_000);
         return promise;
     }
 
@@ -133,6 +139,10 @@ describe('documents print', () => {
             pathToFileURL('/tmp/source.pdf').toString(),
         );
         expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledTimes(1);
+        expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
+
+        await vi.runOnlyPendingTimersAsync();
+
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
     });
 
@@ -147,10 +157,15 @@ describe('documents print', () => {
 
         expect(result).toEqual({ success: true });
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/print-job-id-document.pdf',
+            '/tmp/print-data-print-job-id-document.pdf',
             Buffer.from(Uint8Array.of(1, 2, 3)),
         );
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-job-id-document.pdf');
+        expect(mocks.unlink).not.toHaveBeenCalled();
+
+        await vi.runOnlyPendingTimersAsync();
+
+        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-data-print-job-id-document.pdf');
     });
 
     it('extracts requested pages to a temporary PDF before opening the native print dialog', async () => {
@@ -179,7 +194,34 @@ describe('documents print', () => {
             }]}),
             expect.any(Function),
         );
+        expect(mocks.unlink).not.toHaveBeenCalled();
+
+        await vi.runOnlyPendingTimersAsync();
+
+        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-pages-print-job-id-source.pdf');
+    });
+
+    it('cleans up print resources immediately when native printing fails', async () => {
+        vi.useFakeTimers();
+        mocks.printHandler.mockImplementationOnce((
+            _options: unknown,
+            callback: (success: boolean, failureReason?: string) => void,
+        ) => callback(false, 'printer unavailable'));
+
+        const resultPromise = handlePrintPdfData(
+            { sender: {} } as never,
+            Uint8Array.of(1, 2, 3),
+            'document.pdf',
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({
+            success: false,
+            error: 'printer unavailable',
+        });
+        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-data-print-job-id-document.pdf');
     });
 
     it('opens an existing PDF path in the default desktop app', async () => {
@@ -216,6 +258,8 @@ describe('documents print', () => {
             'open-in-default-app-stale.pdf',
             'open-in-default-app-fresh.pdf',
             'open-in-default-app-note.txt',
+            'print-data-stale.pdf',
+            'print-pages-stale.pdf',
             'other.pdf',
         ]);
         mocks.stat.mockImplementation(async (path: string) => ({
@@ -225,8 +269,10 @@ describe('documents print', () => {
 
         await sweepStaleDefaultAppTempPdfs(5_000);
 
-        expect(mocks.stat).toHaveBeenCalledTimes(2);
+        expect(mocks.stat).toHaveBeenCalledTimes(4);
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/open-in-default-app-stale.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-data-stale.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-pages-stale.pdf');
         expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/open-in-default-app-fresh.pdf');
         expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/other.pdf');
     });

@@ -15,6 +15,11 @@ import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
 
 const log = createLogger('page-ops-qpdf');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+// qpdf exits with 3 when it completed the write but found warnings in the input.
+const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
+    0,
+    3,
+];
 
 function getQpdfBinary() {
     return getNativeToolPaths().qpdf;
@@ -92,6 +97,7 @@ export async function extractPages(
         ];
         await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(extract-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Extracting pages');
@@ -128,6 +134,7 @@ export async function deletePages(
         ];
         await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
@@ -159,6 +166,7 @@ export async function reorderPages(
         ];
         await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(reorder-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
@@ -190,6 +198,7 @@ export async function rotatePages(
         ];
         await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(rotate-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Rotating pages');
