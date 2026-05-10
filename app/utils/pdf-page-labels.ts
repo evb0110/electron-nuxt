@@ -336,6 +336,22 @@ export function buildPageLabelsFromRanges(totalPages: number, ranges: IPdfPageLa
     return labels;
 }
 
+export function buildWholeDocumentPageLabelRanges(
+    totalPages: number,
+    options: Omit<IPdfPageLabelRange, 'startPage'>,
+): IPdfPageLabelRange[] {
+    if (totalPages <= 0) {
+        return [];
+    }
+
+    return normalizePageLabelRanges([{
+        startPage: 1,
+        style: options.style,
+        prefix: options.prefix,
+        startNumber: options.startNumber,
+    }], totalPages);
+}
+
 export function derivePageLabelRangesFromLabels(pageLabels: string[] | null, totalPages: number): IPdfPageLabelRange[] {
     if (totalPages <= 0) {
         return [];

@@ -587,6 +587,10 @@ export default {
     },
     'pageNumbering': {
         'numberPages': 'Pagina\'s nummeren',
+        'applyTo': 'Toepassen op',
+        'scopeAll': 'Alle pagina\'s ({count})',
+        'scopeRange': 'Paginabereik',
+        'scopeSelection': 'Selectie',
         'pageRange': 'Paginabereik',
         'style': 'Stijl',
         'prefix': 'Voorvoegsel',
@@ -605,6 +609,7 @@ export default {
         'targetUnavailableRange': 'Doel niet beschikbaar: voer één pagina (7) of een bereik (7-14) in.',
         'targetPages': 'Doel: pagina\'s {range}.',
         'targetSelectedPages': 'Doel: geselecteerde pagina\'s {range}.',
+        'targetAllPages': 'Doel: alle {count} pagina\'s.',
         'targetUnavailableNonContiguous': 'Doel niet beschikbaar: selectie is niet aaneengesloten.',
         'targetNone': 'Doel: geen. Voer een bereik in of selecteer aaneengesloten miniaturen.',
         'pageWord': plural({

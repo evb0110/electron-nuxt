@@ -58,6 +58,19 @@ describe('isAllowedWritePath', () => {
         expect(isAllowedWritePath('/tmp/electron-test/output.pdf')).toBe(true);
     });
 
+    it('accepts Windows native paths inside the temp directory', () => {
+        mocks.tempDir = 'C:\\Users\\Alice\\AppData\\Local\\Temp';
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp';
+            }
+            return path;
+        });
+
+        expect(isAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf'))
+            .toBe(true);
+    });
+
     it('rejects symlink targets', () => {
         mocks.lstatSync.mockReturnValue(createStat(true));
 
@@ -178,5 +191,24 @@ describe('resolveAllowedWritePath', () => {
 
         await expect(resolveAllowedWritePath('C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\new-output.pdf'))
             .resolves.toBe('C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\new-output.pdf');
+    });
+
+    it('allows existing Windows native namespaced targets inside the temp directory', async () => {
+        mocks.tempDir = 'C:\\Users\\Alice\\AppData\\Local\\Temp';
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp';
+            }
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf';
+            }
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1';
+            }
+            return path;
+        });
+
+        await expect(resolveAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf'))
+            .resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf');
     });
 });

@@ -587,6 +587,10 @@ export default {
     },
     'pageNumbering': {
         'numberPages': 'Number Pages',
+        'applyTo': 'Apply To',
+        'scopeAll': 'All pages ({count})',
+        'scopeRange': 'Page range',
+        'scopeSelection': 'Selection',
         'pageRange': 'Page Range',
         'style': 'Style',
         'prefix': 'Prefix',
@@ -605,6 +609,7 @@ export default {
         'targetUnavailableRange': 'Target unavailable: enter one page (7) or a range (7-14).',
         'targetPages': 'Target: pages {range}.',
         'targetSelectedPages': 'Target: selected pages {range}.',
+        'targetAllPages': 'Target: all {count} pages.',
         'targetUnavailableNonContiguous': 'Target unavailable: selection is not contiguous.',
         'targetNone': 'Target: none. Enter a range or select contiguous thumbnails.',
         'pageWord': plural({

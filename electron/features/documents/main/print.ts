@@ -3,6 +3,7 @@ import {
     BrowserWindow,
     shell,
 } from 'electron';
+import type { WebContentsPrintOptions } from 'electron';
 import {
     readdir,
     stat,
@@ -183,13 +184,17 @@ function createPrintWindow(ownerWindow?: BrowserWindow) {
     });
 }
 
-async function runNativePrintDialog(printWindow: BrowserWindow): Promise<IPrintPdfResult> {
+async function runNativePrintDialog(
+    printWindow: BrowserWindow,
+    printOptions: WebContentsPrintOptions = {},
+): Promise<IPrintPdfResult> {
     return new Promise((resolve) => {
         printWindow.webContents.print(
             {
                 silent: false,
                 printBackground: true,
                 margins: { marginType: 'printableArea' },
+                ...printOptions,
             },
             (success, failureReason) => {
                 if (success) {
@@ -219,13 +224,14 @@ async function runNativePrintDialog(printWindow: BrowserWindow): Promise<IPrintP
 async function openNativePrintDialogForPath(
     ownerWindow: BrowserWindow | undefined,
     path: string,
+    printOptions: WebContentsPrintOptions = {},
 ): Promise<IPrintPdfResult> {
     const printWindow = createPrintWindow(ownerWindow);
 
     try {
         await printWindow.loadURL(pathToFileURL(path).toString());
         await new Promise(resolve => setTimeout(resolve, PRINT_LOAD_SETTLE_DELAY_MS));
-        return await runNativePrintDialog(printWindow);
+        return await runNativePrintDialog(printWindow, printOptions);
     } catch (error) {
         logger.warn(`Failed to open native print dialog: ${getErrorMessage(error)}`);
         return {
@@ -313,7 +319,10 @@ export async function handlePrintPdfPath(
     const tempPath = join(app.getPath('temp'), tempFileName);
     try {
         await extractPages(resolvedPath, tempPath, normalizedPageNumbers);
-        return await openNativePrintDialogForPath(ownerWindow, tempPath);
+        return await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
+            from: 0,
+            to: normalizedPageNumbers.length - 1,
+        }]});
     } finally {
         await unlink(tempPath).catch(() => undefined);
     }

@@ -30,6 +30,34 @@
                 <div class="pdf-sidebar-pages-editor flex flex-col">
                     <div class="flex flex-col gap-1.5">
                         <div class="pdf-sidebar-pages-field flex flex-col gap-1">
+                            <span id="page-label-scope-label" class="pdf-sidebar-pages-label">{{ t('pageNumbering.applyTo') }}</span>
+                            <div
+                                class="pdf-sidebar-pages-scope-options"
+                                role="radiogroup"
+                                aria-labelledby="page-label-scope-label"
+                            >
+                                <label
+                                    v-for="scopeOption in numberingScopeOptions"
+                                    :key="scopeOption.value"
+                                    class="pdf-sidebar-pages-scope-option"
+                                    :class="{ 'pdf-sidebar-pages-scope-option-active': numberingScope === scopeOption.value }"
+                                >
+                                    <input
+                                        v-model="numberingScope"
+                                        class="pdf-sidebar-pages-scope-input"
+                                        type="radio"
+                                        name="page-label-scope"
+                                        :value="scopeOption.value"
+                                    >
+                                    <span class="pdf-sidebar-pages-scope-label">{{ scopeOption.label }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="numberingScope === 'range'"
+                            class="pdf-sidebar-pages-field flex flex-col gap-1"
+                        >
                             <label class="pdf-sidebar-pages-label" for="page-label-range-input">{{ t('pageNumbering.pageRange') }}</label>
                             <input
                                 id="page-label-range-input"
@@ -84,13 +112,13 @@
                     </div>
 
                     <div class="flex items-center gap-1.5">
-                        <span class="pdf-sidebar-pages-selection-text">{{ selectionSummary }}</span>
+                        <span class="pdf-sidebar-pages-selection-text">{{ targetSummary }}</span>
                         <UButton
                             size="xs"
                             variant="link"
                             color="neutral"
                             class="pdf-sidebar-pages-clear-button"
-                            :disabled="selectedPages.length === 0 && !pageRangeInput.trim()"
+                            :disabled="totalPages <= 0"
                             @click="clearAll"
                         >
                             {{ t('pageNumbering.clear') }}
@@ -130,6 +158,7 @@ import type {
     TPageLabelStyle,
 } from '@app/types/pdf';
 import {
+    buildWholeDocumentPageLabelRanges,
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
     formatPageRange,
@@ -137,6 +166,8 @@ import {
     parsePageRangeInput,
 } from '@app/utils/pdf-page-labels';
 import { arePageNumberListsEqual } from '@app/utils/pdf-page-selection';
+
+type TNumberingScope = 'all' | 'range' | 'selection';
 
 interface IProps {
     totalPages: number;
@@ -160,9 +191,28 @@ const isExpanded = ref(false);
 const ignoreRangeInputWatch = ref(false);
 const ignoreSelectionWatch = ref(false);
 const pageRangeInput = ref('');
+const numberingScope = ref<TNumberingScope>('all');
 const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
 const pageLabelPrefix = ref('');
 const pageLabelStartNumber = ref(1);
+
+const numberingScopeOptions = computed<Array<{
+    value: TNumberingScope;
+    label: string;
+}>>(() => [
+    {
+        value: 'all',
+        label: t('pageNumbering.scopeAll', { count: props.totalPages }),
+    },
+    {
+        value: 'range',
+        label: t('pageNumbering.scopeRange'),
+    },
+    {
+        value: 'selection',
+        label: t('pageNumbering.scopeSelection'),
+    },
+]);
 
 const pageLabelStyleOptions = computed<Array<{
     value: '' | Exclude<TPageLabelStyle, null>;
@@ -236,22 +286,65 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
 
 const selectionRange = computed(() => deriveContiguousSelectionRange(props.selectedPages));
 
-const selectionSummary = computed(() => {
+const allPagesRange = computed<IPdfPageRange | null>(() => {
+    if (props.totalPages <= 0) {
+        return null;
+    }
+
+    return {
+        startPage: 1,
+        endPage: props.totalPages,
+    };
+});
+
+const applyTargetRange = computed(() => {
+    if (numberingScope.value === 'all') {
+        return allPagesRange.value;
+    }
+
+    if (numberingScope.value === 'range') {
+        return pageRangeInput.value.trim().length > 0 ? manualRange.value : null;
+    }
+
+    return selectionRange.value;
+});
+
+const targetSummary = computed(() => {
+    if (numberingScope.value === 'all') {
+        if (props.totalPages <= 0) {
+            return t('pageNumbering.targetNone');
+        }
+        return t('pageNumbering.targetAllPages', { count: props.totalPages });
+    }
+
+    if (numberingScope.value === 'range') {
+        if (!pageRangeInput.value.trim()) {
+            return t('pageNumbering.targetUnavailableRange');
+        }
+        if (manualRange.value === null) {
+            return t('pageNumbering.targetUnavailableRange');
+        }
+
+        return t('pageNumbering.targetPages', {range: formatPageRange(manualRange.value)});
+    }
+
     if (props.selectedPages.length === 0) {
-        return t('pageNumbering.none');
+        return t('pageNumbering.targetNone');
     }
 
     if (selectionRange.value === null) {
-        return t('pageNumbering.pagesNonContiguous', { count: props.selectedPages.length });
+        return t('pageNumbering.targetUnavailableNonContiguous');
     }
 
     const rangeText = formatPageRange(selectionRange.value);
-    const pageCount = selectionRange.value.endPage - selectionRange.value.startPage + 1;
-    const pageWord = t('pageNumbering.pageWord', pageCount);
-    return `${rangeText} (${pageCount} ${pageWord})`;
+    return t('pageNumbering.targetSelectedPages', { range: rangeText });
 });
 
 const rangeErrorMessage = computed(() => {
+    if (numberingScope.value !== 'range') {
+        return '';
+    }
+
     if (!pageRangeInput.value.trim()) {
         return '';
     }
@@ -261,14 +354,6 @@ const rangeErrorMessage = computed(() => {
     }
 
     return t('pageNumbering.rangeError');
-});
-
-const applyTargetRange = computed(() => {
-    if (pageRangeInput.value.trim().length > 0) {
-        return manualRange.value;
-    }
-
-    return selectionRange.value;
 });
 
 function readEventValue(event: Event) {
@@ -317,6 +402,23 @@ function getConfiguredPageLabelStyle(): TPageLabelStyle {
     return pageLabelStyle.value === '' ? null : pageLabelStyle.value;
 }
 
+function getConfiguredPageLabelRange(startPage: number): IPdfPageLabelRange {
+    return {
+        startPage,
+        style: getConfiguredPageLabelStyle(),
+        prefix: pageLabelPrefix.value,
+        startNumber: pageLabelStartNumber.value,
+    };
+}
+
+function applyPageLabelsToWholeDocument() {
+    emit('update:pageLabelRanges', buildWholeDocumentPageLabelRanges(props.totalPages, {
+        style: getConfiguredPageLabelStyle(),
+        prefix: pageLabelPrefix.value,
+        startNumber: pageLabelStartNumber.value,
+    }));
+}
+
 function applyPageLabelsToRange(range: IPdfPageRange) {
     if (props.totalPages <= 0) {
         return;
@@ -329,12 +431,7 @@ function applyPageLabelsToRange(range: IPdfPageRange) {
 
     const segmentLabels = buildPageLabelsFromRanges(
         range.endPage - range.startPage + 1,
-        [{
-            startPage: 1,
-            style: getConfiguredPageLabelStyle(),
-            prefix: pageLabelPrefix.value,
-            startNumber: pageLabelStartNumber.value,
-        }],
+        [getConfiguredPageLabelRange(1)],
     );
 
     segmentLabels.forEach((label, index) => {
@@ -351,12 +448,20 @@ function applyToTargetRange() {
     }
 
     const targetRange = applyTargetRange.value;
+    if (numberingScope.value === 'all') {
+        setSelectedPagesSilently([]);
+        setPageRangeInputSilently('');
+        applyPageLabelsToWholeDocument();
+        return;
+    }
+
     setSelectedPagesSilently(buildRangePages(targetRange));
     setPageRangeInputSilently(formatPageRange(targetRange));
     applyPageLabelsToRange(targetRange);
 }
 
 function clearAll() {
+    numberingScope.value = 'all';
     setSelectedPagesSilently([]);
     setPageRangeInputSilently('');
     emit('clear');
@@ -371,9 +476,14 @@ watch(
         }
 
         if (pages.length === 0) {
+            if (numberingScope.value === 'selection') {
+                numberingScope.value = 'all';
+            }
             setPageRangeInputSilently('');
             return;
         }
+
+        numberingScope.value = 'selection';
 
         if (selectionRange.value === null) {
             setPageRangeInputSilently('');
@@ -395,9 +505,14 @@ watch(
         }
 
         if (!inputValue.trim()) {
+            if (numberingScope.value === 'range') {
+                numberingScope.value = selectionRange.value === null ? 'all' : 'selection';
+            }
             setSelectedPagesSilently([]);
             return;
         }
+
+        numberingScope.value = 'range';
 
         if (manualRange.value === null) {
             return;
@@ -486,6 +601,43 @@ watch(
     color: var(--ui-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+}
+
+.pdf-sidebar-pages-scope-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pdf-sidebar-pages-scope-option {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.25rem;
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text);
+    padding: 0.25rem 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.pdf-sidebar-pages-scope-option-active {
+    border-color: var(--ui-primary);
+    color: var(--ui-primary);
+}
+
+.pdf-sidebar-pages-scope-input {
+    flex-shrink: 0;
+}
+
+.pdf-sidebar-pages-scope-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .pdf-sidebar-pages-input,

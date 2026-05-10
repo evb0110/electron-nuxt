@@ -37,7 +37,7 @@ const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
     ipcHandle: vi.fn<(channel: string, handler: TRegisteredHandler) => void>(),
     existsSync: vi.fn<(path: string) => boolean>(),
-    isAllowedWritePath: vi.fn<(path: string) => boolean>(),
+    resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
     deletePages: vi.fn(),
     extractPages: vi.fn(),
     reorderPages: vi.fn(),
@@ -83,7 +83,7 @@ vi.mock('fs/promises', () => ({
     rm: (...args: unknown[]) => mocks.rm(...args),
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
-vi.mock('@electron/utils/path-validator', () => ({isAllowedWritePath: (path: string) => mocks.isAllowedWritePath(path)}));
+vi.mock('@electron/utils/path-validator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
 vi.mock('@electron/ipc/workingCopy', () => ({
     ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
     findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
@@ -134,7 +134,7 @@ describe('registerPageOpsHandlers', () => {
         vi.clearAllMocks();
 
         mocks.existsSync.mockReturnValue(true);
-        mocks.isAllowedWritePath.mockReturnValue(true);
+        mocks.resolveAllowedWritePath.mockImplementation(async (path: string) => path);
         mocks.getFocusedWindow.mockReturnValue(null);
         mocks.showSaveDialog.mockResolvedValue({
             canceled: true,
@@ -333,7 +333,7 @@ describe('registerPageOpsHandlers', () => {
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
         expect(mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.isAllowedWritePath.mock.invocationCallOrder[0]!,
+            mocks.resolveAllowedWritePath.mock.invocationCallOrder[0]!,
         );
     });
 
@@ -358,6 +358,64 @@ describe('registerPageOpsHandlers', () => {
             '/tmp/extracted-pages.pdf',
             [1],
         );
+    });
+
+    it('accepts a Windows temp working copy path for extraction', async () => {
+        const workingCopyPath = 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf';
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: 'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
+        });
+
+        const handler = getHandler('page-ops:extract');
+
+        await expect(handler({sender: {id: 1}}, workingCopyPath, [1]))
+            .resolves.toEqual({
+                success: true,
+                destPath: 'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
+            });
+
+        expect(mocks.resolveAllowedWritePath).toHaveBeenCalledWith(workingCopyPath);
+        expect(mocks.extractPages).toHaveBeenCalledWith(
+            workingCopyPath,
+            'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
+            [1],
+        );
+    });
+
+    it('accepts a Windows native namespaced temp working copy path for extraction', async () => {
+        const workingCopyPath = '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf';
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: 'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
+        });
+
+        const handler = getHandler('page-ops:extract');
+
+        await expect(handler({sender: {id: 1}}, workingCopyPath, [1]))
+            .resolves.toEqual({
+                success: true,
+                destPath: 'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
+            });
+
+        expect(mocks.resolveAllowedWritePath).toHaveBeenCalledWith(workingCopyPath);
+        expect(mocks.extractPages).toHaveBeenCalledWith(
+            workingCopyPath,
+            'C:\\Users\\Alice\\Desktop\\extracted-pages.pdf',
+            [1],
+        );
+    });
+
+    it('rejects an unmapped original Windows path before showing the extract destination dialog', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValueOnce(null);
+
+        const handler = getHandler('page-ops:extract');
+
+        await expect(handler({sender: {id: 1}}, 'C:\\Users\\Alice\\Documents\\book.pdf', [1]))
+            .rejects.toThrow('Path is outside the allowed working directory');
+
+        expect(mocks.showSaveDialog).not.toHaveBeenCalled();
+        expect(mocks.extractPages).not.toHaveBeenCalled();
     });
 
     it('rejects invalid crop margins before reaching page crop mutations', async () => {

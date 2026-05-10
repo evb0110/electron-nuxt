@@ -587,6 +587,10 @@ export default {
     },
     'pageNumbering': {
         'numberPages': 'Seiten nummerieren',
+        'applyTo': 'Anwenden auf',
+        'scopeAll': 'Alle Seiten ({count})',
+        'scopeRange': 'Seitenbereich',
+        'scopeSelection': 'Auswahl',
         'pageRange': 'Seitenbereich',
         'style': 'Stil',
         'prefix': 'Präfix',
@@ -605,6 +609,7 @@ export default {
         'targetUnavailableRange': 'Ziel nicht verfügbar: Geben Sie eine Seite (7) oder einen Bereich (7-14) ein.',
         'targetPages': 'Ziel: Seiten {range}.',
         'targetSelectedPages': 'Ziel: ausgewählte Seiten {range}.',
+        'targetAllPages': 'Ziel: alle {count} Seiten.',
         'targetUnavailableNonContiguous': 'Ziel nicht verfügbar: Auswahl ist nicht zusammenhängend.',
         'targetNone': 'Ziel: keines. Geben Sie einen Bereich ein oder wählen Sie zusammenhängende Miniaturansichten.',
         'pageWord': plural({

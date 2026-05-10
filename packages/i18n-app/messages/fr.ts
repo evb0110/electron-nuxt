@@ -593,6 +593,10 @@ export default {
     },
     'pageNumbering': {
         'numberPages': 'Numéroter les pages',
+        'applyTo': 'Appliquer à',
+        'scopeAll': 'Toutes les pages ({count})',
+        'scopeRange': 'Plage de pages',
+        'scopeSelection': 'Sélection',
         'pageRange': 'Plage de pages',
         'style': 'Style',
         'prefix': 'Préfixe',
@@ -611,6 +615,7 @@ export default {
         'targetUnavailableRange': 'Cible non disponible : saisissez une page (7) ou une plage (7-14).',
         'targetPages': 'Cible : pages {range}.',
         'targetSelectedPages': 'Cible : pages sélectionnées {range}.',
+        'targetAllPages': 'Cible : toutes les pages ({count}).',
         'targetUnavailableNonContiguous': 'Cible non disponible : la sélection n’est pas contiguë.',
         'targetNone': 'Cible : aucune. Saisissez une plage ou sélectionnez des miniatures contiguës.',
         'pageWord': plural({

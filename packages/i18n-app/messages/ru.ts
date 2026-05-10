@@ -601,6 +601,10 @@ export default {
     },
     'pageNumbering': {
         'numberPages': 'Нумерация страниц',
+        'applyTo': 'Применить к',
+        'scopeAll': 'Все страницы ({count})',
+        'scopeRange': 'Диапазон страниц',
+        'scopeSelection': 'Выделение',
         'pageRange': 'Диапазон страниц',
         'style': 'Стиль',
         'prefix': 'Префикс',
@@ -619,6 +623,7 @@ export default {
         'targetUnavailableRange': 'Цель недоступна: введите страницу (7) или диапазон (7-14).',
         'targetPages': 'Цель: страницы {range}.',
         'targetSelectedPages': 'Цель: выбранные страницы {range}.',
+        'targetAllPages': 'Цель: все страницы ({count}).',
         'targetUnavailableNonContiguous': 'Цель недоступна: выделение не последовательное.',
         'targetNone': 'Цель: нет. Введите диапазон или выберите последовательные миниатюры.',
         'pageWord': plural({
