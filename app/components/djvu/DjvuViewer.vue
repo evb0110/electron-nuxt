@@ -19,16 +19,16 @@
 
         <div
             v-if="isInitialPreviewPending"
-            class="djvu-initial-loading"
+            class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]"
             role="status"
             aria-live="polite"
         >
-            <div class="djvu-initial-loading-chip">
+            <div class="flex flex-col items-center gap-2">
                 <UIcon
                     name="i-lucide-loader-circle"
-                    class="djvu-initial-loading-spinner"
+                    class="size-5 animate-spin text-[var(--ui-text-muted)]"
                 />
-                <span class="text-sm text-muted">{{ t('common.loading') }}</span>
+                <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
             </div>
         </div>
 
@@ -1385,45 +1385,6 @@ defineExpose<IPdfViewerExpose>({
 .djvu-viewer-container--pending {
     pointer-events: none;
     visibility: hidden;
-}
-
-.djvu-initial-loading {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    background: var(--app-window-bg);
-}
-
-.djvu-initial-loading-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius-full);
-    background: color-mix(in oklab, var(--ui-bg-elevated) 92%, transparent);
-    padding: 0.5rem 0.85rem;
-    box-shadow: var(--shadow-popup);
-}
-
-.djvu-initial-loading-spinner {
-    width: 1rem;
-    height: 1rem;
-    color: var(--ui-text-muted);
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
 }
 
 </style>
