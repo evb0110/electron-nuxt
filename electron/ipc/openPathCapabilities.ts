@@ -59,7 +59,7 @@ export function allowOpenPaths(filePaths: string[]) {
     }
 }
 
-export function isAllowedOpenPath(filePath: string) {
+function isAllowedOpenPath(filePath: string) {
     const normalizedPath = normalizeOpenPath(filePath);
     return Boolean(normalizedPath && allowedOpenPaths.has(normalizedPath));
 }
