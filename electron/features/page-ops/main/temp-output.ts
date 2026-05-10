@@ -1,11 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
-import {
-    unlink,
-    rename,
-} from 'fs/promises';
+import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { getErrorMessage } from '@electron/utils/error';
+import { atomicReplace } from '@electron/utils/atomic-replace';
 
 interface ITempOutputLogger { debug(msg: string): void; }
 
@@ -20,20 +18,8 @@ export async function replaceTempOutput(
     targetPath: string,
     options: { replaceExistingTargetOnFailure?: boolean } = {},
 ) {
-    try {
-        await rename(tempPath, targetPath);
-    } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (
-            !options.replaceExistingTargetOnFailure
-            || (err.code !== 'EEXIST' && err.code !== 'EPERM')
-        ) {
-            throw error;
-        }
-
-        await unlink(targetPath);
-        await rename(tempPath, targetPath);
-    }
+    void options;
+    await atomicReplace(tempPath, targetPath);
 }
 
 export async function cleanupTempOutput(

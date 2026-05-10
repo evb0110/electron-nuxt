@@ -130,7 +130,6 @@ export function createDocumentsPreloadFileClient(
         showItemInFolder: (path: string) => invoke(DOCUMENTS_CHANNELS.shellShowItemInFolder, path),
         recentFiles: {
             get: () => invoke(DOCUMENTS_CHANNELS.recentFilesGet),
-            add: (path: string) => invoke(DOCUMENTS_CHANNELS.recentFilesAdd, path),
             remove: (path: string) => invoke(DOCUMENTS_CHANNELS.recentFilesRemove, path),
             clear: () => invoke(DOCUMENTS_CHANNELS.recentFilesClear),
         },

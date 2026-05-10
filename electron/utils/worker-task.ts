@@ -26,6 +26,8 @@ interface IRunResultWorkerTaskOptions<T = unknown> {
     onProgressMessage?: (payload: unknown) => boolean;
     decodeResult?: (data: unknown) => T | null;
     invalidResultMessage?: string;
+    signal?: AbortSignal;
+    timeoutMs?: number;
 }
 
 export interface IStreamingWorkerTaskHandle<T> {
@@ -53,6 +55,13 @@ function toError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
 }
 
+function getAbortReason(signal: AbortSignal) {
+    if (signal.reason !== undefined) {
+        return signal.reason;
+    }
+    return new DOMException('The operation was aborted', 'AbortError');
+}
+
 interface IAttachWorkerHandlersOptions<T> {
     worker: Worker;
     options: IRunResultWorkerTaskOptions<T>;
@@ -77,16 +86,42 @@ function attachWorkerHandlers<T>({
     } = options;
     let settled = false;
     let online = false;
+    let timeout: NodeJS.Timeout | null = null;
 
     const finalize = (callback: () => void) => {
         if (settled) {
             return;
         }
         settled = true;
+        if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+        }
         worker.removeAllListeners();
+        options.signal?.removeEventListener('abort', handleAbort);
         void worker.terminate().catch(() => {});
         callback();
     };
+
+    const handleAbort = () => {
+        finalize(() => {
+            reject(getAbortReason(options.signal!));
+        });
+    };
+
+    if (options.signal?.aborted) {
+        handleAbort();
+        return;
+    }
+    options.signal?.addEventListener('abort', handleAbort, { once: true });
+
+    if (options.timeoutMs !== undefined) {
+        timeout = setTimeout(() => {
+            finalize(() => {
+                reject(new Error(`Worker task timed out after ${options.timeoutMs}ms`));
+            });
+        }, options.timeoutMs);
+    }
 
     worker.once('online', () => {
         online = true;

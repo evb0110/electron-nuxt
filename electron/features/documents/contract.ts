@@ -32,7 +32,6 @@ export const DOCUMENTS_CHANNELS = {
     menuSetDocumentState: 'menu:setDocumentState',
     menuSetTabCount: 'menu:setTabCount',
     recentFilesGet: 'recent-files:get',
-    recentFilesAdd: 'recent-files:add',
     recentFilesRemove: 'recent-files:remove',
     recentFilesClear: 'recent-files:clear',
 } as const;

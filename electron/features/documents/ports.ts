@@ -5,6 +5,7 @@ import type {
 } from '@contracts/electron-api';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
+import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 export interface IDocumentsService {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
@@ -21,7 +22,7 @@ export interface IDocumentsService {
     ) => Promise<string>;
     createWorkingCopyFromPath: (
         event: IpcMainInvokeEvent,
-        sourcePath: string,
+        sourcePath: TOpenPath,
         originalPath?: string,
     ) => Promise<string>;
     savePdfAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;
@@ -62,7 +63,6 @@ export interface IDocumentsService {
     setMenuDocumentState: (event: IpcMainInvokeEvent, hasDocument: boolean) => void;
     setMenuTabCount: (event: IpcMainInvokeEvent, tabCount: number) => void;
     getRecentFiles: () => Promise<IRecentFile[]>;
-    addRecentFile: (_event: IpcMainInvokeEvent, originalPath: string) => Promise<void>;
     removeRecentFile: (_event: IpcMainInvokeEvent, originalPath: string) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
 }

@@ -5,8 +5,21 @@ import type { IIpcMainRegistrar } from '@contracts/ipc-main';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {createDocumentsService} from '@electron/features/documents/service';
 import type { IDocumentsService } from '@electron/features/documents/ports';
-import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
+import {
+    allowOpenPath,
+    requireOpenPath,
+    type TOpenPath,
+} from '@electron/ipc/openPathCapabilities';
 import { isSupportedOpenPath } from '@electron/image/pdf-conversion';
+import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopy';
+
+async function requireWorkingCopySourcePath(sourcePath: string): Promise<TOpenPath> {
+    try {
+        return requireOpenPath(sourcePath);
+    } catch {
+        return requireManagedWorkingCopyPath(sourcePath);
+    }
+}
 
 export function registerDocumentsIpcAdapter(
     registrar: IIpcMainRegistrar,
@@ -40,7 +53,8 @@ export function registerDocumentsIpcAdapter(
     registrar.handle(
         DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
         (event: IpcMainInvokeEvent, sourcePath: string, originalPath?: string) =>
-            service.createWorkingCopyFromPath(event, sourcePath, originalPath),
+            requireWorkingCopySourcePath(sourcePath)
+                .then(trustedSourcePath => service.createWorkingCopyFromPath(event, trustedSourcePath, originalPath)),
     );
     registrar.handle(DOCUMENTS_CHANNELS.savePdfAs, (event: IpcMainInvokeEvent, workingPath: string) =>
         service.savePdfAs(event, workingPath),
@@ -127,9 +141,6 @@ export function registerDocumentsIpcAdapter(
         service.setMenuTabCount(event, tabCount),
     );
     registrar.handle(DOCUMENTS_CHANNELS.recentFilesGet, () => service.getRecentFiles());
-    registrar.handle(DOCUMENTS_CHANNELS.recentFilesAdd, (event: IpcMainInvokeEvent, originalPath: string) =>
-        service.addRecentFile(event, originalPath),
-    );
     registrar.handle(DOCUMENTS_CHANNELS.recentFilesRemove, (event: IpcMainInvokeEvent, originalPath: string) =>
         service.removeRecentFile(event, originalPath),
     );

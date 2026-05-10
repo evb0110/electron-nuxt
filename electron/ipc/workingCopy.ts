@@ -26,6 +26,11 @@ import {
 import { createLogger } from '@electron/utils/logger';
 import { decryptPdfFileIfNeeded } from '@electron/utils/pdf-decrypt';
 import { getErrorMessage } from '@electron/utils/error';
+import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomic-replace';
 
 const logger = createLogger('working-copy');
 const ALLOWED_SAVE_EXTENSIONS = new Set([
@@ -295,7 +300,7 @@ async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
     await copyFile(sourcePath, targetPath);
 }
 
-export async function createWorkingCopy(originalPath: string): Promise<string> {
+export async function createWorkingCopy(originalPath: TOpenPath): Promise<string> {
     const workDir = createWorkingDirectory();
     try {
         const fileName = basename(originalPath);
@@ -315,30 +320,25 @@ export async function createWorkingCopy(originalPath: string): Promise<string> {
 }
 
 export async function createWorkingCopyFromPath(
-    sourcePath: string,
+    sourcePath: TOpenPath,
     originalPath?: string,
 ): Promise<string> {
-    const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
-    if (!normalizedSourcePath) {
-        throw new Error('Invalid source path');
-    }
-
     const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
-        : normalizedSourcePath;
+        : sourcePath;
     if (!isAllowedOriginalSavePath(mappedOriginalPath)) {
         throw new Error('Invalid original path mapping');
     }
 
     const workDir = createWorkingDirectory();
     try {
-        const fileName = basename(normalizedSourcePath);
+        const fileName = basename(sourcePath);
         const normalizedName = fileName.toLowerCase().endsWith('.pdf')
             ? fileName
             : `${fileName}.pdf`;
         const workingPath = join(workDir, normalizedName);
 
-        await copyFileCopyOnWrite(normalizedSourcePath, workingPath);
+        await copyFileCopyOnWrite(sourcePath, workingPath);
         await decryptPdfFileIfNeeded(workingPath);
 
         workingCopyMap.set(workingPath, mappedOriginalPath);
@@ -348,6 +348,21 @@ export async function createWorkingCopyFromPath(
         await safeRemoveDirectory(workDir);
         throw error;
     }
+}
+
+export async function requireManagedWorkingCopyPath(sourcePath: string): Promise<TOpenPath> {
+    const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
+    if (!normalizedSourcePath) {
+        throw new Error('Invalid source path');
+    }
+    const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedSourcePath);
+    if (!isManagedWorkingCopy) {
+        throw new Error('Source path is not a managed working copy');
+    }
+    if (!existsSync(normalizedSourcePath)) {
+        throw new Error(`File not found: ${normalizedSourcePath}`);
+    }
+    return normalizedSourcePath as TOpenPath;
 }
 
 export async function createWorkingCopyFromData(
@@ -447,7 +462,17 @@ export async function handleFileSave(
 
     try {
         await ensureWorkingCopyDirectory(normalizedWorkingPath);
-        await copyFile(normalizedWorkingPath, originalPath);
+        const tempPath = makeSiblingTempPath(originalPath);
+        let replaced = false;
+        try {
+            await copyFile(normalizedWorkingPath, tempPath);
+            await atomicReplace(tempPath, originalPath);
+            replaced = true;
+        } finally {
+            if (!replaced) {
+                await rm(tempPath, { force: true }).catch(() => undefined);
+            }
+        }
         return true;
     } catch (err) {
         if (err instanceof WorkingCopyMissingError) {

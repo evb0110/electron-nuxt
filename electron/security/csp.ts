@@ -15,6 +15,7 @@ export function buildContentSecurityPolicy(isDev: boolean) {
     // JBIG2/JPEG2000-encoded images, ICC color profiles, or JS actions. Without this directive
     // those PDFs silently fail to render those streams.
     const scriptSrc = 'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\'';
+    // Vue/PDF.js render geometry through inline style attributes and Electron preload injects a small style tag.
     const styleSrc = 'style-src \'self\' \'unsafe-inline\'';
 
     return [

@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const mocks = vi.hoisted(() => {
     class MockDjvuPdfWorkerStartupError extends Error {
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => {
         rm: vi.fn(),
         stat: vi.fn(),
         unlink: vi.fn(),
+        atomicReplace: vi.fn(),
         getDjvuPageCount: vi.fn(),
         getDjvuOutline: vi.fn(),
         parseDjvuOutline: vi.fn(),
@@ -74,6 +76,8 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
 })}));
 
+vi.mock('@electron/utils/atomic-replace', () => ({atomicReplace: mocks.atomicReplace}));
+
 vi.mock('@electron/features/djvu/main/pdf-worker-client', () => ({
     createDjvuPdfBookmarkTask: mocks.createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError: mocks.StartupError,
@@ -83,6 +87,8 @@ const {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
 } = await import('@electron/features/djvu/main/pdf-export');
+
+const trustedDjvuPath = '/tmp/input.djvu' as TOpenPath;
 
 describe('handleDjvuConvertToPdf', () => {
     beforeEach(() => {
@@ -101,6 +107,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({size: 8 * 1024 * 1024});
         mocks.unlink.mockResolvedValue(undefined);
+        mocks.atomicReplace.mockResolvedValue(undefined);
         mocks.getDjvuPageCount.mockResolvedValue(2);
         mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
         mocks.parseDjvuOutline.mockReturnValue([{
@@ -147,7 +154,7 @@ describe('handleDjvuConvertToPdf', () => {
 
         const result = await handleDjvuConvertToPdf(
             {sender: {id: 7}} as never,
-            '/tmp/input.djvu',
+            trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
         );
@@ -169,7 +176,7 @@ describe('handleDjvuConvertToPdf', () => {
 
         const result = await handleDjvuConvertToPdf(
             {sender: {id: 7}} as never,
-            '/tmp/input.djvu',
+            trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
         );
@@ -187,7 +194,7 @@ describe('handleDjvuConvertToPdf', () => {
 
         const convertPromise = handleDjvuConvertToPdf(
             {sender: {id: 7}} as never,
-            '/tmp/input.djvu',
+            trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
         );
@@ -211,14 +218,10 @@ describe('handleDjvuConvertToPdf', () => {
         });
     });
 
-    it('replaces an existing output file when Windows rename refuses overwrite', async () => {
-        mocks.rename
-            .mockRejectedValueOnce(Object.assign(new Error('target exists'), { code: 'EEXIST' }))
-            .mockResolvedValue(undefined);
-
+    it('atomically replaces the output file', async () => {
         const result = await handleDjvuConvertToPdf(
             {sender: {id: 7}} as never,
-            '/tmp/input.djvu',
+            trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: false},
         );
@@ -228,7 +231,6 @@ describe('handleDjvuConvertToPdf', () => {
             pdfPath: '/tmp/output.pdf',
             jobId: 'djvu-convert-convert-123',
         });
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/output.pdf');
-        expect(mocks.rename).toHaveBeenCalledTimes(2);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.convert-123.convert.pdf', '/tmp/output.pdf');
     });
 });

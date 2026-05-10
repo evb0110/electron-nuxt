@@ -32,6 +32,10 @@ import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/worker-task';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomic-replace';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 
@@ -51,6 +55,7 @@ const logger = createLogger('image-export');
 const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
 const TIFF_COMBINE_WORKER_FILENAME = 'image-export-tiff-worker.js';
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = (() => {
     const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_FALLBACK_MAX_PAGES ?? '2', 10);
@@ -152,8 +157,18 @@ async function moveFile(sourcePath: string, targetPath: string) {
             throw error;
         }
 
-        await copyFile(sourcePath, targetPath);
-        await unlink(sourcePath);
+        const tempPath = makeSiblingTempPath(targetPath);
+        let replaced = false;
+        try {
+            await copyFile(sourcePath, tempPath);
+            await atomicReplace(tempPath, targetPath);
+            replaced = true;
+            await unlink(sourcePath);
+        } finally {
+            if (!replaced) {
+                await rm(tempPath, { force: true }).catch(() => undefined);
+            }
+        }
     }
 }
 
@@ -402,6 +417,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
                 `TIFF combine worker exited during startup with code ${code}`,
             ),
             createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
+            timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
         }), {
             thresholdMs: 25,
             details: {
