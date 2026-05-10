@@ -12,6 +12,7 @@
         :disable-closing-trigger="disableClosingTrigger"
         :disabled="disabled || !isUseful"
         :ignore-non-keyboard-focus="ignoreNonKeyboardFocus"
+        :reference="referenceElement"
         @update:open="emit('update:open', $event)"
     >
         <span
@@ -70,7 +71,15 @@ const {
 const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
+const referenceElement = shallowRef<HTMLElement | undefined>();
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
+
+function refreshReferenceElement() {
+    const root = triggerRef.value;
+    const reference = root?.firstElementChild;
+
+    referenceElement.value = reference instanceof HTMLElement ? reference : root ?? undefined;
+}
 
 function hasUsefulText(element: HTMLElement): boolean {
     return (element.innerText ?? '').trim().length > 0;
@@ -99,6 +108,8 @@ function refreshUsefulness() {
         return;
     }
 
+    refreshReferenceElement();
+
     const hasText = hasUsefulText(root);
     const isOverflowing = hasOverflowingContent(root);
 
@@ -110,6 +121,7 @@ function refreshUsefulness() {
 
 watch(() => usefulness, refreshUsefulness);
 onMounted(refreshUsefulness);
+onUpdated(refreshReferenceElement);
 </script>
 
 <style scoped>
