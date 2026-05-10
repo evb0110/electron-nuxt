@@ -1,5 +1,5 @@
 <template>
-    <header :class="['toolbar', `toolbar--${variant}`, {'toolbar--has-ocr-action': hasOcrAction}]">
+    <header ref="toolbarRef" :class="['toolbar', `toolbar--${variant}`, {'toolbar--has-ocr-action': hasOcrAction}]">
         <div class="toolbar-section toolbar-left">
             <slot
                 v-if="isCommandInline('app-menu')"
@@ -170,7 +170,7 @@
             <div class="toolbar-separator" />
 
             <ToolbarButton
-                v-if="isCommandInline('quick-note') && isCollapsed(4)"
+                v-if="isCommandInline('quick-note') && isCollapsed(5)"
                 icon="lucide:message-square-plus"
                 :active="isPlacingPageNote"
                 :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
@@ -361,17 +361,19 @@ const {
 
 const shortcutLabels = getShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy);
-const collapseTier = 0;
-const hasOverflowItems = true;
+const {
+    toolbarRef,
+    collapseTier,
+    hasOverflowItems: hasMeasuredOverflowItems,
+    isCollapsed,
+} = useToolbarOverflow();
+const hasOverflowItems = computed(() => hasMeasuredOverflowItems.value || isCommandInline('overflow-menu'));
 const overflowMenuCollapseTier = 5;
 
 function isCommandInline(command: TReaderCommandId) {
     return isReaderCommandInline(surface, command);
 }
 
-function isCollapsed(_tier: number) {
-    return false;
-}
 </script>
 
 <style scoped>
@@ -419,7 +421,7 @@ function isCollapsed(_tier: number) {
 .toolbar-center {
     flex: 1;
     min-width: 0;
-    justify-content: center;
+    justify-content: safe center;
     gap: 0.4rem;
     overflow: hidden;
 }
@@ -480,60 +482,6 @@ function isCollapsed(_tier: number) {
     gap: 0.3rem;
     flex-shrink: 0;
     min-width: max-content;
-}
-
-/* Container-query thresholds scale with --app-ui-scale: when the UI is denser
-   (smaller buttons), more controls fit in a given toolbar width, so the
-   threshold drops proportionally. Falls back to 1 when the variable is unset. */
-@container (max-width: calc(1900px * var(--app-ui-scale, 1))) {
-    .toolbar--editor.toolbar--has-ocr-action .toolbar-action--print-current-page,
-    .toolbar--editor.toolbar--has-ocr-action .toolbar-action--save-as,
-    .toolbar--editor.toolbar--has-ocr-action .toolbar-action--export-docx {
-        display: none;
-    }
-}
-
-@container (max-width: calc(1840px * var(--app-ui-scale, 1))) {
-    .toolbar--editor .toolbar-action--print-current-page,
-    .toolbar--editor .toolbar-action--save-as,
-    .toolbar--editor .toolbar-action--export-docx {
-        display: none;
-    }
-}
-
-@container (max-width: calc(1700px * var(--app-ui-scale, 1))) {
-    .toolbar--editor .toolbar-action--print,
-    .toolbar--editor .toolbar-group-item--continuous-scroll {
-        display: none;
-    }
-}
-
-@container (max-width: calc(1560px * var(--app-ui-scale, 1))) {
-    .toolbar--editor .toolbar-button-group--fit {
-        display: none;
-    }
-}
-
-@container (max-width: calc(1420px * var(--app-ui-scale, 1))) {
-    .toolbar--editor .toolbar-group-item--drag-mode,
-    .toolbar--editor .toolbar-group-item--text-select {
-        display: none;
-    }
-}
-
-@container (max-width: calc(1320px * var(--app-ui-scale, 1))) {
-    .toolbar--editor .toolbar-action--capture-region,
-    .toolbar--editor .toolbar-action--crop,
-    .toolbar--editor .toolbar-action--ocr {
-        display: none;
-    }
-}
-
-@container (max-width: calc(1160px * var(--app-ui-scale, 1))) {
-    .toolbar--editor .toolbar-action--undo,
-    .toolbar--editor .toolbar-action--redo {
-        display: none;
-    }
 }
 
 .toolbar--reader {
