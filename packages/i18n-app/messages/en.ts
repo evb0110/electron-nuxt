@@ -776,6 +776,8 @@ export default {
             'load': 'Failed to load recent files',
             'remove': 'Failed to remove file',
             'clear': 'Failed to clear recent files',
+            'notFoundTitle': 'Recent file is no longer available',
+            'notFoundDescription': '"{name}" could not be found and was removed from recent files',
         },
         'file': {
             'open': 'Failed to open file',

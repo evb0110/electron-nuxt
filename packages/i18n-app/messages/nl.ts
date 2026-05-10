@@ -776,6 +776,8 @@ export default {
             'load': 'Kan recente bestanden niet laden',
             'remove': 'Kan bestand niet verwijderen',
             'clear': 'Kan recente bestanden niet wissen',
+            'notFoundTitle': 'Recent bestand is niet meer beschikbaar',
+            'notFoundDescription': '"{name}" is niet gevonden en is verwijderd uit recente bestanden',
         },
         'file': {
             'open': 'Kan bestand niet openen',

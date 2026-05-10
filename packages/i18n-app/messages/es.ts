@@ -776,6 +776,8 @@ export default {
             'load': 'No se pudieron cargar los archivos recientes',
             'remove': 'No se pudo eliminar el archivo',
             'clear': 'No se pudieron borrar los archivos recientes',
+            'notFoundTitle': 'El archivo reciente ya no está disponible',
+            'notFoundDescription': '«{name}» no se encontró y se eliminó de los archivos recientes',
         },
         'file': {
             'open': 'No se pudo abrir el archivo',

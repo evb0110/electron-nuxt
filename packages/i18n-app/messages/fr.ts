@@ -788,6 +788,8 @@ export default {
             'load': 'Échec du chargement des fichiers récents',
             'remove': 'Échec de la suppression du fichier',
             'clear': 'Échec de l’effacement des fichiers récents',
+            'notFoundTitle': 'Le fichier récent n’est plus disponible',
+            'notFoundDescription': '« {name} » est introuvable et a été retiré des fichiers récents',
         },
         'file': {
             'open': 'Échec de l’ouverture du fichier',

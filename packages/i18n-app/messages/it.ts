@@ -776,6 +776,8 @@ export default {
             'load': 'Impossibile caricare i file recenti',
             'remove': 'Impossibile rimuovere il file',
             'clear': 'Impossibile cancellare i file recenti',
+            'notFoundTitle': 'Il file recente non è più disponibile',
+            'notFoundDescription': '«{name}» non è stato trovato ed è stato rimosso dai file recenti',
         },
         'file': {
             'open': 'Impossibile aprire il file',
