@@ -146,10 +146,10 @@
             >
                 <span class="inline-flex items-center justify-center gap-2">
                     <UIcon
-                        name="i-lucide-loader-circle"
+                        :name="isPreparing ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
                         :class="[
-                            'size-4 shrink-0 transition-opacity',
-                            isPreparing ? 'animate-spin opacity-100' : 'opacity-0',
+                            'size-4 shrink-0',
+                            isPreparing ? 'animate-spin' : '',
                         ]"
                         aria-hidden="true"
                     />
