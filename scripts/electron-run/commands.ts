@@ -566,6 +566,11 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
 
         Promise.resolve()
             .then(async () => {
+                const allowRendererFileOpenForAutomation = (window as any).__allowRendererFileOpenForAutomation;
+                if (typeof allowRendererFileOpenForAutomation === 'function') {
+                    await allowRendererFileOpenForAutomation(path);
+                }
+
                 await Promise.race([
                     openFileDirect(path),
                     new Promise((_, reject) => {

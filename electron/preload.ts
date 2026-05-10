@@ -7,6 +7,7 @@ import {
 import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/dev-recovery';
 import { createElectronApi } from '@electron/preload/create-electron-api';
 import { pushDebugLogMessage } from '@electron/preload/debug-log-buffer';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
 const PRELOAD_INSTALL_FLAG = '__preloadInstalled';
 const preloadScriptStartedAt = Date.now();
@@ -410,8 +411,17 @@ if (!preloadAlreadyInstalled) {
     installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });
     tracePreload('dev recovery hooks installed');
 
-    contextBridge.exposeInMainWorld('electronAPI', createElectronApi(ipcRenderer, webUtils));
+    const electronApi = createElectronApi(ipcRenderer, webUtils);
+    contextBridge.exposeInMainWorld('electronAPI', electronApi);
     tracePreload('electronAPI exposed to renderer');
+
+    if (process.env.EVB_AUTOMATION_USER_DATA_DIR) {
+        contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
+            const path = typeof filePath === 'string' ? filePath : '';
+            return ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, path);
+        });
+        tracePreload('automation file-open capability helper exposed');
+    }
 
     installStartupOverlayLifecycle();
     if (document.readyState === 'loading') {
