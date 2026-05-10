@@ -55,6 +55,8 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
     allowOpenPath: vi.fn(),
+    allowOpenPaths: vi.fn(),
+    requireOpenPath: vi.fn((path: string) => path),
     writeFile: vi.fn(),
     rename: vi.fn(),
     rm: vi.fn(),
@@ -110,7 +112,11 @@ vi.mock('@electron/image/pdf-conversion', () => ({
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
 vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => mocks.getNativeToolPaths()}));
-vi.mock('@electron/ipc/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
+vi.mock('@electron/ipc/openPathCapabilities', () => ({
+    allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
+    allowOpenPaths: (...args: unknown[]) => mocks.allowOpenPaths(...args),
+    requireOpenPath: (path: string) => mocks.requireOpenPath(path),
+}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

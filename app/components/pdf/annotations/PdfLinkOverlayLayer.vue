@@ -3,18 +3,22 @@
         <a
             v-for="link in links"
             :key="link.id"
-            :href="link.url"
             class="pdf-link-overlay"
+            role="link"
+            tabindex="0"
+            :data-href="link.url"
             :style="{
                 left: `${link.rect.left * 100}%`,
                 top: `${link.rect.top * 100}%`,
                 width: `${link.rect.width * 100}%`,
                 height: `${link.rect.height * 100}%`,
             }"
-            target="_blank"
-            rel="noopener noreferrer"
             @pointerdown="onPointerDown"
             @click.prevent="handleClick($event, link)"
+            @auxclick.prevent
+            @contextmenu.prevent
+            @keydown.enter.prevent="openLink(link.url)"
+            @keydown.space.prevent="openLink(link.url)"
         />
     </div>
 </template>
@@ -23,6 +27,7 @@
 import type { ILinkAnnotation } from '@app/types/annotations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getShellCapability } from '@app/utils/platform-shell';
+import { normalizeAllowedExternalUrl } from '@contracts/external-url';
 
 defineProps<{links: ILinkAnnotation[];}>();
 
@@ -39,6 +44,22 @@ function onPointerDown(event: PointerEvent) {
     };
 }
 
+function openLink(url: string) {
+    const normalizedUrl = normalizeAllowedExternalUrl(url);
+    if (!normalizedUrl) {
+        BrowserLogger.warn('pdf-link-overlay', `Blocked unsupported external link: ${url}`);
+        return;
+    }
+
+    void getShellCapability().openExternal(normalizedUrl).catch((error) => {
+        BrowserLogger.warn(
+            'pdf-link-overlay',
+            `Failed to open external link: ${normalizedUrl}`,
+            error,
+        );
+    });
+}
+
 function handleClick(event: MouseEvent, link: ILinkAnnotation) {
     if (pointerDownPos) {
         const dx = event.clientX - pointerDownPos.x;
@@ -49,13 +70,7 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
         }
     }
     pointerDownPos = null;
-    void getShellCapability().openExternal(link.url).catch((error) => {
-        BrowserLogger.warn(
-            'pdf-link-overlay',
-            `Failed to open external link: ${link.url}`,
-            error,
-        );
-    });
+    openLink(link.url);
 }
 </script>
 

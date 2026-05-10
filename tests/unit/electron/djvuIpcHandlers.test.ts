@@ -1,4 +1,13 @@
 import {
+    mkdtempSync,
+    realpathSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
     beforeEach,
     describe,
     expect,
@@ -109,5 +118,41 @@ describe('registerDjvuHandlers', () => {
         await handler({sender: {id: 1}}, '/tmp/djvu-123.pdf');
 
         expect(mocks.cleanupDjvuTempPdfPath).toHaveBeenCalledWith('/tmp/djvu-123.pdf');
+    });
+
+    it('releases viewing paths without requiring the source file to still exist', () => {
+        registerDjvuHandlers();
+        const handler = getHandler('djvu:releaseViewingPath');
+        const event = {sender: {id: 1}};
+
+        handler(event, '/tmp/missing.djvu');
+
+        expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(event, '/tmp/missing.djvu');
+    });
+
+    it('releases symlinked viewing paths using the granted realpath while the source still exists', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-release-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            const symlinkPath = join(tempRoot, 'link.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            symlinkSync(realPath, symlinkPath);
+            const canonicalRealPath = realpathSync.native(realPath);
+
+            const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
+            allowOpenPath(symlinkPath);
+            registerDjvuHandlers();
+            const handler = getHandler('djvu:releaseViewingPath');
+            const event = {sender: {id: 1}};
+
+            handler(event, symlinkPath);
+
+            expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(event, canonicalRealPath);
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });

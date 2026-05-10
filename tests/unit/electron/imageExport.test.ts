@@ -1,5 +1,6 @@
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { existsSync } from 'fs';
 import {
     mkdtemp,
     readFile,
@@ -38,12 +39,17 @@ interface IUtifModule {
 const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     stat: vi.fn(),
+    rename: vi.fn(),
+    atomicReplace: vi.fn(),
+    makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
+    renderPageCount: 2,
 }));
 
 vi.mock('fs/promises', async () => {
     const actual = await vi.importActual<typeof FsPromises>('fs/promises');
     return {
         ...actual,
+        rename: mocks.rename,
         stat: mocks.stat,
     };
 });
@@ -62,7 +68,15 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { exportPdfAsMultiPageTiff } = await import('@electron/features/image-export/main/export');
+vi.mock('@electron/utils/atomic-replace', () => ({
+    atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
+    makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
+}));
+
+const {
+    exportPdfAsMultiPageTiff,
+    exportPdfPagesAsImages,
+} = await import('@electron/features/image-export/main/export');
 const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/tiff-combine-local');
 
 const UTIF = utifModule as IUtifModule;
@@ -85,17 +99,26 @@ function countTiffDirectories(bytes: Uint8Array) {
     return count;
 }
 
-describe('exportPdfAsMultiPageTiff', () => {
+describe('image export', () => {
     let tempDir = '';
 
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'image-export-test-'));
         mocks.runCommand.mockReset();
         mocks.stat.mockReset();
+        mocks.rename.mockReset();
+        mocks.atomicReplace.mockReset();
+        mocks.makeSiblingTempPath.mockClear();
+        mocks.renderPageCount = 2;
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
         }));
+        mocks.rename.mockResolvedValue(undefined);
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, { force: true });
+        });
         mocks.runCommand.mockImplementation(async (command: string, args: string[]) => {
             if (command !== '/mock/pdftoppm') {
                 throw new Error(`Unexpected command: ${command}`);
@@ -106,21 +129,24 @@ describe('exportPdfAsMultiPageTiff', () => {
                 throw new Error('Expected pdftoppm output prefix');
             }
 
-            const firstPage = Buffer.from(UTIF.encodeImage(new Uint8Array([
-                255,
-                0,
-                0,
-                255,
-            ]), 1, 1));
-            const secondPage = Buffer.from(UTIF.encodeImage(new Uint8Array([
-                0,
-                255,
-                0,
-                255,
-            ]), 1, 1));
+            const formatArg = args[0];
+            const extension = formatArg === '-png'
+                ? 'png'
+                : formatArg === '-jpeg'
+                    ? 'jpg'
+                    : 'tif';
 
-            await writeFile(`${prefix}-1.tif`, firstPage);
-            await writeFile(`${prefix}-2.tif`, secondPage);
+            for (let page = 1; page <= mocks.renderPageCount; page += 1) {
+                const pageBytes = extension === 'tif'
+                    ? Buffer.from(UTIF.encodeImage(new Uint8Array([
+                        page === 1 ? 255 : 0,
+                        page === 2 ? 255 : 0,
+                        0,
+                        255,
+                    ]), 1, 1))
+                    : Buffer.from(`page-${page}-${extension}`);
+                await writeFile(`${prefix}-${page}.${extension}`, pageBytes);
+            }
 
             return {
                 stdout: '',
@@ -228,5 +254,37 @@ describe('exportPdfAsMultiPageTiff', () => {
         await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath))
             .rejects
             .toThrow('TIFF combine worker unavailable and local fallback is disabled for exports larger than 2 pages or 16MB');
+    });
+
+    it('uses sibling temp and atomic replace for image export EXDEV fallback', async () => {
+        mocks.renderPageCount = 1;
+        mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
+
+        const outputPath = join(tempDir, 'exported.png');
+        const tempPath = `${outputPath}.tmp`;
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(outputPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, outputPath);
+        expect(await readFile(outputPath, 'utf8')).toBe('page-1-png');
+        expect(existsSync(tempPath)).toBe(false);
+    });
+
+    it('keeps an existing image target when EXDEV atomic replacement fails', async () => {
+        mocks.renderPageCount = 1;
+        mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
+        mocks.atomicReplace.mockRejectedValue(new Error('replace failed'));
+
+        const outputPath = join(tempDir, 'existing.png');
+        const tempPath = `${outputPath}.tmp`;
+        await writeFile(outputPath, 'old-target');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
+            .rejects
+            .toThrow('replace failed');
+
+        expect(await readFile(outputPath, 'utf8')).toBe('old-target');
+        expect(existsSync(tempPath)).toBe(false);
     });
 });

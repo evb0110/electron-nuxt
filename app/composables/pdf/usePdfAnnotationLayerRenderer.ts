@@ -30,6 +30,7 @@ import {
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getShellCapability } from '@app/utils/platform-shell';
+import { normalizeAllowedExternalUrl } from '@contracts/external-url';
 
 interface IAnnotationEditorLayerProto {
     disable?: (...args: unknown[]) => unknown;
@@ -547,18 +548,44 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 url: string,
                 _newWindow?: boolean,
             ) => {
-                link.href = url;
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
-                link.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    void getShellCapability().openExternal(url).catch((error) => {
+                const openLink = () => {
+                    const normalizedUrl = normalizeAllowedExternalUrl(url);
+                    if (!normalizedUrl) {
+                        BrowserLogger.warn('pdf-annotation-layer', `Blocked unsupported annotation link: ${url}`);
+                        return;
+                    }
+
+                    void getShellCapability().openExternal(normalizedUrl).catch((error) => {
                         BrowserLogger.warn(
                             'pdf-annotation-layer',
-                            `Failed to open annotation link: ${url}`,
+                            `Failed to open annotation link: ${normalizedUrl}`,
                             error,
                         );
                     });
+                };
+
+                link.removeAttribute('href');
+                link.removeAttribute('target');
+                link.removeAttribute('rel');
+                link.setAttribute('role', 'link');
+                link.setAttribute('tabindex', '0');
+                link.dataset.href = url;
+                link.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    openLink();
+                });
+                link.addEventListener('auxclick', (event) => {
+                    event.preventDefault();
+                });
+                link.addEventListener('contextmenu', (event) => {
+                    event.preventDefault();
+                });
+                link.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') {
+                        return;
+                    }
+                    event.preventDefault();
+                    openLink();
                 });
             },
             getDestinationHash: () => '#',

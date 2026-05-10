@@ -4,6 +4,7 @@ import type {
     IpcMainInvokeEvent,
 } from 'electron';
 import { existsSync } from 'fs';
+import { resolve } from 'path';
 import { estimateSizes } from '@electron/djvu/estimate';
 import {
     getDjvuHasText,
@@ -25,13 +26,17 @@ import {
     sweepStaleDjvuTempPdfs,
 } from '@electron/features/djvu/main/viewing';
 import { isDjvuPath } from '@electron/image/pdf-conversion';
+import {
+    requireOpenPath,
+    type TOpenPath,
+} from '@electron/ipc/openPathCapabilities';
 
 const logger = createLogger('djvu-ipc');
 
-function normalizeDjvuPathForIpc(
+function requireDjvuOpenPath(
     path: unknown,
     options: { requireExists?: boolean } = {},
-) {
+): TOpenPath {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
         throw new Error('Invalid DjVu path');
@@ -42,7 +47,23 @@ function normalizeDjvuPathForIpc(
     if (options.requireExists !== false && !existsSync(normalizedPath)) {
         throw new Error(`DjVu file not found: ${normalizedPath}`);
     }
-    return normalizedPath;
+    return requireOpenPath(normalizedPath);
+}
+
+function normalizeDjvuReleasePath(path: unknown) {
+    const normalizedPath = typeof path === 'string' ? path.trim() : '';
+    if (!normalizedPath) {
+        throw new Error('Invalid DjVu path');
+    }
+    if (!isDjvuPath(normalizedPath)) {
+        throw new Error('Invalid DjVu file type');
+    }
+    try {
+        return requireOpenPath(normalizedPath);
+    } catch {
+        // The file may have been moved after opening; fall back to the renderer-held path for cleanup.
+    }
+    return resolve(normalizedPath);
 }
 
 async function handleDjvuGetInfo(
@@ -55,7 +76,7 @@ async function handleDjvuGetInfo(
     hasText: boolean;
     metadata: Record<string, string>;
 }> {
-    const normalizedDjvuPath = normalizeDjvuPathForIpc(djvuPath);
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath);
     const [
         pageCount,
         sourceDpi,
@@ -85,7 +106,7 @@ async function handleDjvuEstimateSizes(
     _event: IpcMainInvokeEvent,
     djvuPath: string,
 ) {
-    const normalizedDjvuPath = normalizeDjvuPathForIpc(djvuPath);
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath);
     const pageCount = await getDjvuPageCount(normalizedDjvuPath);
     return estimateSizes(normalizedDjvuPath, pageCount);
 }
@@ -108,14 +129,16 @@ async function handleDjvuCleanupTemp(
 interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 export function registerDjvuHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
-    registrar.handle('djvu:openForViewing', handleDjvuOpenForViewing);
+    registrar.handle('djvu:openForViewing', (event, djvuPath) =>
+        handleDjvuOpenForViewing(event, requireDjvuOpenPath(djvuPath)),
+    );
     registrar.handle('djvu:releaseViewingPath', (event, djvuPath) => {
-        releaseDjvuViewingPath(event, normalizeDjvuPathForIpc(djvuPath, { requireExists: false }));
+        releaseDjvuViewingPath(event, normalizeDjvuReleasePath(djvuPath));
     });
     registrar.handle('djvu:convertToPdf', (event, djvuPath, outputPath, options) =>
         handleDjvuConvertToPdf(
             event,
-            normalizeDjvuPathForIpc(djvuPath),
+            requireDjvuOpenPath(djvuPath),
             outputPath,
             options,
         ),

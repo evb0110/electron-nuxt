@@ -47,7 +47,12 @@ import {
     ensureWorkingCopyDirectory,
     findWorkingCopyPathByOriginalPath,
 } from '@electron/ipc/workingCopy';
-import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
+import {
+    allowOpenPath,
+    allowOpenPaths,
+    requireOpenPath,
+    type TOpenPath,
+} from '@electron/ipc/openPathCapabilities';
 
 const log = createLogger('page-ops-ipc');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -355,13 +360,16 @@ async function handlePageOpsInsert(
             canceled: true,
         };
     }
+    allowOpenPaths(result.filePaths);
+    const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
+        .map(path => requireOpenPath(path));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
-            result.filePaths,
+            trustedSourcePaths,
             insertArgs.afterPage,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
@@ -371,15 +379,13 @@ async function handlePageOpsInsert(
 
 async function prepareInsertionSourcePdf(
     workingCopyPath: string,
-    sourcePaths: string[],
+    sourcePaths: TOpenPath[],
 ) {
-    const normalizedPaths = normalizeNonEmptyStringPaths(sourcePaths);
-
-    if (normalizedPaths.length === 0) {
+    if (sourcePaths.length === 0) {
         throw new Error('At least one source file is required');
     }
 
-    for (const sourcePath of normalizedPaths) {
+    for (const sourcePath of sourcePaths) {
         if (!existsSync(sourcePath)) {
             throw new Error(`Source file not found: ${sourcePath}`);
         }
@@ -388,15 +394,15 @@ async function prepareInsertionSourcePdf(
         }
     }
 
-    if (normalizedPaths.length === 1 && extname(normalizedPaths[0]!).toLowerCase() === '.pdf') {
+    if (sourcePaths.length === 1 && extname(sourcePaths[0]!).toLowerCase() === '.pdf') {
         return {
-            sourcePdfPath: normalizedPaths[0]!,
+            sourcePdfPath: sourcePaths[0]!,
             cleanup: async () => {},
         };
     }
 
     await ensureWorkingCopyDirectory(workingCopyPath);
-    const mergedPdf = await createPdfFromInputPaths(normalizedPaths);
+    const mergedPdf = await createPdfFromInputPaths(sourcePaths);
     const tempSourcePdfPath = join(
         workingCopyPath,
         '..',
@@ -423,7 +429,7 @@ async function prepareInsertionSourcePdf(
 async function insertPagesFromSourcePaths(
     workingCopyPath: string,
     totalPages: number,
-    sourcePaths: string[],
+    sourcePaths: TOpenPath[],
     afterPage: number,
 ) {
     await ensureWorkingCopyDirectory(workingCopyPath);
@@ -516,13 +522,15 @@ async function handlePageOpsInsertFile(
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
+    const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
+        .map(path => requireOpenPath(path));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
-            sourcePaths,
+            trustedSourcePaths,
             insertArgs.afterPage,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);

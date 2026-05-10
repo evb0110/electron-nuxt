@@ -13,6 +13,7 @@ import { getDjvuPageCount } from '@electron/djvu/metadata';
 import { isAllowedDjvuTempPdfPath } from '@electron/djvu/temp-path';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const logger = createLogger('djvu-viewing');
 const allowedDjvuViewingPathsBySender = new Map<number, Map<string, number>>();
@@ -204,7 +205,7 @@ export async function sweepStaleDjvuTempPdfs(
 
 export async function handleDjvuOpenForViewing(
     event: IpcMainInvokeEvent,
-    djvuPath: string,
+    djvuPath: TOpenPath,
 ): Promise<{
     success: boolean;
     pageCount?: number;

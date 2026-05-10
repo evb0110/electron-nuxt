@@ -3,10 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import type { Worker } from 'worker_threads';
 import {
-    rename,
     rm,
     stat,
-    unlink,
 } from 'fs/promises';
 import {
     dirname,
@@ -28,6 +26,8 @@ import { safeSendToWindow } from '@electron/djvu/ipc-shared';
 import { embedBookmarksIntoPdfFile } from '@electron/djvu/pdf-bookmarks';
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/export-paths';
 import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
+import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import { atomicReplace } from '@electron/utils/atomic-replace';
 import {
     createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError,
@@ -204,17 +204,7 @@ function clearActivePdfWorker(jobId: string, worker: Worker) {
 }
 
 async function replaceFileAtomically(sourcePath: string, targetPath: string) {
-    try {
-        await rename(sourcePath, targetPath);
-    } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (err.code !== 'EEXIST' && err.code !== 'EPERM') {
-            throw error;
-        }
-
-        await unlink(targetPath);
-        await rename(sourcePath, targetPath);
-    }
+    await atomicReplace(sourcePath, targetPath);
 }
 
 async function embedPdfBookmarks(
@@ -269,7 +259,7 @@ async function embedPdfBookmarks(
 
 export async function handleDjvuConvertToPdf(
     event: IpcMainInvokeEvent,
-    djvuPath: string,
+    djvuPath: TOpenPath,
     outputPath: string,
     options: {
         subsample?: number;

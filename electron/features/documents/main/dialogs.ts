@@ -7,6 +7,7 @@ import { existsSync } from 'fs';
 import {
     copyFile,
     readdir,
+    rm,
 } from 'fs/promises';
 import {
     extname,
@@ -43,14 +44,20 @@ import {
 } from '@electron/ipc/workingCopy';
 import {
     allowOpenPaths,
-    isAllowedOpenPath,
+    allowOpenPath,
     logRejectedOpenPath,
+    requireOpenPath,
+    type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomic-replace';
 
 const logger = createLogger('documents-dialogs');
 function getOpenDialogParentWindow() {
@@ -167,16 +174,19 @@ async function openInputPaths(
         throw new Error(te('errors.file.invalid'));
     }
 
+    allowOpenPaths(normalizedPaths);
+
     const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
     if (djvuPaths.length > 0) {
         if (normalizedPaths.length === 1 && djvuPaths.length === 1) {
             const djvuPath = djvuPaths[0]!;
+            const trustedDjvuPath = requireOpenPath(djvuPath);
             logger.info(`openInputPaths resolved DjVu path: ${djvuPath}`);
             await addRecentInputs([djvuPath]);
             return {
                 kind: 'djvu',
                 workingPath: '',
-                originalPath: djvuPath,
+                originalPath: trustedDjvuPath,
             };
         }
     }
@@ -184,7 +194,7 @@ async function openInputPaths(
     if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const originalPath = normalizedPaths[0]!;
         logger.info(`openInputPaths creating working copy for PDF: ${originalPath}`);
-        const workingPath = await createWorkingCopy(originalPath);
+        const workingPath = await createWorkingCopy(requireOpenPath(originalPath));
         await addRecentInputs([originalPath]);
         return {
             kind: 'pdf',
@@ -224,9 +234,11 @@ export async function handleOpenPdfDirect(
         return null;
     }
 
-    const normalizedPath = filePath.trim();
-    if (!isAllowedOpenPath(normalizedPath)) {
-        logRejectedOpenPath(normalizedPath);
+    let normalizedPath: TOpenPath;
+    try {
+        normalizedPath = requireOpenPath(filePath);
+    } catch {
+        logRejectedOpenPath(filePath);
         throw new Error(te('errors.file.invalid'));
     }
 
@@ -251,12 +263,8 @@ export async function handleOpenPdfDirectBatch(
     }
 
     try {
-        const normalizedPaths = normalizeNonEmptyStringPaths(filePaths);
-        const rejectedPath = normalizedPaths.find(path => !isAllowedOpenPath(path));
-        if (rejectedPath) {
-            logRejectedOpenPath(rejectedPath);
-            throw new Error(te('errors.file.invalid'));
-        }
+        const normalizedPaths = normalizeNonEmptyStringPaths(filePaths)
+            .map(path => requireOpenPath(path));
 
         const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
         return await openInputPaths(normalizedPaths, {onCombineProgress: normalizedRequestId
@@ -294,27 +302,22 @@ export async function handleCreateWorkingCopyFromData(
 
 export async function handleCreateWorkingCopyFromPath(
     _event: Electron.IpcMainInvokeEvent,
-    sourcePath: string,
+    sourcePath: TOpenPath,
     originalPath?: string,
 ): Promise<string> {
-    const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
-    if (!normalizedSourcePath) {
-        throw new Error('Invalid source path');
+    if (!existsSync(sourcePath)) {
+        throw new Error(`File not found: ${sourcePath}`);
     }
-
-    if (!existsSync(normalizedSourcePath)) {
-        throw new Error(`File not found: ${normalizedSourcePath}`);
-    }
-    if (!isSupportedOpenPath(normalizedSourcePath)) {
+    if (!isSupportedOpenPath(sourcePath)) {
         throw new Error('Invalid source file type');
     }
 
     const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {
-        sourcePath: normalizedSourcePath,
+        sourcePath,
         warningContext: 'createWorkingCopyFromPath',
     });
 
-    return createWorkingCopyFromPath(normalizedSourcePath, trustedOriginalPath);
+    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath);
 }
 
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
@@ -332,11 +335,18 @@ async function resolveRevealablePath(filePath: string) {
         return resolvedReadPath;
     }
 
-    const normalizedPath = resolve(filePath);
-    if (isAllowedOpenPath(normalizedPath) && existsSync(normalizedPath)) {
-        return normalizedPath;
+    const allowedRevealPath = (() => {
+        try {
+            return requireOpenPath(resolve(filePath));
+        } catch {
+            return null;
+        }
+    })();
+    if (allowedRevealPath && existsSync(allowedRevealPath)) {
+        return allowedRevealPath;
     }
 
+    const normalizedPath = resolve(filePath);
     if (!isKnownWorkingCopyOriginalPath(normalizedPath) || !existsSync(normalizedPath)) {
         return null;
     }
@@ -564,9 +574,20 @@ export async function handleSavePdfAs(
         return null;
     }
 
-    await copyFile(normalizedWorkingPath, targetPath);
+    const tempPath = makeSiblingTempPath(targetPath);
+    let replaced = false;
+    try {
+        await copyFile(normalizedWorkingPath, tempPath);
+        await atomicReplace(tempPath, targetPath);
+        replaced = true;
+    } finally {
+        if (!replaced) {
+            await rm(tempPath, { force: true }).catch(() => undefined);
+        }
+    }
 
     workingCopyMap.set(normalizedWorkingPath, targetPath);
+    allowOpenPath(targetPath);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
 

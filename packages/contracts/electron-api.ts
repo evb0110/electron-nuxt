@@ -418,7 +418,6 @@ export interface IDocumentsFileCapability {
 
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
-        add: (path: TDocumentRef) => Promise<void>;
         remove: (path: TDocumentRef) => Promise<void>;
         clear: () => Promise<void>;
     };

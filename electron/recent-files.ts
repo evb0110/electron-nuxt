@@ -214,6 +214,7 @@ function enqueueMutation(task: () => Promise<void>) {
     return run;
 }
 
+/** Persists a recent-file entry; callers must validate or mint path capabilities before calling. */
 export async function addRecentFile(originalPath: string): Promise<void> {
     await enqueueMutation(async () => {
         // Invalidate cache before mutation

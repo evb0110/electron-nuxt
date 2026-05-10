@@ -21,6 +21,7 @@ import {
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CROP_WORKER_FILENAME = 'page-ops-crop-worker.js';
+const CROP_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 
 type TCropWorkerInput =
     | {
@@ -57,6 +58,7 @@ async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
         createStartError: null,
         createStartupError: message => new Error(`Crop worker startup failed: ${message}`),
         createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
+        timeoutMs: CROP_WORKER_TIMEOUT_MS,
     }), {
         thresholdMs: 25,
         details: {

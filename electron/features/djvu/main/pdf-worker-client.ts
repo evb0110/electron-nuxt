@@ -17,6 +17,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_PDF_WORKER_FILENAME = 'djvu-pdf-worker.js';
+const DJVU_PDF_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 
 export class DjvuPdfWorkerStartupError extends Error {
     constructor(message: string) {
@@ -64,6 +65,7 @@ function createDjvuPdfWorkerTask<T>(
         invalidResultMessage: 'DjVu PDF worker returned an invalid result',
         createStartupError: (message) => new DjvuPdfWorkerStartupError(`DjVu PDF worker startup failed: ${message}`),
         createWorkerExitError: (code) => new Error(`DjVu PDF worker exited with code ${code}`),
+        timeoutMs: DJVU_PDF_WORKER_TIMEOUT_MS,
         onProgressMessage: (payload) => {
             const progress = parseProgressMessage(payload);
             if (!progress) {

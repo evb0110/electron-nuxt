@@ -67,15 +67,36 @@ export const useSettings = () => {
         await loadSettingsState();
     }
 
-    async function save() {
-        try {
+    let saveInFlight: Promise<void> | null = null;
+    let saveDirty = false;
+
+    async function runSaveQueue() {
+        while (true) {
+            saveDirty = false;
             const payload = sanitizeSettings(toRaw(settings.value));
-            await getPlatformAPI().settings.save(payload);
-            settings.value = payload;
-            syncSettingsCookies(payload);
-        } catch (e) {
-            BrowserLogger.error('settings', 'Failed to save settings', e);
+            try {
+                await getPlatformAPI().settings.save(payload);
+                syncSettingsCookies(payload);
+            } catch (e) {
+                BrowserLogger.error('settings', 'Failed to save settings', e);
+            }
+
+            if (!saveDirty) {
+                return;
+            }
         }
+    }
+
+    async function save() {
+        if (saveInFlight) {
+            saveDirty = true;
+            return saveInFlight;
+        }
+
+        saveInFlight = runSaveQueue().finally(() => {
+            saveInFlight = null;
+        });
+        return saveInFlight;
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {

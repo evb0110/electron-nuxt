@@ -1669,9 +1669,6 @@ export function createBrowserDocumentsFileCapability(
 
                 return validatedFiles;
             },
-            async add(path) {
-                await browserDocumentStore.touchRecentFile(path);
-            },
             async remove(path) {
                 await browserDocumentStore.removeRecentFile(path);
             },

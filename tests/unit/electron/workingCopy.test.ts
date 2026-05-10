@@ -9,6 +9,7 @@ import {
 import {
     existsSync,
     mkdtempSync,
+    realpathSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -44,14 +45,17 @@ describe('workingCopy', () => {
             ensureWorkingCopyDirectory,
             clearAllWorkingCopies,
         } = await import('@electron/ipc/workingCopy');
+        const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
         const originalPath = join(tempRoot, 'original.pdf');
         writeFileSync(originalPath, new Uint8Array([
             1,
             2,
             3,
         ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
 
-        const workingPath = await createWorkingCopyFromPath(originalPath);
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!);
         rmSync(dirname(workingPath), {
             force: true,
             recursive: true,
@@ -77,14 +81,18 @@ describe('workingCopy', () => {
             clearAllWorkingCopies,
             workingCopyMap,
         } = await import('@electron/ipc/workingCopy');
+        const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
         const originalPath = join(tempRoot, 'original.pdf');
         writeFileSync(originalPath, new Uint8Array([
             4,
             5,
             6,
         ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const canonicalOriginalPath = realpathSync.native(originalPath);
 
-        const workingPath = await createWorkingCopyFromPath(originalPath);
+        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!);
         cleanupWorkingCopy(workingPath);
         await vi.waitFor(() => {
             expect(existsSync(dirname(workingPath))).toBe(false);
@@ -92,14 +100,14 @@ describe('workingCopy', () => {
 
         expect(workingCopyMap.has(workingPath)).toBe(false);
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
-            originalPath,
+            originalPath: canonicalOriginalPath,
             retired: true,
         });
         await expect(ensureWorkingCopyDirectory(workingPath)).resolves.toBe(true);
 
-        expect(workingCopyMap.get(workingPath)).toBe(originalPath);
+        expect(workingCopyMap.get(workingPath)).toBe(canonicalOriginalPath);
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
-            originalPath,
+            originalPath: canonicalOriginalPath,
             retired: false,
         });
         expect(readFileSync(workingPath)).toEqual(Buffer.from([
@@ -125,6 +133,24 @@ describe('workingCopy', () => {
 
         await expect(handleFileSave({} as never, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
         await expect(handleFileSave({} as never, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
+
+        await clearAllWorkingCopies();
+    });
+
+    it('rejects unmanaged existing paths as managed working-copy sources', async () => {
+        const {
+            requireManagedWorkingCopyPath,
+            clearAllWorkingCopies,
+        } = await import('@electron/ipc/workingCopy');
+        const unmanagedPath = join(tempRoot, 'unmanaged.pdf');
+        writeFileSync(unmanagedPath, new Uint8Array([
+            7,
+            8,
+            9,
+        ]));
+
+        await expect(requireManagedWorkingCopyPath(unmanagedPath))
+            .rejects.toThrow('Source path is not a managed working copy');
 
         await clearAllWorkingCopies();
     });

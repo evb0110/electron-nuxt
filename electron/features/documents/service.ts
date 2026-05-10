@@ -37,13 +37,11 @@ import {
     handleFileSave,
 } from '@electron/ipc/workingCopy';
 import {
-    addRecentFile,
     clearRecentFiles,
     getRecentFiles,
     removeRecentFile,
 } from '@electron/recent-files';
 import {
-    allowOpenPath,
     allowOpenPaths,
     removeAllowedOpenPath,
 } from '@electron/ipc/openPathCapabilities';
@@ -117,11 +115,6 @@ export function createDocumentsService(): IDocumentsService {
                 logger.info(`[startup] IPC recent-files:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
             return files;
-        },
-        addRecentFile: async (_event, originalPath) => {
-            await addRecentFile(originalPath);
-            allowOpenPath(originalPath);
-            updateRecentFilesMenu();
         },
         removeRecentFile: async (_event, originalPath) => {
             await removeRecentFile(originalPath);

@@ -1,8 +1,12 @@
+import { realpathSync } from 'fs';
 import {
     resolve,
     sep,
 } from 'path';
 import { createLogger } from '@electron/utils/logger';
+
+declare const __openPathBrand: unique symbol;
+export type TOpenPath = string & { readonly [__openPathBrand]: true };
 
 const logger = createLogger('open-path-capabilities');
 const allowedOpenPaths = new Set<string>();
@@ -21,7 +25,7 @@ function normalizeOpenPath(filePath: string) {
     }
 
     try {
-        return resolve(normalizedPath);
+        return realpathSync.native(resolve(normalizedPath));
     } catch {
         return null;
     }
@@ -46,7 +50,7 @@ export function allowOpenPath(filePath: string) {
     allowedOpenPaths.delete(normalizedPath);
     allowedOpenPaths.add(normalizedPath);
     pruneAllowedOpenPaths();
-    return normalizedPath;
+    return normalizedPath as TOpenPath;
 }
 
 export function allowOpenPaths(filePaths: string[]) {
@@ -58,6 +62,23 @@ export function allowOpenPaths(filePaths: string[]) {
 export function isAllowedOpenPath(filePath: string) {
     const normalizedPath = normalizeOpenPath(filePath);
     return Boolean(normalizedPath && allowedOpenPaths.has(normalizedPath));
+}
+
+export function requireOpenPath(rawPath: string): TOpenPath {
+    if (typeof rawPath !== 'string' || rawPath.trim() === '') {
+        throw new Error('Path not accessible');
+    }
+
+    const normalizedPath = normalizeOpenPath(rawPath);
+    if (!normalizedPath) {
+        throw new Error('Path not accessible');
+    }
+
+    if (!isAllowedOpenPath(normalizedPath)) {
+        throw new Error(`Path not allowed: ${rawPath}`);
+    }
+
+    return normalizedPath as TOpenPath;
 }
 
 export function removeAllowedOpenPath(filePath: string) {
