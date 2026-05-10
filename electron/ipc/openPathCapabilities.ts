@@ -1,4 +1,5 @@
 import { realpathSync } from 'fs';
+import type { WebContents } from 'electron';
 import {
     resolve,
     sep,
@@ -9,7 +10,7 @@ declare const __openPathBrand: unique symbol;
 export type TOpenPath = string & { readonly [__openPathBrand]: true };
 
 const logger = createLogger('open-path-capabilities');
-const allowedOpenPaths = new Set<string>();
+const allowedOpenPathsByOwner = new Map<number, Set<string>>();
 const MAX_ALLOWED_OPEN_PATHS = (() => {
     const parsed = Number.parseInt(process.env.EVB_ALLOWED_OPEN_PATHS_MAX ?? '2048', 10);
     if (!Number.isFinite(parsed) || parsed < 64) {
@@ -32,39 +33,75 @@ function normalizeOpenPath(filePath: string) {
 }
 
 function pruneAllowedOpenPaths() {
-    while (allowedOpenPaths.size > MAX_ALLOWED_OPEN_PATHS) {
-        const oldestPath = allowedOpenPaths.values().next().value;
-        if (!oldestPath) {
-            return;
+    for (const allowedOpenPaths of allowedOpenPathsByOwner.values()) {
+        while (allowedOpenPaths.size > MAX_ALLOWED_OPEN_PATHS) {
+            const oldestPath = allowedOpenPaths.values().next().value;
+            if (!oldestPath) {
+                return;
+            }
+            allowedOpenPaths.delete(oldestPath);
         }
-        allowedOpenPaths.delete(oldestPath);
     }
 }
 
-export function allowOpenPath(filePath: string) {
+function getAllowedOpenPaths(ownerId: number) {
+    let allowedOpenPaths = allowedOpenPathsByOwner.get(ownerId);
+    if (!allowedOpenPaths) {
+        allowedOpenPaths = new Set<string>();
+        allowedOpenPathsByOwner.set(ownerId, allowedOpenPaths);
+    }
+    return allowedOpenPaths;
+}
+
+function getOwnerId(owner: number | WebContents) {
+    return typeof owner === 'number' ? owner : owner.id;
+}
+
+export function allowOpenPathForWebContents(owner: number | WebContents, filePath: string) {
     const normalizedPath = normalizeOpenPath(filePath);
     if (!normalizedPath) {
         return null;
     }
 
+    const allowedOpenPaths = getAllowedOpenPaths(getOwnerId(owner));
     allowedOpenPaths.delete(normalizedPath);
     allowedOpenPaths.add(normalizedPath);
     pruneAllowedOpenPaths();
     return normalizedPath as TOpenPath;
 }
 
-export function allowOpenPaths(filePaths: string[]) {
+export function allowOpenPathsForWebContents(owner: number | WebContents, filePaths: string[]) {
     for (const filePath of filePaths) {
-        allowOpenPath(filePath);
+        allowOpenPathForWebContents(owner, filePath);
     }
 }
 
-function isAllowedOpenPath(filePath: string) {
-    const normalizedPath = normalizeOpenPath(filePath);
-    return Boolean(normalizedPath && allowedOpenPaths.has(normalizedPath));
+export function clearOpenPathsForWebContents(owner: number | WebContents) {
+    allowedOpenPathsByOwner.delete(getOwnerId(owner));
 }
 
-export function requireOpenPath(rawPath: string): TOpenPath {
+export function allowOpenPath(filePath: string, owner?: number | WebContents) {
+    if (owner !== undefined) {
+        return allowOpenPathForWebContents(owner, filePath);
+    }
+
+    return allowOpenPathForWebContents(0, filePath);
+}
+
+export function allowOpenPaths(filePaths: string[], owner?: number | WebContents) {
+    allowOpenPathsForWebContents(owner ?? 0, filePaths);
+}
+
+function isAllowedOpenPath(filePath: string, owner?: number | WebContents) {
+    const normalizedPath = normalizeOpenPath(filePath);
+    if (!normalizedPath) {
+        return false;
+    }
+
+    return Boolean(allowedOpenPathsByOwner.get(getOwnerId(owner ?? 0))?.has(normalizedPath));
+}
+
+export function requireOpenPath(rawPath: string, owner?: number | WebContents): TOpenPath {
     if (typeof rawPath !== 'string' || rawPath.trim() === '') {
         throw new Error('Path not accessible');
     }
@@ -74,7 +111,7 @@ export function requireOpenPath(rawPath: string): TOpenPath {
         throw new Error('Path not accessible');
     }
 
-    if (!isAllowedOpenPath(normalizedPath)) {
+    if (!isAllowedOpenPath(normalizedPath, owner)) {
         throw new Error(`Path not allowed: ${rawPath}`);
     }
 
@@ -86,7 +123,9 @@ export function removeAllowedOpenPath(filePath: string) {
     if (!normalizedPath) {
         return;
     }
-    allowedOpenPaths.delete(normalizedPath);
+    for (const allowedOpenPaths of allowedOpenPathsByOwner.values()) {
+        allowedOpenPaths.delete(normalizedPath);
+    }
 }
 
 export function logRejectedOpenPath(filePath: string) {

@@ -79,15 +79,16 @@ interface IOpenDjvuResult {
 
 type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
+type TOpenPathOwner = number | Electron.WebContents;
 const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
 
 function toRecentDocumentPaths(paths: string[]) {
     return paths.filter(path => isPdfPath(path) || isDjvuPath(path));
 }
 
-async function addRecentInputs(paths: string[]) {
+async function addRecentInputs(paths: string[], owner?: TOpenPathOwner) {
     const uniquePaths = uniq(paths);
-    allowOpenPaths(uniquePaths);
+    allowOpenPaths(uniquePaths, owner);
     for (const path of uniquePaths) {
         await addRecentFile(path);
     }
@@ -159,6 +160,7 @@ function resolveTrustedOriginalPath(
 async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
+    owner?: TOpenPathOwner,
 ): Promise<IOpenFileResult | null> {
     const normalizedPaths = normalizeNonEmptyStringPaths(paths);
     logger.info(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
@@ -174,15 +176,15 @@ async function openInputPaths(
         throw new Error(te('errors.file.invalid'));
     }
 
-    allowOpenPaths(normalizedPaths);
+    allowOpenPaths(normalizedPaths, owner);
 
     const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
     if (djvuPaths.length > 0) {
         if (normalizedPaths.length === 1 && djvuPaths.length === 1) {
             const djvuPath = djvuPaths[0]!;
-            const trustedDjvuPath = requireOpenPath(djvuPath);
+            const trustedDjvuPath = requireOpenPath(djvuPath, owner);
             logger.info(`openInputPaths resolved DjVu path: ${djvuPath}`);
-            await addRecentInputs([djvuPath]);
+            await addRecentInputs([djvuPath], owner);
             return {
                 kind: 'djvu',
                 workingPath: '',
@@ -194,8 +196,8 @@ async function openInputPaths(
     if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const originalPath = normalizedPaths[0]!;
         logger.info(`openInputPaths creating working copy for PDF: ${originalPath}`);
-        const workingPath = await createWorkingCopy(requireOpenPath(originalPath));
-        await addRecentInputs([originalPath]);
+        const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner));
+        await addRecentInputs([originalPath], owner);
         return {
             kind: 'pdf',
             workingPath,
@@ -214,7 +216,7 @@ async function openInputPaths(
 
     const recentDocumentPaths = toRecentDocumentPaths(normalizedPaths);
     if (recentDocumentPaths.length > 0) {
-        await addRecentInputs(recentDocumentPaths);
+        await addRecentInputs(recentDocumentPaths, owner);
     }
 
     return {
@@ -226,7 +228,7 @@ async function openInputPaths(
 }
 
 export async function handleOpenPdfDirect(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<IOpenFileResult | null> {
     if (typeof filePath !== 'string' || filePath.trim() === '') {
@@ -236,7 +238,7 @@ export async function handleOpenPdfDirect(
 
     let normalizedPath: TOpenPath;
     try {
-        normalizedPath = requireOpenPath(filePath);
+        normalizedPath = requireOpenPath(filePath, event.sender);
     } catch {
         logRejectedOpenPath(filePath);
         throw new Error(te('errors.file.invalid'));
@@ -244,7 +246,7 @@ export async function handleOpenPdfDirect(
 
     logger.info(`openPdfDirect request: ${normalizedPath}`);
     try {
-        const result = await openInputPaths([normalizedPath]);
+        const result = await openInputPaths([normalizedPath], {}, event.sender);
         logger.info(`openPdfDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
@@ -264,7 +266,7 @@ export async function handleOpenPdfDirectBatch(
 
     try {
         const normalizedPaths = normalizeNonEmptyStringPaths(filePaths)
-            .map(path => requireOpenPath(path));
+            .map(path => requireOpenPath(path, event.sender));
 
         const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
         return await openInputPaths(normalizedPaths, {onCombineProgress: normalizedRequestId
@@ -274,7 +276,7 @@ export async function handleOpenPdfDirectBatch(
                     ...progress,
                 });
             }
-            : undefined});
+            : undefined}, event.sender);
     } catch (err) {
         logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
@@ -329,7 +331,7 @@ export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: 
     }
 }
 
-async function resolveRevealablePath(filePath: string) {
+async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
     const resolvedReadPath = await resolveAllowedReadPath(filePath);
     if (resolvedReadPath) {
         return resolvedReadPath;
@@ -337,7 +339,7 @@ async function resolveRevealablePath(filePath: string) {
 
     const allowedRevealPath = (() => {
         try {
-            return requireOpenPath(resolve(filePath));
+            return requireOpenPath(resolve(filePath), owner);
         } catch {
             return null;
         }
@@ -354,7 +356,7 @@ async function resolveRevealablePath(filePath: string) {
 }
 
 export async function handleShowItemInFolder(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: string,
 ): Promise<boolean> {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
@@ -363,7 +365,7 @@ export async function handleShowItemInFolder(
     }
 
     try {
-        const revealablePath = await resolveRevealablePath(normalizedPath);
+        const revealablePath = await resolveRevealablePath(normalizedPath, event.sender);
         if (!revealablePath) {
             return false;
         }
@@ -421,7 +423,7 @@ async function showSaveDialogWithExtension(
         : `${result.filePath}${extension}`;
 }
 
-export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
+export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
     const result = await showOpenDocumentDialog({
         title: te('dialogs.openDocument'),
         extensions: [
@@ -437,14 +439,14 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
     }
 
     try {
-        return await openInputPaths(result.filePaths);
+        return await openInputPaths(result.filePaths, {}, event.sender);
     } catch (err) {
         logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
 
-export async function handleOpenFolderDialog(): Promise<IOpenFileResult | null> {
+export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
     const parentWindow = getOpenDialogParentWindow();
     const dialogOptions = {
         title: te('dialogs.openFolder'),
@@ -479,14 +481,14 @@ export async function handleOpenFolderDialog(): Promise<IOpenFileResult | null> 
     }
 
     try {
-        return await openInputPaths(supportedPaths);
+        return await openInputPaths(supportedPaths, {}, event.sender);
     } catch (err) {
         logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
 
-export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null> {
+export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
     const result = await showOpenDocumentDialog({
         title: te('dialogs.combineFiles'),
         extensions: [
@@ -500,14 +502,14 @@ export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null>
     }
 
     try {
-        return await openInputPaths(result.filePaths);
+        return await openInputPaths(result.filePaths, {}, event.sender);
     } catch (err) {
         logger.error(`Failed to combine files: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
 
-export async function handleOpenImageDialog(): Promise<string | null> {
+export async function handleOpenImageDialog(event: Electron.IpcMainInvokeEvent): Promise<string | null> {
     const parentWindow = getOpenDialogParentWindow();
     const dialogOptions = {
         title: te('dialogs.openImage'),
@@ -537,7 +539,11 @@ export async function handleOpenImageDialog(): Promise<string | null> {
         return null;
     }
 
-    return result.filePaths[0] ?? null;
+    const imagePath = result.filePaths[0] ?? null;
+    if (imagePath) {
+        allowOpenPath(imagePath, event.sender);
+    }
+    return imagePath;
 }
 
 export async function handleSavePdfAs(
@@ -587,7 +593,7 @@ export async function handleSavePdfAs(
     }
 
     workingCopyMap.set(normalizedWorkingPath, targetPath);
-    allowOpenPath(targetPath);
+    allowOpenPath(targetPath, event.sender);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
 

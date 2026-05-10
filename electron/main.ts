@@ -472,7 +472,7 @@ async function init() {
             }
 
             const paths = externalOpenManager.claimPendingOpenPaths();
-            allowOpenPaths(paths);
+            allowOpenPaths(paths, event.sender);
             return paths;
         },
     });
