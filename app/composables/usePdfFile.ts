@@ -167,7 +167,7 @@ export const usePdfFile = () => {
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.file.open');
+            error.value = classifyOpenError(e, preSelected?.originalPath ?? null);
         }
     }
 
@@ -244,12 +244,21 @@ export const usePdfFile = () => {
                 requiresSaveAsOnFirstSave: requiresSaveAsOnFirstSave.value,
             });
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.file.open');
+            error.value = classifyOpenError(e, path);
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
                 path,
                 error: getErrorMessage(e),
             });
         }
+    }
+
+    function classifyOpenError(e: unknown, path: TDocumentRef | null): string {
+        const rawMessage = e instanceof Error ? e.message : '';
+        if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
+            const name = (path && getDocumentRefBaseName(path)) || (path ? String(path) : '');
+            return t('errors.file.openNotFound', { name });
+        }
+        return rawMessage || t('errors.file.open');
     }
 
     async function openFileDirectBatch(paths: TDocumentRef[]) {

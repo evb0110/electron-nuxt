@@ -319,12 +319,12 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function recentFilePathExists(path: TDocumentRef) {
         try {
-            await getDocumentsCapability().statFile(path);
+            await getDocumentsCapability().readFileRange(path, 0, 1);
             return true;
-        } catch (statError) {
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file stat failed', {
+        } catch (probeError) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file probe failed', {
                 path,
-                error: stringifyError(statError),
+                error: stringifyError(probeError),
             });
             return false;
         }

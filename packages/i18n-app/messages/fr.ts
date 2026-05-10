@@ -793,6 +793,7 @@ export default {
         },
         'file': {
             'open': 'Échec de l’ouverture du fichier',
+            'openNotFound': '« {name} » n’a pas pu être ouvert. Le fichier a peut-être été déplacé, supprimé ou son stockage a été effacé.',
             'invalid': 'Fichier invalide ou inexistant',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',

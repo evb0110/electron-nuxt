@@ -181,7 +181,7 @@
         </WorkspaceToolbarHost>
 
         <UAlert
-            v-if="pdfError"
+            v-if="pdfError && pdfSrc"
             color="error"
             variant="soft"
             class="mx-3 mt-2"

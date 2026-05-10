@@ -781,6 +781,7 @@ export default {
         },
         'file': {
             'open': 'Kan bestand niet openen',
+            'openNotFound': '"{name}" kon niet worden geopend. Het bestand is mogelijk verplaatst, verwijderd, of de opslag is gewist.',
             'invalid': 'Ongeldig of niet-bestaand bestand',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
