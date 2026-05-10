@@ -31,7 +31,6 @@
                     class="pdf-note-minimized-indicator"
                     :style="getMinimizedIndicatorStyle(note)"
                     :aria-label="t('annotations.openNote')"
-                    :title="getMinimizedNotePreview(note)"
                     @mousedown.prevent
                     @mouseenter="handleAnchorPointerEvent('mouseenter', note)"
                     @mouseleave="handleAnchorPointerEvent('mouseleave', note)"

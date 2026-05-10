@@ -11,7 +11,6 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                :title="t('bookmarks.editBookmark')"
                 @click="emit('edit', bookmark.id)"
             >
                 {{ t('bookmarks.editBookmark') }}
@@ -19,7 +18,6 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                :title="t('bookmarks.addSiblingAbove')"
                 @click="emit('add-sibling-above', bookmark.id)"
             >
                 {{ t('bookmarks.addSiblingAbove') }}
@@ -27,7 +25,6 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                :title="t('bookmarks.addSiblingBelow')"
                 @click="emit('add-sibling-below', bookmark.id)"
             >
                 {{ t('bookmarks.addSiblingBelow') }}
@@ -35,7 +32,6 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                :title="t('bookmarks.addChild')"
                 @click="emit('add-child', bookmark.id)"
             >
                 {{ t('bookmarks.addChild') }}
@@ -48,7 +44,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': bookmark.bold }"
-                        :title="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
+                        :aria-label="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="emit('toggle-bold', bookmark.id)"
                     >
                         <UIcon name="i-lucide-bold" class="bookmarks-style-toggle-icon" />
@@ -57,7 +53,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': bookmark.italic }"
-                        :title="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
+                        :aria-label="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
                         @click="emit('toggle-italic', bookmark.id)"
                     >
                         <UIcon name="i-lucide-italic" class="bookmarks-style-toggle-icon" />
@@ -66,7 +62,7 @@
                         type="button"
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': !bookmark.color }"
-                        :title="t('bookmarks.defaultColor')"
+                        :aria-label="t('bookmarks.defaultColor')"
                         @click="emit('set-color', { id: bookmark.id, color: null })"
                     >
                         <span class="bookmarks-style-toggle-letter">A</span>
@@ -80,7 +76,7 @@
                         class="bookmarks-color-swatch"
                         :class="{ 'is-active': bookmark.color === preset }"
                         :style="{ background: preset }"
-                        :title="t('bookmarks.setColor', { color: preset })"
+                        :aria-label="t('bookmarks.setColor', { color: preset })"
                         @click="emit('set-color', { id: bookmark.id, color: preset })"
                     />
                 </div>
@@ -90,7 +86,6 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                :title="t('bookmarks.setStyleStart')"
                 @click="emit('set-style-range-start', bookmark.id)"
             >
                 {{ bookmark.id === styleRangeStartId ? t('bookmarks.rangeStartSet') : t('bookmarks.setStyleStart') }}
@@ -99,7 +94,6 @@
                 type="button"
                 class="pdf-context-menu__action"
                 :disabled="!canApplyStyleRange"
-                :title="applyStyleRangeLabel"
                 @click="emit('apply-style-to-range')"
             >
                 {{ applyStyleRangeLabel }}
@@ -109,7 +103,6 @@
             <button
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
-                :title="t('bookmarks.removeBookmark')"
                 @click="emit('remove', bookmark.id)"
             >
                 {{ t('bookmarks.removeBookmark') }}

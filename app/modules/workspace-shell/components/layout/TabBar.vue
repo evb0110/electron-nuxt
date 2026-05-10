@@ -1,43 +1,48 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
         <div class="tab-list" role="tablist">
-            <div
+            <UTooltip
                 v-for="(tab, index) in tabs"
                 :key="tab.id"
-                :data-tab-id="tab.id"
-                role="tab"
-                class="tab"
-                :class="{
-                    'is-active': tab.id === activeTabId,
-                    'is-dragging': isDragging && dragIndex === index,
-                }"
-                :aria-selected="tab.id === activeTabId"
-                :tabindex="tab.id === activeTabId ? 0 : -1"
-                :title="resolveTabTitle(tab)"
-                @click="handleTabClick(tab.id)"
-                @auxclick.prevent="handleAuxClick($event, tab.id)"
-                @keydown="handleTabKeydown($event, tab.id)"
-                @pointerdown="onPointerDown($event, index)"
-                @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
+                :text="resolveTabTitle(tab)"
+                :delay-duration="800"
             >
-                <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
-                <span
-                    v-if="tab.isDirty"
-                    class="tab-dirty-dot"
-                    :aria-label="t('tabs.unsavedChanges')"
-                />
-                <button
-                    type="button"
-                    class="tab-close"
-                    :class="{ 'is-visible': tab.id === activeTabId }"
-                    :aria-label="t('tabs.closeTab')"
-                    :disabled="!canCloseTabs"
-                    @pointerdown.stop
-                    @click.stop="requestClose(tab.id)"
+                <div
+                    :data-tab-id="tab.id"
+                    role="tab"
+                    class="tab"
+                    :class="{
+                        'is-active': tab.id === activeTabId,
+                        'is-dragging': isDragging && dragIndex === index,
+                    }"
+                    :aria-label="resolveTabTitle(tab)"
+                    :aria-selected="tab.id === activeTabId"
+                    :tabindex="tab.id === activeTabId ? 0 : -1"
+                    @click="handleTabClick(tab.id)"
+                    @auxclick.prevent="handleAuxClick($event, tab.id)"
+                    @keydown="handleTabKeydown($event, tab.id)"
+                    @pointerdown="onPointerDown($event, index)"
+                    @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
                 >
-                    <Icon name="lucide:x" size="14" />
-                </button>
-            </div>
+                    <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
+                    <span
+                        v-if="tab.isDirty"
+                        class="tab-dirty-dot"
+                        :aria-label="t('tabs.unsavedChanges')"
+                    />
+                    <button
+                        type="button"
+                        class="tab-close"
+                        :class="{ 'is-visible': tab.id === activeTabId }"
+                        :aria-label="t('tabs.closeTab')"
+                        :disabled="!canCloseTabs"
+                        @pointerdown.stop
+                        @click.stop="requestClose(tab.id)"
+                    >
+                        <Icon name="lucide:x" size="14" />
+                    </button>
+                </div>
+            </UTooltip>
             <button
                 type="button"
                 class="tab-new"
@@ -66,7 +71,6 @@
                     :key="action.key"
                     type="button"
                     class="tab-context-menu-action"
-                    :title="action.label"
                     @click="runContextCommand(action.command)"
                 >
                     {{ action.label }}

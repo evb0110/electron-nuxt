@@ -2,17 +2,22 @@
     <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls }">
         <template v-if="hasStyleControls">
             <div class="swatch-row">
-                <button
+                <UTooltip
                     v-for="swatch in displayColorSwatches"
                     :key="swatch"
-                    type="button"
-                    class="swatch"
-                    :class="{ 'is-active': swatch === activeColorSwatch }"
-                    :style="{ backgroundColor: swatch }"
-                    :title="swatch"
-                    :aria-pressed="swatch === activeColorSwatch"
-                    @click="handleColorInput(swatch)"
-                />
+                    :text="swatch"
+                    :delay-duration="600"
+                >
+                    <button
+                        type="button"
+                        class="swatch"
+                        :class="{ 'is-active': swatch === activeColorSwatch }"
+                        :style="{ backgroundColor: swatch }"
+                        :aria-label="swatch"
+                        :aria-pressed="swatch === activeColorSwatch"
+                        @click="handleColorInput(swatch)"
+                    />
+                </UTooltip>
             </div>
 
             <div v-if="activeWidthControl" class="style-row style-row-width flex flex-col">

@@ -78,7 +78,7 @@
                         <div class="zoom-toggle-group">
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('single') }]"
-                                :title="t('zoom.singlePage')"
+                                :aria-label="t('zoom.singlePage')"
                                 @click="handleSetViewMode('single')"
                             >
                                 <UIcon name="i-lucide-file" class="zoom-toggle-icon" />
@@ -86,7 +86,7 @@
                             </button>
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing') }]"
-                                :title="t('zoom.facingPages')"
+                                :aria-label="t('zoom.facingPages')"
                                 @click="handleSetViewMode('facing')"
                             >
                                 <UIcon name="i-lucide-book-open" class="zoom-toggle-icon" />
@@ -94,7 +94,7 @@
                             </button>
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing-first-single') }]"
-                                :title="t('zoom.facingWithFirstSingle')"
+                                :aria-label="t('zoom.facingWithFirstSingle')"
                                 @click="handleSetViewMode('facing-first-single')"
                             >
                                 <span class="zoom-toggle-icon-badge">

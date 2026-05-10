@@ -15,7 +15,6 @@
                     type="button"
                     class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': displayMode === option.id }"
-                    :title="option.title"
                     :aria-label="option.title"
                     @click="emit('set-display-mode', option.id)"
                 >
@@ -33,7 +32,6 @@
                     type="button"
                     class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': isEditMode }"
-                    :title="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                     :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                     @click="emit('toggle-edit-mode')"
                 >
@@ -54,7 +52,6 @@
                 <button
                     type="button"
                     class="pdf-bookmarks-icon-button"
-                    :title="t('bookmarks.addTopLevel')"
                     :aria-label="t('bookmarks.addTopLevel')"
                     @click="emit('add-root-bookmark')"
                 >
