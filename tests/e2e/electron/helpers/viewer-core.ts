@@ -36,7 +36,10 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     ],
 };
 
-interface IRecentFilesGrantApi {electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void>; }; }; };}
+interface IAutomationFileOpenGrantApi {
+    __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+    electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void>; }; }; };
+}
 
 function getToolbarActionIconHints(label: string) {
     return TOOLBAR_ACTION_ICON_HINTS[label] ?? [];
@@ -307,7 +310,12 @@ async function openPathInApp(
 
             const openResult = await runWithExecutionContextRetry(page, async () => {
                 return evaluateInPage(page, async (path: string) => {
-                    const documents = (window as Window & IRecentFilesGrantApi).electronAPI?.documents;
+                    const automationGrant = (window as Window & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                    if (typeof automationGrant === 'function') {
+                        await automationGrant(path);
+                    }
+
+                    const documents = (window as Window & IAutomationFileOpenGrantApi).electronAPI?.documents;
                     try {
                         await documents?.recentFiles?.add?.(path);
                     } catch {

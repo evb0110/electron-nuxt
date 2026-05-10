@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {
     mkdtempSync,
+    realpathSync,
     rmSync,
     writeFileSync,
 } from 'fs';
@@ -77,7 +78,7 @@ describe('documents show item in folder', () => {
 
         await expect(handleShowItemInFolder({ sender: {} } as never, filePath)).resolves.toBe(true);
 
-        expect(mocks.showItemInFolder).toHaveBeenCalledWith(filePath);
+        expect(mocks.showItemInFolder).toHaveBeenCalledWith(realpathSync.native(filePath));
     });
 
     it('does not reveal arbitrary existing paths without a capability', async () => {

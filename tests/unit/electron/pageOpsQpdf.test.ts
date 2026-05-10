@@ -14,6 +14,7 @@ import {
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import type * as NodeCrypto from 'node:crypto';
 
 const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
@@ -21,7 +22,13 @@ const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 
 type TRunCommandOptionsExpectation = { allowedExitCodes?: number[] };
 
-vi.mock('node:crypto', () => ({ randomUUID: () => randomUuidMock() }));
+vi.mock('node:crypto', async (importOriginal) => {
+    const actual = await importOriginal<typeof NodeCrypto>();
+    return {
+        ...actual,
+        randomUUID: () => randomUuidMock(),
+    };
+});
 vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
 vi.mock('@electron/ipc/workingCopy', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
