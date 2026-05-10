@@ -16,7 +16,6 @@ import { createWindowSecurity } from '@electron/window/security';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     deleteWindowRendererReadyState,
-    markWindowRendererReady as markRendererReady,
     setWindowRendererReadyCallback,
     waitForInitialRendererReady,
 } from '@electron/window/renderer-ready';
@@ -642,10 +641,6 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     }
 
     return window;
-}
-
-export function markWindowRendererReady(windowId: number) {
-    markRendererReady(windowId);
 }
 
 export async function createWindow(options: { waitForInitialRendererReady?: boolean; } = {}) {

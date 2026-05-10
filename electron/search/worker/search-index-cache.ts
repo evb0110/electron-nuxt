@@ -28,7 +28,7 @@ interface IEnsureSearchIndexOptions {
     onPageIndexed?: (page: IPdfSearchIndex['pages'][number]) => void;
 }
 
-export function getIndexPath(pdfPath: string) {
+function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
 }
 
@@ -52,7 +52,7 @@ async function getSearchSourceMtimeMs(pdfPath: string) {
     return Math.max(pdfMtimeMs ?? 0, ocrManifestMtimeMs ?? 0);
 }
 
-export function pruneIndexCache(
+function pruneIndexCache(
     indexCache: Map<string, ICachedIndex>,
     options: ISearchIndexCacheOptions,
     now = Date.now(),
@@ -82,7 +82,7 @@ export function pruneIndexCache(
     }
 }
 
-export function validateIndexTextBudget(
+function validateIndexTextBudget(
     index: IPdfSearchIndex,
     options: ISearchIndexCacheOptions,
 ) {
@@ -108,7 +108,7 @@ export function validateIndexTextBudget(
     }
 }
 
-export async function loadCachedIndex(
+async function loadCachedIndex(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
     options: ISearchIndexCacheOptions,
@@ -155,7 +155,7 @@ export async function loadCachedIndex(
     return entry;
 }
 
-export async function cacheBuiltIndex(
+async function cacheBuiltIndex(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
     index: IPdfSearchIndex,

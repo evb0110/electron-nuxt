@@ -7,25 +7,31 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    readDocumentBytes: vi.fn(),
+    stat: vi.fn(),
+    read: vi.fn(),
+    readRange: vi.fn(),
     loadDjvuJs: vi.fn(),
     createDocument: vi.fn(),
     unload: vi.fn(),
 }));
 
-vi.mock('@app/utils/document-bytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
-
 vi.mock('@app/platform/browser-api/djvujs-loader', () => ({loadDjvuJs: mocks.loadDjvuJs}));
 
 vi.mock('@app/platform/browser-document-store', () => ({
-    browserDocumentStore: { unload: mocks.unload },
+    browserDocumentStore: {
+        stat: mocks.stat,
+        read: mocks.read,
+        readRange: mocks.readRange,
+        unload: mocks.unload,
+    },
     isBrowserDocumentRef: (ref: string) => ref.startsWith('browser://documents/'),
 }));
 
 describe('createDjvuWorkerFromPath', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.readDocumentBytes.mockResolvedValue(new Uint8Array([
+        mocks.stat.mockResolvedValue({size: 3});
+        mocks.read.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -42,7 +48,8 @@ describe('createDjvuWorkerFromPath', () => {
 
         await createDjvuWorkerFromPath('/Users/test/book.djvu');
 
-        expect(mocks.readDocumentBytes).toHaveBeenCalledWith('/Users/test/book.djvu');
+        expect(mocks.stat).toHaveBeenCalledWith('/Users/test/book.djvu');
+        expect(mocks.read).toHaveBeenCalledWith('/Users/test/book.djvu');
         expect(mocks.createDocument).toHaveBeenCalledWith(
             new Uint8Array([
                 1,
@@ -61,7 +68,8 @@ describe('createDjvuWorkerFromPath', () => {
 
         await createDjvuWorkerFromPath(ref);
 
-        expect(mocks.readDocumentBytes).toHaveBeenCalledWith(ref);
+        expect(mocks.stat).toHaveBeenCalledWith(ref);
+        expect(mocks.read).toHaveBeenCalledWith(ref);
         expect(mocks.unload).toHaveBeenCalledWith(ref);
     });
 });

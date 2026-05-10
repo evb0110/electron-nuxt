@@ -20,7 +20,7 @@ import { pathToFileURL } from 'url';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
-import { extractPages } from '@electron/features/page-ops/main/qpdf';
+import { extractPages } from '@electron/features/page-ops/public';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.

@@ -14,7 +14,7 @@ const __dirname = dirname(__filename);
 
 const log = createLogger('ocr-ipc');
 
-export function getOcrWorkerPath(): string {
+function getOcrWorkerPath(): string {
     const defaultPath = join(__dirname, 'ocr-worker.js');
     if (!app?.isPackaged && existsSync(defaultPath)) {
         return defaultPath;

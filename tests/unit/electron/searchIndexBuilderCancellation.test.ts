@@ -36,6 +36,13 @@ function createAbortError() {
     return error;
 }
 
+interface IPdfjsMockPageText {
+    pageNumber: number;
+    text: string;
+}
+
+interface IPdfjsMockOptions { onPageText?: (pageText: IPdfjsMockPageText) => void; }
+
 describe('buildSearchIndex cancellation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -64,6 +71,7 @@ describe('buildSearchIndex cancellation', () => {
 
         expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/file.pdf', {
             signal: controller.signal,
+            collectPages: false,
             onPageText: expect.any(Function),
         });
         expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {
@@ -158,10 +166,13 @@ describe('buildSearchIndex assembly', () => {
 
     it('pads missing pages up to expected pageCount with empty text', async () => {
         const { buildSearchIndex } = await import('@electron/search/index-builder');
-        mocks.extractTextWithPdfjs.mockResolvedValue([{
-            pageNumber: 1,
-            text: 'only-one',
-        }]);
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'only-one',
+            });
+            return [];
+        });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
         const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 3 });
@@ -185,16 +196,17 @@ describe('buildSearchIndex assembly', () => {
 
     it('prefers OCR pageData words over previously extracted text and raw OCR text', async () => {
         const { buildSearchIndex } = await import('@electron/search/index-builder');
-        mocks.extractTextWithPdfjs.mockResolvedValue([
-            {
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
                 pageNumber: 1,
                 text: 'pdfjs-1',
-            },
-            {
+            });
+            options.onPageText?.({
                 pageNumber: 2,
                 text: 'pdfjs-2',
-            },
-        ]);
+            });
+            return [];
+        });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
         const result = await buildSearchIndex(
@@ -363,10 +375,13 @@ describe('buildSearchIndex assembly', () => {
             }
             throw new Error('ENOENT');
         });
-        mocks.extractTextWithPdfjs.mockResolvedValue([{
-            pageNumber: 1,
-            text: 'current pdf text',
-        }]);
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+            options.onPageText?.({
+                pageNumber: 1,
+                text: 'current pdf text',
+            });
+            return [];
+        });
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
         const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });

@@ -46,8 +46,8 @@ import {
     getAllAppWindows,
     getMainWindow,
     hasWindows,
-    markWindowRendererReady,
 } from '@electron/window';
+import { markWindowRendererReady } from '@electron/window/renderer-ready';
 import {
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,

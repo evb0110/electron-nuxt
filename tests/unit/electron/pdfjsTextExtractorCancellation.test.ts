@@ -8,6 +8,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
     readFile: vi.fn(),
+    stat: vi.fn(),
     getDocument: vi.fn(),
     loadingDestroy: vi.fn(),
     docDestroy: vi.fn(),
@@ -17,7 +18,10 @@ vi.mock('@electron/search/dom-polyfill', () => ({}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
-vi.mock('fs/promises', () => ({readFile: mocks.readFile}));
+vi.mock('fs/promises', () => ({
+    readFile: mocks.readFile,
+    stat: mocks.stat,
+}));
 
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({getDocument: mocks.getDocument}));
 
@@ -25,6 +29,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.readFile.mockResolvedValue(Buffer.from('pdf'));
+        mocks.stat.mockResolvedValue({size: 3});
         mocks.loadingDestroy.mockResolvedValue(undefined);
         mocks.docDestroy.mockResolvedValue(undefined);
     });
@@ -84,7 +89,10 @@ describe('extractTextWithPdfjs cancellation', () => {
             destroy: mocks.loadingDestroy,
         });
 
-        const result = await extractTextWithPdfjs('/tmp/file.pdf', { onPageText });
+        const result = await extractTextWithPdfjs('/tmp/file.pdf', {
+            collectPages: true,
+            onPageText,
+        });
 
         expect(onPageText).toHaveBeenNthCalledWith(1, {
             pageNumber: 1,
@@ -136,7 +144,10 @@ describe('extractTextWithPdfjs cancellation', () => {
             destroy: mocks.loadingDestroy,
         });
 
-        await expect(extractTextWithPdfjs('/tmp/file.pdf', { onPageText })).resolves.toEqual([{
+        await expect(extractTextWithPdfjs('/tmp/file.pdf', {
+            collectPages: true,
+            onPageText,
+        })).resolves.toEqual([{
             pageNumber: 1,
             text: repeatedText,
         }]);

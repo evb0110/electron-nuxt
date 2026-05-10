@@ -16,9 +16,8 @@ import {
 import { pathToFileURL } from 'node:url';
 import { config } from '@electron/config';
 
-export const APP_PROTOCOL_SCHEME = 'evb-viewer';
-export const APP_PROTOCOL_HOST = 'app';
-export const APP_PROTOCOL_ORIGIN = `${APP_PROTOCOL_SCHEME}://${APP_PROTOCOL_HOST}`;
+const APP_PROTOCOL_SCHEME = 'evb-viewer';
+const APP_PROTOCOL_HOST = 'app';
 
 const MIME_TYPES = new Map([
     [

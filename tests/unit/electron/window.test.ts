@@ -190,10 +190,8 @@ describe('window runtime readiness', () => {
     });
 
     it('waits for the initial renderer-ready signal when requested', async () => {
-        const {
-            createAppWindow,
-            markWindowRendererReady,
-        } = await import('@electron/window');
+        const { createAppWindow } = await import('@electron/window');
+        const { markWindowRendererReady } = await import('@electron/window/renderer-ready');
 
         const createPromise = createAppWindow({ waitForInitialRendererReady: true });
         await vi.waitFor(() => {
@@ -207,10 +205,8 @@ describe('window runtime readiness', () => {
 
     it('shows a startup placeholder before renderer-ready', async () => {
         mocks.config.automation.hideWindow = false;
-        const {
-            createAppWindow,
-            markWindowRendererReady,
-        } = await import('@electron/window');
+        const { createAppWindow } = await import('@electron/window');
+        const { markWindowRendererReady } = await import('@electron/window/renderer-ready');
 
         const createPromise = createAppWindow({ waitForInitialRendererReady: true });
         await vi.waitFor(() => {

@@ -95,11 +95,10 @@ function normalizePathForLookup(filePath: string) {
 }
 
 export class WorkingCopyMissingError extends Error {
-    code = 'WORKING_COPY_MISSING';
-
     constructor(message = 'Working copy is no longer available') {
         super(message);
         this.name = 'WorkingCopyMissingError';
+        Object.assign(this, { code: 'WORKING_COPY_MISSING' });
     }
 }
 

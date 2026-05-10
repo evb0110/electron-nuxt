@@ -20,7 +20,7 @@ export function unregisterAppWindow(windowId: number) {
     }
 }
 
-export function syncWindowRegistry() {
+function syncWindowRegistry() {
     const allWindows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed());
     const activeIds = new Set(allWindows.map(window => window.id));
 

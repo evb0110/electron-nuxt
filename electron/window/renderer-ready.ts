@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron';
 import { WINDOW_RENDERER_READY_TIMEOUT_MS } from '@electron/config/constants';
 import { getErrorMessage } from '@electron/utils/error';
 
-export interface IWindowStartupWaiter {
+interface IWindowStartupWaiter {
     resolve: () => void;
     reject: (error: Error) => void;
     timeoutHandle: NodeJS.Timeout | null;

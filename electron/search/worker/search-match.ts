@@ -40,7 +40,7 @@ function escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function buildSearchRegex(
+function buildSearchRegex(
     query: string,
     options: ISearchMatchOptions,
 ) {

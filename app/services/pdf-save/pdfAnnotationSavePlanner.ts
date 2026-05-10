@@ -1,3 +1,5 @@
+import type { IPdfLiveAnnotationChangeSummary } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
+
 export type TPdfAnnotationSaveRoute =
     | 'source-clean'
     | 'source-replay'
@@ -6,12 +8,6 @@ export type TPdfAnnotationSaveRoute =
 export type TPdfAnnotationSaveExpectedCost =
     | 'small'
     | 'full-document';
-
-export interface IPdfLiveAnnotationChangeSummary {
-    ids: ReadonlySet<string>;
-    hasChanges: boolean;
-    hasUnknownChanges: boolean;
-}
 
 export interface IPdfAnnotationSavePlan {
     route: TPdfAnnotationSaveRoute;

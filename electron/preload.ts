@@ -10,6 +10,7 @@ import { pushDebugLogMessage } from '@electron/preload/debug-log-buffer';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
 const PRELOAD_INSTALL_FLAG = '__preloadInstalled';
+const PRELOAD_DEBUG_LOG_LISTENER_FLAG = '__preloadDebugLogListenerInstalled';
 const preloadScriptStartedAt = Date.now();
 const STARTUP_OVERLAY_ID = 'evb-startup-overlay';
 const STARTUP_OVERLAY_STYLE_ID = 'evb-startup-overlay-style';
@@ -363,14 +364,16 @@ const preloadState = globalThis as Record<string, unknown>;
 
 const preloadAlreadyInstalled = preloadState[PRELOAD_INSTALL_FLAG] === true;
 if (preloadAlreadyInstalled) {
-    console.debug('[Preload] Skipping duplicate installation (fast reload detected)');
+    console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
+} else {
+    preloadState[PRELOAD_INSTALL_FLAG] = true;
 }
 
-if (!preloadAlreadyInstalled) {
-    tracePreload('preload installation started');
-    preloadState[PRELOAD_INSTALL_FLAG] = true;
-    (window as Window & {[STARTUP_TRACE_ENABLED_KEY]?: boolean;})[STARTUP_TRACE_ENABLED_KEY] = STARTUP_TRACE_ENABLED;
+tracePreload('preload installation started');
+(window as Window & {[STARTUP_TRACE_ENABLED_KEY]?: boolean;})[STARTUP_TRACE_ENABLED_KEY] = STARTUP_TRACE_ENABLED;
 
+if (preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] !== true) {
+    preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] = true;
     ipcRenderer.on('debug:log', (_event: IpcRendererEvent, data: {
         source: string;
         message: string;
@@ -379,63 +382,63 @@ if (!preloadAlreadyInstalled) {
         pushDebugLogMessage(data);
         console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
     });
+}
 
-    const logDevRecovery = (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: Record<string, unknown>) => {
-        if (level === 'debug') {
-            if (data) {
-                console.debug(message, data);
-            } else {
-                console.debug(message);
-            }
-        } else if (level === 'info') {
-            if (data) {
-                console.info(message, data);
-            } else {
-                console.info(message);
-            }
-        } else if (level === 'warn') {
-            if (data) {
-                console.warn(message, data);
-            } else {
-                console.warn(message);
-            }
-        } else if (data) {
-            console.error(message, data);
+const logDevRecovery = (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: Record<string, unknown>) => {
+    if (level === 'debug') {
+        if (data) {
+            console.debug(message, data);
         } else {
-            console.error(message);
+            console.debug(message);
         }
-
-        forwardPreloadLogToMain(level, 'dev-recovery', message, data);
-    };
-
-    installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });
-    tracePreload('dev recovery hooks installed');
-
-    const electronApi = createElectronApi(ipcRenderer, webUtils);
-    contextBridge.exposeInMainWorld('electronAPI', electronApi);
-    tracePreload('electronAPI exposed to renderer');
-
-    if (process.env.EVB_AUTOMATION_USER_DATA_DIR) {
-        const automationFileOpenToken = globalThis.crypto.randomUUID();
-        const automationFileOpenTokenRegistration = ipcRenderer.invoke(
-            DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
-            automationFileOpenToken,
-        );
-        contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
-            const path = typeof filePath === 'string' ? filePath : '';
-            return automationFileOpenTokenRegistration.then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
-                filePath: path,
-                token: automationFileOpenToken,
-            }));
-        });
-        tracePreload('automation file-open capability helper exposed');
+    } else if (level === 'info') {
+        if (data) {
+            console.info(message, data);
+        } else {
+            console.info(message);
+        }
+    } else if (level === 'warn') {
+        if (data) {
+            console.warn(message, data);
+        } else {
+            console.warn(message);
+        }
+    } else if (data) {
+        console.error(message, data);
+    } else {
+        console.error(message);
     }
 
-    installStartupOverlayLifecycle();
-    if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            tracePreload('DOMContentLoaded observed');
-            mountStartupOverlay();
-        }, { once: true });
-    }
+    forwardPreloadLogToMain(level, 'dev-recovery', message, data);
+};
+
+installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });
+tracePreload('dev recovery hooks installed');
+
+const electronApi = createElectronApi(ipcRenderer, webUtils);
+contextBridge.exposeInMainWorld('electronAPI', electronApi);
+tracePreload('electronAPI exposed to renderer');
+
+if (process.env.EVB_AUTOMATION_USER_DATA_DIR) {
+    const automationFileOpenToken = globalThis.crypto.randomUUID();
+    const automationFileOpenTokenRegistration = ipcRenderer.invoke(
+        DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
+        automationFileOpenToken,
+    );
+    contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
+        const path = typeof filePath === 'string' ? filePath : '';
+        return automationFileOpenTokenRegistration.then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+            filePath: path,
+            token: automationFileOpenToken,
+        }));
+    });
+    tracePreload('automation file-open capability helper exposed');
+}
+
+installStartupOverlayLifecycle();
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', () => {
+        tracePreload('DOMContentLoaded observed');
+        mountStartupOverlay();
+    }, { once: true });
 }

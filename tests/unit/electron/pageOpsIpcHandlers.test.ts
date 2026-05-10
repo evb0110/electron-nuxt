@@ -317,7 +317,7 @@ describe('registerPageOpsHandlers', () => {
                 2,
             ],
         );
-        expect(mocks.allowOpenPath).toHaveBeenCalledWith('/tmp/extracted-pages.pdf');
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith('/tmp/extracted-pages.pdf', {id: 1});
         expect(mocks.extractPages.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.allowOpenPath.mock.invocationCallOrder[0]!,
         );
