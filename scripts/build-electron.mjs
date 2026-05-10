@@ -8,8 +8,10 @@ import esbuild from 'esbuild';
 const builds = [
     {
         entryPoints: ['electron/main.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/main.js',
+        format: 'cjs',
+        outfile: 'dist-electron/main.cjs',
+        banner: {js: 'const __importMetaUrl = require("node:url").pathToFileURL(__filename).href;'},
+        define: {'import.meta.url': '__importMetaUrl'},
         external: [
             'electron',
             'electron-updater',

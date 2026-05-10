@@ -13,17 +13,5 @@ export const MAX_RECENT_FILES = 10;
 /** Duration (ms) the recent-files in-memory cache is considered fresh. */
 export const CACHE_TTL_MS = 5000;
 
-/** Timeout (ms) for waiting for the Nuxt server to become ready. */
-export const SERVER_READY_TIMEOUT_MS = 30_000;
-
-/** Polling interval (ms) when checking if the Nuxt server is running. */
-export const SERVER_POLL_INTERVAL_MS = 250;
-
-/** Maximum health-check retries after the server signals readiness. */
-export const SERVER_HEALTH_MAX_ATTEMPTS = 10;
-
-/** Delay (ms) between health-check retries. */
-export const SERVER_HEALTH_RETRY_MS = 300;
-
 /** Timeout (ms) for waiting for the first renderer to fully signal readiness. */
 export const WINDOW_RENDERER_READY_TIMEOUT_MS = 30_000;

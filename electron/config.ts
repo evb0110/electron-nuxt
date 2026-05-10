@@ -1,4 +1,3 @@
-import { existsSync } from 'fs';
 import {
     dirname,
     join,
@@ -10,6 +9,7 @@ const isPackaged = __dirname.includes('app.asar');
 const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '127.0.0.1');
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
 const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
+const APP_PROTOCOL_ORIGIN = 'evb-viewer://app';
 let runtimeServerHost = DEFAULT_SERVER_HOST;
 let runtimeServerPort = DEFAULT_SERVER_PORT;
 let runtimeServerPath = DEFAULT_SERVER_PATH;
@@ -79,26 +79,25 @@ export const config = {
         get url() {
             return `http://${this.host}:${this.port}${this.path}`;
         },
-        get entryPath() {
+    },
+
+    renderer: {
+        protocolOrigin: APP_PROTOCOL_ORIGIN,
+        get url() {
+            return isPackaged
+                ? `${APP_PROTOCOL_ORIGIN}/electron`
+                : config.server.url;
+        },
+        get trustedOrigin() {
+            return isPackaged
+                ? APP_PROTOCOL_ORIGIN
+                : new URL(config.server.url).origin;
+        },
+        get staticRoot() {
             if (isPackaged) {
-                // Keep Nuxt server inside app.asar so Node ESM can resolve
-                // bare package imports from app.asar/node_modules.
-                const asarPath = join(process.resourcesPath, 'app.asar', 'nuxt-output', 'server', 'index.mjs');
-                if (existsSync(asarPath)) {
-                    return asarPath;
-                }
-
-                // Legacy fallback for older builds that unpacked Nuxt output.
-                const unpackedPath = join(process.resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'server', 'index.mjs');
-                if (existsSync(unpackedPath)) {
-                    return unpackedPath;
-                }
-
-                // Fallback for legacy non-asar layouts.
-                return join(process.resourcesPath, 'nuxt-output', 'server', 'index.mjs');
+                return join(process.resourcesPath, 'app.asar', 'nuxt-output', 'public');
             }
-
-            return join(__dirname, '../nuxt-output/server/index.mjs');
+            return join(__dirname, '../nuxt-output/public');
         },
     },
 

@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => {
 
         readonly webContents = {
             forcefullyCrashRenderer: vi.fn(),
-            getURL: vi.fn(() => 'http://127.0.0.1:3235'),
+            getURL: vi.fn(() => 'evb-viewer://app/electron'),
             executeJavaScript: vi.fn(async () => undefined),
             on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
                 const existing = this.handlers.get(`webContents:${event}`) ?? [];
@@ -142,6 +142,10 @@ const mocks = vi.hoisted(() => {
             },
             isDev: false,
             isMac: false,
+            renderer: {
+                trustedOrigin: 'evb-viewer://app',
+                url: 'evb-viewer://app/electron',
+            },
             server: {url: 'http://127.0.0.1:3235'},
             window: {
                 backgroundColor: '#fff',
@@ -152,10 +156,7 @@ const mocks = vi.hoisted(() => {
         },
         openExternal: vi.fn(async () => {}),
         setupContentSecurityPolicy: vi.fn(),
-        startServer: vi.fn(async () => {}),
-        stopServer: vi.fn(async () => {}),
         te: vi.fn((key: string) => key),
-        waitForServer: vi.fn(async () => {}),
     };
 });
 
@@ -168,12 +169,6 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@electron/config', () => ({config: mocks.config}));
-
-vi.mock('@electron/server', () => ({
-    startServer: mocks.startServer,
-    stopServer: mocks.stopServer,
-    waitForServer: mocks.waitForServer,
-}));
 
 vi.mock('@electron/config/constants', () => ({WINDOW_RENDERER_READY_TIMEOUT_MS: 30_000}));
 vi.mock('@electron/i18n', () => ({te: mocks.te}));
@@ -188,34 +183,10 @@ describe('window runtime readiness', () => {
         vi.clearAllMocks();
         mocks.BrowserWindow.nextId = 1;
         mocks.BrowserWindow.windows.length = 0;
-        mocks.startServer.mockReset();
-        mocks.stopServer.mockReset();
-        mocks.waitForServer.mockReset();
         mocks.loadURL.mockReset();
-        mocks.startServer.mockResolvedValue(undefined);
-        mocks.stopServer.mockResolvedValue(undefined);
         mocks.loadURL.mockResolvedValue(undefined);
         mocks.config.automation.hideWindow = true;
         mocks.config.automation.noFocus = false;
-    });
-
-    it('restarts the runtime server when a later window detects stale health', async () => {
-        mocks.waitForServer
-            .mockResolvedValueOnce(undefined)
-            .mockRejectedValueOnce(new Error('runtime server stopped responding'))
-            .mockResolvedValueOnce(undefined);
-
-        const { createAppWindow } = await import('@electron/window');
-
-        await createAppWindow();
-        await createAppWindow();
-
-        expect(mocks.startServer).toHaveBeenCalledTimes(2);
-        expect(mocks.stopServer).toHaveBeenCalledTimes(1);
-        expect(mocks.waitForServer).toHaveBeenCalledTimes(3);
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Runtime server health check failed; restarting before retry'),
-        );
     });
 
     it('waits for the initial renderer-ready signal when requested', async () => {
@@ -256,14 +227,18 @@ describe('window runtime readiness', () => {
         await createPromise;
     });
 
-    it('creates and shows the startup window before the runtime server is ready', async () => {
+    it('creates the startup window before the renderer load completes', async () => {
         mocks.config.automation.hideWindow = false;
-        let resolveServerStart: () => void = () => {
-            throw new Error('startServer was not called');
+        let resolveLoad: () => void = () => {
+            throw new Error('loadURL was not called');
         };
-        mocks.startServer.mockReturnValueOnce(new Promise<void>((resolve) => {
-            resolveServerStart = resolve;
-        }));
+        mocks.loadURL.mockImplementation(async (url?: string) => {
+            if (url === mocks.config.renderer.url) {
+                await new Promise<void>((resolve) => {
+                    resolveLoad = resolve;
+                });
+            }
+        });
         const { createAppWindow } = await import('@electron/window');
 
         const createPromise = createAppWindow();
@@ -273,12 +248,10 @@ describe('window runtime readiness', () => {
 
         const window = mocks.BrowserWindow.windows[0];
         await vi.waitFor(() => {
-            expect(window?.isVisible()).toBe(true);
+            expect(mocks.loadURL).toHaveBeenCalledWith(mocks.config.renderer.url);
         });
-        expect(mocks.startServer).toHaveBeenCalledTimes(1);
-        expect(mocks.waitForServer).not.toHaveBeenCalled();
 
-        resolveServerStart();
+        resolveLoad();
         await expect(createPromise).resolves.toBe(window);
     });
 
@@ -287,7 +260,7 @@ describe('window runtime readiness', () => {
         const { createAppWindow } = await import('@electron/window');
 
         mocks.loadURL.mockImplementation(async (url?: string) => {
-            if (url === mocks.config.server.url) {
+            if (url === mocks.config.renderer.url) {
                 throw loadError;
             }
         });

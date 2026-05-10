@@ -6,6 +6,7 @@
             :groups="groups"
             :tabs="tabs"
             :active-group-id="activeGroupId"
+            :is-startup-open-claim-pending="isStartupOpenClaimPending"
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
             :start-section-by-tab-id="startSectionByTabId"
@@ -52,6 +53,7 @@ defineProps<{
     groups: IEditorGroupState[];
     tabs: ITab[];
     activeGroupId: string | null;
+    isStartupOpenClaimPending: boolean;
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;

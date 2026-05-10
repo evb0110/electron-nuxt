@@ -53,31 +53,6 @@ if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
   exit 1
 fi
 
-default_port=3235
-port="${EVB_SERVER_PORT:-$default_port}"
-server_path="${EVB_SERVER_PATH:-/electron}"
-case "$server_path" in
-  /*)
-    ;;
-  *)
-    server_path="/$server_path"
-    ;;
-esac
-if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then
-  if [ -n "${EVB_SERVER_PORT:-}" ]; then
-    echo "Error: Requested TCP port $port is already in use"
-    lsof -nP -iTCP:$port -sTCP:LISTEN || true
-    exit 1
-  fi
-
-  port="$(node -e "const net = require('node:net'); const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const address = server.address(); if (!address || typeof address === 'string') process.exit(1); console.log(address.port); server.close(); });")"
-  if [ -z "$port" ]; then
-    echo "Error: Failed to allocate a free localhost port for startup verification"
-    exit 1
-  fi
-  echo "TCP port $default_port is busy; using $port for packaged startup verification"
-fi
-
 log_dir="${TMPDIR:-/tmp}/electron-logs"
 rm -rf "$log_dir"
 mkdir -p "$log_dir"
@@ -95,13 +70,11 @@ trap cleanup EXIT
 EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
 EVB_AUTOMATION_HIDE_WINDOW=1 \
 EVB_AUTOMATION_NO_FOCUS=1 \
-EVB_SERVER_PORT="$port" \
 EVB_STARTUP_TRACE=1 \
-"$app_exec" &
+env -u ELECTRON_RUN_AS_NODE "$app_exec" &
 app_pid=$!
 
 main_log="$log_dir/main.log"
-server_log="$log_dir/server.log"
 window_log="$log_dir/window.log"
 
 timeout_secs=50
@@ -113,14 +86,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     renderer_ready=1
   fi
 
-  server_ready=0
-  if [ -f "$server_log" ] && grep -q 'Server verified ready' "$server_log"; then
-    server_ready=1
-  elif curl -fsS --max-time 2 "http://127.0.0.1:$port$server_path" >/dev/null 2>&1; then
-    server_ready=1
-  fi
-
-  if [ "$server_ready" -eq 1 ] && [ "$renderer_ready" -eq 1 ] && kill -0 "$app_pid" >/dev/null 2>&1; then
+  if [ "$renderer_ready" -eq 1 ] && kill -0 "$app_pid" >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -136,8 +102,6 @@ if [ "$ready" -ne 1 ]; then
   echo "Error: Packaged app failed startup verification"
   echo "--- main.log ---"
   cat "$main_log" 2>/dev/null || true
-  echo "--- server.log ---"
-  cat "$server_log" 2>/dev/null || true
   echo "--- window.log ---"
   cat "$window_log" 2>/dev/null || true
   exit 1

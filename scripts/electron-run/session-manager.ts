@@ -656,18 +656,6 @@ async function waitForNuxtStartupAttempt(
     const start = Date.now();
     let lastLog = 0;
 
-    // Electron can now wait for the externally managed Nuxt server, so keep
-    // the expensive dev-server build and Electron startup overlapped.
-    await delay(750);
-    if (!attempt.exited) {
-        console.log('[Nuxt] Dev process started; Electron will wait for HTTP readiness.');
-        logTiming('Nuxt dev process spawned');
-        return {
-            kind: 'ready',
-            nuxt: attempt.nuxt,
-        };
-    }
-
     while (Date.now() - start < timeout) {
         const serverUp = await isNuxtRunning();
         const buildsComplete = hasCompletedNuxtBuildMarkers(attempt);
@@ -676,13 +664,17 @@ async function waitForNuxtStartupAttempt(
 
         if (buildsComplete && warmupComplete) {
             if (!serverUp) {
-                console.log('[Nuxt] Build markers complete; Electron will wait for HTTP readiness.');
-                logTiming('Nuxt build markers complete');
-            } else {
-                console.log('[Nuxt] Server ready at http://127.0.0.1:' + getNuxtPort());
-                logTiming('Nuxt server ready');
-                await warmupElectronAppDependencies(logTiming);
+                if (Date.now() - lastLog > 2_000) {
+                    console.log('[Nuxt] Build markers complete; waiting for HTTP readiness.');
+                    lastLog = Date.now();
+                }
+                await delay(250);
+                continue;
             }
+
+            console.log('[Nuxt] Server ready at http://127.0.0.1:' + getNuxtPort());
+            logTiming('Nuxt server ready');
+            await warmupElectronAppDependencies(logTiming);
             return {
                 kind: 'ready',
                 nuxt: attempt.nuxt,
@@ -946,9 +938,9 @@ async function stopFailedElectronStartup(electron: ChildProcess, cdpPort: number
 }
 
 async function startElectron(cdpPort: number): Promise<ChildProcess> {
-    const mainJs = join(projectRoot, 'dist-electron', 'main.js');
+    const mainJs = join(projectRoot, 'dist-electron', 'main.cjs');
     if (!existsSync(mainJs)) {
-        throw new Error('dist-electron/main.js not found. Run `pnpm run build:electron` first.');
+        throw new Error('dist-electron/main.cjs not found. Run `pnpm run build:electron` first.');
     }
 
     console.log('[Electron] Starting with CDP on port', cdpPort);
@@ -1069,7 +1061,9 @@ async function reattachToAppPage(
 
 function isAppPageUrl(url: string): boolean {
     const port = getNuxtPort();
-    return url.includes(`localhost:${port}`) || url.includes(`127.0.0.1:${port}`);
+    return url.startsWith('evb-viewer://app/')
+        || url.includes(`localhost:${port}`)
+        || url.includes(`127.0.0.1:${port}`);
 }
 
 function getElectronAppUrl(): string {

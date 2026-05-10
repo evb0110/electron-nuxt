@@ -37,6 +37,7 @@ function createOptions() {
 
     return {
         tabs: ref([{id: 'tab-1'}]),
+        isStartupOpenClaimPending: ref(true),
         activeTabId: ref('tab-1'),
         activeWorkspace: ref(cast<IWorkspaceExpose>(workspace)),
         createTab: vi.fn(() => ({id: 'tab-2'})),

@@ -5,13 +5,7 @@ import { getErrorMessage } from '@electron/utils/error';
 export interface IWindowStartupWaiter {
     resolve: () => void;
     reject: (error: Error) => void;
-    retryableConnectionRefusalSeen: boolean;
     timeoutHandle: NodeJS.Timeout | null;
-}
-
-interface IRendererReadyOptions {
-    isDev: boolean;
-    isRuntimeServerUrl: (url: string) => boolean;
 }
 
 const windowStartupWaiters = new Map<number, IWindowStartupWaiter>();
@@ -33,7 +27,6 @@ export function deleteWindowRendererReadyState(windowId: number) {
 export function waitForInitialRendererReady(
     window: BrowserWindow,
     initialLoadPromise: Promise<void>,
-    options: IRendererReadyOptions,
 ) {
     return new Promise<void>((resolve, reject) => {
         let settled = false;
@@ -79,18 +72,6 @@ export function waitForInitialRendererReady(
                 return;
             }
 
-            const waiter = windowStartupWaiters.get(window.id);
-            if (
-                waiter
-                && !options.isDev
-                && !waiter.retryableConnectionRefusalSeen
-                && errorCode === -102
-                && options.isRuntimeServerUrl(validatedURL)
-            ) {
-                waiter.retryableConnectionRefusalSeen = true;
-                return;
-            }
-
             rejectReady(new Error(
                 `Initial renderer load failed (${errorCode}: ${errorDescription}) for ${validatedURL}`,
             ));
@@ -120,7 +101,6 @@ export function waitForInitialRendererReady(
         windowStartupWaiters.set(window.id, {
             resolve: resolveReady,
             reject: rejectReady,
-            retryableConnectionRefusalSeen: false,
             timeoutHandle,
         });
 
@@ -131,7 +111,7 @@ export function waitForInitialRendererReady(
         void initialLoadPromise.catch((error) => {
             queueMicrotask(() => {
                 const waiter = windowStartupWaiters.get(window.id);
-                if (!waiter || waiter.retryableConnectionRefusalSeen) {
+                if (!waiter) {
                     return;
                 }
                 rejectReady(new Error(`Initial loadURL failed: ${getErrorMessage(error)}`));

@@ -479,11 +479,24 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
         '/robots.txt': { prerender: true },
         '/sitemap.xml': { prerender: true },
         '/electron': {
+            prerender: true,
             ssr: false,
             headers: { 'X-Robots-Tag': 'noindex, nofollow' },
         },
-        '/workspace': {
+        '/electron/**': {
+            prerender: true,
+            ssr: false,
             headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+        },
+        '/': { prerender: true },
+        '/workspace': {
+            prerender: true,
+            ssr: false,
+            headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+        },
+        '/mobile-reader-proof': { prerender: true },
+        '/api/analytics/events': {
+            prerender: false,
         },
         '/**': {
             headers: {
@@ -708,6 +721,16 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: { dir: nitroOutputDir },
+        prerender: {
+            routes: [
+                '/',
+                '/electron',
+                '/workspace',
+                '/mobile-reader-proof',
+                '/robots.txt',
+                '/sitemap.xml',
+            ],
+        },
     },
 
     compatibilityDate: '2025-01-01',

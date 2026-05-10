@@ -10,7 +10,6 @@ import {
 import { fileURLToPath } from 'url';
 import { config } from '@electron/config';
 import { te } from '@electron/i18n';
-import { stopServer } from '@electron/server';
 import { createLogger } from '@electron/utils/logger';
 import { createWindowRuntime } from '@electron/window/runtime';
 import { createWindowSecurity } from '@electron/window/security';
@@ -74,7 +73,7 @@ function formatErrorMessage(error: unknown) {
     return getErrorMessage(error);
 }
 const windowSecurity = createWindowSecurity({
-    getServerUrl: () => config.server.url,
+    getTrustedRendererOrigin: () => config.renderer.trustedOrigin,
     logger,
 });
 const windowRuntime = createWindowRuntime({
@@ -205,7 +204,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
                 if (window.isDestroyed()) {
                     return;
                 }
-                await window.loadURL(config.server.url);
+                await window.loadURL(config.renderer.url);
             } catch (error) {
                 logger.error(
                     `Renderer recovery load failed (${reason}, windowId=${windowId}): ${
@@ -309,7 +308,6 @@ function attachShowLifecycle(
     let hasShownWindow = false;
     let pendingShowTimeout: NodeJS.Timeout | null = null;
     let forceShowTimeout: NodeJS.Timeout | null = null;
-    let runtimeServerLoadRetried = false;
     let mainFrameLoadFinished = false;
     const blockShowUntilRendererReady = options.blockShowUntilRendererReady ?? false;
     let rendererReadyForShow = !blockShowUntilRendererReady;
@@ -535,35 +533,6 @@ function attachShowLifecycle(
         logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
         mainFrameLoadFinished = false;
 
-        const shouldRetryRuntimeServerLoad = (
-            !config.isDev
-            && !runtimeServerLoadRetried
-            && errorCode === -102
-            && windowSecurity.isRuntimeServerUrl(validatedURL)
-        );
-        if (shouldRetryRuntimeServerLoad) {
-            runtimeServerLoadRetried = true;
-            logger.warn('Runtime server connection refused during window load; restarting runtime server and retrying once');
-
-            void (async () => {
-                try {
-                    await stopServer();
-                    windowRuntime.resetServerPromise();
-                    await windowRuntime.ensureReady();
-                    await window.loadURL(config.server.url);
-                    logger.info('Recovered window load after runtime server restart');
-                } catch (error) {
-                    logger.error(
-                        `Failed runtime server restart/retry after load refusal: ${
-                            getErrorMessage(error)
-                        }`,
-                    );
-                    await showWindowNow();
-                }
-            })();
-            return;
-        }
-
         if (blockShowUntilRendererReady && !rendererReadyForShow) {
             logNavEvent('load-failure-hidden-during-strict-startup', {
                 errorCode,
@@ -641,16 +610,13 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         if (window.isDestroyed()) {
             return;
         }
-        await window.loadURL(config.server.url);
+        await window.loadURL(config.renderer.url);
     })();
     void initialLoadPromise.catch((error) => {
         logger.error(`Initial loadURL failed: ${getErrorMessage(error)}`);
     });
     const initialRendererReadyPromise = shouldWaitForInitialRendererReady
-        ? waitForInitialRendererReady(window, initialLoadPromise, {
-            isDev: config.isDev,
-            isRuntimeServerUrl: url => windowSecurity.isRuntimeServerUrl(url),
-        })
+        ? waitForInitialRendererReady(window, initialLoadPromise)
         : null;
     window.webContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
@@ -659,7 +625,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     showAndFocusMaximizedWindow(window);
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
         windowId: window.id,
-        url: config.server.url,
+        url: config.renderer.url,
     });
 
     if (initialRendererReadyPromise) {

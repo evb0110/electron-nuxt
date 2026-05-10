@@ -38,7 +38,6 @@ import {
     setupMenu,
 } from '@electron/menu';
 import { initRecentFilesCache } from '@electron/recent-files';
-import { stopServer } from '@electron/server';
 import { performDjvuViewingShutdownCleanup } from '@electron/features/djvu/main/viewing';
 import { shutdownDjvuConversions } from '@electron/features/djvu/main/pdf-export';
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
@@ -61,8 +60,13 @@ import {
     shutdownUpdates,
 } from '@electron/updates';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    registerAppProtocolScheme,
+    setupAppProtocolHandler,
+} from '@electron/protocol';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
+registerAppProtocolScheme();
 if (process.platform === 'win32') {
     app.setAppUserModelId('com.evb.viewer');
 }
@@ -373,10 +377,6 @@ async function performShutdownCleanup() {
             label: 'working-copies',
             run: () => clearAllWorkingCopies(), 
         },
-        {
-            label: 'runtime-server',
-            run: () => stopServer(), 
-        },
     ]);
 }
 
@@ -418,6 +418,7 @@ async function init() {
     logStartupPhase('Bootstrap init started');
     await app.whenReady();
     logStartupPhase('app.whenReady resolved');
+    setupAppProtocolHandler();
     if (config.automation.noFocus && process.platform === 'darwin') {
         try {
             app.dock?.hide();

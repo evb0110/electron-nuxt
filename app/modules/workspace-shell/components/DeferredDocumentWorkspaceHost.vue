@@ -107,6 +107,7 @@ const props = defineProps<{
     tabId: string;
     isActive: boolean;
     isTabTransitionBusy: boolean;
+    isStartupOpenClaimPending?: boolean;
     hasDocumentHint?: boolean;
     startSection?: TStartSection;
 }>();
@@ -194,6 +195,7 @@ const workspaceVisibleDocument = computed(() => {
 });
 const isPlaceholderVisible = computed(() => (
     !isDocumentOpenInFlight.value
+    && props.isStartupOpenClaimPending !== true
     && !hasQueuedSplitRestore.value
     && !workspaceVisibleDocument.value
 ));
@@ -256,7 +258,8 @@ const isHostErrorVisible = computed(() => (
 ));
 const isHostLoaderVisible = computed(() => (
     !isHostErrorVisible.value && (
-        isDocumentOpenInFlight.value
+        props.isStartupOpenClaimPending === true
+    || isDocumentOpenInFlight.value
     || (workspaceRequested.value && !hasMountedWorkspace.value && shouldShowWorkspaceMountLoader.value)
     )
 ));
@@ -267,6 +270,10 @@ const loaderVariant = computed(() => {
 
     if (!isHostLoaderVisible.value) {
         return 'none';
+    }
+
+    if (props.isStartupOpenClaimPending === true) {
+        return 'startup-open:claiming';
     }
 
     if (isDocumentOpenInFlight.value && workspaceRequested.value && !hasMountedWorkspace.value) {
@@ -807,15 +814,10 @@ defineExpose(workspaceExpose);
 }
 
 .workspace-host__loading-chip {
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.85rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--app-window-bg) 92%, transparent);
-    backdrop-filter: blur(6px);
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--ui-bg-inverted) 8%, transparent);
 }
 
 .workspace-host__loading-label {

@@ -127,7 +127,9 @@ async function connectToSessionPage(sessionName: string) {
     const pages = await browser.pages();
     let page = pages.find(candidate => {
         const url = candidate.url();
-        return url.includes(`localhost:${nuxtPort}`) || url.includes(`127.0.0.1:${nuxtPort}`);
+        return url.startsWith('evb-viewer://app/')
+            || url.includes(`localhost:${nuxtPort}`)
+            || url.includes(`127.0.0.1:${nuxtPort}`);
     }) ?? null;
 
     if (!page) {

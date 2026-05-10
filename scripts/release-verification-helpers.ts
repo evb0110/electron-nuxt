@@ -1,11 +1,10 @@
 interface IPackagedStartupReadiness {
     appAlive: boolean;
     rendererReady: boolean;
-    serverReady: boolean;
 }
 
 export function isPackagedStartupReady(state: IPackagedStartupReadiness) {
-    return state.serverReady && state.rendererReady && state.appAlive;
+    return state.rendererReady && state.appAlive;
 }
 
 export function parseAllowedToolExitCodes(allowedCodes: string) {
