@@ -232,7 +232,7 @@ export default {
     },
     'djvu': {
         'loadingPages': 'Pagina\'s laden... {current}/{total}',
-        'bannerHint': 'DjVu-bestand – converteer naar PDF om bewerkingsfuncties in te schakelen',
+        'bannerHint': 'DjVu-pagina’s worden op aanvraag weergegeven – converteer naar PDF om bewerkingsfuncties in te schakelen',
         'pageAlt': 'DjVu-pagina {page}',
         'convertToPdf': 'Converteren naar PDF...',
         'overlayConverting': 'DjVu converteren naar PDF...',

@@ -238,7 +238,7 @@ export default {
     },
     'djvu': {
         'loadingPages': 'Загрузка страниц... {current}/{total}',
-        'bannerHint': 'Файл DjVu — конвертируйте в PDF для редактирования',
+        'bannerHint': 'Страницы DjVu загружаются по мере просмотра — конвертируйте в PDF для редактирования',
         'pageAlt': 'Страница DjVu {page}',
         'convertToPdf': 'Конвертировать в PDF...',
         'overlayConverting': 'Конвертация DjVu в PDF...',
