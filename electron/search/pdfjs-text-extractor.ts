@@ -1,4 +1,7 @@
-import { readFile } from 'fs/promises';
+import {
+    readFile,
+    stat,
+} from 'fs/promises';
 // Must set up DOM stubs before importing pdfjs — the legacy build still
 // references DOMMatrix at module evaluation time (canvas rendering code).
 import '@electron/search/dom-polyfill';
@@ -10,6 +13,13 @@ import { createLogger } from '@electron/utils/logger';
 import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 
 const log = createLogger('pdfjs-text-extractor');
+const PDFJS_MAX_INPUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDFJS_MAX_INPUT_MB ?? '512', 10);
+    if (!Number.isFinite(parsed) || parsed < 16) {
+        return 512 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
 
 interface IPageText {
     pageNumber: number;
@@ -19,6 +29,7 @@ interface IPageText {
 interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
+    collectPages?: boolean;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -68,9 +79,15 @@ export async function extractTextWithPdfjs(
     const {
         signal,
         onPageText,
+        collectPages = !onPageText,
     } = options;
     log.debug(`Extracting text with pdfjs-dist: ${pdfPath}`);
     throwIfAborted(signal);
+
+    const fileStat = await stat(pdfPath);
+    if (fileStat.size > PDFJS_MAX_INPUT_BYTES) {
+        throw new Error(`PDF is too large for pdfjs text extraction (${fileStat.size} bytes)`);
+    }
 
     const data = new Uint8Array(await readFile(pdfPath));
     throwIfAborted(signal);
@@ -84,6 +101,7 @@ export async function extractTextWithPdfjs(
 
     try {
         const pages: IPageText[] = [];
+        let extractedPageCount = 0;
 
         for (let i = 1; i <= doc.numPages; i++) {
             throwIfAborted(signal);
@@ -118,11 +136,14 @@ export async function extractTextWithPdfjs(
                 pageNumber: i,
                 text: collapseRepeatedPdfSearchPageText(parts.join('')),
             };
-            pages.push(pageText);
+            extractedPageCount += 1;
+            if (collectPages) {
+                pages.push(pageText);
+            }
             onPageText?.(pageText);
         }
 
-        log.debug(`Extracted ${pages.length} pages with pdfjs-dist`);
+        log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist`);
         return pages;
     } finally {
         await doc.destroy();

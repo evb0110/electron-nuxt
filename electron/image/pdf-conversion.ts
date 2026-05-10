@@ -60,6 +60,20 @@ const PDF_COMBINE_WORKER_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
+const PDF_COMBINE_MAX_INPUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_INPUT_MB ?? '512', 10);
+    if (!Number.isFinite(parsed) || parsed < 16) {
+        return 512 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
+const PDF_COMBINE_MAX_TOTAL_INPUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_TOTAL_INPUT_MB ?? '1024', 10);
+    if (!Number.isFinite(parsed) || parsed < 16) {
+        return 1024 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
 export const SUPPORTED_IMAGE_EXTENSIONS = PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS;
 
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
@@ -221,6 +235,7 @@ function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {
 }
 
 async function enforceInputResourceLimits(inputPaths: string[]) {
+    let totalBytes = 0;
     for (const inputPath of inputPaths) {
         const fileStat = await stat(inputPath);
         if (!fileStat.isFile()) {
@@ -228,6 +243,13 @@ async function enforceInputResourceLimits(inputPaths: string[]) {
         }
         if (fileStat.size <= 0) {
             throw new Error(`Input file is empty: ${inputPath}`);
+        }
+        if (fileStat.size > PDF_COMBINE_MAX_INPUT_BYTES) {
+            throw new Error(`Input file is too large to combine safely: ${inputPath}`);
+        }
+        totalBytes += fileStat.size;
+        if (totalBytes > PDF_COMBINE_MAX_TOTAL_INPUT_BYTES) {
+            throw new Error('Combined input files are too large to combine safely');
         }
     }
 }
