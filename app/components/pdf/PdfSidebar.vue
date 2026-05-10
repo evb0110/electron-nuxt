@@ -21,7 +21,7 @@
             class="shrink-0"
         >
             <template #leading="{ item }">
-                <UTooltip
+                <AppTooltip
                     v-if="isCompact"
                     :text="item.title"
                     :delay-duration="300"
@@ -30,7 +30,7 @@
                         :name="item.icon"
                         class="size-3.5 shrink-0"
                     />
-                </UTooltip>
+                </AppTooltip>
                 <UIcon
                     v-else
                     :name="item.icon"

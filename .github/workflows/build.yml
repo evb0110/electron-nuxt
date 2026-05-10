@@ -35,11 +35,12 @@ jobs:
             platform: linux
             arch: arm64
 
-          # Windows — both run on x64 runner; arm64 cross-bundles via MSYS2 clangarm64
-          - os: windows-latest
+          # Windows — both run on x64 runner; arm64 cross-bundles via MSYS2 clangarm64.
+          # Pin to 2022 because the windows-2025 image currently exits during pnpm install.
+          - os: windows-2022
             platform: win
             arch: x64
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             arch: arm64
 

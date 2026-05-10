@@ -4,7 +4,7 @@
         :title="t('ocr.runTitle')"
         :ui="{ content: 'sm:max-w-md', footer: 'justify-end gap-2' }"
     >
-        <UTooltip
+        <AppTooltip
             v-if="!hideTrigger"
             :text="triggerTooltip"
             :delay-duration="1200"
@@ -25,7 +25,7 @@
                 <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
                 <Icon v-else name="lucide:loader-2" class="size-5 animate-spin" />
             </button>
-        </UTooltip>
+        </AppTooltip>
         <span v-else class="hidden-trigger" aria-hidden="true" />
 
         <template #body>
@@ -202,7 +202,7 @@
                         <UIcon name="i-lucide-alert-circle" class="size-4" />
                         <div class="error-content flex flex-1 flex-col gap-2">
                             <span class="error-text">{{ effectiveError }}</span>
-                            <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                            <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-copy"
                                     variant="ghost"
@@ -213,7 +213,7 @@
                                     :aria-label="t('ocr.copyLogs')"
                                     @click="handleCopyLogs"
                                 />
-                            </UTooltip>
+                            </AppTooltip>
                         </div>
                     </div>
 
@@ -230,7 +230,7 @@
         </template>
 
         <template #footer>
-            <UTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
+            <AppTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
                 <UButton
                     icon="i-lucide-file-text"
                     variant="ghost"
@@ -241,8 +241,8 @@
                     :aria-label="t('ocr.exportDocx')"
                     @click="handleExportDocx"
                 />
-            </UTooltip>
-            <UTooltip
+            </AppTooltip>
+            <AppTooltip
                 v-if="!progress.isRunning"
                 :text="t('ocr.start')"
                 :delay-duration="1200"
@@ -255,8 +255,8 @@
                     :aria-label="t('ocr.start')"
                     @click="handleRunOcr"
                 />
-            </UTooltip>
-            <UTooltip
+            </AppTooltip>
+            <AppTooltip
                 v-else
                 :text="t('ocr.cancel')"
                 :delay-duration="1200"
@@ -269,7 +269,7 @@
                     :aria-label="t('ocr.cancel')"
                     @click="handleCancel"
                 />
-            </UTooltip>
+            </AppTooltip>
         </template>
     </UModal>
 </template>

@@ -27,7 +27,7 @@
             </UInput>
 
             <div class="flex shrink-0 items-center gap-0.5">
-                <UTooltip :text="t('search.previousMatch')" :delay-duration="1200">
+                <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
                     <UButton
                         icon="i-lucide-chevron-up"
                         variant="ghost"
@@ -37,8 +37,8 @@
                         :aria-label="t('search.previousMatchLabel')"
                         @click="emit('previous')"
                     />
-                </UTooltip>
-                <UTooltip :text="t('search.nextMatch')" :delay-duration="1200">
+                </AppTooltip>
+                <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
                     <UButton
                         icon="i-lucide-chevron-down"
                         variant="ghost"
@@ -48,7 +48,7 @@
                         :aria-label="t('search.nextMatchLabel')"
                         @click="emit('next')"
                     />
-                </UTooltip>
+                </AppTooltip>
             </div>
         </div>
 

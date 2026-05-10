@@ -73,3 +73,34 @@ describe('tailwind-class-shorthand rule', () => {
         );
     });
 });
+
+describe('app-tooltip-only rule', () => {
+    it('rejects raw tooltip APIs but allows AppTooltip and component title props', () => {
+        tester.run(
+            'app-tooltip-only',
+            rules['app-tooltip-only'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    { code: '<template><AppTooltip text="Open"><button aria-label="Open" /></AppTooltip></template>' },
+                    { code: '<template><UModal :title="title" /></template>' },
+                    { code: '<template><PdfPanelEmptyState :title="title" /></template>' },
+                    { code: '<template><button aria-label="Open" /></template>' },
+                ],
+                invalid: [
+                    {
+                        code: '<template><UTooltip text="Open"><button /></UTooltip></template>',
+                        errors: [{ message: 'Use AppTooltip instead of UTooltip so tooltip usefulness is centralized.' }],
+                    },
+                    {
+                        code: '<template><button title="Open" /></template>',
+                        errors: [{ message: 'Do not use native title tooltips. Use AppTooltip for useful tooltips, or aria-label for accessibility-only labels.' }],
+                    },
+                    {
+                        code: '<template><div :title="label" /></template>',
+                        errors: [{ message: 'Do not use native title tooltips. Use AppTooltip for useful tooltips, or aria-label for accessibility-only labels.' }],
+                    },
+                ],
+            },
+        );
+    });
+});

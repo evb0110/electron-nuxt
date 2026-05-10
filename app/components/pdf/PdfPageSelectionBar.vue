@@ -8,7 +8,7 @@
         </span>
 
         <div class="page-selection-bar-actions">
-            <UTooltip :text="t('pageOps.rotateCcw')" :delay-duration="400">
+            <AppTooltip :text="t('pageOps.rotateCcw')" :delay-duration="400">
                 <button
                     type="button"
                     class="page-selection-bar-button"
@@ -18,9 +18,9 @@
                 >
                     <UIcon name="i-lucide-rotate-ccw" class="page-selection-bar-icon" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
 
-            <UTooltip :text="t('pageOps.rotateCw')" :delay-duration="400">
+            <AppTooltip :text="t('pageOps.rotateCw')" :delay-duration="400">
                 <button
                     type="button"
                     class="page-selection-bar-button"
@@ -30,9 +30,9 @@
                 >
                     <UIcon name="i-lucide-rotate-cw" class="page-selection-bar-icon" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
 
-            <UTooltip :text="t('pageOps.extractPages')" :delay-duration="400">
+            <AppTooltip :text="t('pageOps.extractPages')" :delay-duration="400">
                 <button
                     type="button"
                     class="page-selection-bar-button"
@@ -45,9 +45,9 @@
                         class="page-selection-bar-icon page-selection-bar-icon-mirrored"
                     />
                 </button>
-            </UTooltip>
+            </AppTooltip>
 
-            <UTooltip :text="t('pageOps.exportPages')" :delay-duration="400">
+            <AppTooltip :text="t('pageOps.exportPages')" :delay-duration="400">
                 <button
                     type="button"
                     class="page-selection-bar-button"
@@ -57,9 +57,9 @@
                 >
                     <UIcon name="i-lucide-file-output" class="page-selection-bar-icon" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
 
-            <UTooltip :text="t('pageOps.deletePages')" :delay-duration="400">
+            <AppTooltip :text="t('pageOps.deletePages')" :delay-duration="400">
                 <button
                     type="button"
                     class="page-selection-bar-button page-selection-bar-button-danger"
@@ -69,7 +69,7 @@
                 >
                     <UIcon name="i-lucide-trash-2" class="page-selection-bar-icon" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </div>
 
         <button

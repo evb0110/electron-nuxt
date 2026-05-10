@@ -1251,4 +1251,59 @@ export default {rules: {
             );
         },
     },
+    'app-tooltip-only': {
+        meta: {
+            type: 'problem',
+            docs: {
+                description: 'Require AppTooltip instead of raw UTooltip or native title tooltips',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            const services = getTemplateBodyServices(context);
+            if (!services) {
+                return {};
+            }
+
+            function getElementName(node) {
+                return node.rawName ?? node.name;
+            }
+
+            function isNativeHtmlElementName(name) {
+                return typeof name === 'string' && /^[a-z][\d_a-z-]*$/u.test(name);
+            }
+
+            return services.parserServices.defineTemplateBodyVisitor({
+                VElement(node) {
+                    if (getElementName(node) === 'UTooltip') {
+                        context.report({
+                            node: node.startTag,
+                            message: 'Use AppTooltip instead of UTooltip so tooltip usefulness is centralized.',
+                        });
+                    }
+                },
+                VAttribute(node) {
+                    const parentElement = node.parent?.parent;
+                    const parentName = parentElement ? getElementName(parentElement) : null;
+                    const argumentName = node.key?.argument?.type === 'VIdentifier'
+                        ? node.key.argument.name
+                        : null;
+                    const attributeName = node.directive
+                        ? argumentName
+                        : node.key?.name;
+
+                    if (
+                        attributeName === 'title'
+                        && isNativeHtmlElementName(parentName)
+                    ) {
+                        context.report({
+                            node,
+                            message: 'Do not use native title tooltips. Use AppTooltip for useful tooltips, or aria-label for accessibility-only labels.',
+                        });
+                    }
+                },
+            });
+        },
+    },
 }};

@@ -1,7 +1,7 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
         <div class="tab-list" role="tablist">
-            <UTooltip
+            <AppTooltip
                 v-for="(tab, index) in tabs"
                 :key="tab.id"
                 :text="resolveTabTitle(tab)"
@@ -42,7 +42,7 @@
                         <Icon name="lucide:x" size="14" />
                     </button>
                 </div>
-            </UTooltip>
+            </AppTooltip>
             <button
                 type="button"
                 class="tab-new"

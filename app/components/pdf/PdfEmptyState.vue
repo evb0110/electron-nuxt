@@ -157,7 +157,7 @@
                                     {{ formatRelativeTimeLocalized(file.timestamp) }}
                                 </span>
                                 <span class="recent-col recent-col--actions" role="cell">
-                                    <UTooltip
+                                    <AppTooltip
                                         v-if="canRevealInFolder(file)"
                                         :text="t('status.showInFolder')"
                                         :delay-duration="1200"
@@ -173,8 +173,8 @@
                                         >
                                             <UIcon name="i-lucide-folder-open" />
                                         </span>
-                                    </UTooltip>
-                                    <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
+                                    </AppTooltip>
+                                    <AppTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
                                         <span
                                             class="recent-action recent-action--remove"
                                             role="button"
@@ -186,7 +186,7 @@
                                         >
                                             <UIcon name="i-lucide-x" />
                                         </span>
-                                    </UTooltip>
+                                    </AppTooltip>
                                 </span>
                             </button>
                         </div>

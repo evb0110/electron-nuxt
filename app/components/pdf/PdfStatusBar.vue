@@ -1,7 +1,7 @@
 <template>
     <footer class="status-bar">
         <div class="status-bar-file">
-            <UTooltip :text="showInFolderTooltip" :delay-duration="800">
+            <AppTooltip :text="showInFolderTooltip" :delay-duration="800">
                 <button
                     type="button"
                     class="status-folder-button"
@@ -12,17 +12,17 @@
                 >
                     <UIcon name="i-lucide-folder-open" class="status-folder-icon" />
                 </button>
-            </UTooltip>
-            <UTooltip :text="filePath" :delay-duration="800">
+            </AppTooltip>
+            <AppTooltip :text="filePath" :delay-duration="800">
                 <div class="status-bar-path">
                     {{ filePath }}
                 </div>
-            </UTooltip>
+            </AppTooltip>
         </div>
         <div class="status-bar-metrics">
             <span class="status-bar-item">{{ fileSizeLabel }}</span>
             <span class="status-bar-item">{{ zoomLabel }}</span>
-            <UTooltip :text="saveDotTooltip" :delay-duration="800">
+            <AppTooltip :text="saveDotTooltip" :delay-duration="800">
                 <button
                     type="button"
                     class="status-save-dot-button"
@@ -33,7 +33,7 @@
                 >
                     <span class="status-save-dot" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </div>
     </footer>
 </template>

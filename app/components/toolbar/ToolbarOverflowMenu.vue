@@ -4,7 +4,7 @@
         mode="click"
         :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 8 }"
     >
-        <UTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
+        <AppTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
             <UButton
                 :icon="triggerIcon"
                 variant="ghost"
@@ -14,7 +14,7 @@
                 aria-haspopup="menu"
                 :aria-expanded="isOpen"
             />
-        </UTooltip>
+        </AppTooltip>
 
         <template #content>
             <div class="overflow-menu">

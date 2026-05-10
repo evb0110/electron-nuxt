@@ -99,7 +99,7 @@
                             <span>{{ formatBytes(file.size) }}</span>
                         </span>
                         <span class="combine-row-actions">
-                            <UTooltip :text="t('combinePdf.moveUp')" :delay-duration="600">
+                            <AppTooltip :text="t('combinePdf.moveUp')" :delay-duration="600">
                                 <UButton
                                     color="neutral"
                                     variant="ghost"
@@ -109,8 +109,8 @@
                                     :disabled="index === 0 || isCombining"
                                     @click="moveFile(index, -1)"
                                 />
-                            </UTooltip>
-                            <UTooltip :text="t('combinePdf.moveDown')" :delay-duration="600">
+                            </AppTooltip>
+                            <AppTooltip :text="t('combinePdf.moveDown')" :delay-duration="600">
                                 <UButton
                                     color="neutral"
                                     variant="ghost"
@@ -120,8 +120,8 @@
                                     :disabled="index === files.length - 1 || isCombining"
                                     @click="moveFile(index, 1)"
                                 />
-                            </UTooltip>
-                            <UTooltip :text="t('combinePdf.removeFile')" :delay-duration="600">
+                            </AppTooltip>
+                            <AppTooltip :text="t('combinePdf.removeFile')" :delay-duration="600">
                                 <UButton
                                     color="neutral"
                                     variant="ghost"
@@ -131,7 +131,7 @@
                                     :disabled="isCombining"
                                     @click="removeFile(index)"
                                 />
-                            </UTooltip>
+                            </AppTooltip>
                         </span>
                     </li>
                 </ol>

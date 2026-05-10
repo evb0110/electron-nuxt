@@ -1,7 +1,7 @@
 <template>
     <div class="annotation-toolbar">
         <div class="tool-grid">
-            <UTooltip
+            <AppTooltip
                 v-for="toolItem in toolItems"
                 :key="toolItem.id"
                 :text="toolItem.label"
@@ -18,7 +18,7 @@
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
                     <span v-if="tool === toolItem.id" class="tool-button-active-indicator" aria-hidden="true" />
                 </button>
-            </UTooltip>
+            </AppTooltip>
         </div>
     </div>
 </template>

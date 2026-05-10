@@ -1,5 +1,5 @@
 <template>
-    <UTooltip :delay-duration="1200">
+    <AppTooltip :delay-duration="1200">
         <button
             class="toolbar-btn"
             :class="{
@@ -31,7 +31,7 @@
                 {{ shortcutLabel }}
             </span>
         </template>
-    </UTooltip>
+    </AppTooltip>
 </template>
 
 <script setup lang="ts">

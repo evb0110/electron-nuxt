@@ -1,6 +1,16 @@
 import { uniq } from 'es-toolkit/array';
 import type { IPdfPageRange } from '@app/types/pdf';
 
+export interface IPageThumbnailClickModifiers {
+    shiftKey?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+}
+
+export function shouldSelectPageFromThumbnailClick(modifiers: IPageThumbnailClickModifiers): boolean {
+    return Boolean(modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey);
+}
+
 export function normalizeSelectedPageNumbers(selectedPages: number[], totalPages: number): number[] {
     return uniq(selectedPages)
         .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages)

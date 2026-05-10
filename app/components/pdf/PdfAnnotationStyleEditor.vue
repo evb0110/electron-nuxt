@@ -2,7 +2,7 @@
     <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls }">
         <template v-if="hasStyleControls">
             <div class="swatch-row">
-                <UTooltip
+                <AppTooltip
                     v-for="swatch in displayColorSwatches"
                     :key="swatch"
                     :text="swatch"
@@ -17,7 +17,7 @@
                         :aria-pressed="swatch === activeColorSwatch"
                         @click="handleColorInput(swatch)"
                     />
-                </UTooltip>
+                </AppTooltip>
             </div>
 
             <div v-if="activeWidthControl" class="style-row style-row-width flex flex-col">
