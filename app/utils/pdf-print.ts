@@ -29,15 +29,11 @@ interface IPreferredSinglePagePrintSheet {
     aspectDelta: number;
 }
 
-interface IConservativeSinglePagePrintArea {
-    width: number;
-    height: number;
-}
-
 const SAFE_DIRECT_PRINT_FIT_SCALE_THRESHOLD = 0.97;
 const SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD = 0.1;
-const SINGLE_PAGE_PRINT_SAFE_MARGIN_PT = 18;
+const SINGLE_PAGE_PRINT_SAFE_MARGIN_PT = 0;
 const BROWSER_PRINT_RENDER_SCALE = 2;
+const PDF_POINTS_PER_INCH = 72;
 const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
     {
         key: 'a4' as const,
@@ -181,6 +177,11 @@ function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
     return targetDocument.createElement('canvas') as IBrowserPrintCanvas;
 }
 
+function formatPdfPointSizeAsCssInches(sizeInPoints: number) {
+    const sizeInInches = Math.max(1, sizeInPoints) / PDF_POINTS_PER_INCH;
+    return `${Number(sizeInInches.toFixed(4))}in`;
+}
+
 export async function renderPdfPagesForBrowserPrint(
     targetDocument: IBrowserPrintDocument,
     printablePdf: Blob | Uint8Array,
@@ -213,14 +214,14 @@ export async function renderPdfPagesForBrowserPrint(
                 const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
                 pageContainer.className = 'browser-print-page';
-                pageContainer.style.width = `${displayViewport.width}px`;
-                pageContainer.style.height = `${displayViewport.height}px`;
+                pageContainer.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
+                pageContainer.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
 
                 const canvas = createBrowserPrintCanvas(targetDocument);
                 canvas.width = Math.max(1, Math.ceil(renderViewport.width));
                 canvas.height = Math.max(1, Math.ceil(renderViewport.height));
-                canvas.style.width = `${displayViewport.width}px`;
-                canvas.style.height = `${displayViewport.height}px`;
+                canvas.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
+                canvas.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
 
                 const context = canvas.getContext('2d', { alpha: false });
                 if (!context) {
@@ -387,46 +388,6 @@ export function canPrintSourcePdfDirectly(
         && (!options.pageNumbers || options.pageNumbers.length === 0);
 }
 
-function isFullDocumentSelection(pageNumbers: number[], totalPages: number) {
-    if (pageNumbers.length !== totalPages) {
-        return false;
-    }
-
-    return pageNumbers.every((pageNumber, index) => pageNumber === index + 1);
-}
-
-function resolveOutputPageSize(
-    naturalWidth: number,
-    naturalHeight: number,
-    orientation: TPrintOrientation,
-) {
-    let pageWidth = Math.max(1, naturalWidth);
-    let pageHeight = Math.max(1, naturalHeight);
-
-    if (orientation === 'portrait' && pageWidth > pageHeight) {
-        [
-            pageWidth,
-            pageHeight,
-        ] = [
-            pageHeight,
-            pageWidth,
-        ];
-    } else if (orientation === 'landscape' && pageHeight > pageWidth) {
-        [
-            pageWidth,
-            pageHeight,
-        ] = [
-            pageHeight,
-            pageWidth,
-        ];
-    }
-
-    return {
-        pageWidth,
-        pageHeight,
-    };
-}
-
 function buildSpreadPages(
     groups: number[][],
     embeddedPagesByNumber: Map<number, IPrintEmbeddedPage>,
@@ -505,27 +466,29 @@ function shouldNormalizeSinglePageForPrint(sheet: IPreferredSinglePagePrintSheet
         || sheet.aspectDelta > SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD;
 }
 
-function resolveConservativeSinglePagePrintArea(
-    isLandscape: boolean,
-): IConservativeSinglePagePrintArea {
-    return STANDARD_SINGLE_PAGE_PRINT_SHEETS.reduce<IConservativeSinglePagePrintArea>((smallestArea, candidate) => {
-        const candidateWidth = isLandscape ? candidate.height : candidate.width;
-        const candidateHeight = isLandscape ? candidate.width : candidate.height;
+function resolveDefaultA4PrintSheet(
+    naturalWidth: number,
+    naturalHeight: number,
+    orientation: TPrintOrientation = 'auto',
+) {
+    const a4Sheet = STANDARD_SINGLE_PAGE_PRINT_SHEETS[0];
+    const isLandscape = orientation === 'landscape'
+        ? true
+        : orientation === 'portrait'
+            ? false
+            : naturalWidth > naturalHeight;
 
-        return {
-            width: Math.min(smallestArea.width, candidateWidth),
-            height: Math.min(smallestArea.height, candidateHeight),
-        };
-    }, {
-        width: Number.POSITIVE_INFINITY,
-        height: Number.POSITIVE_INFINITY,
-    });
+    return {
+        width: isLandscape ? a4Sheet.height : a4Sheet.width,
+        height: isLandscape ? a4Sheet.width : a4Sheet.height,
+    };
 }
 
 async function buildPaperFittedSinglePagePdf(
     targetPdf: PDFDocument,
     sourcePdfData: Uint8Array,
     pageNumbers: number[],
+    orientation: TPrintOrientation,
 ) {
     const embeddedPages = await targetPdf.embedPdf(
         sourcePdfData,
@@ -539,30 +502,32 @@ async function buildPaperFittedSinglePagePdf(
             throw new Error('Unable to prepare printable page');
         }
 
-        const conservativeArea = resolveConservativeSinglePagePrintArea(
-            embeddedPage.width > embeddedPage.height,
+        const preferredSheet = resolveDefaultA4PrintSheet(
+            embeddedPage.width,
+            embeddedPage.height,
+            orientation,
         );
         const availableWidth = Math.max(
             1,
-            conservativeArea.width - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2,
+            preferredSheet.width - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2,
         );
         const availableHeight = Math.max(
             1,
-            conservativeArea.height - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2,
+            preferredSheet.height - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2,
         );
         const drawScale = Math.min(
             availableWidth / Math.max(1, embeddedPage.width),
             availableHeight / Math.max(1, embeddedPage.height),
         );
         const targetPage = targetPdf.addPage([
-            conservativeArea.width,
-            conservativeArea.height,
+            preferredSheet.width,
+            preferredSheet.height,
         ]);
         const drawWidth = embeddedPage.width * drawScale;
         const drawHeight = embeddedPage.height * drawScale;
         targetPage.drawPage(embeddedPage, {
-            x: (conservativeArea.width - drawWidth) / 2,
-            y: (conservativeArea.height - drawHeight) / 2,
+            x: (preferredSheet.width - drawWidth) / 2,
+            y: (preferredSheet.height - drawHeight) / 2,
             width: drawWidth,
             height: drawHeight,
         });
@@ -631,30 +596,14 @@ export async function buildPrintablePdfData(
         return null;
     }
 
-    if (options.viewMode === 'single' && options.orientation === 'auto') {
-        const shouldNormalizePages = shouldNormalizeSinglePagePdfForPrint(
-            sourcePdf,
-            normalizedPageNumbers,
-        );
-
-        if (!shouldNormalizePages && isFullDocumentSelection(normalizedPageNumbers, totalPages)) {
-            return sourcePdfData;
-        }
-
-        if (!shouldNormalizePages) {
-            const targetPdf = await PDFDocument.create();
-            const copiedPages = await targetPdf.copyPages(
-                sourcePdf,
-                normalizedPageNumbers.map(pageNumber => pageNumber - 1),
-            );
-            for (const copiedPage of copiedPages) {
-                targetPdf.addPage(copiedPage);
-            }
-            return targetPdf.save();
-        }
-
+    if (options.viewMode === 'single') {
         const targetPdf = await PDFDocument.create();
-        await buildPaperFittedSinglePagePdf(targetPdf, sourcePdfData, normalizedPageNumbers);
+        await buildPaperFittedSinglePagePdf(
+            targetPdf,
+            sourcePdfData,
+            normalizedPageNumbers,
+            options.orientation,
+        );
         return targetPdf.save();
     }
 
@@ -686,41 +635,21 @@ export async function buildPrintablePdfData(
     for (const spread of spreads) {
         const naturalWidth = spread.reduce((sum, page) => sum + page.width, 0);
         const naturalHeight = spread.reduce((maxHeight, page) => Math.max(maxHeight, page.height), 0);
-        const shouldNormalizeSpreadToPaper = options.viewMode !== 'single';
-        const preferredSheet = shouldNormalizeSpreadToPaper
-            ? resolvePreferredSinglePagePrintSheet(
-                naturalWidth,
-                naturalHeight,
-                options.orientation,
-            )
-            : null;
-        const normalizedPageSize = shouldNormalizeSpreadToPaper
-            ? resolveConservativeSinglePagePrintArea(preferredSheet!.width > preferredSheet!.height)
-            : null;
-        const outputPageSize = normalizedPageSize
-            ? {
-                pageWidth: normalizedPageSize.width,
-                pageHeight: normalizedPageSize.height,
-            }
-            : resolveOutputPageSize(
-                naturalWidth,
-                naturalHeight,
-                options.orientation,
-            );
+        const preferredSheet = resolveDefaultA4PrintSheet(
+            naturalWidth,
+            naturalHeight,
+            options.orientation,
+        );
         const {
-            pageWidth,
-            pageHeight,
-        } = outputPageSize;
+            width: pageWidth,
+            height: pageHeight,
+        } = preferredSheet;
         const targetPage = targetPdf.addPage([
             pageWidth,
             pageHeight,
         ]);
-        const availableWidth = shouldNormalizeSpreadToPaper
-            ? Math.max(1, pageWidth - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2)
-            : pageWidth;
-        const availableHeight = shouldNormalizeSpreadToPaper
-            ? Math.max(1, pageHeight - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2)
-            : pageHeight;
+        const availableWidth = Math.max(1, pageWidth - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2);
+        const availableHeight = Math.max(1, pageHeight - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2);
         const scale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
         const leftInset = (pageWidth - naturalWidth * scale) / 2;
         const topInset = (pageHeight - naturalHeight * scale) / 2;

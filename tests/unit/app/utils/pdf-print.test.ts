@@ -205,12 +205,12 @@ describe('pdf-print', () => {
         const printablePdf = await PDFDocument.load(printablePdfData!);
         expect(printablePdf.getPageCount()).toBe(2);
         expect(printablePdf.getPage(0)?.getSize()).toEqual({
-            width: 792,
+            width: 841.89,
             height: 595.28,
         });
         expect(printablePdf.getPage(1)?.getSize()).toEqual({
             width: 595.28,
-            height: 792,
+            height: 841.89,
         });
     });
 
@@ -230,12 +230,12 @@ describe('pdf-print', () => {
 
         const printablePdf = await PDFDocument.load(printablePdfData!);
         expect(printablePdf.getPage(0)?.getSize()).toEqual({
-            width: 200,
-            height: 100,
+            width: 841.89,
+            height: 595.28,
         });
     });
 
-    it('returns the original PDF bytes for the default single-page print flow', async () => {
+    it('normalizes the default single-page print flow onto office-paper sheets', async () => {
         const sourcePdfData = await createSourcePdf([
             [
                 595.28,
@@ -252,7 +252,18 @@ describe('pdf-print', () => {
             orientation: 'auto',
         });
 
-        expect(printablePdfData).toBe(sourcePdfData);
+        expect(printablePdfData).not.toBe(sourcePdfData);
+
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPageCount()).toBe(2);
+        expect(printablePdf.getPage(0)?.getSize()).toEqual({
+            width: 595.28,
+            height: 841.89,
+        });
+        expect(printablePdf.getPage(1)?.getSize()).toEqual({
+            width: 595.28,
+            height: 841.89,
+        });
     });
 
     it('fits oversized single-page documents onto office paper before printing', async () => {
@@ -271,11 +282,11 @@ describe('pdf-print', () => {
         const printablePdf = await PDFDocument.load(printablePdfData!);
         expect(printablePdf.getPage(0)?.getSize()).toEqual({
             width: 595.28,
-            height: 792,
+            height: 841.89,
         });
     });
 
-    it('copies only the requested pages for default single-page subset printing', async () => {
+    it('fits only the requested pages for default single-page subset printing', async () => {
         const sourcePdfData = await createSourcePdf([
             [
                 595.28,
@@ -309,8 +320,8 @@ describe('pdf-print', () => {
             height: 841.89,
         });
         expect(printablePdf.getPage(1)?.getSize()).toEqual({
-            width: 612,
-            height: 792,
+            width: 595.28,
+            height: 841.89,
         });
     });
 
@@ -425,12 +436,20 @@ describe('pdf-print', () => {
             },
         }));
         expect(firstCanvas.style).toEqual({
-            height: '200px',
-            width: '100px',
+            height: '2.7778in',
+            width: '1.3889in',
         });
         expect(secondCanvas.style).toEqual({
-            height: '180px',
-            width: '120px',
+            height: '2.5in',
+            width: '1.6667in',
+        });
+        expect(createdSections[0]?.style).toEqual({
+            height: '2.7778in',
+            width: '1.3889in',
+        });
+        expect(createdSections[1]?.style).toEqual({
+            height: '2.5in',
+            width: '1.6667in',
         });
         expect(firstPage.cleanup).toHaveBeenCalledTimes(1);
         expect(secondPage.cleanup).toHaveBeenCalledTimes(1);

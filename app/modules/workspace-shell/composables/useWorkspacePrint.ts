@@ -7,18 +7,11 @@ import type {
 import {
     buildBrowserPrintFrameMarkup,
     buildPrintablePdfData,
-    canPrintSourcePdfDirectly,
     renderPdfPagesForBrowserPrint,
     shouldPrintPageMetricsDirectly,
-    shouldPrintSourcePdfDirectly,
     type TPrintOrientation,
     waitForPrintPaint,
 } from '@app/utils/pdf-print';
-import {
-    getDocumentsCapability,
-    isNativePrintCapabilityUnavailable,
-} from '@app/utils/platform-documents';
-
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
 const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
@@ -34,14 +27,6 @@ function isCrossOriginFrameAccessError(error: unknown) {
     return error.name === 'SecurityError'
         || error.message.includes('cross-origin frame')
         || error.message.includes('Blocked a frame with origin');
-}
-
-function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, { kind: 'path'; }> {
-    return typeof value === 'object'
-        && value !== null
-        && 'kind' in value
-        && value.kind === 'path'
-        && typeof value.path === 'string';
 }
 
 interface IWorkspacePrintDeps {
@@ -92,10 +77,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
     let activeBrowserPrintUrl: string | null = null;
-
-    function shouldBypassNativePrintDialog() {
-        return false;
-    }
 
     function resetPrintError() {
         printError.value = null;
@@ -166,19 +147,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
             orientation: 'auto',
         } satisfies IPrintDialogSubmitPayload;
 
-        const directPrintFromMetrics = shouldPrintPageMetricsDirectly(
+        shouldPrintPageMetricsDirectly(
             await deps.getQuickPrintPageMetrics() ?? [],
             defaultPayload,
         );
 
-        if (directPrintFromMetrics === true && await tryOpenDirectPrintFromCurrentSource(defaultPayload)) {
-            return;
-        }
-
         await handlePrintDialogSubmit(defaultPayload, {
             action: 'default',
             reopenDialogOnError: false,
-            skipSourceDirectPrint: directPrintFromMetrics === false,
         });
     }
 
@@ -196,7 +172,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }, {
             action: 'current-page',
             reopenDialogOnError: false,
-            preferNativePathPageExtraction: true,
         });
     }
 
@@ -340,6 +315,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
             printDialogOpen.value = false;
             frameWindow.focus();
             frameWindow.print();
+            toast.add({
+                color: 'success',
+                title: t('print.requestSent'),
+            });
         } catch (error) {
             cleanupPrintFrame();
             throw error;
@@ -386,174 +365,32 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
             printDialogOpen.value = false;
             frameWindow.focus();
             frameWindow.print();
+            toast.add({
+                color: 'success',
+                title: t('print.requestSent'),
+            });
         } catch (error) {
             cleanupPrintFrame();
             throw error;
         }
     }
 
-    async function tryOpenNativePrintDialogForPdfData(
-        printablePdfData: Uint8Array,
-        options: { force?: boolean; } = {},
-    ) {
-        if (shouldBypassNativePrintDialog() && options.force !== true) {
-            return false;
-        }
-
-        const result = await getDocumentsCapability().printPdfData(
-            printablePdfData,
-            deps.fileName.value ?? undefined,
-        );
-        if (isNativePrintCapabilityUnavailable(result)) {
-            return false;
-        }
-
-        printDialogOpen.value = false;
-        if (result.success || result.canceled) {
-            return true;
-        }
-
-        throw new Error(result.error || 'Failed to open the native print dialog');
-    }
-
-    async function tryOpenNativePrintDialogForResolvedPath(
-        path: string | null | undefined,
-        options: {
-            force?: boolean;
-            pageNumbers?: number[];
-        } = {},
-    ) {
-        if (!path) {
-            return false;
-        }
-
-        if (shouldBypassNativePrintDialog() && options.force !== true) {
-            return false;
-        }
-
-        const fileName = deps.fileName.value ?? undefined;
-        let result: Awaited<ReturnType<ReturnType<typeof getDocumentsCapability>['printPdfPath']>>;
-        try {
-            result = options.pageNumbers
-                ? await getDocumentsCapability().printPdfPath(path, fileName, options.pageNumbers)
-                : await getDocumentsCapability().printPdfPath(path, fileName);
-        } catch (error) {
-            if (options.force === true) {
-                throw error;
-            }
-            return false;
-        }
-        if (isNativePrintCapabilityUnavailable(result)) {
-            return false;
-        }
-
-        printDialogOpen.value = false;
-        if (result.success || result.canceled) {
-            return true;
-        }
-
-        throw new Error(result.error || 'Failed to open the native print dialog');
-    }
-
-    async function tryOpenNativePrintDialogForPath(options: {
-        force?: boolean;
-        pageNumbers?: number[];
-    } = {}) {
-        return tryOpenNativePrintDialogForResolvedPath(deps.workingCopyPath.value, options);
-    }
-
     async function tryPrintInBrowserWithNativeFallback(
         printablePdf: Blob | Uint8Array,
-        nativeFallback: () => Promise<boolean>,
     ) {
         try {
-            await printPdfWithBrowserPdfViewer(printablePdf);
+            await printPdfInHiddenFrame(printablePdf);
             return true;
-        } catch (pdfViewerPrintError) {
+        } catch (renderedPrintError) {
             try {
-                await printPdfInHiddenFrame(printablePdf);
+                await printPdfWithBrowserPdfViewer(printablePdf);
                 return true;
-            } catch (browserError) {
-                if (await nativeFallback()) {
-                    return true;
-                }
-
-                throw browserError instanceof Error
-                    ? browserError
-                    : pdfViewerPrintError;
+            } catch (pdfViewerPrintError) {
+                throw pdfViewerPrintError instanceof Error
+                    ? pdfViewerPrintError
+                    : renderedPrintError;
             }
         }
-    }
-
-    async function tryOpenDirectPrintFromCurrentSource(payload: IPrintDialogSubmitPayload) {
-        if (deps.hasPendingUnsavedChanges.value || !canPrintSourcePdfDirectly(payload)) {
-            return false;
-        }
-
-        if (await tryOpenNativePrintDialogForPath()) {
-            return true;
-        }
-
-        const sourcePdf = deps.sourcePdf.value;
-        if (isPathPdfSource(sourcePdf)) {
-            return tryOpenNativePrintDialogForResolvedPath(sourcePdf.path);
-        }
-
-        if (sourcePdf instanceof Blob) {
-            const sourcePdfBytes = new Uint8Array(await sourcePdf.arrayBuffer());
-
-            if (await tryOpenNativePrintDialogForPdfData(sourcePdfBytes)) {
-                return true;
-            }
-
-            await tryPrintInBrowserWithNativeFallback(
-                sourcePdf,
-                () => tryOpenNativePrintDialogForPdfData(sourcePdfBytes, { force: true }),
-            );
-            return true;
-        }
-
-        return false;
-    }
-
-    async function tryPrintSourcePdfDirectly(
-        payload: IPrintDialogSubmitPayload,
-        sourceData: Uint8Array,
-    ) {
-        if (deps.hasPendingUnsavedChanges.value || !canPrintSourcePdfDirectly(payload)) {
-            return false;
-        }
-
-        if (!(await shouldPrintSourcePdfDirectly(sourceData, payload))) {
-            return false;
-        }
-
-        if (await tryOpenNativePrintDialogForPath()) {
-            return true;
-        }
-
-        const sourcePdf = deps.sourcePdf.value;
-        if (isPathPdfSource(sourcePdf) && await tryOpenNativePrintDialogForResolvedPath(sourcePdf.path)) {
-            return true;
-        }
-
-        await tryPrintInBrowserWithNativeFallback(
-            sourcePdf instanceof Blob
-                ? sourcePdf
-                : sourceData,
-            async () => {
-                if (await tryOpenNativePrintDialogForPath({ force: true })) {
-                    return true;
-                }
-
-                if (isPathPdfSource(sourcePdf)) {
-                    return tryOpenNativePrintDialogForResolvedPath(sourcePdf.path, { force: true });
-                }
-
-                return tryOpenNativePrintDialogForPdfData(sourceData, { force: true });
-            },
-        );
-        return true;
     }
 
     async function handlePrintDialogSubmit(
@@ -561,8 +398,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         options: {
             action?: 'default' | 'current-page';
             reopenDialogOnError?: boolean;
-            preferNativePathPageExtraction?: boolean;
-            skipSourceDirectPrint?: boolean;
         } = {},
     ) {
         isPreparingPrint.value = true;
@@ -570,34 +405,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         resetPrintError();
 
         try {
-            if (
-                options.preferNativePathPageExtraction
-                && !deps.hasPendingUnsavedChanges.value
-                && (
-                    await tryOpenNativePrintDialogForPath({ pageNumbers: payload.pageNumbers })
-                    || (
-                        isPathPdfSource(deps.sourcePdf.value)
-                        && await tryOpenNativePrintDialogForResolvedPath(
-                            deps.sourcePdf.value.path,
-                            { pageNumbers: payload.pageNumbers },
-                        )
-                    )
-                )
-            ) {
-                return;
-            }
-
-            if (!options.skipSourceDirectPrint && await tryOpenDirectPrintFromCurrentSource(payload)) {
-                return;
-            }
-
             const sourceData = await deps.getPrintableSourceData();
             if (!sourceData) {
                 throw new Error('Missing printable PDF source data');
-            }
-
-            if (!options.skipSourceDirectPrint && await tryPrintSourcePdfDirectly(payload, sourceData)) {
-                return;
             }
 
             const printablePdfData = await buildPrintablePdfData(sourceData, payload);
@@ -605,12 +415,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
                 throw new Error('Failed to prepare printable PDF data');
             }
 
-            if (!(await tryOpenNativePrintDialogForPdfData(printablePdfData))) {
-                await tryPrintInBrowserWithNativeFallback(
-                    printablePdfData,
-                    () => tryOpenNativePrintDialogForPdfData(printablePdfData, { force: true }),
-                );
-            }
+            await tryPrintInBrowserWithNativeFallback(printablePdfData);
         } catch (error) {
             const localizedError = error instanceof Error && error.message
                 ? t('print.failedWithReason', { reason: error.message })
