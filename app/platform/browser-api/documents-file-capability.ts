@@ -1244,7 +1244,6 @@ async function saveWorkingBytesToSource(workingCopyPath: TDocumentRef) {
             BROWSER_LARGE_SAVE_HANDLE_HINT,
         );
         const bytes = await browserDocumentStore.read(workingCopyPath);
-        await browserDocumentStore.write(sourceRef, bytes);
         const saveResult = await saveBytesToPickerOrDownload(bytes, {
             suggestedName: ensurePdfExtension(saveTarget.saveName),
             mimeType: 'application/pdf',
@@ -1256,6 +1255,7 @@ async function saveWorkingBytesToSource(workingCopyPath: TDocumentRef) {
             return false;
         }
 
+        await browserDocumentStore.write(sourceRef, bytes);
         await browserDocumentStore.assignSaveTarget(
             sourceRef,
             ensurePdfExtension(saveResult.fileName),

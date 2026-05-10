@@ -170,8 +170,9 @@ function validatePageNumbers(
 
 function validateReorderPermutation(newOrder: number[]) {
     const maxPage = newOrder.length;
+    const pageSet = new Set(newOrder);
     for (let pageNumber = 1; pageNumber <= maxPage; pageNumber += 1) {
-        if (!newOrder.includes(pageNumber)) {
+        if (!pageSet.has(pageNumber)) {
             throw new Error(`reorderPages: missing page ${pageNumber} in reorder payload`);
         }
     }

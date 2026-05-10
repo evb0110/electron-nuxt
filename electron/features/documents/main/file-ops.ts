@@ -8,13 +8,17 @@ import {
     readFile,
     writeFile,
     unlink,
+    rename,
     open as openFileHandle,
 } from 'fs/promises';
 import {
     extname,
     basename,
     resolve,
+    dirname,
+    join,
 } from 'path';
+import { randomUUID } from 'crypto';
 import {
     isAllowedReadPath,
     resolveAllowedReadPath,
@@ -39,6 +43,13 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-file-ops');
+const MAX_IPC_READ_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_MAX_IPC_READ_BYTES ?? `${512 * 1024 * 1024}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 1024) {
+        return 512 * 1024 * 1024;
+    }
+    return parsed;
+})();
 const MAX_IPC_WRITE_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_IPC_WRITE_BYTES ?? `${512 * 1024 * 1024}`, 10);
     if (!Number.isFinite(parsed) || parsed < 1024) {
@@ -204,6 +215,83 @@ function normalizeIpcWritePayload(data: unknown) {
     return data;
 }
 
+function assertWithinIpcReadBudget(resolvedPath: string) {
+    const { size } = statSync(resolvedPath);
+    if (size > MAX_IPC_READ_BYTES) {
+        throw new Error(`Invalid file: exceeds max IPC read size (${MAX_IPC_READ_BYTES} bytes); use range reads`);
+    }
+}
+
+function assertNoSymlinkPathSegments(resolvedPath: string) {
+    const segments: string[] = [];
+    let currentPath = resolve(resolvedPath);
+
+    while (true) {
+        segments.push(currentPath);
+        const parentPath = dirname(currentPath);
+        if (parentPath === currentPath) {
+            break;
+        }
+        currentPath = parentPath;
+    }
+
+    for (const segment of segments) {
+        try {
+            if (lstatSync(segment).isSymbolicLink()) {
+                throw new Error(`Invalid file path: symlink path segment is not allowed (${segment})`);
+            }
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException | null)?.code;
+            if (code === 'ENOENT') {
+                continue;
+            }
+            throw error;
+        }
+    }
+}
+
+async function fsyncDirectoryBestEffort(directoryPath: string) {
+    let directoryHandle;
+    try {
+        directoryHandle = await openFileHandle(directoryPath, 'r');
+        await directoryHandle.sync();
+    } catch {
+        // Some platforms do not allow opening directories for fsync.
+    } finally {
+        await directoryHandle?.close().catch(() => undefined);
+    }
+}
+
+async function writeFileAtomic(resolvedPath: string, payload: Uint8Array) {
+    assertNoSymlinkPathSegments(resolvedPath);
+
+    const directoryPath = dirname(resolvedPath);
+    const temporaryPath = join(
+        directoryPath,
+        `.${basename(resolvedPath)}.${process.pid}.${randomUUID()}.tmp`,
+    );
+
+    const handle = await openFileHandle(temporaryPath, 'wx');
+    try {
+        await handle.writeFile(payload);
+        await handle.sync();
+    } catch (error) {
+        await handle.close().catch(() => undefined);
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+    }
+
+    await handle.close();
+    try {
+        assertNoSymlinkPathSegments(resolvedPath);
+        await rename(temporaryPath, resolvedPath);
+        await fsyncDirectoryBestEffort(directoryPath);
+    } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+    }
+}
+
 export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePath: unknown): Promise<Uint8Array> {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
@@ -222,6 +310,7 @@ export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePat
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
+    assertWithinIpcReadBudget(resolvedPath);
     const buffer = await readFile(resolvedPath);
     return new Uint8Array(buffer);
 }
@@ -280,14 +369,14 @@ export async function handleFileWrite(
 
     await ensureWorkingCopyDirectory(resolvedPath);
     try {
-        await writeFile(resolvedPath, payload);
+        await writeFileAtomic(resolvedPath, payload);
     } catch (error) {
         const code = (error as NodeJS.ErrnoException | null)?.code;
         if (code !== 'ENOENT' && code !== 'ENOTDIR') {
             throw error;
         }
         await ensureWorkingCopyDirectory(resolvedPath);
-        await writeFile(resolvedPath, payload);
+        await writeFileAtomic(resolvedPath, payload);
     }
     return true;
 }

@@ -210,10 +210,16 @@ function resolveDefaultSubsample(pageCount: number) {
     return 1;
 }
 
-watch(open, async (isOpen) => {
+watch(open, async (isOpen, _wasOpen, onCleanup) => {
     if (!isOpen || !props.djvuPath) {
         return;
     }
+
+    let isCurrentRequest = true;
+    const requestPath = props.djvuPath;
+    onCleanup(() => {
+        isCurrentRequest = false;
+    });
 
     selectedSubsample.value = 1;
     preserveBookmarks.value = true;
@@ -222,20 +228,31 @@ watch(open, async (isOpen) => {
 
     try {
         const djvu = getDjvuCapability();
-        const djvuInfo = await djvu.getInfo(props.djvuPath);
+        const djvuInfo = await djvu.getInfo(requestPath);
+        if (!isCurrentRequest) {
+            return;
+        }
         info.value = djvuInfo;
         selectedSubsample.value = resolveDefaultSubsample(djvuInfo.pageCount);
 
         estimatesLoading.value = true;
-        const sizeEstimates = await djvu.estimateSizes(props.djvuPath);
+        const sizeEstimates = await djvu.estimateSizes(requestPath);
+        if (!isCurrentRequest) {
+            return;
+        }
         estimates.value = sizeEstimates;
     } catch (error) {
+        if (!isCurrentRequest) {
+            return;
+        }
         BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu conversion estimates', {
-            path: props.djvuPath,
+            path: requestPath,
             error,
         });
     } finally {
-        estimatesLoading.value = false;
+        if (isCurrentRequest) {
+            estimatesLoading.value = false;
+        }
     }
 });
 
