@@ -788,6 +788,7 @@ export default {
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
         },
+        'browser': { 'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.' },
         'search': {
             'browserTooLarge': 'Zoeken is in de browser niet beschikbaar voor zeer grote documenten.',
             'unavailable': 'Zoeken is momenteel niet beschikbaar voor dit document.',

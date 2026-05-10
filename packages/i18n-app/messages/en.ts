@@ -788,6 +788,7 @@ export default {
             'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
         },
+        'browser': { 'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.' },
         'search': {
             'browserTooLarge': 'Search is unavailable in the browser for very large documents.',
             'unavailable': 'Search is currently unavailable for this document.',

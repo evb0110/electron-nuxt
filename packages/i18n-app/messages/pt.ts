@@ -800,6 +800,7 @@ export default {
             'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao guardar ficheiro',
         },
+        'browser': { 'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de ficheiros local ativado para guardar documentos grandes.' },
         'search': {
             'browserTooLarge': 'A pesquisa não está disponível no navegador para documentos muito grandes.',
             'unavailable': 'A pesquisa está atualmente indisponível para este documento.',

@@ -11,15 +11,15 @@
 
 .pdfViewer .pdf-word-box {
     position: absolute;
-    border: 1px solid rgba(0, 100, 255, 0.4);
-    background: rgba(0, 100, 255, 0.1);
+    border: 1px solid var(--app-debug-word-box-border);
+    background: var(--app-debug-word-box-bg);
     pointer-events: none;
     box-sizing: border-box;
 }
 
 .pdfViewer .pdf-word-box.pdf-word-box--current {
-    background: rgba(0, 150, 255, 0.25);
-    border-color: rgba(0, 150, 255, 0.8);
+    background: var(--app-debug-word-box-current-bg);
+    border-color: var(--app-debug-word-box-current-border);
 }
 
 /* ── OCR Debug Layer ───────────────────────────────────────────────── */
@@ -33,8 +33,8 @@
 
 .pdfViewer .pdf-ocr-debug-box {
     position: absolute;
-    border: 1px solid rgba(255, 140, 0, 0.7);
-    background: rgba(255, 140, 0, 0.15);
+    border: 1px solid var(--app-debug-ocr-box-border);
+    background: var(--app-debug-ocr-box-bg);
     pointer-events: none;
     box-sizing: border-box;
 }

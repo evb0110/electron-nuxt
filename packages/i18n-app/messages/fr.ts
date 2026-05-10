@@ -800,6 +800,7 @@ export default {
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',
             'save': 'Échec de l’enregistrement du fichier',
         },
+        'browser': { 'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.' },
         'search': {
             'browserTooLarge': 'La recherche n’est pas disponible dans le navigateur pour les très gros documents.',
             'unavailable': 'La recherche est actuellement indisponible pour ce document.',
