@@ -237,6 +237,13 @@ function isSelected(page: number) {
     return selectedPagesSet.value.has(page);
 }
 
+function getThumbnailSelectionFallbackAnchor() {
+    if (props.totalPages <= 0) {
+        return null;
+    }
+    return clampPage(props.currentPage);
+}
+
 function handleThumbnailClick(event: MouseEvent, page: number) {
     if (consumeClickSkip()) {
         return;
@@ -251,6 +258,7 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
     multiSelection.toggle(page, allPages, {
         shift: event.shiftKey,
         meta: event.metaKey || event.ctrlKey,
+        fallbackAnchor: event.shiftKey ? getThumbnailSelectionFallbackAnchor() : null,
     });
     selectionFocusPage.value = page;
     const normalized = normalizeSelectedPageNumbers(
