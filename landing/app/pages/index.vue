@@ -171,8 +171,8 @@ import {
     normalizeSiteUrl,
     SEO_IMAGE_PATH,
 } from '~~/shared/seo';
+import { selectInstallersForPlatform } from '~~/shared/release-assets';
 import {
-    compareInstallersForSelect,
     formatFileSize,
     formatInstallerLabel,
     formatPlatform,
@@ -181,7 +181,6 @@ import {
     parsePlatformHint,
     parseUserAgent,
     recommendInstaller,
-    selectPreferredInstallers,
     type IReleaseInstaller,
     type TReleaseArch,
     type IUserAgentProfile,
@@ -276,7 +275,7 @@ const selectedInstallerTab = computed<TReleasePlatform>(() => {
 });
 
 const installersForSelectedPlatform = computed(() => {
-    const base = selectPreferredInstallers(installers.value, selectedInstallerTab.value).sort(compareInstallersForSelect);
+    const base = selectInstallersForPlatform(installers.value, selectedInstallerTab.value);
 
     if (selectedInstallerTab.value === 'windows') {
         return [...base, ...legacyInstallers.value];

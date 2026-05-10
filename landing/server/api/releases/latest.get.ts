@@ -3,7 +3,6 @@ import {
     detectPlatform,
     getAssetExtension,
     isInstallerAsset,
-    isLegacyInstallerAsset,
     normalizeInstallers,
     parseUserAgent,
     recommendInstaller,
@@ -11,6 +10,7 @@ import {
     type IReleaseInstaller,
 } from '@release-selection';
 import { retry } from 'es-toolkit/function';
+import { isLegacyInstallerAsset } from '~~/shared/release-assets';
 
 interface IGithubReleaseAsset {
     id: number
