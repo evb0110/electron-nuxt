@@ -34,6 +34,7 @@ import argparse
 import json
 import sys
 import os
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +60,44 @@ def send_error(message: str, code: str = "UNKNOWN_ERROR"):
         "message": message,
         "code": code
     }), file=sys.stderr, flush=True)
+
+
+def write_output_atomically(output_path: str, write_fn) -> None:
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Optional[Path] = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(target.parent),
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            tmp_path = Path(f.name)
+            write_fn(f)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(tmp_path, target)
+        tmp_path = None
+
+        try:
+            dir_fd = os.open(str(target.parent), os.O_RDONLY)
+        except OSError:
+            dir_fd = None
+        if dir_fd is not None:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def process_image(
@@ -429,8 +468,10 @@ def main():
             layout_fun = img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))
 
             try:
-                with open(args.output, "wb") as f:
-                    img2pdf.convert(args.input, outputstream=f, layout_fun=layout_fun)
+                write_output_atomically(
+                    args.output,
+                    lambda f: img2pdf.convert(args.input, outputstream=f, layout_fun=layout_fun),
+                )
             except Exception as e:
                 send_error(f"img2pdf failed: {e}", "IMG2PDF_FAILED")
                 sys.exit(1)
@@ -444,7 +485,6 @@ def main():
 
         elif args.command == 'img2pdf-pages':
             import img2pdf  # type: ignore
-            import tempfile
             from PIL import Image  # type: ignore
 
             dpi = int(args.dpi or 300)
@@ -567,8 +607,10 @@ def main():
                     else:
                         inputs = list(args.images)
 
-                    with open(args.output, "wb") as f:
-                        img2pdf.convert(*inputs, outputstream=f, layout_fun=layout_fun)
+                    write_output_atomically(
+                        args.output,
+                        lambda f: img2pdf.convert(*inputs, outputstream=f, layout_fun=layout_fun),
+                    )
                 finally:
                     if tmp_dir is not None:
                         tmp_dir.cleanup()
