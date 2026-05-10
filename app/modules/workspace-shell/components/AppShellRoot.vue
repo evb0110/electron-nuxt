@@ -90,6 +90,7 @@
             :groups="groups"
             :tabs="tabs"
             :active-group-id="activeGroupId"
+            :is-startup-open-claim-pending="isStartupOpenClaimPending"
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
             :start-section-by-tab-id="startSectionByTabId"
@@ -203,6 +204,7 @@ const { t } = useTypedI18n();
 const analytics = useAnalytics();
 const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
+const isStartupOpenClaimPending = ref(import.meta.client);
 const { isBrowserRuntime } = useRuntimeEnvironment();
 const runtimeConfig = useRuntimeConfig();
 const browserInstallHintCookie = useCookie<string | null>(
@@ -673,6 +675,7 @@ useTabsShellBindings({
     clearRecentFiles,
     loadRecentFiles,
     ensureAtLeastOneTab,
+    isStartupOpenClaimPending,
     openSettings: openSettingsPage,
     checkForUpdates,
     splitEditor,

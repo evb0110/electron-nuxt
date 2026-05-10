@@ -28,6 +28,7 @@
                     :ref="workspaceRefHandler(tab.id)"
                     :tab-id="tab.id"
                     :has-document-hint="hasDocumentMountHint(tab)"
+                    :is-startup-open-claim-pending="isStartupOpenClaimPending"
                     :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
                     :is-tab-transition-busy="isTabTransitionBusy"
                     :start-section="startSectionByTabId[tab.id] ?? 'recent'"
@@ -55,6 +56,7 @@
                 :groups="groups"
                 :tabs="tabs"
                 :active-group-id="activeGroupId"
+                :is-startup-open-claim-pending="isStartupOpenClaimPending"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 :start-section-by-tab-id="startSectionByTabId"
@@ -90,6 +92,7 @@
                 :groups="groups"
                 :tabs="tabs"
                 :active-group-id="activeGroupId"
+                :is-startup-open-claim-pending="isStartupOpenClaimPending"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 :start-section-by-tab-id="startSectionByTabId"
@@ -143,6 +146,7 @@ const props = defineProps<{
     groups: IEditorGroupState[];
     tabs: ITab[];
     activeGroupId: string | null;
+    isStartupOpenClaimPending: boolean;
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;

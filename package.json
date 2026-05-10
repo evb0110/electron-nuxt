@@ -9,9 +9,9 @@
   "engines": {
     "node": "24.x"
   },
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main.cjs",
   "scripts": {
-    "start": "pnpm run build:electron && electron .",
+    "start": "pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev": "pnpm electron:run stop --session=default --keep-nuxt && pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev:nuxt": "pnpm exec nuxi dev --host 127.0.0.1",
     "dev:nuxt:vm": "pnpm exec nuxi dev --host 0.0.0.0 --port 3235",

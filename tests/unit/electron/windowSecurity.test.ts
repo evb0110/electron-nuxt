@@ -18,25 +18,25 @@ function createWindowMock() {
 }
 
 describe('createWindowSecurity', () => {
-    it('tracks the current runtime server URL instead of a startup snapshot', () => {
-        let serverUrl = 'http://127.0.0.1:3235/electron';
+    it('tracks the current trusted renderer origin instead of a startup snapshot', () => {
+        let trustedOrigin = 'evb-viewer://app';
         const security = createWindowSecurity({
-            getServerUrl: () => serverUrl,
+            getTrustedRendererOrigin: () => trustedOrigin,
             logger: { warn: vi.fn() },
         });
 
-        expect(security.isRuntimeServerUrl('http://127.0.0.1:3235/electron/settings')).toBe(true);
+        expect(security.isTrustedRendererUrl('evb-viewer://app/electron/settings')).toBe(true);
 
-        serverUrl = 'http://127.0.0.1:41001/electron';
+        trustedOrigin = 'http://127.0.0.1:41001';
 
-        expect(security.isRuntimeServerUrl('http://127.0.0.1:41001/electron/settings')).toBe(true);
-        expect(security.isRuntimeServerUrl('http://127.0.0.1:3235/electron/settings')).toBe(false);
+        expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/electron/settings')).toBe(true);
+        expect(security.isTrustedRendererUrl('evb-viewer://app/electron/settings')).toBe(false);
     });
 
     it('blocks unsupported protocols before delegating to shell.openExternal', () => {
         const logger = { warn: vi.fn() };
         const security = createWindowSecurity({
-            getServerUrl: () => 'http://127.0.0.1:3235/electron',
+            getTrustedRendererOrigin: () => 'evb-viewer://app',
             logger,
         });
         const window = createWindowMock();

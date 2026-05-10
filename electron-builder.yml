@@ -2,7 +2,8 @@ appId: com.evb.viewer
 productName: EVB Viewer
 copyright: Copyright © 2026 Eugene Barsky
 
-# Keep Nuxt runtime inside app.asar so Node ESM can resolve app.asar/node_modules.
+# Keep the built Nuxt renderer as static assets. Electron backend behavior lives
+# in main/preload plus typed IPC; packaged apps do not ship or spawn Nitro.
 # Only worker entry files that require direct filesystem paths are unpacked.
 asar: true
 asarUnpack:
@@ -24,7 +25,7 @@ directories:
 
 files:
   - dist-electron/
-  - nuxt-output/
+  - nuxt-output/public/
   - package.json
   - "!nuxt-output/**/*.map"
   - "!dist-electron/**/*.map"

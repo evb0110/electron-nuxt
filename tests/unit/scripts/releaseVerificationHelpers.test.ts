@@ -14,25 +14,16 @@ describe('release verification helpers', () => {
         expect(isPackagedStartupReady({
             appAlive: true,
             rendererReady: true,
-            serverReady: true,
         })).toBe(true);
 
         expect(isPackagedStartupReady({
             appAlive: true,
             rendererReady: false,
-            serverReady: true,
         })).toBe(false);
 
         expect(isPackagedStartupReady({
             appAlive: false,
             rendererReady: true,
-            serverReady: true,
-        })).toBe(false);
-
-        expect(isPackagedStartupReady({
-            appAlive: true,
-            rendererReady: true,
-            serverReady: false,
         })).toBe(false);
     });
 

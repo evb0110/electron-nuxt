@@ -69,7 +69,7 @@ vi.mock('@electron/updates', () => ({
 }));
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/config', () => ({config: {server: {url: 'https://trusted.example'}}}));
+vi.mock('@electron/config', () => ({config: {renderer: {trustedOrigin: 'https://trusted.example'}}}));
 
 function createSender(id: number) {
     const once = vi.fn();

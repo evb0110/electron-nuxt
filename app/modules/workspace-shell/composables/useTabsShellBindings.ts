@@ -21,6 +21,7 @@ const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcu
 
 interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     tabs: Ref<Array<{ id: string }>>;
+    isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     ensureAtLeastOneTab: () => void;
@@ -29,6 +30,7 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const {
         tabs,
+        isStartupOpenClaimPending,
         activeTabId,
         activeWorkspace,
         createTab,
@@ -253,12 +255,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 await beginOpenPathsInAppropriateTab(startupExternalPaths);
             }
+            isStartupOpenClaimPending.value = false;
             await nextTick();
             traceRendererStartup('tabs shell dispatching app:rendererReady');
             getWindowTabsCapability().notifyRendererReady();
         })().catch((error) => {
             BrowserLogger.warn('tabs-shell', 'Startup external-open preparation failed before renderer ready', error);
             dispatchStartupOpenClaimed(0);
+            isStartupOpenClaimPending.value = false;
             getWindowTabsCapability().notifyRendererReady();
         });
 

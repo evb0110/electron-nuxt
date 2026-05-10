@@ -12,7 +12,7 @@ async function main() {
     console.log('Launching Electron app...');
 
     const electronApp = await electron.launch({
-        args: [join(__dirname, '../dist-electron/main.js')],
+        args: [join(__dirname, '../dist-electron/main.cjs')],
         env: {
             ...process.env,
             NODE_ENV: 'development',

@@ -6,7 +6,7 @@ import { getErrorMessage } from '@electron/utils/error';
 interface ILogger {warn(message: string): void;}
 
 interface ICreateWindowSecurityOptions {
-    getServerUrl: () => string;
+    getTrustedRendererOrigin: () => string;
     logger: ILogger;
 }
 
@@ -20,11 +20,19 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
     }
 
     function getTrustedServerOrigin() {
-        try {
-            return new URL(options.getServerUrl()).origin;
-        } catch {
-            return '';
+        return options.getTrustedRendererOrigin();
+    }
+
+    function hasTrustedOrigin(parsed: URL, trustedOrigin: string) {
+        const trustedUrl = parseUrl(trustedOrigin);
+        if (!trustedUrl) {
+            return false;
         }
+        if (trustedUrl.protocol === 'evb-viewer:') {
+            return parsed.protocol === trustedUrl.protocol
+                && parsed.hostname === trustedUrl.hostname;
+        }
+        return parsed.origin === trustedUrl.origin;
     }
 
     function isTrustedRendererUrl(value: string) {
@@ -36,16 +44,7 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
         if (!parsed) {
             return false;
         }
-        return parsed.origin === trustedOrigin;
-    }
-
-    function isRuntimeServerUrl(value: string) {
-        const serverUrl = options.getServerUrl();
-        return (
-            value === serverUrl
-            || value === `${serverUrl}/`
-            || value.startsWith(`${serverUrl}/`)
-        );
+        return hasTrustedOrigin(parsed, trustedOrigin);
     }
 
     function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
@@ -82,6 +81,6 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
 
     return {
         hardenWindowWebContents,
-        isRuntimeServerUrl,
+        isTrustedRendererUrl,
     };
 }

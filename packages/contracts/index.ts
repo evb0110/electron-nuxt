@@ -124,13 +124,6 @@ export {
     sanitizeSettings,
 } from './settings';
 
-export {
-    EVB_RUNTIME_IDENTITY,
-    getRuntimeIdentityUrl,
-    isTrustedRuntimeIdentityPayload,
-} from './runtime-identity';
-export type { IRuntimeIdentityPayload } from './runtime-identity';
-
 export { isTimeoutError } from './timeout-error';
 
 export { normalizeAnalyticsScalar } from './analytics';

@@ -111,23 +111,28 @@ function isTrustedWebContentsSender(
         return false;
     }
 
-    const senderUrl = senderFrame?.url || sender.getURL();
+    const rawSenderUrl = senderFrame?.url || sender.getURL();
     const trustedOrigin = getTrustedRendererOrigin();
-    if (!trustedOrigin || !senderUrl) {
+    if (!trustedOrigin || !rawSenderUrl) {
         logger.warn(`[ipc] rejected ${channel}: missing trusted origin or sender URL`);
         return false;
     }
 
-    let senderOrigin: string;
+    let parsedSenderUrl: URL;
     try {
-        senderOrigin = new URL(senderUrl).origin;
+        parsedSenderUrl = new URL(rawSenderUrl);
     } catch {
-        logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${senderUrl}`);
+        logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${rawSenderUrl}`);
         return false;
     }
-    if (senderOrigin !== trustedOrigin) {
+
+    const trustedUrl = new URL(trustedOrigin);
+    const senderTrusted = trustedUrl.protocol === 'evb-viewer:'
+        ? parsedSenderUrl.protocol === trustedUrl.protocol && parsedSenderUrl.hostname === trustedUrl.hostname
+        : parsedSenderUrl.origin === trustedUrl.origin;
+    if (!senderTrusted) {
         logger.warn(
-            `[ipc] rejected ${channel}: untrusted sender origin ${senderOrigin} (expected ${trustedOrigin})`,
+            `[ipc] rejected ${channel}: untrusted sender origin ${parsedSenderUrl.origin} (expected ${trustedOrigin})`,
         );
         return false;
     }
@@ -136,11 +141,7 @@ function isTrustedWebContentsSender(
 }
 
 function getTrustedRendererOrigin() {
-    try {
-        return new URL(config.server.url).origin;
-    } catch {
-        return '';
-    }
+    return config.renderer.trustedOrigin;
 }
 
 function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: string) {
