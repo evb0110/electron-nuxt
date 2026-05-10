@@ -29,7 +29,7 @@
                 v-if="isEditMode"
                 type="button"
                 class="pdf-bookmarks-empty-action"
-                :title="t('bookmarks.addFirst')"
+                :aria-label="t('bookmarks.addFirst')"
                 @click="editing.addRootBookmark()"
             >
                 <UIcon

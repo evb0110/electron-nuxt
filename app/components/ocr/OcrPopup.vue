@@ -4,24 +4,28 @@
         :title="t('ocr.runTitle')"
         :ui="{ content: 'sm:max-w-md', footer: 'justify-end gap-2' }"
     >
-        <button
+        <UTooltip
             v-if="!hideTrigger"
-            :class="[
-                'ocr-trigger',
-                {
-                    'is-active': isOpen || progress.isRunning,
-                    'is-loading': progress.isRunning,
-                },
-            ]"
-            :disabled="disabled || progress.isRunning"
-            :aria-label="triggerTooltip"
-            :title="triggerTooltip"
-            type="button"
+            :text="triggerTooltip"
+            :delay-duration="1200"
         >
-            <Icon v-if="!progress.isRunning && !showSuccessState" name="lucide:scan-text" class="size-5" />
-            <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
-            <Icon v-else name="lucide:loader-2" class="size-5 animate-spin" />
-        </button>
+            <button
+                :class="[
+                    'ocr-trigger',
+                    {
+                        'is-active': isOpen || progress.isRunning,
+                        'is-loading': progress.isRunning,
+                    },
+                ]"
+                :disabled="disabled || progress.isRunning"
+                :aria-label="triggerTooltip"
+                type="button"
+            >
+                <Icon v-if="!progress.isRunning && !showSuccessState" name="lucide:scan-text" class="size-5" />
+                <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
+                <Icon v-else name="lucide:loader-2" class="size-5 animate-spin" />
+            </button>
+        </UTooltip>
         <span v-else class="hidden-trigger" aria-hidden="true" />
 
         <template #body>

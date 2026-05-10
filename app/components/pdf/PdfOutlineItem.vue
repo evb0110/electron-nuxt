@@ -42,7 +42,7 @@
                 <button
                     type="button"
                     class="pdf-bookmark-item-toggle"
-                    :title="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
+                    :aria-label="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
                     @click.stop="emit('toggle-expand', item.id)"
                 >
                     <UIcon
@@ -67,14 +67,18 @@
                 @keydown.escape.prevent="cancelEdit"
                 @blur="commitEdit"
             >
-            <span
+            <UTooltip
                 v-else
-                class="pdf-bookmark-item-title"
-                :style="bookmarkTitleStyle"
-                :title="item.title || t('bookmarks.untitled')"
+                :text="item.title || t('bookmarks.untitled')"
+                :delay-duration="800"
             >
-                {{ item.title || t('bookmarks.untitled') }}
-            </span>
+                <span
+                    class="pdf-bookmark-item-title"
+                    :style="bookmarkTitleStyle"
+                >
+                    {{ item.title || t('bookmarks.untitled') }}
+                </span>
+            </UTooltip>
 
             <UTooltip
                 v-if="treeContext.isEditMode.value"
@@ -85,7 +89,6 @@
                     type="button"
                     class="pdf-bookmark-item-actions-trigger"
                     :aria-label="t('bookmarks.actions')"
-                    :title="t('bookmarks.actions')"
                     @click.stop="openActionsFromButton"
                 >
                     <UIcon

@@ -13,9 +13,11 @@
                     <UIcon name="i-lucide-folder-open" class="status-folder-icon" />
                 </button>
             </UTooltip>
-            <div class="status-bar-path" :title="filePath">
-                {{ filePath }}
-            </div>
+            <UTooltip :text="filePath" :delay-duration="800">
+                <div class="status-bar-path">
+                    {{ filePath }}
+                </div>
+            </UTooltip>
         </div>
         <div class="status-bar-metrics">
             <span class="status-bar-item">{{ fileSizeLabel }}</span>
