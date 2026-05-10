@@ -76,16 +76,21 @@
                         <span class="open-panel-copy">
                             <span>{{ t('emptyState.openSubtitle') }}</span>
                         </span>
-                        <UButton
+                        <button
                             :id="openPanelButtonId"
+                            type="button"
                             class="open-panel-cta"
-                            color="primary"
-                            icon="i-lucide-folder-open"
-                            :label="t('emptyState.openFileEllipsis')"
                             :aria-label="t('toolbar.openPdf')"
                             :disabled="openInProgress"
                             @click="emit('open-file')"
-                        />
+                        >
+                            <UIcon
+                                :name="openInProgress ? 'i-lucide-loader-circle' : 'i-lucide-folder-open'"
+                                :class="['open-panel-cta-icon', { 'animate-spin': openInProgress }]"
+                                aria-hidden="true"
+                            />
+                            <span>{{ t('emptyState.openFileEllipsis') }}</span>
+                        </button>
                     </section>
 
                     <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
@@ -659,8 +664,42 @@ watch(() => startSection, (section) => {
 }
 
 .open-panel-cta {
+    display: inline-flex;
+    align-items: center;
     flex: 0 0 auto;
+    gap: 0.375rem;
     justify-content: center;
+    min-width: 7.5rem;
+    min-height: 2rem;
+    padding: 0.375rem 0.625rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: var(--ui-primary);
+    color: var(--app-start-primary-fg);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+.open-panel-cta:hover:not(:disabled),
+.open-panel-cta:active:not(:disabled) {
+    background: color-mix(in oklab, var(--ui-primary) 75%, transparent);
+}
+
+.open-panel-cta:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+}
+
+.open-panel-cta:disabled {
+    cursor: not-allowed;
+}
+
+.open-panel-cta-icon {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
 }
 
 .start-recent {
