@@ -235,7 +235,7 @@ export default {
     },
     'djvu': {
         'loadingPages': 'A carregar páginas... {current}/{total}',
-        'bannerHint': 'Ficheiro DjVu - converter para PDF para ativar funcionalidades de edição',
+        'bannerHint': 'As páginas DjVu são renderizadas sob demanda - converta para PDF para ativar funcionalidades de edição',
         'pageAlt': 'Página DjVu {page}',
         'convertToPdf': 'Converter para PDF...',
         'overlayConverting': 'A converter DjVu para PDF...',

@@ -232,7 +232,7 @@ export default {
     },
     'djvu': {
         'loadingPages': 'Loading pages... {current}/{total}',
-        'bannerHint': 'DjVu file - convert to PDF to enable editing features',
+        'bannerHint': 'DjVu pages render on demand - convert to PDF to enable editing features',
         'pageAlt': 'DjVu page {page}',
         'convertToPdf': 'Convert to PDF...',
         'overlayConverting': 'Converting DjVu to PDF...',

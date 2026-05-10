@@ -47,6 +47,12 @@
                 class="mx-auto flex min-h-full min-w-full w-fit gap-4 p-4"
                 :class="renderedPagesLayoutClass"
             >
+                <div
+                    v-if="continuousScrollTopSpacerHeight > 0"
+                    class="djvu-page-virtual-spacer"
+                    :style="{ height: `${continuousScrollTopSpacerHeight}px` }"
+                    aria-hidden="true"
+                />
                 <section
                     v-for="pageNumber in renderedPageNumbers"
                     :key="pageNumber"
@@ -93,6 +99,12 @@
                         {{ pageNumber }}
                     </div>
                 </section>
+                <div
+                    v-if="continuousScrollBottomSpacerHeight > 0"
+                    class="djvu-page-virtual-spacer"
+                    :style="{ height: `${continuousScrollBottomSpacerHeight}px` }"
+                    aria-hidden="true"
+                />
             </div>
         </div>
     </div>
@@ -323,6 +335,36 @@ function measureIntersectionHeight(
     return Math.max(0, Math.min(bottom, viewportBottom) - Math.max(top, viewportTop));
 }
 
+function getContinuousPageHeight(pageNumber: number) {
+    const pageSize = pageSizes.value[pageNumber - 1];
+    if (!pageSize) {
+        return 0;
+    }
+
+    const scale = zoomMode.value === 'fit-width' && pageSize.width > 0
+        ? Math.max(0.1, fitWidthAvailable() / pageSize.width)
+        : effectiveZoom.value;
+
+    return Math.max(1, Math.round(pageSize.height * scale));
+}
+
+function getContinuousPagesHeight(startPage: number, endPage: number) {
+    if (startPage > endPage || totalPages.value <= 0) {
+        return 0;
+    }
+
+    const normalizedStart = clamp(startPage, 1, totalPages.value);
+    const normalizedEnd = clamp(endPage, 1, totalPages.value);
+    let height = 0;
+    for (let pageNumber = normalizedStart; pageNumber <= normalizedEnd; pageNumber += 1) {
+        height += getContinuousPageHeight(pageNumber);
+        if (pageNumber < normalizedEnd) {
+            height += DJVU_BASE_MARGIN;
+        }
+    }
+    return height;
+}
+
 function applyPageIntersectionToContinuousBounds(
     state: IContinuousScrollBoundsState,
     pageNumber: number,
@@ -357,8 +399,7 @@ function resolveContinuousScrollBounds(
     let pageTop = DJVU_BASE_MARGIN;
 
     for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
-        const pageSize = pageSizes.value[pageNumber - 1];
-        const pageHeight = pageSize?.height ?? 0;
+        const pageHeight = getContinuousPageHeight(pageNumber);
         const pageBottom = pageTop + pageHeight;
         const visibleHeight = measureIntersectionHeight(pageTop, pageBottom, viewportTop, viewportBottom);
         const overscanHeight = measureIntersectionHeight(pageTop, pageBottom, overscanTop, overscanBottom);
@@ -470,6 +511,23 @@ const renderedPageNumbers = computed(() => {
         spreadStart,
         nextPage,
     ];
+});
+const continuousScrollTopSpacerHeight = computed(() => {
+    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
+        return 0;
+    }
+
+    return getContinuousPagesHeight(1, renderedPageNumbers.value[0]! - 1);
+});
+const continuousScrollBottomSpacerHeight = computed(() => {
+    if (!isContinuousScroll.value || renderedPageNumbers.value.length === 0) {
+        return 0;
+    }
+
+    return getContinuousPagesHeight(
+        renderedPageNumbers.value[renderedPageNumbers.value.length - 1]! + 1,
+        totalPages.value,
+    );
 });
 const manualZoom = computed(() => {
     const candidate = props.zoom ?? 1;
@@ -1032,8 +1090,13 @@ function scrollActiveSpreadIntoView() {
 }
 
 watch(effectiveZoom, (value) => {
+    invalidateContinuousScrollWindowCache();
     emit('update:effectiveZoom', value);
 }, { immediate: true });
+
+watch(zoomMode, () => {
+    invalidateContinuousScrollWindowCache();
+});
 
 watch(renderedPageNumbers, async () => {
     if (!import.meta.client || totalPages.value <= 0) {
@@ -1171,14 +1234,37 @@ function scrollToPage(pageNumber: number) {
         return;
     }
 
+    if (normalizedPage !== currentPage.value) {
+        currentPage.value = normalizedPage;
+        emit('update:currentPage', normalizedPage);
+        invalidateContinuousScrollWindowCache();
+    }
+
     const element = pageElements.get(normalizedPage);
-    if (!element) {
+    if (element) {
+        element.scrollIntoView({
+            block: 'start',
+            inline: 'nearest',
+        });
         return;
     }
 
-    element.scrollIntoView({
-        block: 'start',
-        inline: 'nearest',
+    const container = viewerContainer.value;
+    if (!container) {
+        return;
+    }
+
+    const targetScrollTop = DJVU_BASE_MARGIN
+        + getContinuousPagesHeight(1, normalizedPage - 1)
+        + (normalizedPage > 1 ? DJVU_BASE_MARGIN : 0);
+    container.scrollTop = targetScrollTop;
+    scrollTop.value = targetScrollTop;
+    void nextTick(() => {
+        pageElements.get(normalizedPage)?.scrollIntoView({
+            block: 'start',
+            inline: 'nearest',
+        });
+        syncLoadedPages();
     });
 }
 
@@ -1266,6 +1352,11 @@ defineExpose<IPdfViewerExpose>({
     border-radius: var(--ui-radius-lg);
     background: var(--ui-bg);
     box-shadow: var(--shadow-popup);
+}
+
+.djvu-page-virtual-spacer {
+    flex: 0 0 auto;
+    width: 1px;
 }
 
 .djvu-page-placeholder {
