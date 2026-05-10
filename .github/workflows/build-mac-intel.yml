@@ -36,7 +36,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Verify Electron install
         run: pnpm run check:electron:install
