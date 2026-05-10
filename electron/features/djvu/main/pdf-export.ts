@@ -358,7 +358,7 @@ export async function handleDjvuConvertToPdf(
             });
 
             logger.info(`[${jobId}] Conversion to PDF complete: ${normalizedOutputPath}`);
-            allowOpenPath(normalizedOutputPath);
+            allowOpenPath(normalizedOutputPath, event.sender);
             return {
                 success: true,
                 pdfPath: normalizedOutputPath,

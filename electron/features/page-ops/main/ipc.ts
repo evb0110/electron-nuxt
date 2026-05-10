@@ -298,7 +298,7 @@ async function handlePageOpsExtract(
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
         await extractPages(queuedWorkingCopyPath, destPath, pages);
     });
-    allowOpenPath(destPath);
+    allowOpenPath(destPath, event.sender);
     return {
         success: true,
         destPath,
@@ -360,9 +360,9 @@ async function handlePageOpsInsert(
             canceled: true,
         };
     }
-    allowOpenPaths(result.filePaths);
+    allowOpenPaths(result.filePaths, event.sender);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
-        .map(path => requireOpenPath(path));
+        .map(path => requireOpenPath(path, event.sender));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
@@ -510,7 +510,7 @@ async function handlePageOpsRotate(
 }
 
 async function handlePageOpsInsertFile(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     totalPages: number,
     afterPage: number,
@@ -523,7 +523,7 @@ async function handlePageOpsInsertFile(
         throw new Error('Invalid source paths');
     }
     const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
-        .map(path => requireOpenPath(path));
+        .map(path => requireOpenPath(path, event.sender));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);

@@ -8,10 +8,10 @@ import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 export interface IDocumentsService {
-    openPdfDialog: () => Promise<TOpenFileResult | null>;
-    openCombineDialog: () => Promise<TOpenFileResult | null>;
-    openFolderDialog: () => Promise<TOpenFileResult | null>;
-    openImageDialog: () => Promise<string | null>;
+    openPdfDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
+    openCombineDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
+    openFolderDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
+    openImageDialog: (event: IpcMainInvokeEvent) => Promise<string | null>;
     openPdfDirect: (event: IpcMainInvokeEvent, filePath: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (event: IpcMainInvokeEvent, filePaths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
     createWorkingCopyFromData: (
@@ -62,7 +62,7 @@ export interface IDocumentsService {
     showItemInFolder: (event: IpcMainInvokeEvent, filePath: string) => Promise<boolean>;
     setMenuDocumentState: (event: IpcMainInvokeEvent, hasDocument: boolean) => void;
     setMenuTabCount: (event: IpcMainInvokeEvent, tabCount: number) => void;
-    getRecentFiles: () => Promise<IRecentFile[]>;
+    getRecentFiles: (event: IpcMainInvokeEvent) => Promise<IRecentFile[]>;
     removeRecentFile: (_event: IpcMainInvokeEvent, originalPath: string) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
 }

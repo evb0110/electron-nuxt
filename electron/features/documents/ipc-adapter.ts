@@ -13,9 +13,15 @@ import {
 import { isSupportedOpenPath } from '@electron/image/pdf-conversion';
 import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopy';
 
-async function requireWorkingCopySourcePath(sourcePath: string): Promise<TOpenPath> {
+const rendererFileOpenTokens = new Map<number, Set<string>>();
+
+function getSenderId(event: IpcMainInvokeEvent) {
+    return event.sender.id;
+}
+
+async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePath: string): Promise<TOpenPath> {
     try {
-        return requireOpenPath(sourcePath);
+        return requireOpenPath(sourcePath, getSenderId(event));
     } catch {
         return requireManagedWorkingCopyPath(sourcePath);
     }
@@ -25,10 +31,10 @@ export function registerDocumentsIpcAdapter(
     registrar: IIpcMainRegistrar,
     service: IDocumentsService = createDocumentsService(),
 ) {
-    registrar.handle(DOCUMENTS_CHANNELS.openPdfDialog, () => service.openPdfDialog());
-    registrar.handle(DOCUMENTS_CHANNELS.openCombineDialog, () => service.openCombineDialog());
-    registrar.handle(DOCUMENTS_CHANNELS.openFolderDialog, () => service.openFolderDialog());
-    registrar.handle(DOCUMENTS_CHANNELS.openImageDialog, () => service.openImageDialog());
+    registrar.handle(DOCUMENTS_CHANNELS.openPdfDialog, (event: IpcMainInvokeEvent) => service.openPdfDialog(event));
+    registrar.handle(DOCUMENTS_CHANNELS.openCombineDialog, (event: IpcMainInvokeEvent) => service.openCombineDialog(event));
+    registrar.handle(DOCUMENTS_CHANNELS.openFolderDialog, (event: IpcMainInvokeEvent) => service.openFolderDialog(event));
+    registrar.handle(DOCUMENTS_CHANNELS.openImageDialog, (event: IpcMainInvokeEvent) => service.openImageDialog(event));
     registrar.handle(DOCUMENTS_CHANNELS.openPdfDirect, (event: IpcMainInvokeEvent, filePath: string) =>
         service.openPdfDirect(event, filePath),
     );
@@ -37,13 +43,39 @@ export function registerDocumentsIpcAdapter(
         (event: IpcMainInvokeEvent, filePaths: string[], requestId?: string) =>
             service.openPdfDirectBatch(event, filePaths, requestId),
     );
-    registrar.handle(DOCUMENTS_CHANNELS.allowRendererFileOpen, (_event: IpcMainInvokeEvent, filePath: string) => {
+    registrar.handle(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event: IpcMainInvokeEvent, token: string) => {
+        const normalizedToken = typeof token === 'string' ? token.trim() : '';
+        if (!normalizedToken) {
+            return false;
+        }
+
+        const senderId = getSenderId(event);
+        const tokens = rendererFileOpenTokens.get(senderId) ?? new Set<string>();
+        tokens.add(normalizedToken);
+        rendererFileOpenTokens.set(senderId, tokens);
+        event.sender.once('destroyed', () => {
+            rendererFileOpenTokens.delete(senderId);
+        });
+        return true;
+    });
+    registrar.handle(DOCUMENTS_CHANNELS.allowRendererFileOpen, (event: IpcMainInvokeEvent, request: unknown) => {
+        const senderId = getSenderId(event);
+        const filePath = typeof request === 'object' && request !== null && 'filePath' in request
+            ? (request as {filePath?: unknown;}).filePath
+            : '';
+        const token = typeof request === 'object' && request !== null && 'token' in request
+            ? (request as {token?: unknown;}).token
+            : '';
+        if (typeof token !== 'string' || !rendererFileOpenTokens.get(senderId)?.has(token)) {
+            return false;
+        }
+
         const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
         if (!normalizedPath || !isAbsolute(normalizedPath) || !existsSync(normalizedPath) || !isSupportedOpenPath(normalizedPath)) {
             return false;
         }
 
-        return allowOpenPath(normalizedPath) !== null;
+        return allowOpenPath(normalizedPath, senderId) !== null;
     });
     registrar.handle(
         DOCUMENTS_CHANNELS.createWorkingCopyFromData,
@@ -53,7 +85,7 @@ export function registerDocumentsIpcAdapter(
     registrar.handle(
         DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
         (event: IpcMainInvokeEvent, sourcePath: string, originalPath?: string) =>
-            requireWorkingCopySourcePath(sourcePath)
+            requireWorkingCopySourcePath(event, sourcePath)
                 .then(trustedSourcePath => service.createWorkingCopyFromPath(event, trustedSourcePath, originalPath)),
     );
     registrar.handle(DOCUMENTS_CHANNELS.savePdfAs, (event: IpcMainInvokeEvent, workingPath: string) =>
@@ -140,7 +172,7 @@ export function registerDocumentsIpcAdapter(
     registrar.handle(DOCUMENTS_CHANNELS.menuSetTabCount, (event: IpcMainInvokeEvent, tabCount: number) =>
         service.setMenuTabCount(event, tabCount),
     );
-    registrar.handle(DOCUMENTS_CHANNELS.recentFilesGet, () => service.getRecentFiles());
+    registrar.handle(DOCUMENTS_CHANNELS.recentFilesGet, (event: IpcMainInvokeEvent) => service.getRecentFiles(event));
     registrar.handle(DOCUMENTS_CHANNELS.recentFilesRemove, (event: IpcMainInvokeEvent, originalPath: string) =>
         service.removeRecentFile(event, originalPath),
     );

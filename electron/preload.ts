@@ -416,9 +416,17 @@ if (!preloadAlreadyInstalled) {
     tracePreload('electronAPI exposed to renderer');
 
     if (process.env.EVB_AUTOMATION_USER_DATA_DIR) {
+        const automationFileOpenToken = globalThis.crypto.randomUUID();
+        const automationFileOpenTokenRegistration = ipcRenderer.invoke(
+            DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
+            automationFileOpenToken,
+        );
         contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
             const path = typeof filePath === 'string' ? filePath : '';
-            return ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, path);
+            return automationFileOpenTokenRegistration.then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+                filePath: path,
+                token: automationFileOpenToken,
+            }));
         });
         tracePreload('automation file-open capability helper exposed');
     }

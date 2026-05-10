@@ -58,10 +58,10 @@ const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 export function createDocumentsService(): IDocumentsService {
     return {
-        openPdfDialog: () => handleOpenPdfDialog(),
-        openCombineDialog: () => handleOpenCombineDialog(),
-        openFolderDialog: () => handleOpenFolderDialog(),
-        openImageDialog: () => handleOpenImageDialog(),
+        openPdfDialog: (event) => handleOpenPdfDialog(event),
+        openCombineDialog: (event) => handleOpenCombineDialog(event),
+        openFolderDialog: (event) => handleOpenFolderDialog(event),
+        openImageDialog: (event) => handleOpenImageDialog(event),
         openPdfDirect: (event, filePath) => handleOpenPdfDirect(event, filePath),
         openPdfDirectBatch: (event, filePaths, requestId) => handleOpenPdfDirectBatch(event, filePaths, requestId),
         createWorkingCopyFromData: (event, fileName, data, originalPath) =>
@@ -107,10 +107,10 @@ export function createDocumentsService(): IDocumentsService {
 
             setMenuTabCount(window.id, tabCount);
         },
-        getRecentFiles: async () => {
+        getRecentFiles: async (event) => {
             const startedAt = Date.now();
             const files = await getRecentFiles();
-            allowOpenPaths(files.map(file => file.originalPath));
+            allowOpenPaths(files.map(file => file.originalPath), event.sender);
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC recent-files:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }

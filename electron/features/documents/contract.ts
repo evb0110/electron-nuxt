@@ -5,6 +5,7 @@ export const DOCUMENTS_CHANNELS = {
     openImageDialog: 'dialog:openImage',
     openPdfDirect: 'dialog:openPdfDirect',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',
+    registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
     allowRendererFileOpen: 'dialog:allowRendererFileOpen',
     createWorkingCopyFromData: 'working-copy:createFromData',
     createWorkingCopyFromPath: 'working-copy:createFromPath',
