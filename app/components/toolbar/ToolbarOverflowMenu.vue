@@ -436,7 +436,11 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
 .toolbar-icon-button[aria-expanded='true'] {
     background: var(--app-toolbar-control-active-bg);
     border-color: var(--app-toolbar-control-active-border);
-    box-shadow: var(--app-toolbar-control-active-shadow);
+}
+
+.toolbar-icon-button[aria-expanded='true']:hover {
+    background: var(--app-toolbar-control-active-hover-bg);
+    border-color: var(--app-toolbar-control-active-hover-border);
 }
 
 .toolbar-popover-trigger {
@@ -493,6 +497,11 @@ function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.
     background-color: var(--app-toolbar-menu-item-active-bg);
     border-color: var(--app-toolbar-menu-item-active-border);
     color: var(--ui-text);
+}
+
+.overflow-menu-item.is-active:hover:not(:disabled) {
+    background-color: var(--app-toolbar-menu-item-active-hover-bg);
+    border-color: var(--app-toolbar-menu-item-active-hover-border);
 }
 
 .overflow-menu-icon {

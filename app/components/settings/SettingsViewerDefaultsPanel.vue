@@ -37,7 +37,7 @@
 
         <div class="settings-field flex flex-col gap-1">
             <label class="settings-label">{{ t('settings.defaultAnnotationColor') }}</label>
-            <div class="flex gap-2">
+            <div class="settings-swatch-track">
                 <button
                     v-for="swatch in annotationColorSwatches"
                     :key="swatch"
@@ -110,11 +110,10 @@ const { t } = useTypedI18n();
     width: 1.5rem;
     height: 1.5rem;
     border-radius: 50%;
-    border: 2px solid transparent;
+    border: 1px solid transparent;
     background: var(--swatch-color);
     cursor: pointer;
-    transition: transform $ease-quick, box-shadow $ease-quick;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-bg-inverted) 12%, transparent);
+    transition: transform $ease-quick, border-color $ease-quick;
 }
 
 .settings-swatch:hover {
@@ -122,9 +121,19 @@ const { t } = useTypedI18n();
 }
 
 .settings-swatch.is-active {
-    border-color: var(--ui-bg);
-    box-shadow:
-        0 0 0 1px var(--ui-bg),
-        0 0 0 3px var(--ui-primary);
+    border-color: var(--app-toolbar-control-active-border);
+}
+
+.settings-swatch.is-active:hover {
+    border-color: var(--app-toolbar-control-active-hover-border);
+}
+
+.settings-swatch-track {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border-radius: calc(var(--ui-radius) * 1.5);
+    background: var(--ui-bg-muted);
 }
 </style>

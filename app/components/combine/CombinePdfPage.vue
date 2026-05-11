@@ -518,7 +518,6 @@ async function combineFiles() {
     border: 1px solid var(--app-start-card-border);
     border-radius: 0.5rem;
     background: var(--app-start-card-bg);
-    box-shadow: var(--app-start-card-shadow);
 }
 
 .combine-dropzone {

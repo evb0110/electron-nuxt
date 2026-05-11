@@ -122,7 +122,6 @@ html, body, #__nuxt { min-height: 100%; }
     --app-editor-group-grid-bg: var(--app-window-bg);
     --app-editor-sash-size: 6px;
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 68%, transparent);
-    --app-chrome-depth: 0 1px 2px color-mix(in oklab, var(--ui-border) 28%, transparent 72%);
     --shadow-popup: 0 6px 18px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06);
 }
 .dark {
@@ -144,7 +143,6 @@ html, body, #__nuxt { min-height: 100%; }
     --app-toolbar-control-disabled-opacity: 0.38;
     --app-editor-group-grid-bg: var(--app-window-bg);
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 80%, transparent);
-    --app-chrome-depth: 0 1px 3px color-mix(in oklab, black 22%, transparent 78%);
     --shadow-popup: 0 10px 24px rgb(0 0 0 / 0.3), 0 3px 8px rgb(0 0 0 / 0.2);
 }
 html { background: var(--app-window-bg); color: var(--ui-text); }
@@ -218,7 +216,6 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
     background: var(--app-chrome);
-    box-shadow: var(--app-chrome-depth);
     white-space: nowrap;
     overflow: hidden;
     --toolbar-control-height: 2.25rem;

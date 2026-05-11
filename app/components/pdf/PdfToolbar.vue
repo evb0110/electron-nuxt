@@ -395,7 +395,6 @@ function isCommandInline(command: TReaderCommandId) {
     padding: 0.5rem 0.65rem;
     border-bottom: 1px solid var(--app-toolbar-border);
     background: var(--app-toolbar-bg);
-    box-shadow: var(--app-chrome-depth);
     white-space: nowrap;
     overflow: hidden;
     position: relative;

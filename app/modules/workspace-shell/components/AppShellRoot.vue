@@ -717,12 +717,9 @@ useAppShellLifecycle({
     width: fit-content;
     max-width: calc(100vw - 2rem);
     padding: 0.25rem 0.25rem 0.25rem 0.5rem;
-    border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-border) 82%);
+    border: 1px solid var(--ui-border);
     border-radius: 999px;
-    background: color-mix(in oklab, var(--ui-bg) 90%, var(--ui-primary) 10%);
-    box-shadow:
-        0 1px 3px color-mix(in srgb, var(--ui-border) 14%, transparent),
-        0 8px 20px color-mix(in srgb, var(--ui-border) 12%, transparent);
+    background: var(--ui-bg);
     backdrop-filter: blur(12px);
     opacity: 0.65;
     transition: opacity 0.2s ease;
