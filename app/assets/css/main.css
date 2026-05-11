@@ -37,6 +37,8 @@
     --app-outline-toolbar-button-size: 1.75rem;
 
     --ui-primary: var(--color-brand-700);
+    --ui-primary-hover: var(--color-brand-800);
+    --ui-primary-fg: #ffffff;
     --ui-success: oklch(45% 0.13 147);
     --app-window-bg: var(--ui-bg, #ffffff);
     --app-font-mono:
@@ -296,6 +298,8 @@
 
 .dark {
     --ui-primary: var(--color-brand-200);
+    --ui-primary-hover: var(--color-brand-100);
+    --ui-primary-fg: var(--ui-bg);
     --ui-success: oklch(72% 0.16 147);
     --app-window-bg: var(--ui-bg, #18181b);
     --app-scrollbar-thumb: color-mix(in oklab, var(--ui-border) 35%, var(--ui-text-muted) 65%);

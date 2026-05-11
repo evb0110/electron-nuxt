@@ -434,6 +434,10 @@ export default {
         'emptyTitle': 'No files selected',
         'emptyDescription': 'Drop files on the left or choose them from your computer.',
         'combineAction': 'Combine to PDF',
+        'combineCountAction': plural({
+            one: 'Combine {count} file',
+            other: 'Combine {count} files',
+        }),
         'combining': 'Combining...',
         'removeFile': 'Remove file',
         'moveUp': 'Move up',
