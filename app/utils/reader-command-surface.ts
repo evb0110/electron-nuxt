@@ -37,7 +37,6 @@ const allCommands = Object.freeze(Object.fromEntries(READER_COMMANDS.map(command
 
 const desktopInlineCommands = {
     ...allCommands,
-    'open-file': false,
     'print-current-page': false,
 };
 
