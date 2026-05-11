@@ -31,7 +31,6 @@ function createHarness() {
     const deps = {
         pdfViewerRef: ref(viewer),
         dragMode: ref(true),
-        markDirty: vi.fn(),
         clearAnnotationChanges: vi.fn(),
         closeAnnotationContextMenu: vi.fn(),
         hasAnnotationChanges: vi.fn(() => false),
@@ -162,14 +161,10 @@ describe('usePageAnnotationTools', () => {
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {
-        const {
-            deps,
-            tools,
-        } = createHarness();
+        const { tools } = createHarness();
 
         tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
 
-        expect(deps.markDirty).toHaveBeenCalledOnce();
         expect(tools.annotationDirty.value).toBe(true);
 
         tools.markAnnotationSaved();
@@ -216,6 +211,37 @@ describe('usePageAnnotationTools', () => {
         tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
 
         expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
+        expect(tools.annotationDirty.value).toBe(true);
+    });
+
+    it('keeps add-then-undo clean when a late modified signal follows the empty undo stack state', () => {
+        const {
+            deps,
+            tools,
+        } = createHarness();
+
+        deps.hasAnnotationChanges.mockReturnValue(false);
+
+        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
+        expect(tools.annotationDirty.value).toBe(true);
+
+        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+        tools.handleAnnotationModified();
+
+        expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
+        expect(tools.annotationDirty.value).toBe(false);
+    });
+
+    it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {
+        const {
+            deps,
+            tools,
+        } = createHarness();
+
+        deps.hasAnnotationChanges.mockReturnValue(true);
+
+        tools.handleAnnotationModified();
+
         expect(tools.annotationDirty.value).toBe(true);
     });
 });

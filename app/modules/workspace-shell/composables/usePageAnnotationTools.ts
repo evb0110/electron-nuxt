@@ -19,7 +19,6 @@ interface IPdfViewerForAnnotationTools {
 interface IPageAnnotationToolsDeps {
     pdfViewerRef: Ref<IPdfViewerForAnnotationTools | null>;
     dragMode: Ref<boolean>;
-    markDirty: () => void;
     clearAnnotationChanges: () => void;
     closeAnnotationContextMenu: () => void;
     hasAnnotationChanges: () => boolean;
@@ -29,7 +28,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const {
         pdfViewerRef,
         dragMode,
-        markDirty,
         clearAnnotationChanges,
         closeAnnotationContextMenu,
         hasAnnotationChanges,
@@ -158,12 +156,18 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     }
 
     function handleAnnotationModified() {
+        if (
+            !annotationEditorState.value.hasSomethingToUndo
+            && !hasAnnotationChanges()
+        ) {
+            syncAnnotationClean();
+            return;
+        }
         markAnnotationDirty();
     }
 
     function markAnnotationDirty() {
         annotationRevision.value += 1;
-        markDirty();
     }
 
     function syncAnnotationClean() {

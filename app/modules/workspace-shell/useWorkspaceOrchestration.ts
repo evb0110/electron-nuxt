@@ -172,7 +172,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         pdfDocument,
         dragMode,
-        markDirty,
     });
     const {
         annotationContextMenu,
@@ -188,7 +187,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationEditorState,
         annotationDirty,
         handleAnnotationToolChange,
-        markAnnotationDirty,
         markAnnotationSaved,
         resetAnnotationTracking,
         annotationNoteWindows,
@@ -204,39 +202,60 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         restorePendingEmbeddedTextUpdates,
     } = annotationSession;
 
-    const pendingEmbeddedAnnotationDeletes = new Map<string, IAnnotationCommentSummary>();
+    const pendingEmbeddedAnnotationDeletes = shallowRef(new Map<string, IAnnotationCommentSummary>());
+    const pendingEmbeddedAnnotationDeleteCount = computed(() => pendingEmbeddedAnnotationDeletes.value.size);
 
     function queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary) {
-        pendingEmbeddedAnnotationDeletes.set(comment.stableKey, comment);
+        pendingEmbeddedAnnotationDeletes.value = new Map([
+            ...pendingEmbeddedAnnotationDeletes.value,
+            [
+                comment.stableKey,
+                comment,
+            ],
+        ]);
+    }
+
+    function unqueuePendingEmbeddedAnnotationDelete(stableKey: string) {
+        if (!pendingEmbeddedAnnotationDeletes.value.has(stableKey)) {
+            return;
+        }
+        const nextDeletes = new Map(pendingEmbeddedAnnotationDeletes.value);
+        nextDeletes.delete(stableKey);
+        pendingEmbeddedAnnotationDeletes.value = nextDeletes;
     }
 
     function consumePendingEmbeddedAnnotationDeletes() {
-        if (pendingEmbeddedAnnotationDeletes.size === 0) {
+        if (pendingEmbeddedAnnotationDeletes.value.size === 0) {
             return null;
         }
 
-        const deletions = Array.from(pendingEmbeddedAnnotationDeletes.values());
-        pendingEmbeddedAnnotationDeletes.clear();
+        const deletions = Array.from(pendingEmbeddedAnnotationDeletes.value.values());
+        pendingEmbeddedAnnotationDeletes.value = new Map();
         return deletions;
     }
 
     function restorePendingEmbeddedAnnotationDeletes(deletions: IAnnotationCommentSummary[] | null | undefined) {
-        deletions?.forEach((comment) => {
-            if (!pendingEmbeddedAnnotationDeletes.has(comment.stableKey)) {
-                pendingEmbeddedAnnotationDeletes.set(comment.stableKey, comment);
-            }
-        });
+        if (!deletions?.length) {
+            return;
+        }
+        pendingEmbeddedAnnotationDeletes.value = new Map([
+            ...pendingEmbeddedAnnotationDeletes.value,
+            ...deletions.map(comment => [
+                comment.stableKey,
+                comment,
+            ] as const),
+        ]);
     }
 
     watch(workingCopyPath, () => {
-        pendingEmbeddedAnnotationDeletes.clear();
+        pendingEmbeddedAnnotationDeletes.value = new Map();
     });
 
     const hasPendingUnsavedChanges = computed(() => (
         annotationDirty.value
         || isDirty.value
         || hasAnnotationChanges()
-        || pendingEmbeddedAnnotationDeletes.size > 0
+        || pendingEmbeddedAnnotationDeleteCount.value > 0
         || pageLabelsDirty.value
         || bookmarksDirty.value
     ));
@@ -308,6 +327,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationTool,
         annotationPlacingPageNote,
         annotationEditorState,
+        appAnnotationUndoDepth: pendingEmbeddedAnnotationDeleteCount,
         hasOpenAnnotationNotes,
         canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
         canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
@@ -372,8 +392,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         removeAnnotationFromCache: (stableKey: string) => {
             annotationComments.value = annotationComments.value.filter(comment => comment.stableKey !== stableKey);
         },
-        markAnnotationDirty,
+        restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => {
+            annotationComments.value = [
+                ...annotationComments.value.filter(candidate => candidate.stableKey !== comment.stableKey),
+                comment,
+            ];
+        },
         queuePendingEmbeddedAnnotationDelete,
+        unqueuePendingEmbeddedAnnotationDelete,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     });

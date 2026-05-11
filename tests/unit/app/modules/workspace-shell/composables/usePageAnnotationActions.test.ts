@@ -103,8 +103,11 @@ function createHarness() {
         highlightSelection: vi.fn(async () => true),
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
+        registerAnnotationHistoryCommand: vi.fn(),
         suppressAnnotationId: vi.fn(),
         suppressAnnotationStableKey: vi.fn(),
+        unsuppressAnnotationId: vi.fn(),
+        unsuppressAnnotationStableKey: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
         selectedShapeId: null as string | null,
@@ -161,8 +164,9 @@ function createHarness() {
         }) => {}),
         waitForPdfReload: vi.fn(async (_page: number) => {}),
         removeAnnotationFromCache: vi.fn(),
-        markAnnotationDirty: vi.fn(),
+        restoreAnnotationToCache: vi.fn(),
         queuePendingEmbeddedAnnotationDelete: vi.fn(),
+        unqueuePendingEmbeddedAnnotationDelete: vi.fn(),
         getEmbeddedMutationBaseData: vi.fn(async () => new Uint8Array([
             6,
             6,
@@ -569,7 +573,29 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(deps.markAnnotationDirty).toHaveBeenCalledOnce();
+        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+    });
+
+    it('registers undo for deferred embedded deletes', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('undoable-delete');
+        comment.annotationId = '12R0';
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        const command = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
+        expect(command).toBeDefined();
+
+        command.undo();
+
+        expect(deps.unqueuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.unsuppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.unsuppressAnnotationId).toHaveBeenCalledWith('12R0');
+        expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(comment);
     });
 
     it('reloads embedded image deletes from serialized bytes so stamp canvases do not stay stale', async () => {
@@ -646,7 +672,6 @@ describe('usePageAnnotationActions', () => {
 
         expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(deps.markAnnotationDirty).toHaveBeenCalledOnce();
     });
 
     it('reloads current page from serialized data for embedded fallback', async () => {

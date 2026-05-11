@@ -22,6 +22,7 @@ interface IWorkspaceViewStateDeps {
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
     annotationEditorState: Ref<IAnnotationEditorState>;
+    appAnnotationUndoDepth: Ref<number>;
     hasOpenAnnotationNotes: Ref<boolean>;
     canUndoHistory: Ref<boolean>;
     canRedoHistory: Ref<boolean>;
@@ -42,7 +43,8 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const isAnnotationUndoContext = computed(
         () => isAuthoringAnnotationTool(deps.annotationTool.value)
             || deps.annotationEditorState.value.hasSomethingToUndo
-            || deps.annotationEditorState.value.hasSomethingToRedo,
+            || deps.annotationEditorState.value.hasSomethingToRedo
+            || deps.appAnnotationUndoDepth.value > 0,
     );
     const annotationCursorMode = computed(() => {
         if (deps.dragMode.value) {
@@ -57,6 +59,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const canUndo = computed(() => (
         isAnnotationUndoContext.value
             ? deps.annotationEditorState.value.hasSomethingToUndo
+                || deps.appAnnotationUndoDepth.value > 0
             : deps.canUndoHistory.value
     ));
     const canRedo = computed(() => (

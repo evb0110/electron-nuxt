@@ -16,7 +16,6 @@ interface IWorkspaceAnnotationSessionOptions {
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     pdfDocument: Ref<PDFDocumentProxy | null>;
     dragMode: Ref<boolean>;
-    markDirty: () => void;
 }
 
 export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessionOptions) => {
@@ -24,7 +23,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         pdfViewerRef,
         pdfDocument,
         dragMode,
-        markDirty,
     } = options;
 
     const {
@@ -77,7 +75,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     } = usePageAnnotationTools({
         pdfViewerRef,
         dragMode,
-        markDirty,
         clearAnnotationChanges,
         closeAnnotationContextMenu,
         hasAnnotationChanges,
