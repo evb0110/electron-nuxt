@@ -129,6 +129,21 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     } = options;
 
     let reRenderSyncRunId = 0;
+    let fitModeRunId = 0;
+    let viewModeRunId = 0;
+    let continuousScrollRunId = 0;
+    let resizeSettleRunId = 0;
+
+    function isViewerAsyncRunActive(
+        runId: number,
+        activeRunId: number,
+        document: PDFDocumentProxy | null,
+    ) {
+        return runId === activeRunId
+            && document !== null
+            && pdfDocument.value === document
+            && !isLoading.value;
+    }
 
     function isFitWidthZoomModeActive() {
         return zoomMode
@@ -271,13 +286,15 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     }
 
     watch(fitMode, async (mode) => {
+        const runId = ++fitModeRunId;
+        const document = pdfDocument.value;
         resetZoomRerenderQueueState('fit-mode-change');
         const pageToSnapTo =
             mode === 'height'
                 ? getMostVisiblePage(viewerContainer.value, numPages.value)
                 : null;
         const updated = computeFitWidthScale(viewerContainer.value);
-        if (updated && pdfDocument.value) {
+        if (updated && document) {
             cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 preserveExistingPages: true,
@@ -285,15 +302,24 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 rerenderSource: 'fit-mode',
                 renderBufferOverride: 0,
             });
+            if (!isViewerAsyncRunActive(runId, fitModeRunId, document) || fitMode.value !== mode) {
+                return;
+            }
             syncHorizontalScrollAfterLayoutUpdate();
             if (pageToSnapTo === null) {
                 await syncCurrentPageFromViewport({
                     source: 'fit-mode',
                     stabilize: true,
                 });
+                if (!isViewerAsyncRunActive(runId, fitModeRunId, document) || fitMode.value !== mode) {
+                    return;
+                }
             }
             if (pageToSnapTo !== null) {
                 await nextTick();
+                if (!isViewerAsyncRunActive(runId, fitModeRunId, document) || fitMode.value !== mode) {
+                    return;
+                }
                 scrollToPage(pageToSnapTo, { preferExactDom: true });
                 syncHorizontalScrollAfterLayoutUpdate();
             }
@@ -301,11 +327,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     });
 
     watch(viewMode, async () => {
-        if (!pdfDocument.value || isLoading.value) {
+        const runId = ++viewModeRunId;
+        const document = pdfDocument.value;
+        if (!document || isLoading.value) {
             return;
         }
 
         const pageToSnapTo = getMostVisiblePage(viewerContainer.value, numPages.value);
+        const targetViewMode = viewMode.value;
         resetContinuousScrollState();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated) {
@@ -314,8 +343,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
         cancelInFlightPageRenders?.();
         await reRenderAllVisiblePages(getVisibleRange, { disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore() });
+        if (!isViewerAsyncRunActive(runId, viewModeRunId, document) || viewMode.value !== targetViewMode) {
+            return;
+        }
         syncHorizontalScrollAfterLayoutUpdate();
         await nextTick();
+        if (!isViewerAsyncRunActive(runId, viewModeRunId, document) || viewMode.value !== targetViewMode) {
+            return;
+        }
         scrollToPage(pageToSnapTo);
         syncHorizontalScrollAfterLayoutUpdate();
     });
@@ -354,6 +389,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     watch(
         () => continuousScroll.value,
         async (next, previous) => {
+            const runId = ++continuousScrollRunId;
+            const document = pdfDocument.value;
             // Capture the page the user is currently looking at BEFORE any
             // state reset, so the post-toggle snap target reflects the
             // pre-toggle viewport — matching pdf.js's scrollMode setter
@@ -374,10 +411,16 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             if (
                 previous === true
                 && next === false
-                && pdfDocument.value
+                && document
                 && !isLoading.value
             ) {
                 await nextTick();
+                if (
+                    !isViewerAsyncRunActive(runId, continuousScrollRunId, document)
+                    || continuousScroll.value !== next
+                ) {
+                    return;
+                }
                 scrollToPage(pageToSnapTo, { preferExactDom: true });
                 syncHorizontalScrollAfterLayoutUpdate();
             }
@@ -415,12 +458,17 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     });
 
     watch(isResizing, async (value) => {
-        if (value || !pdfDocument.value || isLoading.value) {
+        const runId = ++resizeSettleRunId;
+        const document = pdfDocument.value;
+        if (value || !document || isLoading.value) {
             return;
         }
 
         await nextTick();
         await delay(20);
+        if (!isViewerAsyncRunActive(runId, resizeSettleRunId, document) || isResizing.value) {
+            return;
+        }
         const resizeAnchor = buildResizeAnchorContext();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (!updated) {

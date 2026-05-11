@@ -11,12 +11,13 @@ import {
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerRenderStallRecovery';
 
 describe('usePdfViewerRenderStallRecovery', () => {
-    it('invalidates stalled pages and schedules a reload when rendering stalls', () => {
+    it('invalidates stalled pages and retries page render when rendering stalls', async () => {
         vi.useFakeTimers();
         try {
             vi.setSystemTime(10_000);
             const scheduleReload = vi.fn();
             const cancelInFlightPageRenders = vi.fn();
+            const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
             const recovery = usePdfViewerRenderStallRecovery({
                 src: computed(
                     () => ({
@@ -39,6 +40,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
                     2,
                 ] }),
                 cancelInFlightPageRenders,
+                renderVisiblePages,
                 scheduleReload,
             });
 
@@ -49,9 +51,21 @@ describe('usePdfViewerRenderStallRecovery', () => {
             });
 
             vi.runAllTimers();
+            await Promise.resolve();
 
             expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
-            expect(scheduleReload).toHaveBeenCalledWith(true);
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 2,
+                    end: 2,
+                },
+                {
+                    preserveRenderedPages: true,
+                    forceRerender: true,
+                    bufferOverride: 0,
+                },
+            );
+            expect(scheduleReload).not.toHaveBeenCalled();
             expect(recovery.consumePendingInvalidation()).toEqual([2]);
             expect(recovery.consumePendingInvalidation()).toBeNull();
         } finally {
@@ -64,6 +78,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
         try {
             const scheduleReload = vi.fn();
             const cancelInFlightPageRenders = vi.fn();
+            const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
             const recovery = usePdfViewerRenderStallRecovery({
                 src: computed(
                     () => ({
@@ -83,6 +98,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
                 viewerContainer: ref(null),
                 summarizeViewerMetricsForLog: () => null,
                 cancelInFlightPageRenders,
+                renderVisiblePages,
                 scheduleReload,
             });
 
@@ -95,6 +111,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
             vi.runAllTimers();
 
             expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
+            expect(renderVisiblePages).not.toHaveBeenCalled();
             expect(scheduleReload).not.toHaveBeenCalled();
             expect(recovery.consumePendingInvalidation()).toBeNull();
         } finally {

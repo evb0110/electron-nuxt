@@ -27,6 +27,11 @@ interface IViewportVisibilityCacheEntry {
     result: IViewportVisibilityResult;
 }
 
+interface IResolvedMostVisiblePage {
+    page: number;
+    authoritative: boolean;
+}
+
 function getLayoutPageTop(
     metrics: TPageLayoutMetrics,
     index: number,
@@ -95,6 +100,12 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     });
     const pageLayoutMetrics = ref<TPageLayoutMetrics | null>(null);
     let viewportVisibilityCache: IViewportVisibilityCacheEntry | null = null;
+
+    function getPreviousPageFallback(totalPages: number) {
+        return totalPages > 0
+            ? clamp(currentPage.value, 1, totalPages)
+            : currentPage.value;
+    }
 
     function setPageLayoutMetrics(metrics: TPageLayoutMetrics | null) {
         pageLayoutMetrics.value = metrics;
@@ -219,10 +230,17 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         start: number;
         end: number
     } {
-        if (!container || totalPages === 0) {
+        if (totalPages === 0) {
             return {
                 start: 1,
                 end: 1,
+            };
+        }
+
+        if (!container) {
+            return {
+                start: clamp(visibleRange.value.start, 1, totalPages),
+                end: clamp(visibleRange.value.end, 1, totalPages),
             };
         }
 
@@ -232,8 +250,41 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         }
 
         return {
-            start: 1,
-            end: 1,
+            start: clamp(visibleRange.value.start, 1, totalPages),
+            end: clamp(visibleRange.value.end, 1, totalPages),
+        };
+    }
+
+    function resolveMostVisiblePage(
+        container: HTMLElement | null,
+        totalPages: number,
+    ): IResolvedMostVisiblePage {
+        if (!container || totalPages === 0) {
+            return {
+                page: getPreviousPageFallback(totalPages),
+                authoritative: false,
+            };
+        }
+
+        const pinnedPage = options.getPinnedMostVisiblePage?.();
+        if (pinnedPage !== null && pinnedPage !== undefined) {
+            return {
+                page: clamp(pinnedPage, 1, totalPages),
+                authoritative: true,
+            };
+        }
+
+        const visibility = getViewportVisibility(container, totalPages);
+        if (visibility.mostVisiblePage !== null) {
+            return {
+                page: visibility.mostVisiblePage,
+                authoritative: true,
+            };
+        }
+
+        return {
+            page: getPreviousPageFallback(totalPages),
+            authoritative: false,
         };
     }
 
@@ -241,21 +292,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         container: HTMLElement | null,
         totalPages: number,
     ): number {
-        if (!container || totalPages === 0) {
-            return 1;
-        }
-
-        const pinnedPage = options.getPinnedMostVisiblePage?.();
-        if (pinnedPage !== null && pinnedPage !== undefined) {
-            return clamp(pinnedPage, 1, totalPages);
-        }
-
-        const visibility = getViewportVisibility(container, totalPages);
-        if (visibility.mostVisiblePage !== null) {
-            return visibility.mostVisiblePage;
-        }
-
-        return 1;
+        return resolveMostVisiblePage(container, totalPages).page;
     }
 
     function getViewportVisibility(
@@ -386,8 +423,16 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         visibleRange.value = getVisiblePageRange(container, totalPages);
     }
 
-    function updateCurrentPage(container: HTMLElement | null, totalPages: number) {
-        const page = getMostVisiblePage(container, totalPages);
+    function updateCurrentPage(
+        container: HTMLElement | null,
+        totalPages: number,
+        options?: { requireAuthoritative?: boolean; },
+    ) {
+        const resolved = resolveMostVisiblePage(container, totalPages);
+        const page = resolved.page;
+        if (options?.requireAuthoritative && !resolved.authoritative) {
+            return currentPage.value;
+        }
         if (page !== currentPage.value) {
             currentPage.value = page;
         }

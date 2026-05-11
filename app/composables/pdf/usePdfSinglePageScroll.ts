@@ -266,6 +266,7 @@ interface IUsePdfSinglePageScrollOptions {
     updateCurrentPage: (
         container: HTMLElement | null,
         numPages: number,
+        options?: { requireAuthoritative?: boolean; },
     ) => number;
     renderVisiblePages: (range: {
         start: number;
@@ -448,14 +449,16 @@ export const usePdfSinglePageScroll = (
         );
         if (!targetEl) {
             isSnapping.value = true;
+            const previous = currentPage.value;
             scrollToPageInternal(
                 viewerContainer.value,
                 targetPage,
                 numPages.value,
                 scaledMargin.value,
             );
-            currentPage.value = targetPage;
-            emitCurrentPage(targetPage);
+            if (currentPage.value !== previous) {
+                emitCurrentPage(currentPage.value);
+            }
             requestAnimationFrame(() => {
                 isSnapping.value = false;
             });
@@ -621,16 +624,15 @@ export const usePdfSinglePageScroll = (
     }
 
     function handleScroll() {
-        if (isLoading.value) {
-            return;
-        }
-
         const container = viewerContainer.value;
         updateVisibleRange(container, numPages.value);
-        void debouncedRenderOnScroll();
 
         const previous = currentPage.value;
-        const page = updateCurrentPage(container, numPages.value);
+        const page = updateCurrentPage(
+            container,
+            numPages.value,
+            { requireAuthoritative: true },
+        );
         if (page !== previous) {
             const top = container?.scrollTop ?? 0;
             logPdfNav(
@@ -639,6 +641,12 @@ export const usePdfSinglePageScroll = (
             );
             emitCurrentPage(page);
         }
+
+        if (isLoading.value) {
+            return;
+        }
+
+        void debouncedRenderOnScroll();
         maybeReleaseProgrammaticNavigation();
 
         if (!continuousScroll.value && !isSnapping.value) {
@@ -664,6 +672,7 @@ export const usePdfSinglePageScroll = (
 
         if (continuousScroll.value) {
             markProgrammaticNavigation(220);
+            const previous = currentPage.value;
             scrollToPageInternal(
                 viewerContainer.value,
                 pageNumber,
@@ -671,8 +680,14 @@ export const usePdfSinglePageScroll = (
                 scaledMargin.value,
                 options,
             );
-            const page = updateCurrentPage(viewerContainer.value, numPages.value);
-            emitCurrentPage(page);
+            const page = updateCurrentPage(
+                viewerContainer.value,
+                numPages.value,
+                { requireAuthoritative: true },
+            );
+            if (page !== previous) {
+                emitCurrentPage(page);
+            }
         } else {
             // Same anchor logic as the wheel and debounced snap paths: tall
             // pages can use 'center' (which clamps to topTarget when the page

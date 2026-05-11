@@ -801,9 +801,21 @@ export const usePdfFile = () => {
             persistWorkingCopy?: boolean;
         },
     ) {
+        const requestId = ++latestLoadRequestId;
         const snapshot = data.slice();
         assertPdfHasBytes(snapshot.byteLength);
+        if (requestId !== latestLoadRequestId) {
+            return;
+        }
         await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
+        if (requestId !== latestLoadRequestId) {
+            BrowserLogger.debug('pdf-file', 'Skipped stale PDF data load result', {
+                requestId,
+                latestLoadRequestId,
+                bytes: snapshot.byteLength,
+            });
+            return;
+        }
 
         if (opts?.pushHistory !== false) {
             pushHistorySnapshot(snapshot, { reuseSnapshot: true });
@@ -813,6 +825,13 @@ export const usePdfFile = () => {
 
         if (opts?.persistWorkingCopy && workingCopyPath.value) {
             await refreshPdfConformanceProfile(workingCopyPath.value);
+            if (requestId !== latestLoadRequestId) {
+                BrowserLogger.debug('pdf-file', 'Skipped stale PDF data conformance refresh result', {
+                    requestId,
+                    latestLoadRequestId,
+                    bytes: snapshot.byteLength,
+                });
+            }
         }
     }
 

@@ -50,6 +50,12 @@ function destroyPdfDocumentDeferred(
     }
 }
 
+function createStalePdfDocumentError(message: string) {
+    const error = new Error(message);
+    error.name = 'RenderingCancelledException';
+    return error;
+}
+
 export const usePdfDocument = () => {
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
     const numPages = ref(0);
@@ -146,7 +152,7 @@ export const usePdfDocument = () => {
         loadPromise = (async () => {
             const page = await document.getPage(pageNumber);
             try {
-                if (version !== renderVersion) {
+                if (version !== renderVersion || document !== pdfDocument.value) {
                     return null;
                 }
 
@@ -217,7 +223,7 @@ export const usePdfDocument = () => {
             }
         }));
 
-        return version === renderVersion;
+        return version === renderVersion && document === pdfDocument.value;
     }
 
     async function primeInitialPageMetrics(
@@ -233,7 +239,7 @@ export const usePdfDocument = () => {
         }
 
         await loadPageMetric(document, 1, version);
-        if (version !== renderVersion) {
+        if (version !== renderVersion || document !== pdfDocument.value) {
             return;
         }
 
@@ -261,6 +267,9 @@ export const usePdfDocument = () => {
         pdfDocument.value = document;
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);
+        if (version !== renderVersion || document !== pdfDocument.value) {
+            return null;
+        }
 
         return {
             version,
@@ -428,6 +437,10 @@ export const usePdfDocument = () => {
         src: Blob,
         version: number,
     ) {
+        if (version !== renderVersion) {
+            return null;
+        }
+
         objectUrl = URL.createObjectURL(src);
         loadingTask = pdfjsLib.getDocument({
             url: objectUrl,
@@ -535,13 +548,22 @@ export const usePdfDocument = () => {
     }
 
     async function getPage(pageNumber: number) {
-        if (!pdfDocument.value) {
+        const document = pdfDocument.value;
+        const version = renderVersion;
+
+        if (!document) {
             throw new Error('No PDF document loaded');
         }
 
         let page = pdfPageCache.get(pageNumber);
         if (!page) {
-            page = await pdfDocument.value.getPage(pageNumber);
+            page = await document.getPage(pageNumber);
+            if (version !== renderVersion || document !== pdfDocument.value) {
+                page.cleanup();
+                throw createStalePdfDocumentError(
+                    'Rendering cancelled: PDF page request became stale',
+                );
+            }
             rememberCachedPage(pageNumber, page);
         } else {
             touchCachedPage(pageNumber, page);
@@ -576,6 +598,8 @@ export const usePdfDocument = () => {
     }
 
     function cleanup() {
+        incrementRenderVersion();
+        isLoading.value = false;
         cleanupPageCache();
         pageMetricLoads.clear();
         if (rangeTransport) {

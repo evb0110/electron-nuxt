@@ -136,6 +136,8 @@ let lastUserInteractionLogAtMs = 0;
 let lastUserInteractionReason: string | null = null;
 let lastProgrammaticScrollAtMs = 0;
 let currentPageSyncRunId = 0;
+let thumbnailSourceCycleId = 0;
+let manualScrollSourceCycleId = -1;
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
@@ -502,7 +504,20 @@ function isRecentProgrammaticScroll() {
 }
 
 function isCurrentPageAutoSyncSuppressed() {
-    return (Date.now() - lastUserInteractionAtMs) < AUTO_SYNC_INTERACTION_COOLDOWN_MS;
+    if ((Date.now() - lastUserInteractionAtMs) < AUTO_SYNC_INTERACTION_COOLDOWN_MS) {
+        return true;
+    }
+
+    return manualScrollSourceCycleId === thumbnailSourceCycleId
+        && isThumbnailLayoutStabilizing();
+}
+
+function isThumbnailLayoutStabilizing() {
+    return (
+        !hasResolvedThumbnailItemHeight
+        || measurementState !== 'ready'
+        || renderedCanvases.size === 0
+    );
 }
 
 function getComfortPaddingPx(container: HTMLElement) {
@@ -527,6 +542,47 @@ function getPageBounds(page: number) {
 
 function clampPage(page: number) {
     return Math.max(1, Math.min(props.totalPages, page));
+}
+
+function resolveViewportAnchorPage(pitch = itemPitch.value) {
+    if (props.totalPages <= 0 || pitch <= 0) {
+        return null;
+    }
+
+    return clampPage(Math.floor(scrollTop.value / pitch) + 1);
+}
+
+function shouldPreferVisibleAnchorOverCurrentPage() {
+    return !getThumbnailElement(props.currentPage);
+}
+
+function markManualThumbnailScroll(reason: string) {
+    manualScrollSourceCycleId = thumbnailSourceCycleId;
+    markUserInteraction(reason);
+}
+
+function preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight: number) {
+    if (manualScrollSourceCycleId !== thumbnailSourceCycleId) {
+        return false;
+    }
+
+    const container = resolveVisibleContainer('thumbnail-measure-anchor');
+    if (!container) {
+        return false;
+    }
+
+    const previousPitch = Math.max(1, previousHeight + THUMBNAIL_GAP);
+    const anchorPage = resolveViewportAnchorPage(previousPitch);
+    if (anchorPage === null) {
+        return false;
+    }
+
+    const anchorOffset = scrollTop.value - ((anchorPage - 1) * previousPitch);
+    const nextScrollTop = ((anchorPage - 1) * itemPitch.value) + anchorOffset;
+    return applyThumbnailScrollTop(
+        container,
+        Math.max(0, Math.min(getMaxScrollTop(container), nextScrollTop)),
+    );
 }
 
 function getKeyboardSelectionBasePage() {
@@ -708,6 +764,12 @@ function resolveCurrentPageSyncRequest(reason: string) {
     ) {
         return null;
     }
+    if (
+        shouldPreferVisibleAnchorOverCurrentPage()
+        && (manualScrollSourceCycleId === thumbnailSourceCycleId || isThumbnailLayoutStabilizing())
+    ) {
+        return null;
+    }
 
     const targetScrollTop = resolveCurrentPageSyncScrollTop(container, props.currentPage);
     return targetScrollTop === null ? null : {
@@ -722,6 +784,10 @@ async function isCurrentPageSyncRunActive(syncRunId: number) {
 }
 
 function applyRefinedCurrentPageSync(container: HTMLElement) {
+    if (isCurrentPageAutoSyncSuppressed()) {
+        return;
+    }
+
     const refinedScrollTop = resolveRefinedCurrentPageScrollTop(container, props.currentPage);
     if (refinedScrollTop !== null) {
         applyThumbnailScrollTop(container, refinedScrollTop);
@@ -926,21 +992,21 @@ const measureThumbnailHeight = useDebounceFn(() => {
 }, 16);
 
 function handleContainerScroll() {
-    if (!isRecentProgrammaticScroll()) {
-        markUserInteraction('scroll');
-    }
     updateViewportMetrics();
+    if (!isRecentProgrammaticScroll()) {
+        markManualThumbnailScroll('scroll');
+    }
     void scheduleVisibleThumbnailRender();
 }
 
 function handleContainerWheel() {
     if (!isRecentProgrammaticScroll()) {
-        markUserInteraction('wheel');
+        markManualThumbnailScroll('wheel');
     }
 }
 
 function handleContainerPointerDown() {
-    markUserInteraction('pointerdown');
+    markManualThumbnailScroll('pointerdown');
 }
 
 watch(
@@ -1222,10 +1288,13 @@ function buildRenderQueue(totalPages: number) {
     const currentRenderingPages = new Set(
         virtualPages.value.filter(page => isCurrentThumbnailCanvasRendering(page)),
     );
+    const currentPage = shouldPreferVisibleAnchorOverCurrentPage()
+        ? resolveViewportAnchorPage() ?? props.currentPage
+        : props.currentPage;
 
     return buildThumbnailRenderQueue({
         totalPages,
-        currentPage: props.currentPage,
+        currentPage,
         visiblePages: virtualPages.value,
         renderedPages: currentRenderedPages,
         renderingPages: currentRenderingPages,
@@ -1345,6 +1414,7 @@ watch(
     ], [oldDoc]) => {
         cancelAllRenders();
         renderRunId += 1;
+        thumbnailSourceCycleId += 1;
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
             hasDocument: Boolean(doc),
             hadDocument: Boolean(oldDoc),
@@ -1421,6 +1491,12 @@ watch(
     () => thumbnailItemHeight.value,
     (nextHeight, previousHeight) => {
         if (Math.abs(nextHeight - previousHeight) < 1) {
+            return;
+        }
+        if (preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight)) {
+            return;
+        }
+        if (isCurrentPageAutoSyncSuppressed()) {
             return;
         }
         void syncCurrentPageIntoView('thumbnail-measure');

@@ -111,6 +111,7 @@ interface IUsePdfViewerCoreOptions {
     updateCurrentPage: (
         container: HTMLElement | null,
         numPages: number,
+        options?: { requireAuthoritative?: boolean; },
     ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean; }) => void;
@@ -304,6 +305,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         viewerContainer,
         summarizeViewerMetricsForLog,
         cancelInFlightPageRenders,
+        renderVisiblePages,
         scheduleReload: (isReload = false) => {
             scheduleLoadFromSource(isReload);
         },
@@ -413,7 +415,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         loadPdf,
         ensurePageMetricsInRange,
         getPage,
-        renderVisiblePages: (range) => renderVisiblePages(range),
+        renderVisiblePages: (range, options) => renderVisiblePages(range, options),
         getVisibleRange,
         reRenderVisiblePagesAndSyncCurrentPage: () => rerenderSyncDelegate.call(),
         syncCurrentPageFromViewport: (options) => syncCurrentPageFromViewport(options),
