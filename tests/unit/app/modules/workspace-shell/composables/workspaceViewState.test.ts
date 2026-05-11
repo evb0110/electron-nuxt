@@ -25,6 +25,7 @@ function createState(options?: { dragMode?: boolean; }) {
             hasSomethingToRedo: false,
             hasSelectedEditor: false,
         }),
+        appAnnotationUndoDepth: ref(0),
         hasOpenAnnotationNotes: ref(false),
         canUndoHistory: ref(false),
         canRedoHistory: ref(false),
@@ -58,5 +59,40 @@ describe('useWorkspaceViewState', () => {
     it('keeps annotation cursor enabled outside hand-tool mode', () => {
         const state = createState();
         expect(state.annotationCursorMode.value).toBe(true);
+    });
+
+    it('enables annotation undo for app-managed annotation commands', () => {
+        const appAnnotationUndoDepth = ref(1);
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('thumbnails'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            appAnnotationUndoDepth,
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            pdfViewerRef: ref({
+                scrollToPage: () => {},
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        expect(state.isAnnotationUndoContext.value).toBe(true);
+        expect(state.canUndo.value).toBe(true);
+
+        appAnnotationUndoDepth.value = 0;
+        expect(state.canUndo.value).toBe(false);
     });
 });

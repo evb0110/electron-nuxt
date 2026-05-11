@@ -50,7 +50,12 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     | 'suppressAnnotationStableKey'
     | 'updateAnnotationComment'
     | 'updateShape'
-> & Partial<Pick<IPdfViewerExpose, 'restorePendingImagePlacement'>>;
+> & Partial<Pick<IPdfViewerExpose,
+    'registerAnnotationHistoryCommand'
+    | 'restorePendingImagePlacement'
+    | 'unsuppressAnnotationId'
+    | 'unsuppressAnnotationStableKey'
+>>;
 
 interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPdfViewerForAnnotationActions | null>;
@@ -96,8 +101,9 @@ interface IPageAnnotationActionsDeps {
     }) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
     removeAnnotationFromCache: (stableKey: string) => void;
-    markAnnotationDirty: () => void;
+    restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => void;
     queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
+    unqueuePendingEmbeddedAnnotationDelete: (stableKey: string) => void;
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
     embedPlacedImageToPage: (
         data: Uint8Array,
@@ -879,17 +885,32 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return false;
         }
 
+        const applyDelete = () => {
+            viewer.suppressAnnotationStableKey(comment.stableKey);
+            deps.queuePendingEmbeddedAnnotationDelete(comment);
+            if (comment.annotationId) {
+                viewer.suppressAnnotationId(comment.annotationId);
+            }
+            viewer.removeAnnotationFromDom(comment);
+            viewer.removeAnnotationFromInternalCache(comment.stableKey);
+            deps.removeAnnotationFromCache(comment.stableKey);
+        };
+        const undoDelete = () => {
+            deps.unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
+            viewer.unsuppressAnnotationStableKey?.(comment.stableKey);
+            if (comment.annotationId) {
+                viewer.unsuppressAnnotationId?.(comment.annotationId);
+            }
+            deps.restoreAnnotationToCache(comment);
+        };
+
         // Keep embedded annotation deletes local until the user saves.
         // This matches note text edits and avoids an immediate rewrite/reload.
-        viewer.suppressAnnotationStableKey(comment.stableKey);
-        deps.queuePendingEmbeddedAnnotationDelete(comment);
-        if (comment.annotationId) {
-            viewer.suppressAnnotationId(comment.annotationId);
-        }
-        viewer.removeAnnotationFromDom(comment);
-        viewer.removeAnnotationFromInternalCache(comment.stableKey);
-        deps.removeAnnotationFromCache(comment.stableKey);
-        deps.markAnnotationDirty();
+        applyDelete();
+        viewer.registerAnnotationHistoryCommand?.({
+            cmd: applyDelete,
+            undo: undoDelete,
+        });
         return true;
     }
 

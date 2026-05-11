@@ -1144,6 +1144,7 @@ defineExpose({
     cancelCommentPlacement: highlightComposable.cancelCommentPlacement,
     undoAnnotation,
     redoAnnotation,
+    registerAnnotationHistoryCommand: registerShapeHistoryCommand,
     focusAnnotationComment: commentCrud.focusAnnotationComment,
     updateAnnotationComment: commentCrud.updateAnnotationComment,
     deleteAnnotationComment: commentCrud.deleteAnnotationComment,
@@ -1165,7 +1166,12 @@ defineExpose({
     restorePendingImagePlacement,
     invalidatePages,
     suppressAnnotationId,
+    unsuppressAnnotationId: (annotationId: string) => {
+        managedEmbeddedPdfShapes.unsuppressAnnotationId(annotationId);
+        annotations.commentSync.unsuppressAnnotationId(annotationId);
+    },
     suppressAnnotationStableKey: annotations.commentSync.suppressAnnotationStableKey,
+    unsuppressAnnotationStableKey: annotations.commentSync.unsuppressAnnotationStableKey,
     removeAnnotationFromDom,
     removeAnnotationFromInternalCache: (stableKey: string) => {
         pendingMarkerMoves.delete(stableKey);

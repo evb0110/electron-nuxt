@@ -129,11 +129,22 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         suppressedAnnotationIds.add(id);
     }
 
+    function unsuppressAnnotationId(id: string) {
+        suppressedAnnotationIds.delete(id);
+    }
+
     function suppressAnnotationStableKey(stableKey: string) {
         if (!stableKey) {
             return;
         }
         suppressedAnnotationStableKeys.add(stableKey);
+    }
+
+    function unsuppressAnnotationStableKey(stableKey: string) {
+        if (!stableKey) {
+            return;
+        }
+        suppressedAnnotationStableKeys.delete(stableKey);
     }
 
     function clearSuppressedAnnotationIds() {
@@ -671,6 +682,8 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         clearSyncState,
         suppressAnnotationId,
         suppressAnnotationStableKey,
+        unsuppressAnnotationId,
+        unsuppressAnnotationStableKey,
         clearSuppressedAnnotationIds,
     };
 };

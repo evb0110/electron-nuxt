@@ -127,6 +127,16 @@ export function useManagedEmbeddedPdfShapes({
         ]);
     }
 
+    function unsuppressAnnotationId(annotationId: string) {
+        const normalizedId = normalizePdfJsAnnotationId(annotationId);
+        if (!normalizedId || !visuallySuppressedAnnotationIds.value.has(normalizedId)) {
+            return;
+        }
+        const nextIds = new Set(visuallySuppressedAnnotationIds.value);
+        nextIds.delete(normalizedId);
+        visuallySuppressedAnnotationIds.value = nextIds;
+    }
+
     function clearVisuallySuppressedAnnotationIds() {
         if (visuallySuppressedAnnotationIds.value.size === 0) {
             return;
@@ -593,6 +603,7 @@ export function useManagedEmbeddedPdfShapes({
         managedEmbeddedAnnotationIds,
         hiddenEmbeddedAnnotationIds,
         suppressAnnotationId,
+        unsuppressAnnotationId,
         clearVisuallySuppressedAnnotationIds,
         syncHiddenEmbeddedAnnotationDom,
         refreshHiddenAnnotationPage,

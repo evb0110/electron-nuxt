@@ -30,6 +30,7 @@ class FakeAnnotationEditorUIManager {
     copy = vi.fn();
     cut = vi.fn();
     destroy = vi.fn();
+    delete = vi.fn();
     getEditors = vi.fn(() => []);
     keydown = vi.fn();
     keyup = vi.fn();
@@ -254,7 +255,11 @@ async function createBridgeHarness(
         throw new Error('Expected FakeAnnotationEditorUIManager instance');
     }
 
-    return { uiManager };
+    return {
+        emitAnnotationModified,
+        scheduleAnnotationCommentsSync,
+        uiManager,
+    };
 }
 
 describe('shouldIgnoreEditorEvent', () => {
@@ -379,5 +384,18 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(updateEditorDefaultParams(asAnnotationEditorUIManager(uiManager), 31, '#2563eb')).toBe(true);
         expect(editorType.updateDefaultParams).toHaveBeenCalledWith(31, '#2563eb');
+    });
+
+    it('syncs annotation mutation state after deleting through the UI manager', async () => {
+        const {
+            emitAnnotationModified,
+            scheduleAnnotationCommentsSync,
+            uiManager,
+        } = await createBridgeHarness('text');
+
+        uiManager.delete();
+
+        expect(emitAnnotationModified).toHaveBeenCalledOnce();
+        expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith();
     });
 });

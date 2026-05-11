@@ -525,6 +525,17 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             return result;
         };
 
+        const uiManagerWithDelete = uiManager as TAnnotationEditorUIManager & { delete?: () => unknown };
+        if (typeof uiManagerWithDelete.delete === 'function') {
+            const originalDelete = uiManagerWithDelete.delete.bind(uiManager);
+            uiManagerWithDelete.delete = () => {
+                const result = originalDelete();
+                emitAnnotationModified();
+                commentSync.scheduleAnnotationCommentsSync();
+                return result;
+            };
+        }
+
         const originalSetSelected = uiManager.setSelected.bind(uiManager);
         uiManager.setSelected = (editor) => {
             const result = originalSetSelected(editor);
