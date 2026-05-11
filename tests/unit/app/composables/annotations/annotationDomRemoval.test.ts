@@ -124,7 +124,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
         modifiedAt: overrides.modifiedAt ?? null,
         color: overrides.color ?? null,
         uid: overrides.uid ?? null,
-        annotationId: overrides.annotationId ?? '12R0',
+        annotationId: 'annotationId' in overrides ? (overrides.annotationId ?? null) : '12R0',
         source: overrides.source ?? 'pdf',
         hasNote: overrides.hasNote ?? false,
         markerRect: overrides.markerRect ?? {
@@ -211,6 +211,49 @@ describe('removeAnnotationCommentDom', () => {
         container.pages = [page];
 
         removeAnnotationCommentDom(toHTMLElement(container), createComment());
+
+        expect(matchingHighlight.removed).toBe(true);
+        expect(distantHighlight.removed).toBe(false);
+        expect(refresh).toHaveBeenCalledWith(page);
+    });
+
+    it('removes text markup visuals by geometry when no annotation id is available', () => {
+        const refresh = vi.mocked(refreshHighlightCompositeOverlay);
+        refresh.mockClear();
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const matchingHighlight = new FakeElement('highlight', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        const distantHighlight = new FakeElement('highlight', {
+            left: 600,
+            top: 600,
+            width: 150,
+            height: 40,
+        });
+        page.svgs = [
+            matchingHighlight,
+            distantHighlight,
+        ];
+        container.pages = [page];
+
+        removeAnnotationCommentDom(toHTMLElement(container), createComment({
+            annotationId: null,
+            subtype: 'Highlight',
+        }));
 
         expect(matchingHighlight.removed).toBe(true);
         expect(distantHighlight.removed).toBe(false);

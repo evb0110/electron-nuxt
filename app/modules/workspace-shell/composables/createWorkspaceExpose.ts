@@ -93,6 +93,20 @@ function clampZoomLevel(level: number) {
  * Keeping this mapping centralized avoids duplicating command wiring in component files.
  */
 export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorkspaceExpose {
+    async function handleSaveFromCommandSurface() {
+        if (
+            !deps.hasPdf.value
+            || !deps.canSave.value
+            || deps.isAnySaving.value
+            || deps.isHistoryBusy.value
+            || deps.isDjvuMode.value
+        ) {
+            return;
+        }
+
+        await deps.handleSave();
+    }
+
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const currentPage = normalizeToolbarSnapshotPage(deps.currentPage.value);
         const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
@@ -157,7 +171,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     return {
-        handleSave: deps.handleSave,
+        handleSave: handleSaveFromCommandSurface,
         handleSaveAs: deps.handleSaveAs,
         handlePrint: deps.handlePrint,
         handlePrintCurrentPage: deps.handlePrintCurrentPage,
