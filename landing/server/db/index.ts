@@ -5,13 +5,17 @@ import {
 } from 'drizzle-orm/neon-http';
 
 let dbInstance: NeonHttpDatabase | null = null;
+let dbInstanceUrl: string | null = null;
 
-export function getDb() {
-    if (!dbInstance) {
-        const config = useRuntimeConfig();
-        const url = config.databaseUrl || process.env.DATABASE_URL;
-        const sql = neon(url as string);
+export function getDb(databaseUrl: string | undefined) {
+    if (!databaseUrl) {
+        throw new Error('DATABASE_URL is not configured');
+    }
+
+    if (!dbInstance || dbInstanceUrl !== databaseUrl) {
+        const sql = neon(databaseUrl);
         dbInstance = drizzle(sql);
+        dbInstanceUrl = databaseUrl;
     }
     return dbInstance;
 }

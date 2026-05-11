@@ -3,6 +3,9 @@ import { getDb } from '~~/server/db';
 import { landingDownload } from '~~/server/db/schema';
 
 export default defineEventHandler(async (event) => {
+    const config = useRuntimeConfig(event);
+    const db = getDb(config.databaseUrl || process.env.DATABASE_URL);
+
     const body = await readBody<{
         platform?: string
         arch?: string
@@ -21,7 +24,6 @@ export default defineEventHandler(async (event) => {
     const visitorHash = await hashVisitorIdentity(event);
     const userAgent = getHeader(event, 'user-agent') ?? null;
 
-    const db = getDb();
     await db.insert(landingDownload).values({
         platform: body.platform.slice(0, 20),
         arch: body.arch.slice(0, 20),
