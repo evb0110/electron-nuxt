@@ -10,7 +10,10 @@
         <div
             class="combine-page"
             data-combine-page
-            :class="{ 'is-dragging': isDraggingOver }"
+            :class="[
+                files.length > 0 ? 'has-files' : 'is-empty',
+                { 'is-dragging': isDraggingOver },
+            ]"
             @dragenter.prevent="handleDragEnter"
             @dragover.prevent="handleDragOver"
             @dragleave="handleDragLeave"
@@ -42,9 +45,32 @@
                     :disabled="isCombining"
                     @click="openFileInput"
                 />
+                <div
+                    v-if="files.length === 0 && (lastRejectedCount > 0 || combineError)"
+                    class="combine-dropzone-alerts"
+                >
+                    <UAlert
+                        v-if="lastRejectedCount > 0"
+                        color="warning"
+                        variant="soft"
+                        icon="i-ph-warning-circle"
+                        :description="t('combinePdf.unsupportedFiles', { count: lastRejectedCount })"
+                    />
+                    <UAlert
+                        v-if="combineError"
+                        color="error"
+                        variant="soft"
+                        icon="i-ph-warning"
+                        :description="combineError"
+                    />
+                </div>
             </section>
 
-            <section class="combine-workbench" :aria-labelledby="listTitleId">
+            <section
+                v-if="files.length > 0"
+                class="combine-workbench"
+                :aria-labelledby="listTitleId"
+            >
                 <header class="combine-list-header">
                     <div>
                         <h2 :id="listTitleId" class="combine-list-title">
@@ -81,12 +107,7 @@
                     :description="combineError"
                 />
 
-                <div v-if="files.length === 0" class="combine-empty">
-                    <UIcon name="i-ph-file-plus" class="combine-empty-icon" />
-                    <p>{{ t('combinePdf.emptyTitle') }}</p>
-                </div>
-
-                <ol v-else class="combine-file-list">
+                <ol class="combine-file-list">
                     <li
                         v-for="(file, index) in files"
                         :key="file.id"
@@ -149,13 +170,13 @@
                     <UProgress :value="progress.percent" />
                 </div>
 
-                <footer v-if="files.length > 0" class="combine-actions">
+                <footer class="combine-actions">
                     <p>{{ t('combinePdf.outputHint') }}</p>
                     <UButton
                         color="primary"
                         icon="i-ph-stack-plus"
                         :loading="isCombining"
-                        :label="isCombining ? t('combinePdf.combining') : t('combinePdf.combineAction')"
+                        :label="isCombining ? t('combinePdf.combining') : t('combinePdf.combineCountAction', { count: files.length })"
                         @click="combineFiles"
                     />
                 </footer>
@@ -504,13 +525,21 @@ async function combineFiles() {
 <style scoped>
 .combine-page {
     display: grid;
-    grid-template-columns: minmax(17rem, 24rem) minmax(0, 1fr);
     align-items: stretch;
     gap: 1.25rem;
     width: min(100%, 76rem);
     height: 100%;
     min-height: 0;
     margin: 0 auto;
+}
+
+.combine-page.is-empty {
+    grid-template-columns: minmax(0, 1fr);
+    width: min(100%, 45rem);
+}
+
+.combine-page.has-files {
+    grid-template-columns: minmax(20rem, 0.6fr) minmax(0, 1fr);
 }
 
 .combine-dropzone,
@@ -537,8 +566,11 @@ async function combineFiles() {
     text-align: center;
 }
 
-.combine-page.is-dragging .combine-dropzone,
-.combine-page.is-dragging .combine-empty {
+.combine-page.is-empty .combine-dropzone {
+    min-height: 22.5rem;
+}
+
+.combine-page.is-dragging .combine-dropzone {
     border-color: var(--ui-primary);
     background: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-primary) 12%);
 }
@@ -582,6 +614,12 @@ async function combineFiles() {
     line-height: 1.45;
 }
 
+.combine-dropzone-alerts {
+    display: grid;
+    width: min(100%, 24rem);
+    gap: 0.5rem;
+}
+
 .combine-workbench {
     display: flex;
     min-width: 0;
@@ -614,32 +652,6 @@ async function combineFiles() {
     margin: 0.2rem 0 0;
     color: var(--ui-text-muted);
     font-size: 0.8rem;
-}
-
-.combine-empty {
-    display: flex;
-    min-height: 16rem;
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.35rem;
-    border: 1px dashed var(--ui-border);
-    border-radius: 0.5rem;
-    color: var(--ui-text-muted);
-    text-align: center;
-}
-
-.combine-empty-icon {
-    width: 1.8rem;
-    height: 1.8rem;
-    color: var(--ui-text-dimmed);
-}
-
-.combine-empty p {
-    margin: 0;
-    color: var(--ui-text);
-    font-weight: 600;
 }
 
 .combine-file-list {
@@ -730,7 +742,11 @@ async function combineFiles() {
 
 .combine-actions {
     flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
     border-top: 1px solid var(--app-start-row-divider);
+    background: var(--app-start-card-bg);
     padding-top: 0.85rem;
 }
 

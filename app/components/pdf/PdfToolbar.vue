@@ -29,9 +29,9 @@
                 @click="emit('toggle-sidebar')"
             />
 
-            <div class="toolbar-separator" />
+            <div v-if="hasInteractiveDocument" class="toolbar-separator" />
 
-            <template v-if="!isCollapsed(5)">
+            <template v-if="hasInteractiveDocument && !isCollapsed(5)">
                 <div class="toolbar-action toolbar-action--save">
                     <ToolbarButton
                         v-if="isCommandInline('save')"
@@ -79,9 +79,9 @@
                 </div>
             </template>
 
-            <div class="toolbar-separator" />
+            <div v-if="hasInteractiveDocument" class="toolbar-separator" />
 
-            <template v-if="!isCollapsed(5)">
+            <template v-if="hasInteractiveDocument && !isCollapsed(5)">
                 <div class="toolbar-action toolbar-action--undo">
                     <ToolbarButton
                         v-if="isCommandInline('undo')"
@@ -105,9 +105,9 @@
             </template>
         </div>
 
-        <div class="toolbar-separator" />
+        <div v-if="hasInteractiveDocument" class="toolbar-separator" />
 
-        <div class="toolbar-section toolbar-center">
+        <div v-if="hasInteractiveDocument" class="toolbar-section toolbar-center">
             <div class="toolbar-inline-group">
                 <slot
                     v-if="isCommandInline('page-navigation')"
@@ -215,7 +215,7 @@
         <div class="toolbar-separator" />
 
         <div class="toolbar-section toolbar-right">
-            <div class="toolbar-action toolbar-action--capture-region">
+            <div v-if="hasInteractiveDocument" class="toolbar-action toolbar-action--capture-region">
                 <ToolbarButton
                     v-if="isCommandInline('capture-region') && !isCollapsed(3)"
                     icon="ph:scan"
@@ -225,7 +225,7 @@
                     @click="emit('capture-region')"
                 />
             </div>
-            <div class="toolbar-action toolbar-action--crop">
+            <div v-if="hasInteractiveDocument" class="toolbar-action toolbar-action--crop">
                 <ToolbarButton
                     v-if="isCommandInline('crop') && !isCollapsed(3)"
                     icon="ph:crop"
@@ -236,7 +236,7 @@
                 />
             </div>
 
-            <div class="toolbar-action toolbar-action--ocr">
+            <div v-if="hasInteractiveDocument" class="toolbar-action toolbar-action--ocr">
                 <slot
                     v-if="isCommandInline('ocr')"
                     name="ocr"
@@ -246,7 +246,7 @@
                 />
             </div>
 
-            <div class="toolbar-action toolbar-action--export-docx">
+            <div v-if="hasInteractiveDocument" class="toolbar-action toolbar-action--export-docx">
                 <ToolbarButton
                     v-if="isCommandInline('export-docx') && !isCollapsed(3)"
                     icon="ph:file-text"
@@ -258,7 +258,7 @@
                 />
             </div>
 
-            <div v-if="!isCollapsed(3)" class="toolbar-separator" />
+            <div v-if="hasInteractiveDocument && !isCollapsed(3)" class="toolbar-separator" />
 
             <slot
                 v-if="isCommandInline('overflow-menu')"

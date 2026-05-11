@@ -684,16 +684,17 @@ watch(() => startSection, (section) => {
     border: 0;
     border-radius: 0.375rem;
     background: var(--ui-primary);
-    color: var(--app-start-primary-fg);
+    color: var(--ui-primary-fg);
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.25rem;
+    opacity: 1;
     transition: background-color 120ms ease, opacity 120ms ease;
 }
 
 .open-panel-cta:hover:not(:disabled),
 .open-panel-cta:active:not(:disabled) {
-    background: color-mix(in oklab, var(--ui-primary) 75%, transparent);
+    background: var(--ui-primary-hover);
 }
 
 .open-panel-cta:focus-visible {
