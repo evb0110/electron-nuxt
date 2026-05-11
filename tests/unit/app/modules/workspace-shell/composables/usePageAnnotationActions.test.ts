@@ -101,6 +101,7 @@ function createHarness() {
         cancelCommentPlacement: vi.fn(),
         focusAnnotationComment: vi.fn(async () => {}),
         highlightSelection: vi.fn(async () => true),
+        invalidatePages: vi.fn(),
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
         registerAnnotationHistoryCommand: vi.fn(),
@@ -554,26 +555,27 @@ describe('usePageAnnotationActions', () => {
         expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('b');
     });
 
-    it('queues embedded delete for save instead of persisting immediately', async () => {
+    it('does not queue embedded fallback when PDF.js deleted an editable annotation', async () => {
         const {
             deps,
             viewer,
             actions,
         } = createHarness();
-        const comment = createComment('editor-backed');
+        const comment = createComment('editor-backed-highlight');
         comment.source = 'editor';
         comment.annotationId = '12R0';
+        comment.subtype = 'Highlight';
 
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
-        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R0');
-        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
-        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
-        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
-        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
+        expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
+        expect(viewer.removeAnnotationFromDom).not.toHaveBeenCalled();
+        expect(viewer.removeAnnotationFromInternalCache).not.toHaveBeenCalled();
+        expect(deps.removeAnnotationFromCache).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
     });
 
     it('registers undo for deferred embedded deletes', async () => {
@@ -584,6 +586,7 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         const comment = createComment('undoable-delete');
         comment.annotationId = '12R0';
+        viewer.deleteAnnotationComment.mockResolvedValue(false);
 
         await actions.handleDeleteAnnotationComment(comment);
 
@@ -596,6 +599,7 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.unsuppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
         expect(viewer.unsuppressAnnotationId).toHaveBeenCalledWith('12R0');
         expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(comment);
+        expect(viewer.invalidatePages).toHaveBeenCalledWith([comment.pageNumber]);
     });
 
     it('reloads embedded image deletes from serialized bytes so stamp canvases do not stay stale', async () => {
@@ -608,6 +612,7 @@ describe('usePageAnnotationActions', () => {
         comment.source = 'editor';
         comment.annotationId = '12R0';
         comment.subtype = 'Stamp';
+        viewer.deleteAnnotationComment.mockResolvedValue(false);
 
         await actions.handleDeleteAnnotationComment(comment);
 
@@ -642,6 +647,7 @@ describe('usePageAnnotationActions', () => {
         comment.source = 'editor';
         comment.annotationId = '12R0';
         comment.subtype = 'Stamp';
+        viewer.deleteAnnotationComment.mockResolvedValue(false);
 
         await actions.handleDeleteAnnotationComment(comment);
 

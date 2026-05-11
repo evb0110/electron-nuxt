@@ -40,6 +40,7 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     | 'getSelectedShape'
     | 'getViewerContainer'
     | 'highlightSelection'
+    | 'invalidatePages'
     | 'removeAnnotationFromDom'
     | 'removeAnnotationFromInternalCache'
     | 'saveDocument'
@@ -860,10 +861,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
-        // PDF-sourced annotations render via the annotation layer, not the
-        // editor layer. uiManager.delete() operates on the editor layer and
-        // may falsely report success. Always attempt embedded-level fallback.
-        return !deleted || comment.source === 'pdf' || Boolean(comment.annotationId);
+        return !deleted;
     }
 
     async function tryImmediateEmbeddedDeleteReload(comment: IAnnotationCommentSummary) {
@@ -902,6 +900,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 viewer.unsuppressAnnotationId?.(comment.annotationId);
             }
             deps.restoreAnnotationToCache(comment);
+            viewer.invalidatePages([comment.pageNumber]);
         };
 
         // Keep embedded annotation deletes local until the user saves.
