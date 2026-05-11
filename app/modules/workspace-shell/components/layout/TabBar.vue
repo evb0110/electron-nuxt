@@ -523,9 +523,8 @@ onClickOutside(contextMenuRef, () => {
     padding: 0 0.5rem 0 0.75rem;
     min-width: 0;
     max-width: 12.5rem;
-    height: calc(100% - 0.25rem);
+    height: 100%;
     border: none;
-    border-radius: 0.45rem 0.45rem 0 0;
     background: transparent;
     color: var(--ui-text-dimmed);
     font-size: 0.75rem;
@@ -533,39 +532,26 @@ onClickOutside(contextMenuRef, () => {
     position: relative;
     touch-action: none;
     -webkit-app-region: no-drag;
-    transition: background-color 0.1s ease, color 0.1s ease;
-}
-
-.tab:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    top: 30%;
-    bottom: 30%;
-    width: 1px;
-    background: color-mix(in oklab, var(--ui-border) 70%, transparent);
-    pointer-events: none;
-}
-
-.tab.is-active::after,
-.tab:has(+ .tab.is-active)::after,
-.tab:hover::after,
-.tab:has(+ .tab:hover)::after {
-    display: none;
+    transition: color 0.12s ease;
 }
 
 .tab:hover {
-    background: var(--app-chrome-hover);
     color: var(--ui-text);
 }
 
 .tab.is-active {
-    background: var(--ui-bg);
     color: var(--ui-text);
 }
 
-.tab.is-active:hover {
-    background: var(--ui-bg);
+.tab.is-active::before {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: var(--ui-text);
+    pointer-events: none;
 }
 
 .tab-label {
@@ -624,19 +610,17 @@ onClickOutside(contextMenuRef, () => {
     justify-content: center;
     width: var(--app-tab-min-padding-x, 1.875rem);
     min-width: var(--app-tab-min-padding-x, 1.875rem);
-    height: calc(100% - 0.25rem);
+    height: 100%;
     margin-top: 0;
     border: none;
-    border-radius: 0.45rem 0.45rem 0 0;
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;
     -webkit-app-region: no-drag;
-    transition: background-color 0.1s ease, color 0.1s ease;
+    transition: color 0.12s ease;
 }
 
 .tab-new:hover {
-    background: var(--app-chrome-hover);
     color: var(--ui-text);
 }
 
@@ -646,8 +630,7 @@ onClickOutside(contextMenuRef, () => {
 
 .tab.is-dragging {
     z-index: 10;
-    opacity: 0.85;
-    box-shadow: var(--app-tab-drag-shadow);
+    opacity: 0.7;
 }
 
 .tab-context-menu {
@@ -661,7 +644,6 @@ onClickOutside(contextMenuRef, () => {
     border-radius: 0.375rem;
     overflow: hidden;
     background: var(--ui-border);
-    box-shadow: var(--app-tab-context-menu-shadow);
 }
 
 .tab-context-menu-divider {

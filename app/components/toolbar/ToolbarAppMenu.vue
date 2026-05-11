@@ -282,7 +282,11 @@ function close() {
 .app-menu-trigger.is-open {
     background: var(--app-toolbar-control-active-bg);
     border-color: var(--app-toolbar-control-active-border);
-    box-shadow: var(--app-toolbar-control-active-shadow);
+}
+
+.app-menu-trigger.is-open:hover {
+    background: var(--app-toolbar-control-active-hover-bg);
+    border-color: var(--app-toolbar-control-active-hover-border);
 }
 
 .app-menu-trigger:focus-visible {

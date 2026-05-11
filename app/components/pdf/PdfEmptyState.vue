@@ -570,6 +570,10 @@ watch(() => startSection, (section) => {
     color: var(--app-start-rail-item-active-fg);
 }
 
+.rail-item.is-active:hover:not(:disabled) {
+    background: var(--app-start-rail-item-active-hover-bg);
+}
+
 .rail-item:disabled {
     opacity: 0.62;
     cursor: default;
@@ -600,11 +604,16 @@ watch(() => startSection, (section) => {
     margin-left: auto;
     padding: 0 0.35rem;
     border-radius: 999px;
+    border: 1px solid transparent;
     background: var(--app-start-rail-item-hover-bg);
     color: var(--ui-text-muted);
     font-size: 0.7rem;
     font-weight: 600;
     line-height: 1;
+}
+
+.rail-item.is-active .rail-count {
+    border-color: var(--app-start-rail-item-active-border);
 }
 
 .start-main {
@@ -642,7 +651,6 @@ watch(() => startSection, (section) => {
     width: 2rem;
     height: 2.25rem;
     flex: 0 0 auto;
-    filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--ui-bg-inverted) 10%, transparent));
 }
 
 .open-panel-art-icon {
@@ -709,7 +717,6 @@ watch(() => startSection, (section) => {
     border: 1px solid var(--app-start-card-border);
     border-radius: 0.65rem;
     background: var(--app-start-card-bg);
-    box-shadow: var(--app-start-card-shadow);
     overflow: hidden;
     flex: 1 1 0;
     min-height: 0;

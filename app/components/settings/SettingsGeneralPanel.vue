@@ -158,10 +158,10 @@ const uiScaleOptions = computed<Array<{
 
 .settings-segmented {
     display: flex;
-    border: 1px solid var(--ui-border);
+    gap: 2px;
+    padding: 3px;
     border-radius: calc(var(--ui-radius) * 1.5);
-    overflow: hidden;
-    background: color-mix(in oklab, var(--ui-bg-muted) 50%, var(--ui-bg) 50%);
+    background: var(--ui-bg-muted);
 }
 
 .settings-seg-btn {
@@ -170,15 +170,16 @@ const uiScaleOptions = computed<Array<{
     align-items: center;
     justify-content: center;
     gap: 0.3rem;
-    border: none;
+    border: 1px solid transparent;
+    border-radius: var(--ui-radius);
     background: transparent;
     color: var(--ui-text-muted);
-    height: 2.25rem;
+    height: 2rem;
     padding: 0 0.75rem;
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color $ease-standard, color $ease-standard, box-shadow $ease-standard;
+    transition: background-color $ease-standard, color $ease-standard, border-color $ease-standard;
 }
 
 .settings-segmented--five .settings-seg-btn {
@@ -186,22 +187,20 @@ const uiScaleOptions = computed<Array<{
     font-size: 0.78rem;
 }
 
-.settings-seg-btn + .settings-seg-btn {
-    border-left: 1px solid var(--ui-border);
-}
-
 .settings-seg-btn:hover:not(.is-active) {
     color: var(--ui-text);
-    background: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-border) 20%);
 }
 
 .settings-seg-btn.is-active {
-    background: var(--ui-bg);
+    background: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
     color: var(--ui-text);
     font-weight: 600;
-    box-shadow:
-        0 1px 2px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent),
-        inset 0 -1px 0 color-mix(in srgb, var(--ui-bg-inverted) 4%, transparent);
+}
+
+.settings-seg-btn.is-active:hover {
+    background: var(--app-toolbar-control-active-hover-bg);
+    border-color: var(--app-toolbar-control-active-hover-border);
 }
 
 .settings-seg-icon {
