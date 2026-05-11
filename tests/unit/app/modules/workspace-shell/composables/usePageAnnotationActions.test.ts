@@ -520,6 +520,8 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         const commentA = createComment('a');
         const commentB = createComment('b');
+        commentA.source = 'editor';
+        commentB.source = 'editor';
         deps.annotationNoteWindows.value = [
             { comment: commentA },
             { comment: commentB },
@@ -555,7 +557,7 @@ describe('usePageAnnotationActions', () => {
         expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('b');
     });
 
-    it('does not queue embedded fallback when PDF.js deleted an editable annotation', async () => {
+    it('uses the embedded delete path directly for PDF-backed highlights', async () => {
         const {
             deps,
             viewer,
@@ -563,7 +565,53 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         const comment = createComment('editor-backed-highlight');
         comment.source = 'editor';
-        comment.annotationId = '12R0';
+        comment.annotationId = '12R';
+        comment.subtype = 'Highlight';
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).not.toHaveBeenCalled();
+        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R');
+        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
+        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+    });
+
+    it('resolves embedded refs from stable keys before suppressing and queueing deletes', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('ann:0:12R0');
+        comment.source = 'editor';
+        comment.annotationId = null;
+        comment.subtype = 'Highlight';
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).not.toHaveBeenCalled();
+        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R');
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(expect.objectContaining({
+            stableKey: comment.stableKey,
+            annotationId: '12R',
+        }));
+        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(expect.objectContaining({ annotationId: '12R' }));
+    });
+
+    it('lets PDF.js own newly-created editor highlight deletes', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('new-editor-highlight');
+        comment.source = 'editor';
+        comment.annotationId = 'pdfjs_internal_editor_12';
         comment.subtype = 'Highlight';
 
         await actions.handleDeleteAnnotationComment(comment);
@@ -571,11 +619,31 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
         expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
         expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
-        expect(viewer.removeAnnotationFromDom).not.toHaveBeenCalled();
-        expect(viewer.removeAnnotationFromInternalCache).not.toHaveBeenCalled();
-        expect(deps.removeAnnotationFromCache).not.toHaveBeenCalled();
         expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
-        expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
+    });
+
+    it('does not invent an embedded delete when a runtime editor highlight cannot be deleted by PDF.js', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('new-editor-highlight-failed-delete');
+        comment.source = 'editor';
+        comment.annotationId = 'pdfjs_internal_editor_12';
+        comment.subtype = 'Highlight';
+        viewer.deleteAnnotationComment.mockResolvedValue(false);
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
+        expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(deps.setAnnotationNoteWindowError).toHaveBeenCalledWith(
+            comment.stableKey,
+            'errors.annotation.delete',
+        );
     });
 
     it('registers undo for deferred embedded deletes', async () => {
@@ -585,7 +653,7 @@ describe('usePageAnnotationActions', () => {
             actions,
         } = createHarness();
         const comment = createComment('undoable-delete');
-        comment.annotationId = '12R0';
+        comment.annotationId = '12R';
         viewer.deleteAnnotationComment.mockResolvedValue(false);
 
         await actions.handleDeleteAnnotationComment(comment);
@@ -597,7 +665,7 @@ describe('usePageAnnotationActions', () => {
 
         expect(deps.unqueuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment.stableKey);
         expect(viewer.unsuppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
-        expect(viewer.unsuppressAnnotationId).toHaveBeenCalledWith('12R0');
+        expect(viewer.unsuppressAnnotationId).toHaveBeenCalledWith('12R');
         expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(comment);
         expect(viewer.invalidatePages).toHaveBeenCalledWith([comment.pageNumber]);
     });
@@ -610,7 +678,7 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         const comment = createComment('stamp-delete');
         comment.source = 'editor';
-        comment.annotationId = '12R0';
+        comment.annotationId = '12R';
         comment.subtype = 'Stamp';
         viewer.deleteAnnotationComment.mockResolvedValue(false);
 
@@ -645,7 +713,7 @@ describe('usePageAnnotationActions', () => {
         ]));
         const comment = createComment('stamp-delete-with-live-edits');
         comment.source = 'editor';
-        comment.annotationId = '12R0';
+        comment.annotationId = '12R';
         comment.subtype = 'Stamp';
         viewer.deleteAnnotationComment.mockResolvedValue(false);
 

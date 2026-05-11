@@ -250,12 +250,8 @@ export function removeAnnotationCommentDom(
     comment: IAnnotationCommentSummary,
 ) {
     const annotationId = comment.annotationId;
-    if (!annotationId) {
-        return;
-    }
-
-    const annotationElements = collectMatchingAnnotationElements(container, annotationId);
-    const popupElements = collectRelatedPopupElements(container, annotationId);
+    const annotationElements = annotationId ? collectMatchingAnnotationElements(container, annotationId) : [];
+    const popupElements = annotationId ? collectRelatedPopupElements(container, annotationId) : [];
 
     removeTextMarkupVisuals(container, comment, annotationElements);
     annotationElements.forEach(element => element.remove());

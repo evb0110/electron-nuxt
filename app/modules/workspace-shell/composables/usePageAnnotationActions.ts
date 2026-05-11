@@ -16,6 +16,10 @@ import type {
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import { getShapeRect } from '@app/composables/pdf/pdfShapeResize';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
+import {
+    normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
+} from '@app/utils/pdf-annotation-refs';
 
 const SUPPORTED_IMAGE_MIME_TYPES = [
     'image/apng',
@@ -860,8 +864,27 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
     }
 
+    function resolveEmbeddedPdfAnnotationId(comment: IAnnotationCommentSummary) {
+        const annotationId = normalizePdfJsAnnotationId(comment.annotationId);
+        if (parsePdfJsAnnotationRef(annotationId)) {
+            return annotationId;
+        }
+
+        const stableRef = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu)?.[1];
+        const stableAnnotationId = normalizePdfJsAnnotationId(stableRef);
+        if (parsePdfJsAnnotationRef(stableAnnotationId)) {
+            return stableAnnotationId;
+        }
+
+        return null;
+    }
+
+    function shouldUseEmbeddedDeletePath(comment: IAnnotationCommentSummary) {
+        return comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment));
+    }
+
     function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
-        return !deleted;
+        return !deleted && shouldUseEmbeddedDeletePath(comment);
     }
 
     async function tryImmediateEmbeddedDeleteReload(comment: IAnnotationCommentSummary) {
@@ -882,22 +905,29 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (!viewer) {
             return false;
         }
+        const embeddedAnnotationId = resolveEmbeddedPdfAnnotationId(comment);
+        const deletionComment: IAnnotationCommentSummary = embeddedAnnotationId && embeddedAnnotationId !== comment.annotationId
+            ? {
+                ...comment,
+                annotationId: embeddedAnnotationId,
+            }
+            : comment;
 
         const applyDelete = () => {
             viewer.suppressAnnotationStableKey(comment.stableKey);
-            deps.queuePendingEmbeddedAnnotationDelete(comment);
-            if (comment.annotationId) {
-                viewer.suppressAnnotationId(comment.annotationId);
+            deps.queuePendingEmbeddedAnnotationDelete(deletionComment);
+            if (embeddedAnnotationId) {
+                viewer.suppressAnnotationId(embeddedAnnotationId);
             }
-            viewer.removeAnnotationFromDom(comment);
+            viewer.removeAnnotationFromDom(deletionComment);
             viewer.removeAnnotationFromInternalCache(comment.stableKey);
             deps.removeAnnotationFromCache(comment.stableKey);
         };
         const undoDelete = () => {
             deps.unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
             viewer.unsuppressAnnotationStableKey?.(comment.stableKey);
-            if (comment.annotationId) {
-                viewer.unsuppressAnnotationId?.(comment.annotationId);
+            if (embeddedAnnotationId) {
+                viewer.unsuppressAnnotationId?.(embeddedAnnotationId);
             }
             deps.restoreAnnotationToCache(comment);
             viewer.invalidatePages([comment.pageNumber]);
@@ -954,6 +984,16 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             pageNumber: comment.pageNumber,
         });
         setAnnotationNoteWindowError(comment.stableKey, null);
+        if (shouldUseEmbeddedDeletePath(comment)) {
+            const deleted = await deleteAnnotationCommentWithFallbacks(comment, false);
+            if (!deleted) {
+                handleAnnotationDeleteFailure(comment);
+                return;
+            }
+            removeMatchingAnnotationNoteWindows(comment);
+            return;
+        }
+
         const viewerDeleted = await viewer.deleteAnnotationComment(comment);
         BrowserLogger.debug('annotations', 'Delete annotation comment viewer result', {
             stableKey: comment.stableKey,

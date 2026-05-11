@@ -454,6 +454,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 const text = getCommentText(editor);
                 const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
                 sourceOrder += 1;
+                if (shouldSkipEditorCommentSummary(summary)) {
+                    continue;
+                }
                 const hydrated = identity.hydrateSummaryFromMemory(summary);
                 commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
             }
@@ -473,6 +476,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return true;
         }
         return Boolean(summary.annotationId && isDeletedAnnotationElement?.(summary.annotationId));
+    }
+
+    function shouldSkipEditorCommentSummary(summary: IAnnotationCommentSummary) {
+        if (suppressedAnnotationStableKeys.has(summary.stableKey)) {
+            return true;
+        }
+        return Boolean(summary.annotationId && suppressedAnnotationIds.has(summary.annotationId));
     }
 
     function rememberMarkupSubtypeOverride(

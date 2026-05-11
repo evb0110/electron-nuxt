@@ -77,6 +77,43 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 }
 
 describe('createWorkspaceExpose', () => {
+    it('runs save only when the toolbar save command is enabled', async () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            canSave: ref(true),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        await exposed.handleSave();
+
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('ignores save shortcuts when the toolbar save command is disabled', async () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            canSave: ref(false),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        await exposed.handleSave();
+
+        expect(deps.handleSave).not.toHaveBeenCalled();
+    });
+
+    it('ignores save while another save operation is active', async () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            canSave: ref(true),
+            isAnySaving: ref(true),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        await exposed.handleSave();
+
+        expect(deps.handleSave).not.toHaveBeenCalled();
+    });
+
     it('clamps zoom in/out commands', () => {
         const deps = createDeps({
             zoom: ref(9.9),
