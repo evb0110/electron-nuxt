@@ -22,6 +22,14 @@ async function fsyncPath(filePath: string) {
     const handle = await open(filePath, 'r');
     try {
         await handle.sync();
+    } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (process.platform === 'win32' && (err.code === 'EPERM' || err.code === 'EINVAL')) {
+            logger.debug(`Skipping temp-file fsync for "${filePath}": ${getErrorMessage(error)}`);
+            return;
+        }
+
+        throw error;
     } finally {
         await handle.close();
     }
