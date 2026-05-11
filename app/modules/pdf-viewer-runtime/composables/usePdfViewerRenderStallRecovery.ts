@@ -20,6 +20,17 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     viewerContainer: Ref<HTMLElement | null>;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;
     cancelInFlightPageRenders?: () => void;
+    renderVisiblePages: (
+        range: {
+            start: number;
+            end: number;
+        },
+        options?: {
+            preserveRenderedPages?: boolean;
+            forceRerender?: boolean;
+            bufferOverride?: number;
+        },
+    ) => Promise<void>;
     scheduleReload: (isReload?: boolean) => void;
 }
 
@@ -34,6 +45,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
         viewerContainer,
         summarizeViewerMetricsForLog,
         cancelInFlightPageRenders,
+        renderVisiblePages,
         scheduleReload,
     } = options;
 
@@ -41,6 +53,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
     const renderStallRecoveryCooldownByPage = new Map<number, number>();
     let renderStallRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingInvalidation: number[] | null = null;
+    let pageLevelRecoveryRunId = 0;
 
     function clearRenderStallRecoveryTimer() {
         if (renderStallRecoveryTimer !== null) {
@@ -131,7 +144,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
 
             BrowserLogger.warn(
                 'pdf-renderer',
-                'Reloading PDF source to recover stalled page render',
+                'Retrying stalled PDF page render without source reload',
                 {
                     pages,
                     currentPage: currentPage.value,
@@ -142,9 +155,39 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
                     viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                 },
             );
+            const recoveryRunId = ++pageLevelRecoveryRunId;
             cancelInFlightPageRenders?.();
             invalidatePages(pages);
-            scheduleReload(true);
+            void renderVisiblePages(
+                {
+                    start: pages[0]!,
+                    end: pages[pages.length - 1]!,
+                },
+                {
+                    preserveRenderedPages: true,
+                    forceRerender: true,
+                    bufferOverride: 0,
+                },
+            ).catch((error: unknown) => {
+                if (recoveryRunId !== pageLevelRecoveryRunId || isLoading.value || !src.value) {
+                    return;
+                }
+
+                BrowserLogger.warn(
+                    'pdf-renderer',
+                    'Page-level stalled render recovery failed; scheduling selective source reload',
+                    {
+                        pages,
+                        currentPage: currentPage.value,
+                        visibleRange: {
+                            start: visibleRange.value.start,
+                            end: visibleRange.value.end,
+                        },
+                        error: error instanceof Error ? error.message : String(error),
+                    },
+                );
+                scheduleReload(true);
+            });
         }, 0);
     }
 

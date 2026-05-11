@@ -165,39 +165,71 @@ export function useManagedEmbeddedPdfShapes({
         );
     }
 
-    async function resetEmbeddedShapeImportBaseline() {
+    async function resetEmbeddedShapeImportBaseline(token?: number, path?: string | null) {
         lastEmbeddedShapeImportPath = null;
         hasEmbeddedShapeImportBaseline = false;
         shapeComposable.replaceShapes([]);
         await waitForNextTick();
+        if (token !== undefined && isStaleEmbeddedShapeImport(token, path ?? null)) {
+            logStaleEmbeddedShapeImport(token, path ?? null);
+            return;
+        }
         syncHiddenEmbeddedAnnotationDom();
     }
 
-    async function resolveEmbeddedShapeImportBytes(data: Uint8Array | null, path: string | null) {
+    async function resolveEmbeddedShapeImportBytes(
+        data: Uint8Array | null,
+        path: string | null,
+        token: number,
+    ) {
         if (data && data.length > 0) {
             return data;
         }
-        return path
+        const bytes = path
             ? readDocumentBytes(path)
             : null;
+        const resolvedBytes = bytes ? await bytes : null;
+        if (isStaleEmbeddedShapeImport(token, path)) {
+            logStaleEmbeddedShapeImport(token, path);
+            return null;
+        }
+        return resolvedBytes;
     }
 
-    async function importEmbeddedShapesFromResolvedSource(data: Uint8Array | null, path: string | null): Promise<
+    async function importEmbeddedShapesFromResolvedSource(
+        data: Uint8Array | null,
+        path: string | null,
+        token: number,
+    ): Promise<
         | { status: 'empty' }
         | { status: 'failed' }
+        | { status: 'stale' }
         | {
             status: 'imported';
             shapes: IShapeAnnotation[]
         }
     > {
         try {
-            const sourceData = await resolveEmbeddedShapeImportBytes(data, path);
+            const sourceData = await resolveEmbeddedShapeImportBytes(data, path, token);
+            if (isStaleEmbeddedShapeImport(token, path)) {
+                logStaleEmbeddedShapeImport(token, path);
+                return { status: 'stale' };
+            }
             if (!sourceData || sourceData.length === 0) {
                 return { status: 'empty' };
             }
+            if (isStaleEmbeddedShapeImport(token, path)) {
+                logStaleEmbeddedShapeImport(token, path);
+                return { status: 'stale' };
+            }
+            const shapes = await importEmbeddedShapeAnnotations(sourceData);
+            if (isStaleEmbeddedShapeImport(token, path)) {
+                logStaleEmbeddedShapeImport(token, path);
+                return { status: 'stale' };
+            }
             return {
                 status: 'imported',
-                shapes: await importEmbeddedShapeAnnotations(sourceData),
+                shapes,
             };
         } catch (error) {
             logger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
@@ -250,6 +282,10 @@ export function useManagedEmbeddedPdfShapes({
         lastEmbeddedShapeImportPath = path ?? null;
 
         await waitForNextTick();
+        if (isStaleEmbeddedShapeImport(token, path)) {
+            logStaleEmbeddedShapeImport(token, path);
+            return;
+        }
         syncHiddenEmbeddedAnnotationDom();
     }
 
@@ -287,16 +323,19 @@ export function useManagedEmbeddedPdfShapes({
                 currentShapeCount: shapeComposable.getAllShapes().length,
             }));
             if ((!data || data.length === 0) && !path) {
-                await resetEmbeddedShapeImportBaseline();
+                await resetEmbeddedShapeImportBaseline(localToken, path);
                 return;
             }
 
-            const result = await importEmbeddedShapesFromResolvedSource(data, path);
+            const result = await importEmbeddedShapesFromResolvedSource(data, path, localToken);
             if (result.status === 'empty') {
-                await resetEmbeddedShapeImportBaseline();
+                await resetEmbeddedShapeImportBaseline(localToken, path);
                 return;
             }
             if (result.status === 'failed') {
+                return;
+            }
+            if (result.status === 'stale') {
                 return;
             }
             if (isStaleEmbeddedShapeImport(localToken, path)) {
@@ -305,6 +344,10 @@ export function useManagedEmbeddedPdfShapes({
             }
 
             await applyImportedEmbeddedShapes(result.shapes, path, localToken);
+            if (isStaleEmbeddedShapeImport(localToken, path)) {
+                logStaleEmbeddedShapeImport(localToken, path);
+                return;
+            }
             await rerenderManagedEmbeddedShapesIfNeeded();
         })();
 
@@ -321,11 +364,17 @@ export function useManagedEmbeddedPdfShapes({
     }
 
     async function clearManagedShapesForDeferredImport() {
+        const localToken = ++embeddedShapeImportToken;
+        const path = workingCopyPath.value;
         shouldReplaceManagedShapesOnNextImport = false;
         lastEmbeddedShapeImportPath = null;
         hasEmbeddedShapeImportBaseline = false;
         shapeComposable.replaceShapes([]);
         await waitForNextTick();
+        if (isStaleEmbeddedShapeImport(localToken, path)) {
+            logStaleEmbeddedShapeImport(localToken, path);
+            return;
+        }
         syncHiddenEmbeddedAnnotationDom();
     }
 
@@ -501,7 +550,13 @@ export function useManagedEmbeddedPdfShapes({
     }
 
     watch(hiddenEmbeddedAnnotationIds, () => {
+        const localToken = embeddedShapeImportToken;
+        const path = workingCopyPath.value;
         void waitForNextTick().then(() => {
+            if (isStaleEmbeddedShapeImport(localToken, path)) {
+                logStaleEmbeddedShapeImport(localToken, path);
+                return;
+            }
             syncHiddenEmbeddedAnnotationDom();
             hideManagedAnnotationEditors();
         });

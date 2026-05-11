@@ -75,6 +75,10 @@ export const usePageOperations = (deps: {
         if (!path) {
             return false;
         }
+        if (isOperationInProgress.value) {
+            BrowserLogger.warn('page-ops', `Skipped overlapping ${options.operationName} request`, { operationName: options.operationName });
+            return false;
+        }
 
         isOperationInProgress.value = true;
         error.value = null;
