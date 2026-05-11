@@ -129,6 +129,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout target
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
