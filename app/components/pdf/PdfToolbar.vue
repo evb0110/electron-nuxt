@@ -458,18 +458,9 @@ function isCommandInline(command: TReaderCommandId) {
 .toolbar-button-group {
     display: flex;
     align-items: center;
-    gap: 0;
+    gap: 2px;
     flex-shrink: 0;
     min-width: max-content;
-    padding: 0;
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.5625rem;
-    background: var(--app-toolbar-group-bg);
-    overflow: hidden;
-}
-
-.toolbar-button-group :deep(.toolbar-btn) {
-    border-radius: 0;
 }
 
 .toolbar-group-item {
