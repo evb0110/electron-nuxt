@@ -187,6 +187,8 @@ describe('window runtime readiness', () => {
         mocks.loadURL.mockResolvedValue(undefined);
         mocks.config.automation.hideWindow = true;
         mocks.config.automation.noFocus = false;
+        mocks.config.isDev = false;
+        delete process.env.EVB_CLEAR_RENDERER_CACHE;
     });
 
     it('waits for the initial renderer-ready signal when requested', async () => {
@@ -203,7 +205,7 @@ describe('window runtime readiness', () => {
         await expect(createPromise).resolves.toBe(mocks.BrowserWindow.windows[0]);
     });
 
-    it('shows a startup placeholder before renderer-ready', async () => {
+    it('keeps strict startup hidden until renderer-ready', async () => {
         mocks.config.automation.hideWindow = false;
         const { createAppWindow } = await import('@electron/window');
         const { markWindowRendererReady } = await import('@electron/window/renderer-ready');
@@ -214,13 +216,18 @@ describe('window runtime readiness', () => {
         });
 
         const window = mocks.BrowserWindow.windows[0];
+        expect(mocks.loadURL).not.toHaveBeenCalledWith('about:blank');
+        expect(window?.maximize).not.toHaveBeenCalled();
+        expect(window?.isVisible()).toBe(false);
+
+        window?.emitWebContents('did-finish-load');
+        markWindowRendererReady(1);
+        await createPromise;
+
         await vi.waitFor(() => {
             expect(window?.maximize).toHaveBeenCalledTimes(1);
         });
         expect(window?.isVisible()).toBe(true);
-
-        markWindowRendererReady(1);
-        await createPromise;
     });
 
     it('creates the startup window before the renderer load completes', async () => {
@@ -249,6 +256,25 @@ describe('window runtime readiness', () => {
 
         resolveLoad();
         await expect(createPromise).resolves.toBe(window);
+    });
+
+    it('does not clear the dev renderer cache by default', async () => {
+        mocks.config.isDev = true;
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+
+        expect(mocks.clearCache).not.toHaveBeenCalled();
+    });
+
+    it('clears the dev renderer cache when explicitly requested', async () => {
+        mocks.config.isDev = true;
+        process.env.EVB_CLEAR_RENDERER_CACHE = '1';
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+
+        expect(mocks.clearCache).toHaveBeenCalledTimes(1);
     });
 
     it('rejects strict startup when the initial loadURL call fails', async () => {

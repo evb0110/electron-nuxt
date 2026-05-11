@@ -596,10 +596,12 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     attachRendererDiagnostics(window);
     attachShowLifecycle(window, { blockShowUntilRendererReady: shouldWaitForInitialRendererReady });
 
-    const startupPlaceholderPromise = loadStartupPlaceholder(window, {
-        title: config.window.title,
-        logger,
-    });
+    const startupPlaceholderPromise = shouldWaitForInitialRendererReady
+        ? Promise.resolve()
+        : loadStartupPlaceholder(window, {
+            title: config.window.title,
+            logger,
+        });
     const runtimeReadyPromise = windowRuntime.ensureReady();
     void runtimeReadyPromise.catch(() => {});
 
@@ -621,7 +623,9 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         void lockRendererZoom(window);
     });
     await startupPlaceholderPromise.catch(() => {});
-    showAndFocusMaximizedWindow(window);
+    if (!shouldWaitForInitialRendererReady) {
+        showAndFocusMaximizedWindow(window);
+    }
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
         windowId: window.id,
         url: config.renderer.url,
