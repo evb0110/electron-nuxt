@@ -540,7 +540,7 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 
 .ocr-trigger.is-active:hover {
     background: var(--app-toolbar-control-active-hover-bg);
-    border-color: var(--app-toolbar-control-active-border);
+    border-color: var(--app-toolbar-control-active-hover-border);
 }
 
 .ocr-trigger:focus {

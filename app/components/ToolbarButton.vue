@@ -99,7 +99,7 @@ const shortcutLabel = computed(() => shortcut.trim());
 
 .toolbar-btn.is-active:hover {
     background: var(--app-toolbar-control-active-hover-bg);
-    border-color: var(--app-toolbar-control-active-border);
+    border-color: var(--app-toolbar-control-active-hover-border);
 }
 
 .toolbar-btn:focus {

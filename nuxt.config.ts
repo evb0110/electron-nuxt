@@ -115,8 +115,8 @@ html, body, #__nuxt { min-height: 100%; }
     --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
     --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
     --app-toolbar-control-hover-bg: var(--app-chrome-hover);
-    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 84%, var(--ui-text) 16%);
-    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-text) 20%);
+    --app-toolbar-control-active-bg: #ffffff;
+    --app-toolbar-control-active-hover-bg: #ffffff;
     --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-dimmed) 88%, var(--ui-border) 12%);
     --app-toolbar-control-disabled-opacity: 0.4;
     --app-editor-group-grid-bg: var(--app-window-bg);
@@ -138,8 +138,8 @@ html, body, #__nuxt { min-height: 100%; }
     --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
     --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-border) 40%);
     --app-toolbar-control-hover-bg: var(--app-chrome-hover);
-    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
-    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 74%, var(--ui-text) 26%);
+    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-text) 6%);
+    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-text) 9%);
     --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-dimmed) 86%, var(--ui-border) 14%);
     --app-toolbar-control-disabled-opacity: 0.38;
     --app-editor-group-grid-bg: var(--app-window-bg);
