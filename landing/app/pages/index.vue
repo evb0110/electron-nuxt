@@ -185,7 +185,7 @@ import {
     type TReleaseArch,
     type IUserAgentProfile,
     type TReleasePlatform,
-} from '@release-selection';
+} from '~~/shared/release-selection';
 
 interface INavigatorUADataLike {
     platform?: string
