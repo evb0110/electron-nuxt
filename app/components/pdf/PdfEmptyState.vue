@@ -851,7 +851,6 @@ watch(() => startSection, (section) => {
     z-index: 1;
     padding-block: 0.45rem;
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
-    box-shadow: inset 0 -1px 0 var(--app-start-row-divider);
 }
 
 .recent-row--head .recent-col {
