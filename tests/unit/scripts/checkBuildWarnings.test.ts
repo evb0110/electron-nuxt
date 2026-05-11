@@ -39,6 +39,15 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('allows transient Nuxt Fonts Fontshare retry warnings', async () => {
+        const result = await runWarningCheck([
+            '[warn] Could not fetch from `https://api.fontshare.com/v2/fonts`. Will retry in `1000ms`. `3` retries left.',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('rejects unlisted warnings', async () => {
         await expect(runWarningCheck([
             '[warn] unexpected production build warning',
