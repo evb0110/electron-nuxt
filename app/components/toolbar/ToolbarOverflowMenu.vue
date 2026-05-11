@@ -30,7 +30,7 @@
                             class="overflow-menu-item"
                             @click="emit('combine-images'); close()"
                         >
-                            <UIcon name="i-lucide-copy-plus" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-stack-plus" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('menu.combineFiles') }}</span>
                         </button>
                         <button
@@ -41,7 +41,7 @@
                         >
                             <UIcon
                                 v-if="isPreparingCurrentPagePrint"
-                                name="i-lucide-loader-circle"
+                                name="i-ph-circle-notch"
                                 class="overflow-menu-icon animate-spin"
                             />
                             <PrintCurrentPageIcon v-else class="overflow-menu-icon" />
@@ -53,7 +53,7 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('convert-to-pdf'); close()"
                         >
-                            <UIcon name="i-lucide-refresh-cw" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-arrows-clockwise" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('menu.convertToPdf') }}</span>
                         </button>
                     </div>
@@ -69,11 +69,11 @@
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('capture-region'); close()"
                         >
-                            <UIcon name="i-lucide-scan" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-scan" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('toolbar.captureRegion') }}</span>
                             <UIcon
                                 v-if="isCapturingRegion"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -83,11 +83,11 @@
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('crop'); close()"
                         >
-                            <UIcon name="i-lucide-crop" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-crop" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('toolbar.crop') }}</span>
                             <UIcon
                                 v-if="isCropSelecting"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -97,11 +97,11 @@
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('quick-note'); close()"
                         >
-                            <UIcon name="i-lucide-message-square-plus" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-chat-circle-dots" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('annotations.createNotes') }}</span>
                             <UIcon
                                 v-if="isPlacingPageNote"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -111,7 +111,7 @@
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('open-ocr'); close()"
                         >
-                            <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-scan" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('ocr.button') }}</span>
                         </button>
                     </div>
@@ -127,11 +127,11 @@
                             :disabled="!hasInteractiveDocument || canToggleSidebar === false"
                             @click="emit('toggle-sidebar'); close()"
                         >
-                            <UIcon name="i-lucide-panel-left" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-sidebar-simple" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('toolbar.toggleSidebar') }}</span>
                             <UIcon
                                 v-if="showSidebar"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -141,11 +141,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'single'); close()"
                         >
-                            <UIcon name="i-lucide-file" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-file" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.singlePage') }}</span>
                             <UIcon
                                 v-if="viewMode === 'single'"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -155,11 +155,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'facing'); close()"
                         >
-                            <UIcon name="i-lucide-book-open" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-book-open" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.facingPages') }}</span>
                             <UIcon
                                 v-if="viewMode === 'facing'"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -170,13 +170,13 @@
                             @click="emit('set-view-mode', 'facing-first-single'); close()"
                         >
                             <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
-                                <UIcon name="i-lucide-book-open" class="size-[1.125rem]" />
+                                <UIcon name="i-ph-book-open" class="size-[1.125rem]" />
                                 <span class="overflow-menu-icon-badge">1</span>
                             </span>
                             <span class="overflow-menu-label">{{ t('zoom.facingWithFirstSingle') }}</span>
                             <UIcon
                                 v-if="viewMode === 'facing-first-single'"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -186,11 +186,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('fit-width'); close()"
                         >
-                            <UIcon name="i-lucide-move-horizontal" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-arrows-out-line-horizontal" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.fitWidth') }}</span>
                             <UIcon
                                 v-if="isFitWidthActive"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -200,11 +200,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('fit-height'); close()"
                         >
-                            <UIcon name="i-lucide-move-vertical" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-arrows-out-line-vertical" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.fitHeight') }}</span>
                             <UIcon
                                 v-if="isFitHeightActive"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -214,11 +214,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('toggle-continuous-scroll'); close()"
                         >
-                            <UIcon name="i-lucide-scroll" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-scroll" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.continuousScroll') }}</span>
                             <UIcon
                                 v-if="continuousScroll"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -228,11 +228,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('enable-drag'); close()"
                         >
-                            <UIcon name="i-lucide-hand" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-hand" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.handTool') }}</span>
                             <UIcon
                                 v-if="dragMode"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -242,11 +242,11 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('disable-drag'); close()"
                         >
-                            <UIcon name="i-lucide-text-cursor" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-cursor-text" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('zoom.textSelect') }}</span>
                             <UIcon
                                 v-if="!dragMode"
-                                name="i-lucide-check"
+                                name="i-ph-check"
                                 class="overflow-menu-check"
                             />
                         </button>
@@ -256,7 +256,7 @@
                             :disabled="!fullscreenSupported"
                             @click="toggleFullscreen(); close()"
                         >
-                            <UIcon :name="isFullscreen ? 'i-lucide-shrink' : 'i-lucide-expand'" class="overflow-menu-icon" />
+                            <UIcon :name="isFullscreen ? 'i-ph-corners-in' : 'i-ph-corners-out'" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('toolbar.fullscreen') }}</span>
                         </button>
                     </div>
@@ -271,7 +271,7 @@
                             class="overflow-menu-item"
                             @click="emit('open-settings'); close()"
                         >
-                            <UIcon name="i-lucide-settings" class="overflow-menu-icon" />
+                            <UIcon name="i-ph-gear" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('toolbar.settings') }}</span>
                         </button>
                     </div>

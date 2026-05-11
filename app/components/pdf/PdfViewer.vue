@@ -6,7 +6,7 @@
     >
         <div v-if="isLocalViewerLoadingOverlayVisible" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
             <div class="flex flex-col items-center gap-2">
-                <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-[var(--ui-text-muted)]" />
+                <UIcon name="i-ph-circle-notch" class="size-5 animate-spin text-[var(--ui-text-muted)]" />
                 <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
             </div>
         </div>

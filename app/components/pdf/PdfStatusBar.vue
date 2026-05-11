@@ -10,7 +10,7 @@
                     :aria-label="showInFolderAriaLabel"
                     @click="emit('showInFolder')"
                 >
-                    <UIcon name="i-lucide-folder-open" class="status-folder-icon" />
+                    <UIcon name="i-ph-folder-open" class="status-folder-icon" />
                 </button>
             </AppTooltip>
             <AppTooltip :text="filePath" :delay-duration="800">

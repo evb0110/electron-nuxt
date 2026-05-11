@@ -11,7 +11,7 @@
             <div v-if="isCommandInline('app-menu') && $slots['app-menu']" class="toolbar-separator" />
             <ToolbarButton
                 v-if="isCommandInline('open-file')"
-                icon="lucide:folder-open"
+                icon="ph:folder-open"
                 :tooltip="t('toolbar.openPdf')"
                 :shortcut="shortcutLabels.openFile"
                 :disabled="isOpeningDocument"
@@ -21,7 +21,7 @@
             <div class="toolbar-separator" />
             <ToolbarButton
                 v-if="isCommandInline('toggle-sidebar')"
-                icon="lucide:panel-left"
+                icon="ph:sidebar-simple"
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
                 :shortcut="shortcutLabels.toggleSidebar"
@@ -35,7 +35,7 @@
                 <div class="toolbar-action toolbar-action--save">
                     <ToolbarButton
                         v-if="isCommandInline('save')"
-                        icon="lucide:save"
+                        icon="ph:floppy-disk"
                         :tooltip="t('toolbar.save')"
                         :shortcut="shortcutLabels.save"
                         :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
@@ -46,7 +46,7 @@
                 <div class="toolbar-action toolbar-action--save-as">
                     <ToolbarButton
                         v-if="isCommandInline('save-as')"
-                        icon="lucide:save-all"
+                        icon="ph:floppy-disk-back"
                         :tooltip="t('toolbar.saveAs')"
                         :shortcut="shortcutLabels.saveAs"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
@@ -57,7 +57,7 @@
                 <div class="toolbar-action toolbar-action--print">
                     <ToolbarButton
                         v-if="isCommandInline('print')"
-                        icon="lucide:printer"
+                        icon="ph:printer"
                         :tooltip="t('toolbar.print')"
                         :shortcut="shortcutLabels.print"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
@@ -68,7 +68,7 @@
                 <div class="toolbar-action toolbar-action--print-current-page">
                     <ToolbarButton
                         v-if="isCommandInline('print-current-page')"
-                        icon="lucide:printer"
+                        icon="ph:printer"
                         :tooltip="t('toolbar.printCurrentPage')"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                         :loading="isPreparingCurrentPagePrint"
@@ -85,7 +85,7 @@
                 <div class="toolbar-action toolbar-action--undo">
                     <ToolbarButton
                         v-if="isCommandInline('undo')"
-                        icon="lucide:undo-2"
+                        icon="ph:arrow-u-up-left"
                         :tooltip="t('toolbar.undo')"
                         :shortcut="shortcutLabels.undo"
                         :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
@@ -95,7 +95,7 @@
                 <div class="toolbar-action toolbar-action--redo">
                     <ToolbarButton
                         v-if="isCommandInline('redo')"
-                        icon="lucide:redo-2"
+                        icon="ph:arrow-u-up-right"
                         :tooltip="t('toolbar.redo')"
                         :shortcut="shortcutLabels.redo"
                         :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
@@ -135,7 +135,7 @@
             <div v-if="!isCollapsed(3)" class="toolbar-button-group toolbar-button-group--fit">
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
                     <ToolbarButton
-                        icon="lucide:move-horizontal"
+                        icon="ph:arrows-out-line-horizontal"
                         :active="isFitWidthActive"
                         :tooltip="t('zoom.fitWidth')"
                         :shortcut="shortcutLabels.fitWidth"
@@ -146,7 +146,7 @@
                 </div>
                 <div v-if="isCommandInline('fit-height')" class="toolbar-group-item">
                     <ToolbarButton
-                        icon="lucide:move-vertical"
+                        icon="ph:arrows-out-line-vertical"
                         :active="isFitHeightActive"
                         :tooltip="t('zoom.fitHeight')"
                         :shortcut="shortcutLabels.fitHeight"
@@ -157,7 +157,7 @@
                 </div>
                 <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(2)" class="toolbar-group-item toolbar-group-item--continuous-scroll">
                     <ToolbarButton
-                        icon="lucide:scroll"
+                        icon="ph:scroll"
                         :active="continuousScroll"
                         :tooltip="t('zoom.continuousScroll')"
                         :disabled="!hasInteractiveDocument"
@@ -171,7 +171,7 @@
 
             <ToolbarButton
                 v-if="isCommandInline('quick-note') && isCollapsed(5)"
-                icon="lucide:message-square-plus"
+                icon="ph:chat-circle-dots"
                 :active="isPlacingPageNote"
                 :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
                 :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -181,7 +181,7 @@
             <div v-else class="toolbar-button-group toolbar-button-group--interaction">
                 <div v-if="isCommandInline('quick-note')" class="toolbar-group-item toolbar-group-item--quick-note">
                     <ToolbarButton
-                        icon="lucide:message-square-plus"
+                        icon="ph:chat-circle-dots"
                         :active="isPlacingPageNote"
                         :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
                         :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -191,7 +191,7 @@
                 </div>
                 <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item toolbar-group-item--drag-mode">
                     <ToolbarButton
-                        icon="lucide:hand"
+                        icon="ph:hand"
                         :active="dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.handTool')"
                         :disabled="!hasInteractiveDocument"
@@ -201,7 +201,7 @@
                 </div>
                 <div v-if="isCommandInline('text-select')" class="toolbar-group-item toolbar-group-item--text-select">
                     <ToolbarButton
-                        icon="lucide:text-cursor"
+                        icon="ph:cursor-text"
                         :active="!dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.textSelect')"
                         :disabled="!hasInteractiveDocument"
@@ -218,7 +218,7 @@
             <div class="toolbar-action toolbar-action--capture-region">
                 <ToolbarButton
                     v-if="isCommandInline('capture-region') && !isCollapsed(3)"
-                    icon="lucide:scan"
+                    icon="ph:scan"
                     :active="isCapturingRegion"
                     :tooltip="t('toolbar.captureRegion')"
                     :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -228,7 +228,7 @@
             <div class="toolbar-action toolbar-action--crop">
                 <ToolbarButton
                     v-if="isCommandInline('crop') && !isCollapsed(3)"
-                    icon="lucide:crop"
+                    icon="ph:crop"
                     :active="isCropSelecting"
                     :tooltip="t('toolbar.crop')"
                     :disabled="!hasInteractiveDocument || isDjvuMode"
@@ -249,7 +249,7 @@
             <div class="toolbar-action toolbar-action--export-docx">
                 <ToolbarButton
                     v-if="isCommandInline('export-docx') && !isCollapsed(3)"
-                    icon="lucide:file-text"
+                    icon="ph:file-text"
                     :tooltip="t('toolbar.exportDocx')"
                     :shortcut="shortcutLabels.exportDocx"
                     :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
@@ -269,7 +269,7 @@
             />
             <ToolbarButton
                 v-if="isCommandInline('fullscreen')"
-                :icon="isFullscreen ? 'lucide:shrink' : 'lucide:expand'"
+                :icon="isFullscreen ? 'ph:corners-in' : 'ph:corners-out'"
                 :tooltip="t('toolbar.fullscreen')"
                 :active="isFullscreen"
                 :disabled="!fullscreenSupported"
@@ -277,7 +277,7 @@
             />
             <ToolbarButton
                 v-if="isCommandInline('settings')"
-                icon="lucide:settings"
+                icon="ph:gear"
                 :tooltip="t('toolbar.settings')"
                 @click="emit('open-settings')"
             />

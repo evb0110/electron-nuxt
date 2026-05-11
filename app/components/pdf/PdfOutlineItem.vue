@@ -30,7 +30,7 @@
                 aria-hidden="true"
             >
                 <UIcon
-                    name="i-lucide-grip-vertical"
+                    name="i-ph-dots-six-vertical"
                     class="size-3.5"
                 />
             </span>
@@ -46,7 +46,7 @@
                     @click.stop="emit('toggle-expand', item.id)"
                 >
                     <UIcon
-                        :name="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+                        :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'"
                         class="size-4"
                     />
                 </button>
@@ -92,7 +92,7 @@
                     @click.stop="openActionsFromButton"
                 >
                     <UIcon
-                        name="i-lucide-ellipsis"
+                        name="i-ph-dots-three"
                         class="size-4"
                     />
                 </button>

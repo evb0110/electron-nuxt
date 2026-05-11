@@ -2,25 +2,25 @@
     <div class="pdf-search-results flex flex-col">
         <PdfPanelEmptyState
             v-if="!trimmedQuery"
-            icon="i-lucide-search"
+            icon="i-ph-magnifying-glass"
             :title="t('searchResults.enterSearchTerm')"
             :description="t('searchResults.enterSearchHint')"
         />
         <PdfPanelEmptyState
             v-else-if="isQueryTooShort"
-            icon="i-lucide-type"
+            icon="i-ph-text-t"
             :title="t('searchResults.typeMinChars', { count: minQueryLength })"
             :description="t('searchResults.enterSearchHint')"
         />
         <PdfPanelEmptyState
             v-else-if="!isSearching && searchError"
-            icon="i-lucide-triangle-alert"
+            icon="i-ph-warning"
             :title="t('searchResults.unavailable')"
             :description="searchError"
         />
         <PdfPanelEmptyState
             v-else-if="!isSearching && results.length === 0"
-            icon="i-lucide-search-x"
+            icon="i-ph-magnifying-glass"
             :title="t('searchResults.noResults')"
             :description="t('searchResults.noResultsHint')"
         />
@@ -34,7 +34,7 @@
                 </span>
                 <UIcon
                     v-if="isSearching"
-                    name="i-lucide-loader-2"
+                    name="i-ph-circle-notch"
                     class="pdf-search-results-spinner pdf-search-results-header-spinner size-4"
                     aria-live="polite"
                     :aria-label="t('searchResults.searching')"
@@ -65,7 +65,7 @@
                         @click="togglePage(group.pageIndex)"
                     >
                         <UIcon
-                            name="i-lucide-chevron-right"
+                            name="i-ph-caret-right"
                             class="pdf-search-results-group-chevron"
                             :class="{ 'is-open': isGroupExpanded(group.pageIndex) }"
                         />

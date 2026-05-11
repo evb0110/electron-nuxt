@@ -21,9 +21,9 @@
                 :aria-label="triggerTooltip"
                 type="button"
             >
-                <Icon v-if="!progress.isRunning && !showSuccessState" name="lucide:scan-text" class="size-5" />
+                <Icon v-if="!progress.isRunning && !showSuccessState" name="ph:scan" class="size-5" />
                 <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
-                <Icon v-else name="lucide:loader-2" class="size-5 animate-spin" />
+                <Icon v-else name="ph:circle-notch" class="size-5 animate-spin" />
             </button>
         </AppTooltip>
         <span v-else class="hidden-trigger" aria-hidden="true" />
@@ -199,12 +199,12 @@
                         v-else-if="effectiveError"
                         class="error"
                     >
-                        <UIcon name="i-lucide-alert-circle" class="size-4" />
+                        <UIcon name="i-ph-warning-circle" class="size-4" />
                         <div class="error-content flex flex-1 flex-col gap-2">
                             <span class="error-text">{{ effectiveError }}</span>
                             <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
                                 <UButton
-                                    icon="i-lucide-copy"
+                                    icon="i-ph-copy"
                                     variant="ghost"
                                     color="neutral"
                                     size="xs"
@@ -222,7 +222,7 @@
                         v-else-if="hasResults"
                         class="results"
                     >
-                        <UIcon name="i-lucide-check-circle" class="size-4" />
+                        <UIcon name="i-ph-check-circle" class="size-4" />
                         <span>{{ t('ocr.complete') }}</span>
                     </div>
                 </div>
@@ -232,7 +232,7 @@
         <template #footer>
             <AppTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
                 <UButton
-                    icon="i-lucide-file-text"
+                    icon="i-ph-file-text"
                     variant="ghost"
                     color="neutral"
                     size="sm"
@@ -248,7 +248,7 @@
                 :delay-duration="1200"
             >
                 <UButton
-                    icon="i-lucide-play"
+                    icon="i-ph-play"
                     color="primary"
                     size="sm"
                     :disabled="settings.selectedLanguages.length === 0"
@@ -262,7 +262,7 @@
                 :delay-duration="1200"
             >
                 <UButton
-                    icon="i-lucide-x"
+                    icon="i-ph-x"
                     color="neutral"
                     variant="soft"
                     size="sm"
@@ -352,7 +352,7 @@ const {
     showSuccessState.value = false;
 }, 3000, { immediate: false });
 
-const triggerIcon = computed(() => showSuccessState.value ? 'lucide:check-circle' : 'lucide:scan-text');
+const triggerIcon = computed(() => showSuccessState.value ? 'ph:check-circle' : 'ph:scan');
 const triggerTooltip = computed(() => {
     if (progress.value.isRunning) {
         return progress.value.phase === 'preparing'

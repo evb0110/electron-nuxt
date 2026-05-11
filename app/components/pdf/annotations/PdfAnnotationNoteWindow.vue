@@ -22,7 +22,7 @@
                         :aria-label="t('noteWindow.deleteNote')"
                         @click="emit('delete')"
                     >
-                        <UIcon name="i-lucide-trash-2" class="size-3.5" />
+                        <UIcon name="i-ph-trash" class="size-3.5" />
                     </button>
                     <button
                         type="button"
@@ -30,7 +30,7 @@
                         :aria-label="t('noteWindow.minimizeNote')"
                         @click="emit('minimize')"
                     >
-                        <UIcon name="i-lucide-minus" class="size-3.5" />
+                        <UIcon name="i-ph-minus" class="size-3.5" />
                     </button>
                 </div>
                 <span class="note-window__date">{{ timestampText }}</span>

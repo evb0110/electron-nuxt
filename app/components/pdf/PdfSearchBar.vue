@@ -11,11 +11,11 @@
                 @keydown.shift.enter="emit('previous')"
             >
                 <template #leading>
-                    <UIcon name="i-lucide-search" class="size-4" />
+                    <UIcon name="i-ph-magnifying-glass" class="size-4" />
                 </template>
                 <template v-if="searchQuery" #trailing>
                     <UButton
-                        icon="i-lucide-x"
+                        icon="i-ph-x"
                         variant="ghost"
                         color="neutral"
                         size="xs"
@@ -29,7 +29,7 @@
             <div class="flex shrink-0 items-center gap-0.5">
                 <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
                     <UButton
-                        icon="i-lucide-chevron-up"
+                        icon="i-ph-caret-up"
                         variant="ghost"
                         color="neutral"
                         size="xs"
@@ -40,7 +40,7 @@
                 </AppTooltip>
                 <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
                     <UButton
-                        icon="i-lucide-chevron-down"
+                        icon="i-ph-caret-down"
                         variant="ghost"
                         color="neutral"
                         size="xs"

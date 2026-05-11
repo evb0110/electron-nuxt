@@ -22,7 +22,7 @@
             @contextmenu.prevent="handleContextMenu"
             @pointerdown.stop="handlePointerDown"
         >
-            <UIcon name="i-lucide-message-square" class="pdf-comment-marker-icon" />
+            <UIcon name="i-ph-chat" class="pdf-comment-marker-icon" />
             <span
                 v-if="clustered.length > 1"
                 class="pdf-comment-marker-badge"

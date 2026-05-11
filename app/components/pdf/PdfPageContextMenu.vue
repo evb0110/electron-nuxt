@@ -16,7 +16,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('delete-pages')"
         >
-            <UIcon name="i-lucide-trash-2" class="pdf-context-menu__icon" />
+            <UIcon name="i-ph-trash" class="pdf-context-menu__icon" />
             {{ t('pageOps.deletePages') }}
         </button>
 
@@ -26,7 +26,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('extract-pages')"
         >
-            <UIcon name="i-lucide-file-output" class="pdf-context-menu__icon" style="transform: scaleX(-1)" />
+            <UIcon name="i-ph-export" class="pdf-context-menu__icon" style="transform: scaleX(-1)" />
             {{ t('pageOps.extractPages') }}
         </button>
 
@@ -36,7 +36,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('export-pages')"
         >
-            <UIcon name="i-lucide-file-output" class="pdf-context-menu__icon" />
+            <UIcon name="i-ph-export" class="pdf-context-menu__icon" />
             {{ t('pageOps.exportPages') }}
         </button>
 
@@ -48,7 +48,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('rotate-cw')"
         >
-            <UIcon name="i-lucide-rotate-cw" class="pdf-context-menu__icon" />
+            <UIcon name="i-ph-arrow-clockwise" class="pdf-context-menu__icon" />
             {{ t('pageOps.rotateCw') }}
         </button>
 
@@ -58,7 +58,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('rotate-ccw')"
         >
-            <UIcon name="i-lucide-rotate-ccw" class="pdf-context-menu__icon" />
+            <UIcon name="i-ph-arrow-counter-clockwise" class="pdf-context-menu__icon" />
             {{ t('pageOps.rotateCcw') }}
         </button>
 
@@ -70,7 +70,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('insert-before')"
         >
-            <UIcon name="i-lucide-file-plus" class="pdf-context-menu__icon" />
+            <UIcon name="i-ph-file-plus" class="pdf-context-menu__icon" />
             {{ t('pageOps.insertBefore') }}
         </button>
 
@@ -80,7 +80,7 @@
             :disabled="isOperationInProgress || isDjvuMode"
             @click="emit('insert-after')"
         >
-            <UIcon name="i-lucide-file-plus" class="pdf-context-menu__icon" />
+            <UIcon name="i-ph-file-plus" class="pdf-context-menu__icon" />
             {{ t('pageOps.insertAfter') }}
         </button>
 

@@ -5,7 +5,7 @@
                 v-if="showBack"
                 color="neutral"
                 variant="ghost"
-                icon="i-lucide-arrow-left"
+                icon="i-ph-arrow-left"
                 :aria-label="t('common.back')"
                 @click="emit('close')"
             />

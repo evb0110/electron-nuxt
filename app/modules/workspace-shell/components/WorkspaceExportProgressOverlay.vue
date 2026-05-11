@@ -58,8 +58,8 @@ const detail = computed(() => props.overlay
     ? t('export.pageCount', {count: props.overlay.pageCount})
     : '');
 const icon = computed(() => props.overlay?.state === 'success'
-    ? 'i-lucide-circle-check'
-    : 'i-lucide-loader-circle');
+    ? 'i-ph-check-circle'
+    : 'i-ph-circle-notch');
 const iconClass = computed(() => props.overlay?.state === 'success'
     ? 'size-4 text-[var(--ui-success)]'
     : 'size-4 animate-spin text-muted');

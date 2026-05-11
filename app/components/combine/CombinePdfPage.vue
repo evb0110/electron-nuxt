@@ -2,7 +2,7 @@
     <AppToolPageShell
         :title="t('combinePdf.title')"
         :eyebrow="t('combinePdf.pageEyebrow')"
-        icon="i-lucide-copy-plus"
+        icon="i-ph-stack-plus"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
         @close="emit('close')"
@@ -29,7 +29,7 @@
                     @change="handleFileInputChange"
                 >
                 <span class="combine-dropzone-art" aria-hidden="true">
-                    <UIcon name="i-lucide-files" class="combine-dropzone-icon" />
+                    <UIcon name="i-ph-files" class="combine-dropzone-icon" />
                 </span>
                 <div class="combine-dropzone-copy">
                     <h2>{{ t('combinePdf.dropTitle') }}</h2>
@@ -37,7 +37,7 @@
                 </div>
                 <UButton
                     color="primary"
-                    icon="i-lucide-folder-open"
+                    icon="i-ph-folder-open"
                     :label="files.length > 0 ? t('combinePdf.addMore') : t('combinePdf.chooseFiles')"
                     :disabled="isCombining"
                     @click="openFileInput"
@@ -58,7 +58,7 @@
                         v-if="files.length > 0"
                         color="neutral"
                         variant="ghost"
-                        icon="i-lucide-trash-2"
+                        icon="i-ph-trash"
                         :label="t('combinePdf.clear')"
                         :disabled="isCombining"
                         @click="clearFiles"
@@ -69,7 +69,7 @@
                     v-if="lastRejectedCount > 0"
                     color="warning"
                     variant="soft"
-                    icon="i-lucide-alert-circle"
+                    icon="i-ph-warning-circle"
                     :description="t('combinePdf.unsupportedFiles', { count: lastRejectedCount })"
                 />
 
@@ -77,12 +77,12 @@
                     v-if="combineError"
                     color="error"
                     variant="soft"
-                    icon="i-lucide-triangle-alert"
+                    icon="i-ph-warning"
                     :description="combineError"
                 />
 
                 <div v-if="files.length === 0" class="combine-empty">
-                    <UIcon name="i-lucide-file-plus-2" class="combine-empty-icon" />
+                    <UIcon name="i-ph-file-plus" class="combine-empty-icon" />
                     <p>{{ t('combinePdf.emptyTitle') }}</p>
                 </div>
 
@@ -104,7 +104,7 @@
                                     color="neutral"
                                     variant="ghost"
                                     size="xs"
-                                    icon="i-lucide-chevron-up"
+                                    icon="i-ph-caret-up"
                                     :aria-label="t('combinePdf.moveUp')"
                                     :disabled="index === 0 || isCombining"
                                     @click="moveFile(index, -1)"
@@ -115,7 +115,7 @@
                                     color="neutral"
                                     variant="ghost"
                                     size="xs"
-                                    icon="i-lucide-chevron-down"
+                                    icon="i-ph-caret-down"
                                     :aria-label="t('combinePdf.moveDown')"
                                     :disabled="index === files.length - 1 || isCombining"
                                     @click="moveFile(index, 1)"
@@ -126,7 +126,7 @@
                                     color="neutral"
                                     variant="ghost"
                                     size="xs"
-                                    icon="i-lucide-x"
+                                    icon="i-ph-x"
                                     :aria-label="t('combinePdf.removeFile')"
                                     :disabled="isCombining"
                                     @click="removeFile(index)"
@@ -153,7 +153,7 @@
                     <p>{{ t('combinePdf.outputHint') }}</p>
                     <UButton
                         color="primary"
-                        icon="i-lucide-copy-plus"
+                        icon="i-ph-stack-plus"
                         :loading="isCombining"
                         :label="isCombining ? t('combinePdf.combining') : t('combinePdf.combineAction')"
                         @click="combineFiles"

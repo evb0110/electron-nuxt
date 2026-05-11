@@ -35,7 +35,7 @@
         >
             <template v-if="pdfSrc" #app-menu>
                 <ToolbarButton
-                    icon="lucide:x"
+                    icon="ph:x"
                     :tooltip="t('annotationProperties.close', undefined)"
                     @click="handleClose"
                 />
@@ -43,7 +43,7 @@
             <template #overflow-menu="{ collapseTier }">
                 <ToolbarButton
                     v-if="pdfSrc"
-                    icon="lucide:search"
+                    icon="ph:magnifying-glass"
                     :active="isSearchOpen"
                     :tooltip="t('sidebar.search', undefined)"
                     @click="isSearchOpen = !isSearchOpen"
@@ -68,7 +68,7 @@
                     :is-crop-selecting="false"
                     :is-placing-page-note="false"
                     :surface="toolbarSurface"
-                    trigger-icon="i-lucide-menu"
+                    trigger-icon="i-ph-list"
                     @update:open="overflowMenuOpen = $event"
                     @capture-region="noopToolbarAction"
                     @crop="noopToolbarAction"
@@ -120,13 +120,13 @@
                 v-model="searchDraft"
                 class="min-w-0 flex-1"
                 size="sm"
-                icon="i-lucide-search"
+                icon="i-ph-magnifying-glass"
                 :placeholder="t('searchResults.enterSearchTerm')"
                 :disabled="!workingCopyPath"
             />
             <UButton
                 type="submit"
-                icon="i-lucide-search"
+                icon="i-ph-magnifying-glass"
                 size="sm"
                 color="neutral"
                 variant="ghost"

@@ -3,7 +3,7 @@
         :title="t('settings.title')"
         :eyebrow="t('settings.pageEyebrow')"
         :description="settingsPageDescription"
-        icon="i-lucide-settings"
+        icon="i-ph-gear"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
         @close="emit('close')"

@@ -68,7 +68,7 @@
                         class="convert-preset-loading"
                     >
                         <UIcon
-                            name="i-lucide-loader-circle"
+                            name="i-ph-circle-notch"
                             class="convert-loading-spinner"
                         />
                         {{ t('djvu.convertDialog.estimating') }}

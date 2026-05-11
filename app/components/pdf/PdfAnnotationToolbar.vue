@@ -46,52 +46,52 @@ const toolItems = computed<IToolItem[]>(() => [
     {
         id: 'select',
         label: t('annotations.select'),
-        icon: 'i-lucide-scan',
+        icon: 'i-ph-scan',
     },
     {
         id: 'draw',
         label: t('annotations.draw'),
-        icon: 'i-lucide-pen-tool',
+        icon: 'i-ph-pen-nib',
     },
     {
         id: 'text',
         label: t('annotations.text'),
-        icon: 'i-lucide-type',
+        icon: 'i-ph-text-t',
     },
     {
         id: 'highlight',
         label: t('annotations.highlight'),
-        icon: 'i-lucide-highlighter',
+        icon: 'i-ph-highlighter',
     },
     {
         id: 'underline',
         label: t('annotations.underline'),
-        icon: 'i-lucide-underline',
+        icon: 'i-ph-text-underline',
     },
     {
         id: 'strikethrough',
         label: t('annotations.strikethrough'),
-        icon: 'i-lucide-strikethrough',
+        icon: 'i-ph-text-strikethrough',
     },
     {
         id: 'rectangle',
         label: t('annotations.rectangle'),
-        icon: 'i-lucide-square',
+        icon: 'i-ph-square',
     },
     {
         id: 'circle',
         label: t('annotations.circle'),
-        icon: 'i-lucide-circle',
+        icon: 'i-ph-circle',
     },
     {
         id: 'line',
         label: t('annotations.line'),
-        icon: 'i-lucide-minus',
+        icon: 'i-ph-minus',
     },
     {
         id: 'arrow',
         label: t('annotations.arrow'),
-        icon: 'i-lucide-arrow-up-right',
+        icon: 'i-ph-arrow-up-right',
     },
 ]);
 

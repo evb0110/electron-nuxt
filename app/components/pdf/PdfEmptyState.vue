@@ -7,7 +7,7 @@
             aria-live="polite"
         >
             <div class="flex items-center gap-2 text-sm text-[var(--ui-text)]">
-                <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+                <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
                 <span>{{ t('emptyState.preparingBatch') }}</span>
             </div>
             <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
@@ -32,7 +32,7 @@
                         :aria-current="activeSection === 'recent' ? 'page' : undefined"
                         @click="showRecentFiles"
                     >
-                        <UIcon name="i-lucide-clock-3" class="rail-item-icon" />
+                        <UIcon name="i-ph-clock" class="rail-item-icon" />
                         <span>{{ t('emptyState.recentFiles') }}</span>
                         <span v-if="recentFiles.length > 0" class="rail-count">{{ recentFiles.length }}</span>
                     </button>
@@ -48,7 +48,7 @@
                         :disabled="openInProgress"
                         @click="showCombinePage"
                     >
-                        <UIcon name="i-lucide-copy-plus" class="rail-item-icon" />
+                        <UIcon name="i-ph-stack-plus" class="rail-item-icon" />
                         <span>{{ t('dialogs.combineFiles') }}</span>
                     </button>
                 </nav>
@@ -61,7 +61,7 @@
                         :aria-current="activeSection === 'settings' ? 'page' : undefined"
                         @click="showSettingsPage"
                     >
-                        <UIcon name="i-lucide-settings" class="rail-item-icon" />
+                        <UIcon name="i-ph-gear" class="rail-item-icon" />
                         <span>{{ t('toolbar.settings') }}</span>
                     </button>
                 </nav>
@@ -85,7 +85,7 @@
                             @click="emit('open-file')"
                         >
                             <UIcon
-                                :name="openInProgress ? 'i-lucide-loader-circle' : 'i-lucide-folder-open'"
+                                :name="openInProgress ? 'i-ph-circle-notch' : 'i-ph-folder-open'"
                                 :class="['open-panel-cta-icon', { 'animate-spin': openInProgress }]"
                                 aria-hidden="true"
                             />
@@ -100,7 +100,7 @@
                             </h3>
                             <div class="recent-controls">
                                 <label class="recent-search">
-                                    <UIcon name="i-lucide-search" class="recent-search-icon" />
+                                    <UIcon name="i-ph-magnifying-glass" class="recent-search-icon" />
                                     <input
                                         v-model="recentSearch"
                                         type="search"
@@ -115,7 +115,7 @@
                                     :aria-label="t('emptyState.clearRecentFiles')"
                                     @click="requestClearRecent"
                                 >
-                                    <UIcon name="i-lucide-trash-2" />
+                                    <UIcon name="i-ph-trash" />
                                     <span>{{ t('emptyState.clearHistory') }}</span>
                                 </button>
                             </div>
@@ -203,7 +203,7 @@
                                             @keydown.enter.stop="emit('reveal-recent', file)"
                                             @keydown.space.stop.prevent="emit('reveal-recent', file)"
                                         >
-                                            <UIcon name="i-lucide-folder-open" />
+                                            <UIcon name="i-ph-folder-open" />
                                         </span>
                                     </AppTooltip>
                                     <AppTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
@@ -216,7 +216,7 @@
                                             @keydown.enter.stop="emit('remove-recent', file)"
                                             @keydown.space.stop.prevent="emit('remove-recent', file)"
                                         >
-                                            <UIcon name="i-lucide-x" />
+                                            <UIcon name="i-ph-x" />
                                         </span>
                                     </AppTooltip>
                                 </span>
@@ -225,7 +225,7 @@
 
                         <div v-else class="recent-empty">
                             <UIcon
-                                :name="recentFiles.length === 0 ? 'i-lucide-folder-open' : 'i-lucide-search-x'"
+                                :name="recentFiles.length === 0 ? 'i-ph-folder-open' : 'i-ph-magnifying-glass'"
                                 class="recent-empty-icon"
                             />
                             <p>{{ recentFiles.length === 0 ? t('emptyState.noRecentFiles') : t('emptyState.noSearchResults') }}</p>
@@ -270,7 +270,7 @@
             <template #body>
                 <div class="clear-history-confirm">
                     <span class="clear-history-confirm-icon" aria-hidden="true">
-                        <UIcon name="i-lucide-triangle-alert" />
+                        <UIcon name="i-ph-warning" />
                     </span>
                     <p class="text-sm text-muted">
                         {{ t('emptyState.clearHistoryConfirmDescription') }}
@@ -541,7 +541,7 @@ watch(() => startSection, (section) => {
     width: 100%;
     height: 2.4rem;
     padding: 0 0.6rem;
-    border: 0;
+    border: 1px solid transparent;
     border-radius: 0.45rem;
     background: transparent;
     color: var(--app-start-rail-item-fg);
@@ -549,7 +549,7 @@ watch(() => startSection, (section) => {
     font-weight: 500;
     text-align: left;
     cursor: pointer;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .rail-item span:not(.rail-shortcut, .rail-count) {
@@ -566,6 +566,7 @@ watch(() => startSection, (section) => {
 
 .rail-item.is-active {
     background: var(--app-start-rail-item-active-bg);
+    border-color: var(--app-start-rail-item-active-border);
     color: var(--app-start-rail-item-active-fg);
 }
 

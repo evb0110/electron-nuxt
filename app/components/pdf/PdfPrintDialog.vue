@@ -124,7 +124,7 @@
                     v-if="error"
                     color="error"
                     variant="soft"
-                    icon="i-lucide-alert-circle"
+                    icon="i-ph-warning-circle"
                     :description="error"
                 />
             </div>
@@ -146,7 +146,7 @@
             >
                 <span class="inline-flex items-center justify-center gap-2">
                     <UIcon
-                        :name="isPreparing ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
+                        :name="isPreparing ? 'i-ph-circle-notch' : 'i-ph-printer'"
                         :class="[
                             'size-4 shrink-0',
                             isPreparing ? 'animate-spin' : '',

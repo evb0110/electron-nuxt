@@ -16,7 +16,7 @@
                     :disabled="isOperationInProgress"
                     @click="emit('rotate-ccw')"
                 >
-                    <UIcon name="i-lucide-rotate-ccw" class="page-selection-bar-icon" />
+                    <UIcon name="i-ph-arrow-counter-clockwise" class="page-selection-bar-icon" />
                 </button>
             </AppTooltip>
 
@@ -28,7 +28,7 @@
                     :disabled="isOperationInProgress"
                     @click="emit('rotate-cw')"
                 >
-                    <UIcon name="i-lucide-rotate-cw" class="page-selection-bar-icon" />
+                    <UIcon name="i-ph-arrow-clockwise" class="page-selection-bar-icon" />
                 </button>
             </AppTooltip>
 
@@ -41,7 +41,7 @@
                     @click="emit('extract-pages')"
                 >
                     <UIcon
-                        name="i-lucide-file-output"
+                        name="i-ph-export"
                         class="page-selection-bar-icon page-selection-bar-icon-mirrored"
                     />
                 </button>
@@ -55,7 +55,7 @@
                     :disabled="isOperationInProgress"
                     @click="emit('export-pages')"
                 >
-                    <UIcon name="i-lucide-file-output" class="page-selection-bar-icon" />
+                    <UIcon name="i-ph-export" class="page-selection-bar-icon" />
                 </button>
             </AppTooltip>
 
@@ -67,7 +67,7 @@
                     :disabled="isOperationInProgress"
                     @click="emit('delete-pages')"
                 >
-                    <UIcon name="i-lucide-trash-2" class="page-selection-bar-icon" />
+                    <UIcon name="i-ph-trash" class="page-selection-bar-icon" />
                 </button>
             </AppTooltip>
         </div>

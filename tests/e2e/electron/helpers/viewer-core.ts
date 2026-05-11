@@ -11,28 +11,28 @@ import {
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     'Toggle Sidebar': [
-        '.i-lucide-panel-left',
-        '.iconify.i-lucide-panel-left',
+        '.i-ph-sidebar-simple',
+        '.iconify.i-ph-sidebar-simple',
     ],
     'Save': [
-        '.i-lucide-save',
-        '.iconify.i-lucide-save',
+        '.i-ph-floppy-disk',
+        '.iconify.i-ph-floppy-disk',
     ],
     'Save As': [
-        '.i-lucide-save-all',
-        '.iconify.i-lucide-save-all',
+        '.i-ph-floppy-disk-back',
+        '.iconify.i-ph-floppy-disk-back',
     ],
     'Print': [
-        '.i-lucide-printer',
-        '.iconify.i-lucide-printer',
+        '.i-ph-printer',
+        '.iconify.i-ph-printer',
     ],
     'Undo': [
-        '.i-lucide-undo-2',
-        '.iconify.i-lucide-undo-2',
+        '.i-ph-arrow-u-up-left',
+        '.iconify.i-ph-arrow-u-up-left',
     ],
     'Redo': [
-        '.i-lucide-redo-2',
-        '.iconify.i-lucide-redo-2',
+        '.i-ph-arrow-u-up-right',
+        '.iconify.i-ph-arrow-u-up-right',
     ],
 };
 
@@ -463,8 +463,8 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
                     }
                     return Boolean(
                         element.classList.contains('toolbar-icon-button')
-                        || element.querySelector('.i-lucide-ellipsis')
-                        || element.querySelector('.iconify.i-lucide-ellipsis'),
+                        || element.querySelector('.i-ph-dots-three')
+                        || element.querySelector('.iconify.i-ph-dots-three'),
                     );
                 });
 

@@ -12,7 +12,7 @@
                 :aria-expanded="menuOpen"
             >
                 <span>{{ t('toolbar.appMenu') }}</span>
-                <UIcon name="i-lucide-chevron-down" class="app-menu-trigger-chevron" />
+                <UIcon name="i-ph-caret-down" class="app-menu-trigger-chevron" />
             </button>
 
             <template #content>
@@ -23,7 +23,7 @@
                             class="app-menu-item"
                             @click="emit('open-file'); close()"
                         >
-                            <UIcon name="i-lucide-folder-open" class="app-menu-icon" />
+                            <UIcon name="i-ph-folder-open" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.openFile') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.openFile }}</span>
                         </button>
@@ -32,7 +32,7 @@
                             :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                             @click="emit('save'); close()"
                         >
-                            <UIcon name="i-lucide-save" class="app-menu-icon" />
+                            <UIcon name="i-ph-floppy-disk" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.save') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.save }}</span>
                         </button>
@@ -41,7 +41,7 @@
                             :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                             @click="emit('save-as'); close()"
                         >
-                            <UIcon name="i-lucide-save-all" class="app-menu-icon" />
+                            <UIcon name="i-ph-floppy-disk-back" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.saveAs') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.saveAs }}</span>
                         </button>
@@ -51,7 +51,7 @@
                             @click="emit('print'); close()"
                         >
                             <UIcon
-                                :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
+                                :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : 'i-ph-printer'"
                                 :class="['app-menu-icon', { 'animate-spin': isPreparingPrint && !isPreparingCurrentPagePrint }]"
                             />
                             <span class="app-menu-label">{{ t('menu.print') }}</span>
@@ -64,7 +64,7 @@
                         >
                             <UIcon
                                 v-if="isPreparingCurrentPagePrint"
-                                name="i-lucide-loader-circle"
+                                name="i-ph-circle-notch"
                                 class="app-menu-icon animate-spin"
                             />
                             <PrintCurrentPageIcon v-else class="app-menu-icon" />
@@ -75,7 +75,7 @@
                             class="app-menu-item"
                             @click="emit('combine-images'); close()"
                         >
-                            <UIcon name="i-lucide-copy-plus" class="app-menu-icon" />
+                            <UIcon name="i-ph-stack-plus" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.combineFiles') }}</span>
                         </button>
                         <div class="app-menu-divider" />
@@ -84,7 +84,7 @@
                             :disabled="!hasInteractiveDocument || !canExportDocx || isExportingDocx"
                             @click="emit('export-docx'); close()"
                         >
-                            <UIcon name="i-lucide-file-text" class="app-menu-icon" />
+                            <UIcon name="i-ph-file-text" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.exportDocx') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.exportDocx }}</span>
                         </button>
@@ -93,7 +93,7 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('export-images'); close()"
                         >
-                            <UIcon name="i-lucide-image" class="app-menu-icon" />
+                            <UIcon name="i-ph-image" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.exportImages') }}</span>
                         </button>
                         <button
@@ -101,7 +101,7 @@
                             :disabled="!hasInteractiveDocument"
                             @click="emit('export-multi-page-tiff'); close()"
                         >
-                            <UIcon name="i-lucide-images" class="app-menu-icon" />
+                            <UIcon name="i-ph-images" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.exportMultiPageTiff') }}</span>
                         </button>
                         <template v-if="canUseDjvu && isDjvuMode">
@@ -111,7 +111,7 @@
                                 :disabled="documentBusy"
                                 @click="emit('convert-to-pdf'); close()"
                             >
-                                <UIcon name="i-lucide-refresh-cw" class="app-menu-icon" />
+                                <UIcon name="i-ph-arrows-clockwise" class="app-menu-icon" />
                                 <span class="app-menu-label">{{ t('menu.convertToPdf') }}</span>
                             </button>
                         </template>
@@ -125,7 +125,7 @@
                             :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
                             @click="emit('undo'); close()"
                         >
-                            <UIcon name="i-lucide-undo-2" class="app-menu-icon" />
+                            <UIcon name="i-ph-arrow-u-up-left" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.undo') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.undo }}</span>
                         </button>
@@ -134,7 +134,7 @@
                             :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
                             @click="emit('redo'); close()"
                         >
-                            <UIcon name="i-lucide-redo-2" class="app-menu-icon" />
+                            <UIcon name="i-ph-arrow-u-up-right" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.redo') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.redo }}</span>
                         </button>
@@ -144,7 +144,7 @@
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('insert-image-from-file'); close()"
                         >
-                            <UIcon name="i-lucide-image-plus" class="app-menu-icon" />
+                            <UIcon name="i-ph-image" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.insertImageFromFile') }}</span>
                         </button>
                         <button
@@ -152,7 +152,7 @@
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('paste-image-from-clipboard'); close()"
                         >
-                            <UIcon name="i-lucide-clipboard-paste" class="app-menu-icon" />
+                            <UIcon name="i-ph-clipboard-text" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.pasteImageFromClipboard') }}</span>
                         </button>
                     </div>

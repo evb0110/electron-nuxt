@@ -39,7 +39,7 @@
                         @pointerdown.stop
                         @click.stop="requestClose(tab.id)"
                     >
-                        <Icon name="lucide:x" size="14" />
+                        <Icon name="ph:x" size="14" />
                     </button>
                 </div>
             </AppTooltip>
@@ -49,7 +49,7 @@
                 :aria-label="t('tabs.newTab')"
                 @click="emit('new-tab')"
             >
-                <Icon name="lucide:plus" size="14" />
+                <Icon name="ph:plus" size="14" />
             </button>
         </div>
     </div>

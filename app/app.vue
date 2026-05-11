@@ -9,7 +9,7 @@
                 <UAlert
                     color="error"
                     variant="soft"
-                    icon="i-lucide-triangle-alert"
+                    icon="i-ph-warning"
                     :title="fatalRuntimeTitle"
                     :description="fatalRuntimeDescription"
                 />
@@ -27,7 +27,7 @@
                 <div class="mt-5 flex flex-wrap gap-3">
                     <UButton
                         color="error"
-                        icon="i-lucide-refresh-cw"
+                        icon="i-ph-arrows-clockwise"
                         @click="reloadAfterFatalRuntimeError"
                     >
                         {{ t('errors.runtime.reload') }}
@@ -36,7 +36,7 @@
                         v-if="fatalRuntimeError.detail"
                         color="neutral"
                         variant="soft"
-                        icon="i-lucide-copy"
+                        icon="i-ph-copy"
                         @click="copyText(fatalRuntimeError.detail)"
                     >
                         {{ t('errors.runtime.copy') }}
@@ -52,7 +52,7 @@
                 class="rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-4 shadow-[var(--shadow-popup)]"
             >
                 <div class="flex items-start gap-3">
-                    <UIcon name="i-lucide-circle-x" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
+                    <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2">
                             <p class="truncate text-sm font-medium text-[color:var(--ui-text)]">
@@ -104,7 +104,7 @@
                                 color="neutral"
                                 variant="ghost"
                                 size="xs"
-                                :icon="recentlyCopiedReports ? 'i-lucide-check' : 'i-lucide-copy'"
+                                :icon="recentlyCopiedReports ? 'i-ph-check' : 'i-ph-copy'"
                                 :class="[
                                     'copy-report-button transition-transform duration-150 ease-out hover:scale-110 active:scale-90',
                                     recentlyCopiedReports && 'copy-report-button--success',
@@ -118,7 +118,7 @@
                                 color="neutral"
                                 variant="ghost"
                                 size="xs"
-                                :icon="showRuntimeErrorDetails ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'"
+                                :icon="showRuntimeErrorDetails ? 'i-ph-caret-down' : 'i-ph-caret-up'"
                                 :aria-label="t('errors.runtime.details')"
                                 @click="showRuntimeErrorDetails = !showRuntimeErrorDetails"
                             />
@@ -128,7 +128,7 @@
                                 color="neutral"
                                 variant="ghost"
                                 size="xs"
-                                icon="i-lucide-x"
+                                icon="i-ph-x"
                                 :aria-label="t('errors.runtime.dismiss')"
                                 @click="clearRuntimeErrorReports"
                             />

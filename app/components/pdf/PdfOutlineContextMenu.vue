@@ -47,7 +47,7 @@
                         :aria-label="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="emit('toggle-bold', bookmark.id)"
                     >
-                        <UIcon name="i-lucide-bold" class="bookmarks-style-toggle-icon" />
+                        <UIcon name="i-ph-text-b" class="bookmarks-style-toggle-icon" />
                     </button>
                     <button
                         type="button"
@@ -56,7 +56,7 @@
                         :aria-label="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
                         @click="emit('toggle-italic', bookmark.id)"
                     >
-                        <UIcon name="i-lucide-italic" class="bookmarks-style-toggle-icon" />
+                        <UIcon name="i-ph-text-italic" class="bookmarks-style-toggle-icon" />
                     </button>
                     <button
                         type="button"
