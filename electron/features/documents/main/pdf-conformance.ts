@@ -15,8 +15,8 @@ import { Worker } from 'worker_threads';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
-} from '@contracts/electron-api';
-import { createDefaultPdfConformanceProfile } from '@contracts/electron-api';
+} from '@contracts/pdf-conformance';
+import { createDefaultPdfConformanceProfile } from '@electron/features/documents/main/pdf-conformance-helpers';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';

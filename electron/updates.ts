@@ -1,5 +1,3 @@
-import { spawn } from 'node:child_process';
-import path from 'node:path';
 import { app } from 'electron';
 import electronUpdater from 'electron-updater';
 import type {
@@ -10,7 +8,7 @@ import type {
 import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
-} from '@contracts/electron-api';
+} from '@contracts/electron-api-updates';
 import type { ILatestReleaseResponse } from '@contracts';
 import { config } from '@electron/config';
 import {
@@ -20,6 +18,11 @@ import {
 import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    compareVersions,
+    normalizeVersion,
+} from '@electron/updates/version-compare';
+import { checkMacCodeSignature } from '@electron/updates/mac-codesign-probe';
 
 const { autoUpdater } = electronUpdater;
 
@@ -31,7 +34,6 @@ const UPDATER_SUPPORTED_PLATFORMS = new Set([
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
-const CODESIGN_CHECK_TIMEOUT_MS = 5_000;
 const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
 const GITHUB_RELEASE_DOWNLOAD_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download';
 
@@ -60,43 +62,6 @@ const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
 
 function getCurrentVersion() {
     return normalizeVersion(app.getVersion()) || null;
-}
-
-function normalizeVersion(version: string | null | undefined) {
-    if (!version) {
-        return '';
-    }
-
-    return version.trim().replace(/^v/i, '').split('-')[0] ?? '';
-}
-
-function versionParts(version: string) {
-    const normalized = normalizeVersion(version);
-    if (!normalized) {
-        return [] as number[];
-    }
-
-    return normalized.split('.').map((segment) => {
-        const parsed = Number.parseInt(segment, 10);
-        return Number.isFinite(parsed) ? parsed : 0;
-    });
-}
-
-function compareVersions(left: string, right: string) {
-    const leftParts = versionParts(left);
-    const rightParts = versionParts(right);
-    const maxLength = Math.max(leftParts.length, rightParts.length);
-
-    for (let i = 0; i < maxLength; i += 1) {
-        const leftValue = leftParts[i] ?? 0;
-        const rightValue = rightParts[i] ?? 0;
-        if (leftValue === rightValue) {
-            continue;
-        }
-        return leftValue > rightValue ? 1 : -1;
-    }
-
-    return 0;
 }
 
 function clearProgressBroadcastTimer() {
@@ -167,72 +132,6 @@ function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = g
 
 function isUpdaterRuntimeSupported() {
     return app.isPackaged && UPDATER_SUPPORTED_PLATFORMS.has(process.platform);
-}
-
-async function checkMacCodeSignature() {
-    return new Promise<boolean>((resolve) => {
-        const appBundle = path.resolve(process.execPath, '..', '..', '..');
-        const child = spawn('codesign', [
-            '-d',
-            '--verbose=2',
-            appBundle,
-        ], {
-            shell: false,
-            windowsHide: true,
-            stdio: [
-                'ignore',
-                'ignore',
-                'pipe',
-            ],
-        });
-
-        let stderr = '';
-        let finished = false;
-        let timeoutHandle: NodeJS.Timeout | null = setTimeout(() => {
-            timeoutHandle = null;
-            if (finished) {
-                return;
-            }
-            finished = true;
-            try {
-                child.kill('SIGKILL');
-            } catch {
-                // Ignore kill failures after timeout.
-            }
-            resolve(false);
-        }, CODESIGN_CHECK_TIMEOUT_MS);
-        timeoutHandle.unref?.();
-
-        child.stderr?.on('data', (chunk: Buffer) => {
-            stderr += chunk.toString();
-        });
-
-        child.once('error', () => {
-            if (finished) {
-                return;
-            }
-            finished = true;
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-            }
-            resolve(false);
-        });
-
-        child.once('close', (code) => {
-            if (finished) {
-                return;
-            }
-            finished = true;
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-            }
-            if (code !== 0) {
-                resolve(false);
-                return;
-            }
-            resolve(!stderr.includes('Signature=adhoc'));
-        });
-    });
 }
 
 async function ensureUpdaterSupported() {

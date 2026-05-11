@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron';
 import type {
     IHostEnvironmentSnapshot,
     THostPlatform,
-} from '@contracts/electron-api';
+} from '@contracts/electron-api-host';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';

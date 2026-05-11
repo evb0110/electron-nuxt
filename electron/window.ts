@@ -14,19 +14,15 @@ import { createLogger } from '@electron/utils/logger';
 import { createWindowRuntime } from '@electron/window/runtime';
 import { createWindowSecurity } from '@electron/window/security';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    deleteWindowRendererReadyState,
-    setWindowRendererReadyCallback,
-    waitForInitialRendererReady,
-} from '@electron/window/renderer-ready';
+import { waitForInitialRendererReady } from '@electron/window/renderer-ready';
 import { loadStartupPlaceholder } from '@electron/window/startup-placeholder';
 import {
     getAllRegisteredAppWindows,
     getRegisteredMainWindow,
     getWindowByIdFromRegistry,
     registerAppWindow,
-    unregisterAppWindow,
 } from '@electron/window/registry';
+import { attachShowLifecycle } from '@electron/window/show-lifecycle';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -66,8 +62,6 @@ interface ICreateAppWindowOptions {
     setAsMain?: boolean;
     waitForInitialRendererReady?: boolean;
 }
-interface IAttachShowLifecycleOptions {blockShowUntilRendererReady?: boolean;}
-
 function formatErrorMessage(error: unknown) {
     return getErrorMessage(error);
 }
@@ -297,276 +291,6 @@ function attachRendererDiagnostics(window: BrowserWindow) {
     });
 }
 
-function attachShowLifecycle(
-    window: BrowserWindow,
-    options: IAttachShowLifecycleOptions = {},
-) {
-    // In development, Vite/Nuxt may trigger an immediate full reload (e.g. "Outdated Optimize Dep"),
-    // which can cause a white flash and DevTools console to appear to "load twice".
-    // Debounce showing the window until navigation settles.
-    let hasShownWindow = false;
-    let pendingShowTimeout: NodeJS.Timeout | null = null;
-    let forceShowTimeout: NodeJS.Timeout | null = null;
-    let mainFrameLoadFinished = false;
-    const blockShowUntilRendererReady = options.blockShowUntilRendererReady ?? false;
-    let rendererReadyForShow = !blockShowUntilRendererReady;
-
-    const SHOW_DEBOUNCE_MS = 0;
-    const FORCE_SHOW_MS = config.isDev ? 5_000 : 15_000;
-    const STABILITY_WINDOW_MS = config.isDev ? 200 : 500;
-    let lastNavigationTime = 0;
-    let stabilityCheckTimeout: NodeJS.Timeout | null = null;
-    const isStartupPlaceholderUrl = (url: string) => url === 'about:blank';
-
-    const logNavEvent = (event: string, details?: Record<string, unknown>) => {
-        if (config.isDev) {
-            const info = {
-                timestamp: Date.now(),
-                windowId: window.id,
-                hasShownWindow,
-                pendingShowTimeout: !!pendingShowTimeout,
-                stabilityCheckTimeout: !!stabilityCheckTimeout,
-                ...details,
-            };
-            logger.debug(`${event} ${JSON.stringify(info)}`);
-        }
-    };
-
-    const cleanupShowHandlers = () => {
-        if (window.isDestroyed()) {
-            return;
-        }
-        window.webContents.removeListener('did-start-navigation', onStartNavigation);
-        window.webContents.removeListener('did-finish-load', onFinishLoad);
-        window.webContents.removeListener('did-fail-load', onFailLoad);
-        deleteWindowRendererReadyState(window.id);
-    };
-
-    const showWindowNow = async () => {
-        if (window.isDestroyed() || hasShownWindow) {
-            return;
-        }
-        hasShownWindow = true;
-
-        if (pendingShowTimeout) {
-            clearTimeout(pendingShowTimeout);
-            pendingShowTimeout = null;
-        }
-        if (forceShowTimeout) {
-            clearTimeout(forceShowTimeout);
-            forceShowTimeout = null;
-        }
-        if (stabilityCheckTimeout) {
-            clearTimeout(stabilityCheckTimeout);
-            stabilityCheckTimeout = null;
-        }
-
-        if (config.isDev) {
-            showAndFocusMaximizedWindow(window);
-            logNavEvent('window-shown-early-for-dev');
-
-            try {
-                await window.webContents.executeJavaScript(`
-                    window.__navigationTimeline = window.__navigationTimeline || [];
-                    window.__navigationTimeline.push({
-                        event: 'window-shown',
-                        timestamp: ${Date.now()},
-                    });
-                `);
-            } catch {
-                // Page might be navigating
-            }
-        } else {
-            showAndFocusMaximizedWindow(window);
-        }
-
-        logWindowStartup(`Window shown (windowId=${window.id})`, {hasShownWindow});
-
-        cleanupShowHandlers();
-    };
-
-    const checkStabilityAndShow = () => {
-        if (hasShownWindow || window.isDestroyed()) {
-            return;
-        }
-        if (!rendererReadyForShow) {
-            logNavEvent('stability-check-waiting-for-renderer-ready');
-            return;
-        }
-
-        const timeSinceLastNav = Date.now() - lastNavigationTime;
-
-        if (timeSinceLastNav >= STABILITY_WINDOW_MS) {
-            logNavEvent('stability-check-passed', { timeSinceLastNav });
-            void showWindowNow();
-            return;
-        }
-
-        const remaining = STABILITY_WINDOW_MS - timeSinceLastNav;
-        logNavEvent('stability-check-pending', {
-            timeSinceLastNav,
-            remaining,
-        });
-        stabilityCheckTimeout = setTimeout(checkStabilityAndShow, remaining + 50);
-    };
-
-    const scheduleShow = () => {
-        if (hasShownWindow || window.isDestroyed()) {
-            return;
-        }
-        if (!rendererReadyForShow) {
-            logNavEvent('show-suppressed-pending-renderer-ready');
-            return;
-        }
-        if (pendingShowTimeout) {
-            clearTimeout(pendingShowTimeout);
-        }
-        pendingShowTimeout = setTimeout(() => {
-            void showWindowNow();
-        }, SHOW_DEBOUNCE_MS);
-    };
-
-    const scheduleForceShowTimeout = () => {
-        if (forceShowTimeout || hasShownWindow || window.isDestroyed()) {
-            return;
-        }
-        if (!rendererReadyForShow) {
-            logNavEvent('force-show-suppressed-pending-renderer-ready');
-            return;
-        }
-
-        forceShowTimeout = setTimeout(() => {
-            void showWindowNow();
-        }, FORCE_SHOW_MS);
-    };
-
-    const onRendererReadyForShow = () => {
-        rendererReadyForShow = true;
-        logNavEvent('renderer-ready-for-show', { mainFrameLoadFinished });
-        scheduleForceShowTimeout();
-
-        if (!mainFrameLoadFinished || hasShownWindow) {
-            return;
-        }
-
-        if (config.isDev) {
-            if (stabilityCheckTimeout) {
-                clearTimeout(stabilityCheckTimeout);
-            }
-            stabilityCheckTimeout = setTimeout(checkStabilityAndShow, STABILITY_WINDOW_MS);
-            return;
-        }
-
-        scheduleShow();
-    };
-
-    const onStartNavigation = (
-        _event: unknown,
-        url: string,
-        _isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (!isMainFrame) {
-            return;
-        }
-        if (isStartupPlaceholderUrl(url)) {
-            return;
-        }
-
-        mainFrameLoadFinished = false;
-        lastNavigationTime = Date.now();
-        logNavEvent('navigation-start', { url });
-
-        if (hasShownWindow) {
-            return;
-        }
-
-        if (pendingShowTimeout) {
-            clearTimeout(pendingShowTimeout);
-            pendingShowTimeout = null;
-        }
-        if (stabilityCheckTimeout) {
-            clearTimeout(stabilityCheckTimeout);
-            stabilityCheckTimeout = null;
-        }
-    };
-
-    const onFinishLoad = () => {
-        if (isStartupPlaceholderUrl(window.webContents.getURL())) {
-            return;
-        }
-
-        mainFrameLoadFinished = true;
-        lastNavigationTime = Date.now();
-        logNavEvent('navigation-finish-load');
-
-        if (hasShownWindow) {
-            return;
-        }
-        if (!rendererReadyForShow) {
-            logNavEvent('finish-load-waiting-for-renderer-ready');
-            return;
-        }
-
-        if (config.isDev) {
-            if (stabilityCheckTimeout) {
-                clearTimeout(stabilityCheckTimeout);
-            }
-            stabilityCheckTimeout = setTimeout(checkStabilityAndShow, STABILITY_WINDOW_MS);
-            return;
-        }
-
-        scheduleShow();
-    };
-
-    const onFailLoad = (
-        _event: unknown,
-        errorCode: number,
-        errorDescription: string,
-        validatedURL: string,
-        isMainFrame?: boolean,
-    ) => {
-        if (isMainFrame === false) {
-            return;
-        }
-        logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
-        mainFrameLoadFinished = false;
-
-        if (blockShowUntilRendererReady && !rendererReadyForShow) {
-            logNavEvent('load-failure-hidden-during-strict-startup', {
-                errorCode,
-                validatedURL,
-            });
-            return;
-        }
-
-        void showWindowNow();
-    };
-
-    setWindowRendererReadyCallback(window.id, onRendererReadyForShow);
-    window.webContents.on('did-start-navigation', onStartNavigation);
-    window.webContents.on('did-finish-load', onFinishLoad);
-    window.webContents.on('did-fail-load', onFailLoad);
-
-    scheduleForceShowTimeout();
-
-    window.on('closed', () => {
-        if (pendingShowTimeout) {
-            clearTimeout(pendingShowTimeout);
-            pendingShowTimeout = null;
-        }
-        if (forceShowTimeout) {
-            clearTimeout(forceShowTimeout);
-            forceShowTimeout = null;
-        }
-        if (stabilityCheckTimeout) {
-            clearTimeout(stabilityCheckTimeout);
-            stabilityCheckTimeout = null;
-        }
-
-        unregisterAppWindow(window.id);
-    });
-}
 
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
@@ -594,7 +318,13 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
-    attachShowLifecycle(window, { blockShowUntilRendererReady: shouldWaitForInitialRendererReady });
+    attachShowLifecycle(window, {
+        blockShowUntilRendererReady: shouldWaitForInitialRendererReady,
+        isDev: config.isDev,
+        logger,
+        showAndFocusMaximizedWindow,
+        logWindowStartup,
+    });
 
     const startupPlaceholderPromise = shouldWaitForInitialRendererReady
         ? Promise.resolve()

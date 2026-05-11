@@ -4,30 +4,16 @@ import {
     ipcMain,
 } from 'electron';
 import type { IpcMain } from 'electron';
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
-import {
-    rename,
-    rm,
-    unlink,
-    writeFile,
-} from 'fs/promises';
 import {
     basename,
     extname,
-    join,
 } from 'path';
 import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
 import { te } from '@electron/i18n';
-import {
-    createPdfFromInputPaths,
-    isPdfOrImagePath,
-    SUPPORTED_IMAGE_EXTENSIONS,
-} from '@electron/image/pdf-conversion';
-import { runNativeToolCommand } from '@electron/native-tools/exec';
-import { getNativeToolPaths } from '@electron/native-tools/paths';
+import { SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdf-conversion';
 import {
     cropPages,
     getPageGeometry,
@@ -40,9 +26,7 @@ import {
     rotatePages,
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
-import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedWritePath } from '@electron/utils/path-validator';
-import { getErrorMessage } from '@electron/utils/error';
 import {
     ensureWorkingCopyDirectory,
     findWorkingCopyPathByOriginalPath,
@@ -51,31 +35,17 @@ import {
     allowOpenPath,
     allowOpenPaths,
     requireOpenPath,
-    type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
-
-const log = createLogger('page-ops-ipc');
-const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-const workingCopyMutationQueue = new Map<string, Promise<void>>();
-
-function enqueueWorkingCopyMutation<T>(
-    workingCopyPath: string,
-    operation: () => Promise<T>,
-) {
-    const previousTail = workingCopyMutationQueue.get(workingCopyPath) ?? Promise.resolve();
-    const operationPromise = previousTail.then(operation);
-
-    const nextTail = operationPromise
-        .then(() => undefined, () => undefined)
-        .finally(() => {
-            if (workingCopyMutationQueue.get(workingCopyPath) === nextTail) {
-                workingCopyMutationQueue.delete(workingCopyPath);
-            }
-        });
-
-    workingCopyMutationQueue.set(workingCopyPath, nextTail);
-    return operationPromise;
-}
+import {
+    formatPageRange,
+    validatePageNumbers,
+    validateReorderPermutation,
+} from '@electron/features/page-ops/domain/page-numbers';
+import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insert.service';
+import {
+    clearWorkingCopyOcrArtifacts,
+    enqueueWorkingCopyMutation,
+} from '@electron/ipc/working-copy-mutation-queue';
 
 async function validateWorkingCopyPath(path: unknown): Promise<string> {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
@@ -112,72 +82,6 @@ async function resolveWorkingCopyPath(path: unknown): Promise<string> {
     return validateWorkingCopyPath(workingCopyPath);
 }
 
-function formatPageRange(pages: number[]) {
-    const sorted = [...pages].sort((a, b) => a - b);
-    const parts: string[] = [];
-    let i = 0;
-    while (i < sorted.length) {
-        const start = sorted[i]!;
-        let end = start;
-        while (i + 1 < sorted.length && sorted[i + 1] === end + 1) {
-            end = sorted[++i]!;
-        }
-        parts.push(start === end ? `${start}` : `${start}-${end}`);
-        i++;
-    }
-    return `p${parts.join(',')}`;
-}
-
-function isValidPageNumber(value: unknown) {
-    return typeof value === 'number' && Number.isInteger(value) && value >= 1;
-}
-
-function isPageWithinTotalPages(page: number, totalPages: unknown) {
-    return (
-        typeof totalPages !== 'number'
-        || !Number.isInteger(totalPages)
-        || totalPages <= 0
-        || page <= totalPages
-    );
-}
-
-function validatePageNumbers(
-    pages: unknown,
-    label: string,
-    options: {
-        totalPages?: number;
-        requireUnique?: boolean;
-    } = {},
-): asserts pages is number[] {
-    if (!Array.isArray(pages) || pages.length === 0) {
-        throw new Error(`${label}: must be a non-empty array of page numbers`);
-    }
-
-    const pageSet = new Set<number>();
-    for (const p of pages) {
-        if (!isValidPageNumber(p)) {
-            throw new Error(`${label}: invalid page number ${p}`);
-        }
-        if (!isPageWithinTotalPages(p, options.totalPages)) {
-            throw new Error(`${label}: page number ${p} is out of range 1-${options.totalPages}`);
-        }
-        if (options.requireUnique && pageSet.has(p)) {
-            throw new Error(`${label}: duplicate page number ${p}`);
-        }
-        pageSet.add(p);
-    }
-}
-
-function validateReorderPermutation(newOrder: number[]) {
-    const maxPage = newOrder.length;
-    const pageSet = new Set(newOrder);
-    for (let pageNumber = 1; pageNumber <= maxPage; pageNumber += 1) {
-        if (!pageSet.has(pageNumber)) {
-            throw new Error(`reorderPages: missing page ${pageNumber} in reorder payload`);
-        }
-    }
-}
-
 function validateInsertPageArgs(
     workingCopyPath: unknown,
     totalPages: unknown,
@@ -207,29 +111,6 @@ function validateInsertPageArgs(
         totalPages: normalizedTotalPages,
         afterPage: normalizedAfterPage,
     };
-}
-
-async function unlinkIfPresent(filePath: string) {
-    try {
-        await unlink(filePath);
-    } catch (error) {
-        const code = (error as NodeJS.ErrnoException | null)?.code;
-        if (code !== 'ENOENT') {
-            log.debug(`Failed to remove page-op artifact "${filePath}": ${getErrorMessage(error)}`);
-        }
-    }
-}
-
-async function clearWorkingCopyOcrArtifacts(workingCopyPath: string) {
-    await Promise.all([
-        rm(`${workingCopyPath}.ocr`, {
-            recursive: true,
-            force: true,
-        }).catch(error => {
-            log.debug(`Failed to remove OCR sidecar for page-op mutation: ${getErrorMessage(error)}`);
-        }),
-        unlinkIfPresent(`${workingCopyPath}.index.json`),
-    ]);
 }
 
 async function handlePageOpsDelete(
@@ -376,113 +257,6 @@ async function handlePageOpsInsert(
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
-}
-
-async function prepareInsertionSourcePdf(
-    workingCopyPath: string,
-    sourcePaths: TOpenPath[],
-) {
-    if (sourcePaths.length === 0) {
-        throw new Error('At least one source file is required');
-    }
-
-    for (const sourcePath of sourcePaths) {
-        if (!existsSync(sourcePath)) {
-            throw new Error(`Source file not found: ${sourcePath}`);
-        }
-        if (!isPdfOrImagePath(sourcePath)) {
-            throw new Error(`Unsupported source file type: ${sourcePath}`);
-        }
-    }
-
-    if (sourcePaths.length === 1 && extname(sourcePaths[0]!).toLowerCase() === '.pdf') {
-        return {
-            sourcePdfPath: sourcePaths[0]!,
-            cleanup: async () => {},
-        };
-    }
-
-    await ensureWorkingCopyDirectory(workingCopyPath);
-    const mergedPdf = await createPdfFromInputPaths(sourcePaths);
-    const tempSourcePdfPath = join(
-        workingCopyPath,
-        '..',
-        `insert-source-${randomUUID()}.pdf`,
-    );
-    await writeFile(tempSourcePdfPath, mergedPdf);
-
-    return {
-        sourcePdfPath: tempSourcePdfPath,
-        cleanup: async () => {
-            try {
-                if (existsSync(tempSourcePdfPath)) {
-                    await unlink(tempSourcePdfPath);
-                }
-            } catch (cleanupError) {
-                log.debug(`Failed to cleanup insertion source PDF "${tempSourcePdfPath}": ${
-                    getErrorMessage(cleanupError)
-                }`);
-            }
-        },
-    };
-}
-
-async function insertPagesFromSourcePaths(
-    workingCopyPath: string,
-    totalPages: number,
-    sourcePaths: TOpenPath[],
-    afterPage: number,
-) {
-    await ensureWorkingCopyDirectory(workingCopyPath);
-    const qpdf = getNativeToolPaths().qpdf;
-    const dir = join(workingCopyPath, '..');
-    const id = `tmp-${randomUUID()}`;
-    const tempPath = join(dir, `${id}.pdf`);
-
-    const {
-        sourcePdfPath,
-        cleanup,
-    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths);
-
-    try {
-        const pagesArgs: string[] = [];
-
-        if (afterPage >= 1) {
-            pagesArgs.push(workingCopyPath, `1-${afterPage}`);
-        }
-
-        pagesArgs.push(sourcePdfPath, '1-z');
-
-        if (afterPage < totalPages) {
-            pagesArgs.push(workingCopyPath, `${afterPage + 1}-${totalPages}`);
-        }
-
-        const args = [
-            workingCopyPath,
-            '--pages',
-            ...pagesArgs,
-            '--',
-            tempPath,
-        ];
-        await runNativeToolCommand(qpdf, args, {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            commandLabel: 'qpdf(insert-pages)',
-        });
-        await rename(tempPath, workingCopyPath);
-    } catch (err) {
-        try {
-            if (existsSync(tempPath)) {
-                await unlink(tempPath);
-            }
-        } catch (cleanupError) {
-            log.debug(`Failed to cleanup temporary insert output "${tempPath}": ${
-                getErrorMessage(cleanupError)
-            }`);
-        }
-        throw err;
-    } finally {
-        await cleanup();
-    }
 }
 
 async function handlePageOpsRotate(

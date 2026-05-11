@@ -1,8 +1,6 @@
 import type { Ref } from 'vue';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
-import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
-import { useBookmarkState } from '@app/composables/pdf/useBookmarkState';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
@@ -23,9 +21,8 @@ import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
-import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
-import { useWorkspaceUndoTimeline } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
+import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -124,55 +121,32 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
 
-    let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
-
-    const pageLabelState = usePageLabelState({
+    const metadataSession = useMetadataSession({
         pdfDocument,
         totalPages,
         markDirty,
-        onPageLabelsSynchronized: () => metadataHistory?.resetToCurrentState(),
-        onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
-        onPageLabelsSaved: () => metadataHistory?.resetToCurrentState(),
+        fileHistoryMutationVersion,
+        fileHistorySessionVersion,
+        undoFile: undo,
+        redoFile: redo,
     });
+    const {
+        pageLabelState,
+        bookmarkState,
+        workspaceUndoTimeline,
+    } = metadataSession;
     const {
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
         markPageLabelsSaved,
     } = pageLabelState;
-
-    const bookmarkState = useBookmarkState({
-        markDirty,
-        onBookmarksSynchronized: () => metadataHistory?.resetToCurrentState(),
-        onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
-        onBookmarksSaved: () => metadataHistory?.resetToCurrentState(),
-    });
     const {
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
         markBookmarksSaved,
     } = bookmarkState;
-    metadataHistory = useWorkspaceMetadataHistory({
-        bookmarkItems,
-        bookmarksDirty,
-        pageLabels,
-        pageLabelRanges,
-        pageLabelsDirty,
-        totalPages,
-    });
-    metadataHistory.resetToCurrentState();
-
-    const workspaceUndoTimeline = useWorkspaceUndoTimeline({
-        fileHistoryMutationVersion,
-        fileHistorySessionVersion,
-        metadataHistoryMutationVersion: metadataHistory.metadataHistoryMutationVersion,
-        metadataHistoryResetVersion: metadataHistory.metadataHistoryResetVersion,
-        undoFile: undo,
-        redoFile: redo,
-        undoMetadata: () => metadataHistory?.undoMetadata() ?? false,
-        redoMetadata: () => metadataHistory?.redoMetadata() ?? false,
-    });
 
     const exportControls = useWorkspaceExport({
         workingCopyPath,

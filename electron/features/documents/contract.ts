@@ -71,4 +71,4 @@ export const DOCUMENTS_EVENT_CHANNELS = {
 
 export type TDocumentsEventChannels = typeof DOCUMENTS_EVENT_CHANNELS;
 
-export type { TOpenFileResult } from '@contracts/electron-api';
+export type { TOpenFileResult } from '@contracts/electron-api-documents';

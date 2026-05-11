@@ -157,6 +157,7 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { TPdfSidebarTab } from '@app/modules/workspace-shell/public';
 import PdfAnnotationsPanel from '@app/components/pdf/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/components/pdf/PdfOutline.vue';
 import PdfPageSelectionBar from '@app/components/pdf/PdfPageSelectionBar.vue';
@@ -257,8 +258,6 @@ const emit = defineEmits<{
         filePaths: TDocumentRef[];
     }): void;
 }>();
-
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
 const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
 

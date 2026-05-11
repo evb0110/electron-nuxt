@@ -3,14 +3,14 @@ import type {
     webUtils,
 } from 'electron';
 import type { ISettingsData } from '@contracts/shared';
+import type { IElectronAPI } from '@contracts/electron-api';
+import type { IAppUpdateStatus } from '@contracts/electron-api-updates';
 import type {
-    IAppUpdateStatus,
     IDebugLogEntry,
-    IElectronAPI,
-    IHostEnvironmentSnapshot,
     IMenuEventUnsubscribe,
     IRendererLogEntry,
-} from '@contracts/electron-api';
+} from '@contracts/electron-api-common';
+import type { IHostEnvironmentSnapshot } from '@contracts/electron-api-host';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTransferAck,

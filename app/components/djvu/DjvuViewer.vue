@@ -120,7 +120,7 @@ import type {
 } from '@app/types/annotations';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/djvujs-loader';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';

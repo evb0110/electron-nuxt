@@ -38,7 +38,7 @@ vi.mock('@app/platform/browser-document-store', () => ({
 
 vi.mock('@app/platform/browser-api/browser-yield', () => ({ yieldToBrowser: yieldToBrowserMock }));
 
-vi.mock('@app/platform/browser-api/documents-file-capability', () => ({
+vi.mock('@app/platform/browser-api/browser-file-picker-adapter', () => ({
     pickSaveTarget: (...args: unknown[]) => pickSaveTargetMock(...args),
     saveBlobToPickerOrDownload: (...args: unknown[]) => saveBlobToPickerOrDownloadMock(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => saveBytesToPickerOrDownloadMock(...args),

@@ -1,9 +1,9 @@
 import type {IpcRenderer} from 'electron';
+import type { IDjvuCapability } from '@contracts/electron-api-djvu';
 import type {
-    IDjvuCapability,
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-} from '@contracts/electron-api';
+} from '@contracts/electron-api-common';
 import {
     DJVU_CHANNELS,
     DJVU_EVENT_CHANNELS,

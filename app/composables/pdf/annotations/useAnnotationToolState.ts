@@ -7,7 +7,6 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IAnnotationMarkerRect,
     IAnnotationSettings,
@@ -26,10 +25,6 @@ import type {
     IPdfjsHighlightBox,
 } from '@app/types/pdfjs';
 import {
-    rectIoU,
-    rectCenterDistance,
-} from '@app/composables/pdf/annotationGeometry';
-import {
     errorToLogText,
     toCssColor,
 } from '@app/composables/pdf/annotationCssUtils';
@@ -38,17 +33,19 @@ import {
     getEditorsOnPage,
     updateEditorDefaultParams,
 } from '@app/services/pdfjs/annotationEditorAdapter';
+import { createPdfHighlightEditorClassPatch } from '@app/services/pdfjs/pdfHighlightEditorClassPatch';
+import {
+    createAnnotationMarkupSubtypeDrawLayer,
+    findClosestHighlightDrawLayerSvg,
+    resolveEditorHighlightClipPathId,
+} from '@app/composables/pdf/annotations/annotationMarkupSubtypeDrawLayer';
+import {
+    createAnnotationEditorPresentation,
+    normalizeMarkupSubtypeFragmentBoxes,
+} from '@app/composables/pdf/annotations/annotationEditorPresentation';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
-const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
-const MARKUP_FRAGMENTED_EDITOR_CLASS = 'pdf-markup-subtype-fragmented';
-const MARKUP_FRAGMENT_LAYER_CLASS = 'pdf-markup-subtype-fragments';
-const MARKUP_FRAGMENT_CLASS = 'pdf-markup-subtype-fragment';
-const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
 const OPAQUE_HIGHLIGHT_OPACITY = 1;
-const SAME_MARKUP_LINE_CENTER_TOLERANCE_RATIO = 0.35;
-const MIN_MARKUP_FRAGMENT_SIZE = 0.0005;
 
 type TAnnotationEditorMode = Parameters<AnnotationEditorUIManager['updateMode']>[0];
 
@@ -57,133 +54,7 @@ const ANNOTATION_TOOL_MODES: Partial<Record<TAnnotationTool, TAnnotationEditorMo
     stamp: AnnotationEditorType.STAMP,
 };
 
-interface IHighlightDrawLayerCandidate {
-    distance: number;
-    overlapScore: number;
-    svg: SVGElement;
-}
-
-interface IIndexedHighlightBox {
-    box: IPdfjsHighlightBox;
-    centerY: number;
-    index: number;
-}
-
-interface IHighlightLineGroup {
-    boxes: IIndexedHighlightBox[];
-    top: number;
-    bottom: number;
-    centerY: number;
-    averageHeight: number;
-}
-
-function isFinitePositiveHighlightBox(box: IPdfjsHighlightBox) {
-    return Number.isFinite(box.x)
-        && Number.isFinite(box.y)
-        && Number.isFinite(box.width)
-        && Number.isFinite(box.height)
-        && box.width > 0
-        && box.height > 0;
-}
-
-function createHighlightLineGroup(indexedBox: IIndexedHighlightBox): IHighlightLineGroup {
-    const { box } = indexedBox;
-    return {
-        boxes: [indexedBox],
-        top: box.y,
-        bottom: box.y + box.height,
-        centerY: indexedBox.centerY,
-        averageHeight: box.height,
-    };
-}
-
-function addBoxToHighlightLineGroup(group: IHighlightLineGroup, indexedBox: IIndexedHighlightBox) {
-    const { box } = indexedBox;
-    group.boxes.push(indexedBox);
-    group.top = Math.min(group.top, box.y);
-    group.bottom = Math.max(group.bottom, box.y + box.height);
-    group.centerY = group.boxes.reduce((sum, item) => sum + item.centerY, 0) / group.boxes.length;
-    group.averageHeight = group.boxes.reduce((sum, item) => sum + item.box.height, 0) / group.boxes.length;
-}
-
-function belongsToHighlightLineGroup(group: IHighlightLineGroup, indexedBox: IIndexedHighlightBox) {
-    const tolerance = Math.max(group.averageHeight, indexedBox.box.height) * SAME_MARKUP_LINE_CENTER_TOLERANCE_RATIO;
-    return Math.abs(indexedBox.centerY - group.centerY) <= tolerance;
-}
-
-function groupHighlightBoxesByLine(boxes: readonly IPdfjsHighlightBox[]) {
-    const sortedBoxes = boxes
-        .map((box, index) => ({
-            box: { ...box },
-            centerY: box.y + (box.height / 2),
-            index,
-        }))
-        .filter(indexedBox => isFinitePositiveHighlightBox(indexedBox.box))
-        .sort((left, right) => left.centerY - right.centerY || left.box.x - right.box.x);
-    const groups: IHighlightLineGroup[] = [];
-
-    for (const indexedBox of sortedBoxes) {
-        const previousGroup = groups.at(-1);
-        if (previousGroup && belongsToHighlightLineGroup(previousGroup, indexedBox)) {
-            addBoxToHighlightLineGroup(previousGroup, indexedBox);
-            continue;
-        }
-        groups.push(createHighlightLineGroup(indexedBox));
-    }
-
-    return groups;
-}
-
-export function normalizeMarkupSubtypeFragmentBoxes(
-    boxes: readonly IPdfjsHighlightBox[],
-): IPdfjsHighlightBox[] {
-    const groups = groupHighlightBoxesByLine(boxes);
-    if (groups.length === 0) {
-        return [];
-    }
-    if (groups.length === 1) {
-        return groups[0]!.boxes
-            .sort((left, right) => left.index - right.index)
-            .map(({ box }) => ({ ...box }));
-    }
-
-    const normalizedBoxes = new Map<number, IPdfjsHighlightBox>();
-    groups.forEach((group, groupIndex) => {
-        const previousGroup = groups[groupIndex - 1] ?? null;
-        const nextGroup = groups[groupIndex + 1] ?? null;
-        let lineTop = group.top;
-        let lineBottom = group.bottom;
-
-        if (previousGroup) {
-            lineTop = Math.max(lineTop, (previousGroup.centerY + group.centerY) / 2);
-        }
-        if (nextGroup) {
-            lineBottom = Math.min(lineBottom, (group.centerY + nextGroup.centerY) / 2);
-        }
-        if (lineBottom - lineTop < MIN_MARKUP_FRAGMENT_SIZE) {
-            lineTop = group.top;
-            lineBottom = group.bottom;
-        }
-
-        for (const {
-            box,
-            index,
-        } of group.boxes) {
-            normalizedBoxes.set(index, {
-                ...box,
-                y: lineTop,
-                height: lineBottom - lineTop,
-            });
-        }
-    });
-
-    return [...normalizedBoxes]
-        .sort((left, right) => left[0] - right[0])
-        .map(([
-            ,
-            box,
-        ]) => box);
-}
+export { normalizeMarkupSubtypeFragmentBoxes };
 
 interface IUseAnnotationToolStateOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
@@ -222,20 +93,29 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     const markupSubtypeGeometryHints = new Map<string, IMarkupSubtypeHint>();
     let editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
     let editorObjectMarkupSubtypeColorOverrides = new WeakMap<IPdfjsEditor, string>();
-    let editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
-    const markupSubtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
-
-    tryOnScopeDispose(() => {
-        markupSubtypeRetryTimers.forEach(timer => clearTimeout(timer));
-        markupSubtypeRetryTimers.clear();
+    const markupSubtypeDrawLayer = createAnnotationMarkupSubtypeDrawLayer();
+    const {
+        resolveEditorDrawLayerHighlight,
+        clearMarkupSubtypeDrawLayerClass,
+        applyMarkupSubtypeDrawLayerClass,
+    } = markupSubtypeDrawLayer;
+    const {
+        clearMarkupSubtypeEditorClass,
+        applyEditorMarkupSubtypePresentation: applyEditorMarkupSubtypePresentationForPage,
+        resolveEditorSubtypeFromPresentation,
+    } = createAnnotationEditorPresentation({
+        resolveEditorMarkupSubtypeHintRect,
+        resolveEditorMarkupSubtypeColor,
+        clearMarkupSubtypeDrawLayerClass,
+        applyMarkupSubtypeDrawLayerClass,
     });
 
-    function scheduleMarkupSubtypeRetry(run: () => void, delayMs: number) {
-        const timer = setTimeout(() => {
-            markupSubtypeRetryTimers.delete(timer);
-            run();
-        }, delayMs);
-        markupSubtypeRetryTimers.add(timer);
+    function applyEditorMarkupSubtypePresentation(
+        editor: IPdfjsEditor,
+        subtype: TMarkupSubtype | null,
+        pageIndex = currentPage.value - 1,
+    ) {
+        applyEditorMarkupSubtypePresentationForPage(editor, subtype, pageIndex);
     }
 
     function isFinitePositiveRect(rect: IAnnotationMarkerRect | null | undefined): rect is IAnnotationMarkerRect {
@@ -297,14 +177,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function resolveEditorMarkupSubtypeHintRect(editor: IPdfjsEditor) {
         return rectFromEditor(editor) ?? rectFromMarkupBoxes(editor.__evbMarkupBoxes);
-    }
-
-    function toRelativePercent(value: number, origin: number, size: number) {
-        return `${((value - origin) / size) * 100}%`;
-    }
-
-    function toPercent(value: number, size: number) {
-        return `${(value / size) * 100}%`;
     }
 
     function getAnnotationMode(tool: TAnnotationTool) {
@@ -430,53 +302,15 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
     }
 
-    interface IHighlightEditorCtor {
-        _editorType?: number;
-        _defaultOpacity?: number;
-    }
-
-    let highlightEditorClass: IHighlightEditorCtor | null = null;
-
-    function isHighlightEditorCtor(ctor: unknown): ctor is IHighlightEditorCtor {
-        if (!ctor) {
-            return false;
-        }
-        const candidate = ctor as IHighlightEditorCtor;
-        return candidate._editorType === AnnotationEditorType.HIGHLIGHT
-            && typeof candidate._defaultOpacity === 'number';
-    }
-
-    function captureHighlightEditorClassFromTypes(types: readonly unknown[]) {
-        if (highlightEditorClass) {
-            return;
-        }
-        for (const type of types) {
-            if (isHighlightEditorCtor(type)) {
-                highlightEditorClass = type;
-                const settings = pendingAnnotationSettings.value;
-                if (settings) {
-                    type._defaultOpacity = resolveHighlightOpacityForTool(settings, annotationTool.value);
-                }
-                return;
-            }
-        }
-    }
-
-    function tryCaptureHighlightEditorClassFromEditor(editor: IPdfjsEditor | null | undefined) {
-        if (highlightEditorClass || !editor) {
-            return;
-        }
-        const ctor = (editor as { constructor?: unknown }).constructor;
-        if (isHighlightEditorCtor(ctor)) {
-            highlightEditorClass = ctor;
-        }
-    }
-
-    function syncHighlightDefaultOpacity(opacity: number) {
-        if (highlightEditorClass) {
-            highlightEditorClass._defaultOpacity = opacity;
-        }
-    }
+    const {
+        captureHighlightEditorClassFromTypes,
+        syncHighlightDefaultOpacity,
+        enforceHighlightDefaultsForNewEditor,
+    } = createPdfHighlightEditorClassPatch({
+        pendingAnnotationSettings,
+        annotationTool,
+        resolveHighlightOpacityForTool,
+    });
 
     function resolveHighlightFreeForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
         if (shouldForceTextMarkup(tool)) {
@@ -520,33 +354,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.HIGHLIGHT_FREE, resolveHighlightFreeForTool(settings, tool));
         uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
-    }
-
-    function enforceHighlightDefaultsForNewEditor(editor: IPdfjsEditor | null | undefined) {
-        if (!editor) {
-            return;
-        }
-        tryCaptureHighlightEditorClassFromEditor(editor);
-        const ctor = (editor as { constructor?: { _editorType?: number } }).constructor;
-        if (!ctor || ctor._editorType !== AnnotationEditorType.HIGHLIGHT) {
-            return;
-        }
-        if (editor.annotationElementId) {
-            return;
-        }
-        const settings = pendingAnnotationSettings.value;
-        if (!settings) {
-            return;
-        }
-        const opacity = resolveHighlightOpacityForTool(settings, annotationTool.value);
-        syncHighlightDefaultOpacity(opacity);
-        if (editor.opacity !== opacity) {
-            (editor as { opacity?: number }).opacity = opacity;
-            const onUpdatedColor = (editor as { onUpdatedColor?: () => void }).onUpdatedColor;
-            if (typeof onUpdatedColor === 'function') {
-                onUpdatedColor.call(editor);
-            }
-        }
     }
 
     function applyAnnotationSettings(settings: IAnnotationSettings | null) {
@@ -674,268 +481,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         });
     }
 
-    function resolveEditorHighlightClipPathId(editor: IPdfjsEditor) {
-        const internal = editor.div?.querySelector<HTMLElement>('.internal');
-        if (!internal) {
-            return null;
-        }
-        const clipPath = internal.style.clipPath || getComputedStyle(internal).clipPath;
-        const clipMatch = /#([A-Za-z0-9_-]+)/.exec(clipPath);
-        return clipMatch?.[1] ?? null;
-    }
-
-    function isRenderableRect(rect: DOMRect) {
-        return rect.width > 0 && rect.height > 0;
-    }
-
-    function toHighlightDrawLayerCandidate(editorRect: DOMRect, svg: SVGElement): IHighlightDrawLayerCandidate | null {
-        const rect = svg.getBoundingClientRect();
-        if (!isRenderableRect(rect)) {
-            return null;
-        }
-        const overlapScore = rectIoU(editorRect, rect);
-        return {
-            distance: overlapScore > 0 ? 0 : rectCenterDistance(editorRect, rect),
-            overlapScore,
-            svg,
-        };
-    }
-
-    function pickBetterHighlightDrawLayerCandidate(
-        current: IHighlightDrawLayerCandidate | null,
-        candidate: IHighlightDrawLayerCandidate,
-    ) {
-        if (!current) {
-            return candidate;
-        }
-        if (current.overlapScore > 0 || candidate.overlapScore > 0) {
-            return candidate.overlapScore > current.overlapScore ? candidate : current;
-        }
-        return candidate.distance < current.distance ? candidate : current;
-    }
-
-    function findClosestHighlightDrawLayerSvg(pageContainer: HTMLElement, editorDiv: HTMLElement) {
-        const editorRect = editorDiv.getBoundingClientRect();
-        if (!isRenderableRect(editorRect)) {
-            return null;
-        }
-        const candidates = Array.from(pageContainer.querySelectorAll<SVGElement>('svg.highlight'));
-        let bestCandidate: IHighlightDrawLayerCandidate | null = null;
-
-        for (const candidate of candidates) {
-            const scoredCandidate = toHighlightDrawLayerCandidate(editorRect, candidate);
-            if (!scoredCandidate) {
-                continue;
-            }
-            bestCandidate = pickBetterHighlightDrawLayerCandidate(bestCandidate, scoredCandidate);
-        }
-
-        if (
-            bestCandidate
-            && (
-                bestCandidate.overlapScore > 0
-                || bestCandidate.distance <= MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE
-            )
-        ) {
-            return bestCandidate.svg;
-        }
-        return null;
-    }
-
-    function resolveEditorDrawLayerHighlight(editor: IPdfjsEditor) {
-        const cached = editorDrawLayerHighlightRefs.get(editor);
-        if (cached?.isConnected) {
-            return cached;
-        }
-        const pageContainer = editor.div?.closest<HTMLElement>('.page_container');
-        if (!pageContainer) {
-            return null;
-        }
-        const clipPathId = resolveEditorHighlightClipPathId(editor);
-        if (!clipPathId) {
-            return null;
-        }
-        const escapedClipPathId = clipPathId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-        const clipPathNode = pageContainer.querySelector<SVGElement>(`svg.highlight clipPath[id="${escapedClipPathId}"]`);
-        let highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
-        if (!highlightSvg && editor.div) {
-            highlightSvg = findClosestHighlightDrawLayerSvg(pageContainer, editor.div);
-        }
-        if (highlightSvg) {
-            editorDrawLayerHighlightRefs.set(editor, highlightSvg);
-        }
-        return highlightSvg;
-    }
-
-    function clearMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor) {
-        const highlightSvg = resolveEditorDrawLayerHighlight(editor);
-        if (!highlightSvg) {
-            return;
-        }
-        highlightSvg.classList.remove(
-            `${MARKUP_DRAW_LAYER_CLASS_PREFIX}underline`,
-            `${MARKUP_DRAW_LAYER_CLASS_PREFIX}strikeout`,
-            `${MARKUP_DRAW_LAYER_CLASS_PREFIX}squiggly`,
-        );
-        highlightSvg.style.removeProperty('--pdf-markup-subtype-color');
-    }
-
-    function applyMarkupSubtypeDrawLayerClass(
-        editor: IPdfjsEditor,
-        subtype: TMarkupSubtype | null,
-        color: string | null,
-        attempt = 0,
-    ) {
-        const highlightSvg = resolveEditorDrawLayerHighlight(editor);
-        if (!highlightSvg) {
-            if (attempt < 18 && editor.div?.isConnected) {
-                scheduleMarkupSubtypeRetry(() => {
-                    applyMarkupSubtypeDrawLayerClass(editor, subtype, color, attempt + 1);
-                }, 50);
-            }
-            return;
-        }
-        clearMarkupSubtypeDrawLayerClass(editor);
-        if (!subtype || subtype === 'Highlight') {
-            return;
-        }
-        highlightSvg.classList.add(`${MARKUP_DRAW_LAYER_CLASS_PREFIX}${subtype.toLowerCase()}`);
-        if (color) {
-            highlightSvg.style.setProperty('--pdf-markup-subtype-color', color);
-        }
-    }
-
-    function clearMarkupSubtypeEditorClass(editor: IPdfjsEditor) {
-        const div = editor.div;
-        if (!div) {
-            clearMarkupSubtypeDrawLayerClass(editor);
-            return;
-        }
-        div.classList.remove(
-            `${MARKUP_EDITOR_CLASS_PREFIX}highlight`,
-            `${MARKUP_EDITOR_CLASS_PREFIX}underline`,
-            `${MARKUP_EDITOR_CLASS_PREFIX}strikeout`,
-            `${MARKUP_EDITOR_CLASS_PREFIX}squiggly`,
-            MARKUP_FRAGMENTED_EDITOR_CLASS,
-        );
-        delete div.dataset.markupSubtype;
-        delete div.dataset.markupSubtypeColor;
-        div.style.removeProperty('--pdf-markup-subtype-color');
-        div.querySelector(`.${MARKUP_FRAGMENT_LAYER_CLASS}`)?.remove();
-        clearMarkupSubtypeDrawLayerClass(editor);
-    }
-
-    function appendMarkupSubtypeFragment(
-        layer: HTMLElement,
-        subtype: TMarkupSubtype,
-        editorRect: IAnnotationMarkerRect,
-        box: IPdfjsHighlightBox,
-    ) {
-        const fragment = document.createElement('span');
-        fragment.classList.add(
-            MARKUP_FRAGMENT_CLASS,
-            `${MARKUP_FRAGMENT_CLASS}--${subtype.toLowerCase()}`,
-        );
-
-        fragment.style.left = toRelativePercent(box.x, editorRect.left, editorRect.width);
-        fragment.style.width = toPercent(box.width, editorRect.width);
-        if (subtype === 'StrikeOut') {
-            fragment.style.top = toRelativePercent(box.y + (box.height / 2), editorRect.top, editorRect.height);
-            fragment.style.height = '0';
-        } else {
-            fragment.style.top = toRelativePercent(box.y, editorRect.top, editorRect.height);
-            fragment.style.height = toPercent(box.height, editorRect.height);
-        }
-        layer.append(fragment);
-    }
-
-    function applyMarkupSubtypeFragments(
-        editor: IPdfjsEditor,
-        subtype: TMarkupSubtype | null,
-        color: string | null,
-    ) {
-        const div = editor.div;
-        if (!div || !subtype || subtype === 'Highlight' || !editor.__evbMarkupBoxes?.length) {
-            return;
-        }
-        const editorRect = resolveEditorMarkupSubtypeHintRect(editor);
-        if (!editorRect) {
-            return;
-        }
-
-        const layer = document.createElement('div');
-        layer.className = MARKUP_FRAGMENT_LAYER_CLASS;
-        layer.setAttribute('aria-hidden', 'true');
-        if (color) {
-            layer.style.setProperty('--pdf-markup-subtype-color', color);
-        }
-
-        for (const box of normalizeMarkupSubtypeFragmentBoxes(editor.__evbMarkupBoxes)) {
-            appendMarkupSubtypeFragment(layer, subtype, editorRect, box);
-        }
-        div.classList.add(MARKUP_FRAGMENTED_EDITOR_CLASS);
-        div.append(layer);
-    }
-
-    function applyEditorMarkupSubtypePresentation(
-        editor: IPdfjsEditor,
-        subtype: TMarkupSubtype | null,
-        pageIndex = currentPage.value - 1,
-    ) {
-        const subtypeColor = subtype && subtype !== 'Highlight'
-            ? resolveEditorMarkupSubtypeColor(editor, subtype, Math.max(0, pageIndex))
-            : null;
-        clearMarkupSubtypeEditorClass(editor);
-        applyMarkupSubtypeDrawLayerClass(editor, subtype, subtypeColor);
-        const div = editor.div;
-        if (!div) {
-            return;
-        }
-        if (!subtype || subtype === 'Highlight') {
-            return;
-        }
-        const normalizedSubtype = subtype.toLowerCase();
-        div.classList.add(`${MARKUP_EDITOR_CLASS_PREFIX}${normalizedSubtype}`);
-        div.dataset.markupSubtype = normalizedSubtype;
-        if (subtypeColor) {
-            div.dataset.markupSubtypeColor = subtypeColor;
-            div.style.setProperty('--pdf-markup-subtype-color', subtypeColor);
-        }
-        applyMarkupSubtypeFragments(editor, subtype, subtypeColor);
-    }
-
-    function resolveEditorSubtypeFromPresentation(editor: IPdfjsEditor): TMarkupSubtype | null {
-        const div = editor.div;
-        if (!div) {
-            return null;
-        }
-        const explicit = div.dataset.markupSubtype?.trim().toLowerCase() ?? '';
-        if (explicit === 'underline') {
-            return 'Underline';
-        }
-        if (explicit === 'strikeout' || explicit === 'strikethrough') {
-            return 'StrikeOut';
-        }
-        if (explicit === 'squiggly') {
-            return 'Squiggly';
-        }
-        if (explicit === 'highlight') {
-            return 'Highlight';
-        }
-
-        const classList = Array.from(div.classList);
-        if (classList.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}underline`))) {
-            return 'Underline';
-        }
-        if (classList.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}strikeout`))) {
-            return 'StrikeOut';
-        }
-        if (classList.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}squiggly`))) {
-            return 'Squiggly';
-        }
-        return null;
-    }
-
     function syncMarkupSubtypePresentationForEditors() {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
@@ -1007,7 +552,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         markupSubtypeGeometryHints.clear();
         editorObjectMarkupSubtypeOverrides = new WeakMap();
         editorObjectMarkupSubtypeColorOverrides = new WeakMap();
-        editorDrawLayerHighlightRefs = new WeakMap();
+        markupSubtypeDrawLayer.clearDrawLayerState();
     }
 
     return {

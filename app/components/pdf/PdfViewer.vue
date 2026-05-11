@@ -86,10 +86,8 @@ import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets'
 import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
-import {
-    cloneShapePoints,
-    cloneShapeStrokes,
-} from '@app/composables/pdf/pdfShapeStrokes';
+import { usePdfShapeHistory } from '@app/composables/pdf/usePdfShapeHistory';
+import { usePdfSelectedShapeCommands } from '@app/composables/pdf/usePdfSelectedShapeCommands';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/usePdfViewerCore';
@@ -104,22 +102,15 @@ import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer-runtime/composabl
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
-import {
-    captureScrollSnapshot,
-    restoreScrollFromSnapshot,
-} from '@app/composables/pdf/pdfPageRenderPipeline';
-import { resolvePageBoundedHorizontalScroll } from '@app/composables/pdf/pdfHorizontalScrollClamp';
-import {
-    getPageRowBoundsForViewMode,
-    normalizePageMetrics,
-    resolveCurrentSpreadBaseWidth,
-} from '@app/composables/pdf/pdfPageLayout';
+import { useViewerLoadSettle } from '@app/composables/pdf/useViewerLoadSettle';
+import { useViewportPagePin } from '@app/composables/pdf/useViewportPagePin';
+import { usePdfViewerScrollSnapshot } from '@app/composables/pdf/usePdfViewerScrollSnapshot';
+import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/composables/pdf/pdfHorizontalScrollClamp';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
-    IScrollSnapshot,
     PDFDocumentProxy,
     TPdfSource,
     TFitMode,
@@ -132,7 +123,6 @@ import type {
     IAnnotationEditorState,
     IAnnotationMarkerRect,
     IAnnotationSettings,
-    IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
@@ -170,24 +160,6 @@ interface IProps {
     currentSearchMatch?: IPdfSearchMatch | null;
     workingCopyPath?: string | null;
     authorName?: string | null;
-}
-
-interface IViewportPagePin {
-    page: number;
-    untilMs: number;
-    reason: string;
-}
-
-interface IViewerLoadSettleState {
-    token: number;
-    promise: Promise<void>;
-    resolve: () => void;
-    settled: boolean;
-}
-
-interface IRenderedSpreadHorizontalBounds {
-    left: number;
-    width: number;
 }
 
 const props = defineProps<IProps>();
@@ -263,46 +235,13 @@ const activeCommentStableKey = ref<string | null>(null);
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
-const viewportPagePin = ref<IViewportPagePin | null>(null);
-let viewportPagePinTimer: ReturnType<typeof setTimeout> | null = null;
-let viewerLoadSettleState: IViewerLoadSettleState = {
-    token: 0,
-    promise: Promise.resolve(),
-    resolve: () => {},
-    settled: true,
-};
+const {
+    beginViewerLoadSettle,
+    settleViewerLoadSettle,
+    waitForViewerLoadSettled,
+} = useViewerLoadSettle();
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
-
-function beginViewerLoadSettle(token: number) {
-    if (!viewerLoadSettleState.settled) {
-        viewerLoadSettleState.resolve();
-    }
-
-    let resolvePromise = () => {};
-    const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-    });
-    viewerLoadSettleState = {
-        token,
-        promise,
-        resolve: resolvePromise,
-        settled: false,
-    };
-}
-
-function settleViewerLoadSettle(token: number) {
-    if (viewerLoadSettleState.token !== token || viewerLoadSettleState.settled) {
-        return;
-    }
-
-    viewerLoadSettleState.settled = true;
-    viewerLoadSettleState.resolve();
-}
-
-function waitForViewerLoadSettled() {
-    return viewerLoadSettleState.promise;
-}
 
 function settleViewerLoadSettledWithManagedShapes(token: number) {
     managedEmbeddedPdfShapes.settleViewerLoadSettledWithManagedShapes(token, settleViewerLoadSettle);
@@ -319,6 +258,16 @@ const {
     pageMetricsVersion,
 } = pdfDocumentResult;
 
+function summarizeViewerStateForLog() {
+    return summarizeViewerMetrics(viewerContainer.value);
+}
+
+const {
+    clearPinnedViewportPage,
+    getPinnedViewportPage,
+    pinCurrentPageDuringRecovery,
+} = useViewportPagePin({ summarizeViewerStateForLog });
+
 const {
     currentPage,
     visibleRange,
@@ -328,76 +277,6 @@ const {
     updateVisibleRange,
     setPageLayoutMetrics,
 } = usePdfScroll({ getPinnedMostVisiblePage: () => getPinnedViewportPage() });
-
-function summarizeViewerStateForLog() {
-    return summarizeViewerMetrics(viewerContainer.value);
-}
-
-function clearPinnedViewportPage(reason = 'cleared') {
-    if (viewportPagePinTimer !== null) {
-        clearTimeout(viewportPagePinTimer);
-        viewportPagePinTimer = null;
-    }
-
-    const existingPin = viewportPagePin.value;
-    if (!existingPin) {
-        return;
-    }
-
-    viewportPagePin.value = null;
-    BrowserLogger.warn('pdf-nav', `[viewer-page-pin] cleared page=${existingPin.page} reason=${reason}`, {
-        page: existingPin.page,
-        pinReason: existingPin.reason,
-        clearReason: reason,
-        viewer: summarizeViewerStateForLog(),
-    });
-}
-
-function getPinnedViewportPage() {
-    const existingPin = viewportPagePin.value;
-    if (!existingPin) {
-        return null;
-    }
-
-    if (Date.now() > existingPin.untilMs) {
-        clearPinnedViewportPage('expired-read');
-        return null;
-    }
-
-    return existingPin.page;
-}
-
-function pinCurrentPageDuringRecovery(
-    page: number,
-    options?: {
-        durationMs?: number;
-        reason?: string;
-    },
-) {
-    const normalizedPage = Math.max(1, Math.floor(page));
-    const durationMs = Math.max(120, options?.durationMs ?? 900);
-    const reason = options?.reason ?? 'reload-recovery';
-
-    if (viewportPagePinTimer !== null) {
-        clearTimeout(viewportPagePinTimer);
-    }
-
-    viewportPagePin.value = {
-        page: normalizedPage,
-        untilMs: Date.now() + durationMs,
-        reason,
-    };
-    viewportPagePinTimer = setTimeout(() => {
-        clearPinnedViewportPage('expired-timer');
-    }, durationMs);
-
-    BrowserLogger.warn('pdf-nav', `[viewer-page-pin] pinned page=${normalizedPage} reason=${reason}`, {
-        page: normalizedPage,
-        durationMs,
-        reason,
-        viewer: summarizeViewerStateForLog(),
-    });
-}
 
 function handleResizeTransitionSignal(payload: {
     active: boolean;
@@ -553,50 +432,32 @@ function registerShapeHistoryCommand(command: {
     });
 }
 
-function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
-    return {
-        ...shape,
-        points: cloneShapePoints(shape.points),
-        strokes: cloneShapeStrokes(shape.strokes),
-    };
-}
+const {
+    applyShapeUpdateWithHistory,
+    handleShapeCreated,
+} = usePdfShapeHistory({
+    registerCommand: registerShapeHistoryCommand,
+    addShape: shapeComposable.addShape,
+    updateShape: shapeComposable.updateShape,
+    deleteShape: shapeComposable.deleteShape,
+    selectShape: shapeComposable.selectShape,
+    markModified: () => emit('annotation-modified'),
+});
 
-function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
-    const hasChanges = JSON.stringify(cloneShape(previousShape)) !== JSON.stringify(cloneShape(nextShape));
-    if (!hasChanges) {
-        return;
-    }
-
-    emit('annotation-modified');
-
-    registerShapeHistoryCommand({
-        cmd: () => {
-            shapeComposable.updateShape(nextShape.id, nextShape);
-            shapeComposable.selectShape(nextShape.id);
-            emit('annotation-modified');
-        },
-        undo: () => {
-            shapeComposable.updateShape(previousShape.id, previousShape);
-            shapeComposable.selectShape(previousShape.id);
-            emit('annotation-modified');
-        },
-    });
-}
-
-function handleShapeCreated(shape: IShapeAnnotation) {
-    emit('annotation-modified');
-
-    registerShapeHistoryCommand({
-        cmd: () => {
-            shapeComposable.addShape(shape);
-            emit('annotation-modified');
-        },
-        undo: () => {
-            shapeComposable.deleteShape(shape.id);
-            emit('annotation-modified');
-        },
-    });
-}
+const selectedShapeCommands = usePdfSelectedShapeCommands({
+    selectedShapeId: shapeComposable.selectedShapeId,
+    hasShapes: shapeComposable.hasShapes,
+    isAnySaving,
+    getShapeById: shapeComposable.getShapeById,
+    selectShape: shapeComposable.selectShape,
+    updateShape: shapeComposable.updateShape,
+    deleteShape: shapeComposable.deleteShape,
+    addShape: shapeComposable.addShape,
+    applyShapeUpdateWithHistory,
+    refreshDeletedEmbeddedShape,
+    registerHistoryCommand: registerShapeHistoryCommand,
+    markModified: () => emit('annotation-modified'),
+});
 
 usePdfShapeContext({
     shapeComposable,
@@ -1054,95 +915,6 @@ const viewerClass = computed(() => ({
     'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed.value,
 }));
 
-function getCurrentSpreadRenderedBoundsFromDom(container: HTMLElement): IRenderedSpreadHorizontalBounds | null {
-    const bounds = getPageRowBoundsForViewMode({
-        pageNumber: currentPage.value,
-        viewMode: viewMode.value,
-        totalPages: numPages.value,
-    });
-    const containerRect = container.getBoundingClientRect();
-    let left = Number.POSITIVE_INFINITY;
-    let right = Number.NEGATIVE_INFINITY;
-
-    for (let pageNumber = bounds.start; pageNumber <= bounds.end; pageNumber += 1) {
-        const pageElement = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        );
-        if (!pageElement) {
-            return null;
-        }
-
-        const pageRect = pageElement.getBoundingClientRect();
-        const pageWidth = pageRect.width || pageElement.offsetWidth || pageElement.clientWidth;
-        if (!Number.isFinite(pageWidth) || pageWidth <= 0) {
-            return null;
-        }
-
-        const pageLeft = Number.isFinite(pageRect.left)
-            ? pageRect.left - containerRect.left + container.scrollLeft
-            : pageElement.offsetLeft;
-        if (!Number.isFinite(pageLeft)) {
-            return null;
-        }
-
-        left = Math.min(left, pageLeft);
-        right = Math.max(right, pageLeft + pageWidth);
-    }
-
-    const width = right - left;
-    return Number.isFinite(width) && width > 0
-        ? {
-            left: Math.max(0, left),
-            width,
-        }
-        : null;
-}
-
-function getCurrentSpreadRenderedBoundsFromMetrics(container: HTMLElement): IRenderedSpreadHorizontalBounds | null {
-    const baseWidth = basePageWidth.value;
-    const baseHeight = basePageHeight.value;
-    if (!baseWidth || !baseHeight || numPages.value <= 0) {
-        return null;
-    }
-
-    const normalizedMetrics = normalizePageMetrics({
-        pageMetrics: pageMetrics.value,
-        totalPages: numPages.value,
-        fallbackWidth: baseWidth,
-        fallbackHeight: baseHeight,
-    });
-    const rowBounds = getPageRowBoundsForViewMode({
-        pageNumber: currentPage.value,
-        viewMode: viewMode.value,
-        totalPages: numPages.value,
-    });
-    const rowPageCount = Math.max(1, rowBounds.end - rowBounds.start + 1);
-    const baseSpreadWidth = resolveCurrentSpreadBaseWidth(
-        normalizedMetrics,
-        viewMode.value,
-        numPages.value,
-        currentPage.value,
-    );
-    if (!baseSpreadWidth) {
-        return null;
-    }
-
-    const renderedSpreadWidth =
-        baseSpreadWidth * effectiveScale.value
-        + Math.max(0, rowPageCount - 1) * scaledMargin.value;
-    if (!Number.isFinite(renderedSpreadWidth) || renderedSpreadWidth <= 0) {
-        return null;
-    }
-
-    return {
-        left: Math.max(
-            scaledMargin.value,
-            (container.clientWidth - renderedSpreadWidth) / 2,
-        ),
-        width: renderedSpreadWidth,
-    };
-}
-
 function resolveHorizontalScrollClampForActiveSpread() {
     const container = viewerContainer.value;
     if (
@@ -1153,23 +925,19 @@ function resolveHorizontalScrollClampForActiveSpread() {
         return null;
     }
 
-    const renderedSpreadBounds =
-        getCurrentSpreadRenderedBoundsFromDom(container)
-        ?? getCurrentSpreadRenderedBoundsFromMetrics(container);
-    if (!renderedSpreadBounds) {
-        fitWidthHorizontalScrollLocked.value = false;
-        return null;
-    }
-
-    const scrollClamp = resolvePageBoundedHorizontalScroll({
-        scrollLeft: container.scrollLeft,
-        viewportWidth: container.clientWidth,
-        pageLeft: renderedSpreadBounds.left,
-        pageWidth: renderedSpreadBounds.width,
-        margin: scaledMargin.value,
+    const scrollClamp = resolveActiveSpreadHorizontalScrollClamp({
+        container,
+        fitMode: fitMode.value,
+        pageNumber: currentPage.value,
+        viewMode: viewMode.value,
+        numPages: numPages.value,
+        basePageWidth: basePageWidth.value,
+        basePageHeight: basePageHeight.value,
+        pageMetrics: pageMetrics.value,
+        effectiveScale: effectiveScale.value,
+        scaledMargin: scaledMargin.value,
         epsilon: HORIZONTAL_SCROLL_CLAMP_EPSILON_PX,
     });
-
     fitWidthHorizontalScrollLocked.value = scrollClamp?.shouldLock ?? false;
     return scrollClamp;
 }
@@ -1333,119 +1101,21 @@ function isSpreadSingle(page: number) {
     return isStandaloneSpreadPage(page, viewMode.value, numPages.value);
 }
 
-function captureViewerScrollSnapshot() {
-    return captureScrollSnapshot(viewerContainer.value, { preferredAnchorPage: currentPage.value });
-}
-
-function restoreViewerScrollSnapshot(
-    snapshot: IScrollSnapshot | null,
-    options?: { fallbackPage?: number | null; },
-) {
-    const fallbackPage = typeof options?.fallbackPage === 'number' && Number.isFinite(options.fallbackPage)
-        ? Math.max(1, Math.floor(options.fallbackPage))
-        : currentPage.value;
-    const container = viewerContainer.value;
-
-    if (snapshot && container && container.scrollWidth > 0 && container.scrollHeight > 0) {
-        const scrollClamp = resolveHorizontalScrollClampForActiveSpread();
-        restoreScrollFromSnapshot(container, snapshot, {
-            restoreHorizontal: scrollClamp?.shouldLock !== true,
-            restoreVertical: true,
-            preferPageAnchor: true,
-            allowVerticalRatioFallback: true,
-        });
-        syncHorizontalScrollForZoomMode();
-        return;
-    }
-
-    singlePageScroll.scrollToPage(fallbackPage);
-    syncHorizontalScrollForZoomMode();
-}
+const {
+    captureViewerScrollSnapshot,
+    restoreViewerScrollSnapshot,
+} = usePdfViewerScrollSnapshot({
+    viewerContainer,
+    currentPage,
+    resolveHorizontalScrollClampForActiveSpread,
+    syncHorizontalScrollForZoomMode,
+    scrollToPage: singlePageScroll.scrollToPage,
+});
 
 async function saveViewerDocument() {
     return savePdfDocumentWithCommittedEditors({
         pdfDocument: pdfDocument.value,
         annotationUiManager: annotationUiManager.value,
-    });
-}
-
-function getSelectedShape(): IShapeAnnotation | null {
-    const id = shapeComposable.selectedShapeId.value;
-    if (!id) {
-        return null;
-    }
-    return shapeComposable.getShapeById(id);
-}
-
-function clearSelectedShape() {
-    shapeComposable.selectShape(null);
-}
-
-function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
-    const previousShape = shapeComposable.getShapeById(id);
-    if (!previousShape) {
-        return;
-    }
-
-    const hasChanges = Object.entries(updates).some(
-        ([
-            key,
-            value,
-        ]) => previousShape[key as keyof IShapeAnnotation] !== value,
-    );
-    if (!hasChanges) {
-        return;
-    }
-
-    const nextShape: IShapeAnnotation = cloneShape({
-        ...previousShape,
-        ...updates,
-    });
-
-    shapeComposable.updateShape(id, updates);
-    applyShapeUpdateWithHistory(cloneShape(previousShape), nextShape);
-}
-
-function deleteSelectedShape() {
-    if (isAnySaving.value) {
-        BrowserLogger.debug('pdf-shapes', 'Ignoring delete while save is in flight');
-        return;
-    }
-
-    const id = shapeComposable.selectedShapeId.value;
-    if (!id) {
-        return;
-    }
-
-    const deletedShape = shapeComposable.getShapeById(id);
-    if (!deletedShape) {
-        return;
-    }
-
-    BrowserLogger.debug('pdf-shapes', 'Deleting selected shape from viewer', () => ({
-        id,
-        source: deletedShape.source,
-        annotationId: deletedShape.annotationId ?? null,
-        stableKey: deletedShape.stableKey ?? null,
-        color: deletedShape.color,
-        hasShapes: shapeComposable.hasShapes.value,
-    }));
-
-    shapeComposable.deleteShape(id);
-    refreshDeletedEmbeddedShape(deletedShape);
-    emit('annotation-modified');
-
-    registerShapeHistoryCommand({
-        cmd: () => {
-            shapeComposable.deleteShape(id);
-            refreshDeletedEmbeddedShape(deletedShape);
-            emit('annotation-modified');
-        },
-        undo: () => {
-            shapeComposable.addShape(deletedShape);
-            shapeComposable.selectShape(id);
-            emit('annotation-modified');
-        },
     });
 }
 
@@ -1484,12 +1154,12 @@ defineExpose({
     getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
     loadShapes: shapeComposable.loadShapes,
     clearShapes: shapeComposable.clearShapes,
-    clearSelectedShape,
-    deleteSelectedShape,
+    clearSelectedShape: selectedShapeCommands.clearSelectedShape,
+    deleteSelectedShape: selectedShapeCommands.deleteSelectedShape,
     hasShapes: shapeComposable.hasShapes,
     selectedShapeId: shapeComposable.selectedShapeId,
-    updateShape,
-    getSelectedShape,
+    updateShape: selectedShapeCommands.updateShape,
+    getSelectedShape: selectedShapeCommands.getSelectedShape,
     startImagePlacement,
     clearPendingImagePlacement,
     restorePendingImagePlacement,

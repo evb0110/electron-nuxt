@@ -2,7 +2,7 @@ import type {
     IpcRenderer,
     IpcRendererEvent,
 } from 'electron';
-import type { IMenuEventUnsubscribe } from '@contracts/electron-api';
+import type { IMenuEventUnsubscribe } from '@contracts/electron-api-common';
 
 interface IInvokeSpec<TArgs extends unknown[] = unknown[], TResult = unknown> {
     args: TArgs;
