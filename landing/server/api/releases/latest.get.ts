@@ -8,7 +8,7 @@ import {
     recommendInstaller,
     type ILatestReleaseResponse,
     type IReleaseInstaller,
-} from '@release-selection';
+} from '~~/shared/release-selection';
 import { retry } from 'es-toolkit/function';
 import { isLegacyInstallerAsset } from '~~/shared/release-assets';
 

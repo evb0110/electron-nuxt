@@ -2,7 +2,7 @@ import {
     compareInstallersForSelect,
     type IReleaseInstaller,
     type TReleasePlatform,
-} from '@release-selection';
+} from '~~/shared/release-selection';
 
 export function isLegacyInstallerAsset(assetName: string): boolean {
     return assetName.toLowerCase().includes('legacy');
