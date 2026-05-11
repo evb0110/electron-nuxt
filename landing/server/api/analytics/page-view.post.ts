@@ -3,6 +3,9 @@ import { getDb } from '~~/server/db';
 import { landingPageView } from '~~/server/db/schema';
 
 export default defineEventHandler(async (event) => {
+    const config = useRuntimeConfig(event);
+    const db = getDb(config.databaseUrl || process.env.DATABASE_URL);
+
     const body = await readBody<{
         path?: string,
         referrer?: string 
@@ -19,7 +22,6 @@ export default defineEventHandler(async (event) => {
     const visitorHash = await hashVisitorIdentity(event);
     const userAgent = getHeader(event, 'user-agent') ?? null;
 
-    const db = getDb();
     await db.insert(landingPageView).values({
         path: body.path.slice(0, 255),
         referrer: body.referrer?.slice(0, 2000) ?? null,

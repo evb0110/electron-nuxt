@@ -102,15 +102,21 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
         resetMenu();
     }
 
-    if (options.autoDismiss?.onOutsideClick) {
-        onClickOutside(menuElement, dismissMenu, { capture: true });
-    }
-    if (options.autoDismiss?.onResize) {
-        useEventListener(windowTarget, 'resize', dismissMenu);
-    }
-    if (options.autoDismiss?.onScroll) {
-        useEventListener(windowTarget, 'scroll', dismissMenu, { capture: true });
-    }
+    onClickOutside(menuElement, () => {
+        if (options.autoDismiss?.onOutsideClick) {
+            dismissMenu();
+        }
+    }, { capture: true });
+    useEventListener(windowTarget, 'resize', () => {
+        if (options.autoDismiss?.onResize) {
+            dismissMenu();
+        }
+    });
+    useEventListener(windowTarget, 'scroll', () => {
+        if (options.autoDismiss?.onScroll) {
+            dismissMenu();
+        }
+    }, { capture: true });
 
     return {
         menu,

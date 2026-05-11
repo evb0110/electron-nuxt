@@ -279,16 +279,9 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
     });
 }
 
-function getAnalyticsEnabledFlagFromRuntimeConfig() {
-    if (typeof useRuntimeConfig !== 'function') {
-        return false;
-    }
-
-    return useRuntimeConfig().public?.analyticsEnabled ?? false;
-}
-
 export const useAnalytics = () => {
-    const enabledFlag = getAnalyticsEnabledFlagFromRuntimeConfig();
+    const runtimeConfig = useRuntimeConfig();
+    const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
 
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
         if (!isClientAnalyticsEnabled(enabledFlag)) {

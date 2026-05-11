@@ -29,6 +29,7 @@ import {
 } from '@app/platform/browser-api/browser-ocr-preferences';
 import { getErrorMessage } from '@app/utils/error';
 import { exportTextAsDocx } from '@app/utils/docx-export';
+import { configureBrowserOcrLanguageBaseUrl } from '@app/utils/browser-ocr-config';
 
 class OcrCanceledError extends Error {
     constructor() {
@@ -49,10 +50,19 @@ interface IOcrRunContext {
     ensureRunActive: TRunGuard;
 }
 
+function getConfiguredBrowserOcrLanguageBaseUrl(value: unknown) {
+    return typeof value === 'string' ? value : undefined;
+}
+
 export const useOcr = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
+    const runtimeConfig = useRuntimeConfig();
     const { localizeOcrError } = useOcrErrorLocalizer();
+
+    configureBrowserOcrLanguageBaseUrl(
+        getConfiguredBrowserOcrLanguageBaseUrl(runtimeConfig.public?.browserOcrLanguageBaseUrl),
+    );
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
     const settings = ref<IOcrSettings>(isBrowserPlatformActive()
