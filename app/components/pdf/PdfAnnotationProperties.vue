@@ -9,7 +9,7 @@
         <div class="annotation-properties-header">
             <span class="annotation-properties-title">{{ shapeLabel }}</span>
             <UButton
-                icon="i-lucide-x"
+                icon="i-ph-x"
                 variant="ghost"
                 color="neutral"
                 size="xs"
@@ -83,7 +83,7 @@
                 class="annotation-properties-delete"
                 @click="emit('delete')"
             >
-                <UIcon name="i-lucide-trash-2" class="annotation-properties-delete-icon" />
+                <UIcon name="i-ph-trash" class="annotation-properties-delete-icon" />
                 <span>{{ t('annotationProperties.delete') }}</span>
             </button>
         </div>

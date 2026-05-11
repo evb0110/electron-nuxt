@@ -23,14 +23,14 @@
           :to="webAppUrl"
           target="_blank"
           rel="noreferrer"
-          icon="i-lucide-globe"
+          icon="i-ph-globe"
         />
         <UButton
           :label="t('home.hero.browseInstallers')"
           :to="`${localePath('/')}#installers`"
           color="neutral"
           variant="outline"
-          trailing-icon="i-lucide-arrow-right"
+          trailing-icon="i-ph-arrow-right"
         />
       </div>
     </section>
@@ -167,7 +167,7 @@ const pageDescription = computed(() => t('features.seo.ogDescription'));
 
 const entryPointCards = computed(() => [
     {
-        icon: 'i-lucide-globe',
+        icon: 'i-ph-globe',
         title: t('home.entryPoints.web.title'),
         description: t('home.entryPoints.web.description'),
         points: [
@@ -177,7 +177,7 @@ const entryPointCards = computed(() => [
         ],
     },
     {
-        icon: 'i-lucide-download',
+        icon: 'i-ph-download',
         title: t('home.entryPoints.desktop.title'),
         description: t('home.entryPoints.desktop.description'),
         points: [
@@ -190,32 +190,32 @@ const entryPointCards = computed(() => [
 
 const featureCards = computed(() => [
     {
-        icon: 'i-lucide-file-stack',
+        icon: 'i-ph-files',
         title: t('features.cards.pdfDjvu.title'),
         description: t('features.cards.pdfDjvu.description'),
     },
     {
-        icon: 'i-lucide-text-search',
+        icon: 'i-ph-text-aa',
         title: t('features.cards.ocr.title'),
         description: t('features.cards.ocr.description'),
     },
     {
-        icon: 'i-lucide-pen-tool',
+        icon: 'i-ph-pen-nib',
         title: t('features.cards.annotations.title'),
         description: t('features.cards.annotations.description'),
     },
     {
-        icon: 'i-lucide-scissors-square-dashed-bottom',
+        icon: 'i-ph-scissors',
         title: t('features.cards.pages.title'),
         description: t('features.cards.pages.description'),
     },
     {
-        icon: 'i-lucide-layout-panel-left',
+        icon: 'i-ph-sidebar',
         title: t('features.cards.workspace.title'),
         description: t('features.cards.workspace.description'),
     },
     {
-        icon: 'i-lucide-folder-output',
+        icon: 'i-ph-folder-open',
         title: t('features.cards.exports.title'),
         description: t('features.cards.exports.description'),
     },

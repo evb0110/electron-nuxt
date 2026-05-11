@@ -36,7 +36,7 @@
                     @click="emit('toggle-edit-mode')"
                 >
                     <UIcon
-                        :name="isEditMode ? 'i-lucide-square-pen' : 'i-lucide-pencil'"
+                        :name="isEditMode ? 'i-ph-pencil-simple-line' : 'i-ph-pencil'"
                         class="size-4"
                     />
                 </button>
@@ -56,7 +56,7 @@
                     @click="emit('add-root-bookmark')"
                 >
                     <UIcon
-                        name="i-lucide-plus"
+                        name="i-ph-plus"
                         class="size-4"
                     />
                 </button>
@@ -91,17 +91,17 @@ const displayModeOptions = computed<Array<{
     {
         id: 'top-level',
         title: t('bookmarks.topLevelOnly'),
-        icon: 'i-lucide-list',
+        icon: 'i-ph-list',
     },
     {
         id: 'all-expanded',
         title: t('bookmarks.expandAll'),
-        icon: 'i-lucide-chevrons-down',
+        icon: 'i-ph-caret-double-down',
     },
     {
         id: 'current-expanded',
         title: t('bookmarks.expandCurrentPath'),
-        icon: 'i-lucide-eye',
+        icon: 'i-ph-eye',
     },
 ]);
 </script>

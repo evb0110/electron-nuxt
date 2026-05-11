@@ -23,14 +23,14 @@
           :to="webAppUrl"
           target="_blank"
           rel="noreferrer"
-          icon="i-lucide-globe"
+          icon="i-ph-globe"
         />
         <UButton
           :label="t('home.hero.browseInstallers')"
           :to="`${localePath('/')}#installers`"
           color="neutral"
           variant="outline"
-          trailing-icon="i-lucide-arrow-right"
+          trailing-icon="i-ph-arrow-right"
         />
       </div>
     </section>
@@ -57,7 +57,7 @@
             :label="t('docs.guideCardAction')"
             color="neutral"
             variant="outline"
-            trailing-icon="i-lucide-arrow-right"
+            trailing-icon="i-ph-arrow-right"
             @click="scrollToBookmark(entry.id)"
           />
         </UCard>
@@ -446,19 +446,19 @@ const bookmarks = computed(() => [
 const guideCards = computed(() => [
     {
         id: 'browser-quickstart',
-        icon: 'i-lucide-globe',
+        icon: 'i-ph-globe',
         title: t('docs.bookmarks.browserQuickstart'),
         description: t('docs.browserQuickstart.intro'),
     },
     {
         id: 'workspace-overview',
-        icon: 'i-lucide-layout-panel-left',
+        icon: 'i-ph-sidebar',
         title: t('docs.bookmarks.workspaceOverview'),
         description: t('docs.workspace.intro'),
     },
     {
         id: 'ocr-export',
-        icon: 'i-lucide-folder-output',
+        icon: 'i-ph-folder-open',
         title: t('docs.bookmarks.ocrExport'),
         description: t('docs.ocrExport.intro'),
     },

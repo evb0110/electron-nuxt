@@ -29,7 +29,7 @@
           target="_blank"
           rel="noreferrer"
           size="md"
-          icon="i-lucide-globe"
+          icon="i-ph-globe"
         />
 
         <UButton
@@ -126,7 +126,7 @@
                   </span>
                 </div>
                 <UIcon
-                  name="i-lucide-download"
+                  name="i-ph-download"
                   class="installer-item-icon"
                 />
               </button>

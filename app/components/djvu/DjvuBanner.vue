@@ -4,7 +4,7 @@
         class="djvu-banner"
     >
         <UIcon
-            :name="isLoadingPages ? 'i-lucide-loader-circle' : 'i-lucide-info'"
+            :name="isLoadingPages ? 'i-ph-circle-notch' : 'i-ph-info'"
             class="djvu-banner-icon"
             :class="{ 'is-spinning': isLoadingPages }"
         />
@@ -28,7 +28,7 @@
             @click="$emit('convert')"
         />
         <UButton
-            icon="i-lucide-x"
+            icon="i-ph-x"
             variant="ghost"
             color="neutral"
             size="xs"

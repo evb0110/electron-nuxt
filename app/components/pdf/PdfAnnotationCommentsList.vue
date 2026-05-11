@@ -9,7 +9,7 @@
                 :aria-label="t('annotations.placeNoteOnPage')"
                 @click="emit('place-note')"
             >
-                <UIcon name="i-lucide-message-square-plus" />
+                <UIcon name="i-ph-chat-circle-dots" />
             </button>
             <button
                 type="button"
@@ -17,7 +17,7 @@
                 :aria-label="t('annotations.searchNotes')"
                 @click="onSearchButtonClick"
             >
-                <UIcon name="i-lucide-search" />
+                <UIcon name="i-ph-magnifying-glass" />
             </button>
         </div>
 
@@ -61,7 +61,7 @@
                         :aria-label="t('annotations.delete')"
                         @click.stop="emit('delete-comment', comment)"
                     >
-                        <UIcon name="i-lucide-trash-2" />
+                        <UIcon name="i-ph-trash" />
                     </button>
                 </span>
                 <span class="note-item-text">
@@ -83,7 +83,7 @@
 
             <PdfPanelEmptyState
                 v-if="filteredComments.length === 0"
-                icon="i-lucide-sticky-note"
+                icon="i-ph-note"
                 :title="t('annotations.noNotesFound')"
                 :description="t('annotations.noNotesHint')"
             />

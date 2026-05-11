@@ -6,7 +6,7 @@
         aria-live="polite"
     >
         <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+            <UIcon name="i-ph-circle-notch" class="size-4 animate-spin text-muted" />
             <div class="min-w-0">
                 <p class="m-0 text-xs font-medium text-default">
                     {{ t('emptyState.preparingBatch') }}

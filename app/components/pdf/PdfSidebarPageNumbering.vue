@@ -14,11 +14,11 @@
                 >
                     <span class="pdf-sidebar-pages-disclosure-main">
                         <UIcon
-                            :name="open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+                            :name="open ? 'i-ph-caret-down' : 'i-ph-caret-right'"
                             class="pdf-sidebar-pages-disclosure-icon size-4"
                         />
                         <UIcon
-                            name="i-lucide-hash"
+                            name="i-ph-hash"
                             class="pdf-sidebar-pages-disclosure-type-icon size-3.5"
                         />
                         <span class="pdf-sidebar-pages-title">{{ t('pageNumbering.numberPages') }}</span>

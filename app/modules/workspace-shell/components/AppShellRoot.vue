@@ -1,7 +1,7 @@
 <template>
     <div class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
         <div v-if="showBrowserInstallHint" class="browser-install-hint">
-            <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
+            <UIcon name="i-ph-download-simple" class="browser-install-icon" />
             <a
                 :href="browserInstallUrl"
                 target="_blank"
@@ -10,7 +10,7 @@
                 @click="handleBrowserInstallHintClick"
             >
                 {{ t('webApp.installDesktop') }}
-                <UIcon name="i-lucide-arrow-up-right" class="browser-install-link-icon" />
+                <UIcon name="i-ph-arrow-up-right" class="browser-install-link-icon" />
             </a>
             <span class="browser-install-divider" />
             <button
@@ -19,7 +19,7 @@
                 :aria-label="t('webApp.dismissInstallDesktop')"
                 @click="dismissBrowserInstallHint('manual')"
             >
-                <UIcon name="i-lucide-x" class="browser-install-dismiss-icon" />
+                <UIcon name="i-ph-x" class="browser-install-dismiss-icon" />
             </button>
         </div>
 

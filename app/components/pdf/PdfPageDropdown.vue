@@ -2,7 +2,7 @@
     <div ref="pageControlsRef" :class="['page-controls', `page-controls--compact-${effectiveCompactLevel}`]">
         <div v-if="showEdgeButtons" class="page-controls-item">
             <ToolbarButton
-                icon="lucide:chevrons-left"
+                icon="ph:caret-double-left"
                 :tooltip="t('pageDropdown.firstPage')"
                 :disabled="disabled || totalPages === 0 || currentPage <= 1"
                 grouped
@@ -12,7 +12,7 @@
         </div>
         <div v-if="showStepButtons" class="page-controls-item">
             <ToolbarButton
-                icon="lucide:chevron-left"
+                icon="ph:caret-left"
                 :tooltip="t('pageDropdown.previousPage')"
                 :disabled="disabled || totalPages === 0 || currentPage <= 1"
                 grouped
@@ -73,7 +73,7 @@
 
         <div v-if="showStepButtons" class="page-controls-item">
             <ToolbarButton
-                icon="lucide:chevron-right"
+                icon="ph:caret-right"
                 :tooltip="t('pageDropdown.nextPage')"
                 :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
                 grouped
@@ -83,7 +83,7 @@
         </div>
         <div v-if="showEdgeButtons" class="page-controls-item">
             <ToolbarButton
-                icon="lucide:chevrons-right"
+                icon="ph:caret-double-right"
                 :tooltip="t('pageDropdown.lastPage')"
                 :disabled="disabled || totalPages === 0 || currentPage >= totalPages"
                 grouped

@@ -11,9 +11,9 @@ importers:
       '@iconify-json/circle-flags':
         specifier: ^1.2.10
         version: 1.2.10
-      '@iconify-json/lucide':
-        specifier: ^1.2.104
-        version: 1.2.104
+      '@iconify-json/ph':
+        specifier: ^1.2.2
+        version: 1.2.2
       '@iconify-json/simple-icons':
         specifier: ^1.2.80
         version: 1.2.80
@@ -756,8 +756,8 @@ packages:
   '@iconify-json/circle-flags@1.2.10':
     resolution: {integrity: sha512-sZRxs689a281RtZvuAiKtV7pQHv8Tk0HkinSM7QvLgdLEK8xgGRCcbDvL09Rq+/KtemmsMzGhS9/qt+r3ca+Ug==}
 
-  '@iconify-json/lucide@1.2.104':
-    resolution: {integrity: sha512-Vh4VPA/UNFhSPzEdDnSuOPA1xO6b/kI1w4SLBEiKnsFYPWimq2tVDynMgKnwddz6iZpuZfZU4PXR6kn0hJayKw==}
+  '@iconify-json/ph@1.2.2':
+    resolution: {integrity: sha512-PgkEZNtqa8hBGjHXQa4pMwZa93hmfu8FUSjs/nv4oUU6yLsgv+gh9nu28Kqi8Fz9CCVu4hj1MZs9/60J57IzFw==}
 
   '@iconify-json/simple-icons@1.2.80':
     resolution: {integrity: sha512-iglncJJ6X/dVuzFDU32MrHwwo4RBwivGf108dgyYg+HKS78ifx0h7sTenpDZMVT+UhdS6CSgZcvY/SvRXlIEUg==}
@@ -5916,7 +5916,7 @@ snapshots:
     dependencies:
       '@iconify/types': 2.0.0
 
-  '@iconify-json/lucide@1.2.104':
+  '@iconify-json/ph@1.2.2':
     dependencies:
       '@iconify/types': 2.0.0
 

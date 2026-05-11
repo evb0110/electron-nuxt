@@ -72,7 +72,7 @@
             aria-live="polite"
         >
             <div class="workspace-host__loading-chip">
-                <UIcon name="i-lucide-loader-circle" class="workspace-host__spinner" />
+                <UIcon name="i-ph-circle-notch" class="workspace-host__spinner" />
                 <span class="workspace-host__loading-label">{{ t('common.loading') }}</span>
             </div>
         </div>

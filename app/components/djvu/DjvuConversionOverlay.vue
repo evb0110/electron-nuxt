@@ -5,7 +5,7 @@
     >
         <div class="djvu-overlay-card flex flex-col items-center gap-3">
             <UIcon
-                name="i-lucide-loader-circle"
+                name="i-ph-circle-notch"
                 class="djvu-overlay-spinner"
             />
             <div class="djvu-overlay-text">

@@ -135,9 +135,9 @@ importers:
       '@iconify-json/circle-flags':
         specifier: ^1.2.10
         version: 1.2.10
-      '@iconify-json/lucide':
-        specifier: ^1.2.104
-        version: 1.2.104
+      '@iconify-json/ph':
+        specifier: ^1.2.2
+        version: 1.2.2
       '@nuxt/eslint':
         specifier: ^1.15.2
         version: 1.15.2(@typescript-eslint/utils@8.59.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(@vue/compiler-sfc@3.5.33)(eslint-import-resolver-node@0.3.10)(eslint-plugin-format@1.1.0(eslint@9.39.4(jiti@2.6.1)))(eslint@9.39.4(jiti@2.6.1))(magicast@0.5.2)(typescript@5.9.3)(vite@7.3.2(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.3))
@@ -1196,8 +1196,8 @@ packages:
   '@iconify-json/circle-flags@1.2.10':
     resolution: {integrity: sha512-sZRxs689a281RtZvuAiKtV7pQHv8Tk0HkinSM7QvLgdLEK8xgGRCcbDvL09Rq+/KtemmsMzGhS9/qt+r3ca+Ug==}
 
-  '@iconify-json/lucide@1.2.104':
-    resolution: {integrity: sha512-Vh4VPA/UNFhSPzEdDnSuOPA1xO6b/kI1w4SLBEiKnsFYPWimq2tVDynMgKnwddz6iZpuZfZU4PXR6kn0hJayKw==}
+  '@iconify-json/ph@1.2.2':
+    resolution: {integrity: sha512-PgkEZNtqa8hBGjHXQa4pMwZa93hmfu8FUSjs/nv4oUU6yLsgv+gh9nu28Kqi8Fz9CCVu4hj1MZs9/60J57IzFw==}
 
   '@iconify/collections@1.0.677':
     resolution: {integrity: sha512-Uwbl1p26Md6m2xTMjalJsmQ43YxW+j6RsyrL5RnxRCHEhwympJlaBBCGTKrqI3sA93g9UVJ/Pxi7zDqM3E1oPw==}
@@ -9227,7 +9227,7 @@ snapshots:
     dependencies:
       '@iconify/types': 2.0.0
 
-  '@iconify-json/lucide@1.2.104':
+  '@iconify-json/ph@1.2.2':
     dependencies:
       '@iconify/types': 2.0.0
 

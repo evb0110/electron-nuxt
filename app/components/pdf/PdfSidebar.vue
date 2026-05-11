@@ -363,25 +363,25 @@ const allTabs: IPdfSidebarTabItem[] = [
     {
         value: 'annotations',
         label: '',
-        icon: 'i-lucide-message-square',
+        icon: 'i-ph-chat',
         title: '',
     },
     {
         value: 'thumbnails',
         label: '',
-        icon: 'i-lucide-file',
+        icon: 'i-ph-file',
         title: '',
     },
     {
         value: 'bookmarks',
         label: '',
-        icon: 'i-lucide-bookmark',
+        icon: 'i-ph-bookmark',
         title: '',
     },
     {
         value: 'search',
         label: '',
-        icon: 'i-lucide-search',
+        icon: 'i-ph-magnifying-glass',
         title: '',
     },
 ];

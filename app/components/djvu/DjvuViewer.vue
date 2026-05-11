@@ -8,7 +8,7 @@
         >
             <div class="flex max-w-md flex-col items-center gap-3 px-6 text-center">
                 <UIcon
-                    name="i-lucide-circle-alert"
+                    name="i-ph-warning-circle"
                     class="size-8 text-muted"
                 />
                 <p class="text-sm text-default">
@@ -25,7 +25,7 @@
         >
             <div class="flex flex-col items-center gap-2">
                 <UIcon
-                    name="i-lucide-loader-circle"
+                    name="i-ph-circle-notch"
                     class="size-5 animate-spin text-[var(--ui-text-muted)]"
                 />
                 <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
@@ -73,7 +73,7 @@
                         class="djvu-page-placeholder"
                     >
                         <UIcon
-                            name="i-lucide-circle-alert"
+                            name="i-ph-warning-circle"
                             class="size-5 text-muted"
                         />
                         <span class="text-sm text-muted">

@@ -18,7 +18,7 @@
                     <Icon :name="icon" class="size-full" />
                 </slot>
             </span>
-            <Icon v-else name="lucide:loader-2" :class="[iconClass, 'animate-spin']" />
+            <Icon v-else name="ph:circle-notch" :class="[iconClass, 'animate-spin']" />
         </button>
 
         <template #content>

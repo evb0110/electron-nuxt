@@ -38,7 +38,7 @@
                     @blur="handleAnchorPointerEvent('blur', note)"
                     @click="handleAnchorClick(note)"
                 >
-                    <UIcon name="i-lucide-message-square" class="size-2.5" />
+                    <UIcon name="i-ph-chat" class="size-2.5" />
                 </button>
             </AppTooltip>
         </Teleport>
@@ -59,7 +59,7 @@
                 :aria-label="t('annotations.openNote')"
                 @mousedown.prevent
             >
-                <UIcon name="i-lucide-message-square" class="size-2.5" />
+                <UIcon name="i-ph-chat" class="size-2.5" />
             </button>
         </Teleport>
     </template>

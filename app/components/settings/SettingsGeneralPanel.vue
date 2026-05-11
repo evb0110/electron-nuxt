@@ -10,7 +10,7 @@
                 id="settings-author"
                 :model-value="settings.authorName"
                 :placeholder="t('settings.authorPlaceholder')"
-                icon="i-lucide-user"
+                icon="i-ph-user"
                 @update:model-value="emit('update:author-name', $event as string)"
             />
             <p class="settings-hint">{{ t('settings.authorDescription') }}</p>
@@ -25,7 +25,7 @@
                     :class="{ 'is-active': settings.theme === 'light' }"
                     @click="emit('update:theme', 'light')"
                 >
-                    <UIcon name="i-lucide-sun" class="settings-seg-icon" />
+                    <UIcon name="i-ph-sun" class="settings-seg-icon" />
                     {{ t('settings.themeLight') }}
                 </button>
                 <button
@@ -34,7 +34,7 @@
                     :class="{ 'is-active': settings.theme === 'dark' }"
                     @click="emit('update:theme', 'dark')"
                 >
-                    <UIcon name="i-lucide-moon" class="settings-seg-icon" />
+                    <UIcon name="i-ph-moon" class="settings-seg-icon" />
                     {{ t('settings.themeDark') }}
                 </button>
             </div>

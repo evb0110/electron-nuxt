@@ -2,7 +2,7 @@
     <div :class="['zoom-controls', `zoom-controls--compact-${effectiveCompactLevel}`]">
         <div v-if="showStepButtons" class="zoom-controls-item">
             <ToolbarButton
-                icon="lucide:minus"
+                icon="ph:minus"
                 :tooltip="t('zoom.zoomOut')"
                 :shortcut="shortcutLabels.zoomOut"
                 :disabled="disabled || normalizedEffectiveZoom <= ZOOM.MIN"
@@ -61,14 +61,14 @@
                                 :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('width') }]"
                                 @click="handleSetFitMode('width')"
                             >
-                                <UIcon name="i-lucide-move-horizontal" class="zoom-toggle-icon" />
+                                <UIcon name="i-ph-arrows-out-line-horizontal" class="zoom-toggle-icon" />
                                 <span class="zoom-toggle-label">{{ t('zoom.fitWidth') }}</span>
                             </button>
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('height') }]"
                                 @click="handleSetFitMode('height')"
                             >
-                                <UIcon name="i-lucide-move-vertical" class="zoom-toggle-icon" />
+                                <UIcon name="i-ph-arrows-out-line-vertical" class="zoom-toggle-icon" />
                                 <span class="zoom-toggle-label">{{ t('zoom.fitHeight') }}</span>
                             </button>
                         </div>
@@ -81,7 +81,7 @@
                                 :aria-label="t('zoom.singlePage')"
                                 @click="handleSetViewMode('single')"
                             >
-                                <UIcon name="i-lucide-file" class="zoom-toggle-icon" />
+                                <UIcon name="i-ph-file" class="zoom-toggle-icon" />
                                 <span class="zoom-toggle-label">{{ t('zoom.singleShort') }}</span>
                             </button>
                             <button
@@ -89,7 +89,7 @@
                                 :aria-label="t('zoom.facingPages')"
                                 @click="handleSetViewMode('facing')"
                             >
-                                <UIcon name="i-lucide-book-open" class="zoom-toggle-icon" />
+                                <UIcon name="i-ph-book-open" class="zoom-toggle-icon" />
                                 <span class="zoom-toggle-label">{{ t('zoom.facingShort') }}</span>
                             </button>
                             <button
@@ -98,7 +98,7 @@
                                 @click="handleSetViewMode('facing-first-single')"
                             >
                                 <span class="zoom-toggle-icon-badge">
-                                    <UIcon name="i-lucide-book-open" class="size-4" />
+                                    <UIcon name="i-ph-book-open" class="size-4" />
                                     <span class="zoom-badge">1</span>
                                 </span>
                                 <span class="zoom-toggle-label">{{ t('zoom.facingFirstShort') }}</span>
@@ -111,7 +111,7 @@
 
         <div v-if="showStepButtons" class="zoom-controls-item">
             <ToolbarButton
-                icon="lucide:plus"
+                icon="ph:plus"
                 :tooltip="t('zoom.zoomIn')"
                 :shortcut="shortcutLabels.zoomIn"
                 :disabled="disabled || normalizedEffectiveZoom >= ZOOM.MAX"

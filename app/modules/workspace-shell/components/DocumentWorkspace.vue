@@ -158,7 +158,7 @@
                         :can-convert-to-pdf="canUseDjvu && isDjvuMode"
                         :is-preparing-print="isPreparingPrint"
                         :is-preparing-current-page-print="isPreparingCurrentPagePrint"
-                        trigger-icon="i-lucide-ellipsis"
+                        trigger-icon="i-ph-dots-three"
                         @update:open="handleDropdownOpen('overflow', $event)"
                         @capture-region="handleToolbarCaptureRegion"
                         @crop="handleToolbarCrop"

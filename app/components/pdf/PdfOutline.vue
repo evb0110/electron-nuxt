@@ -13,7 +13,7 @@
             class="pdf-bookmarks-loading"
         >
             <UIcon
-                name="i-lucide-loader-circle"
+                name="i-ph-circle-notch"
                 class="animate-spin"
             />
             <span>{{ t('bookmarks.loading') }}</span>
@@ -23,7 +23,7 @@
             v-else-if="bookmarks.length === 0"
             class="pdf-bookmarks-empty"
         >
-            <UIcon name="i-lucide-book-open" />
+            <UIcon name="i-ph-book-open" />
             <span>{{ t('bookmarks.noBookmarks') }}</span>
             <button
                 v-if="isEditMode"
@@ -33,7 +33,7 @@
                 @click="editing.addRootBookmark()"
             >
                 <UIcon
-                    name="i-lucide-plus"
+                    name="i-ph-plus"
                     class="size-4"
                 />
                 <span>{{ t('bookmarks.addFirst') }}</span>

@@ -31,7 +31,7 @@
                         :aria-label="t('annotations.decreaseWidth')"
                         @click="nudgeWidth(-activeWidthControl.step)"
                     >
-                        <UIcon name="i-lucide-minus" class="style-step-icon" />
+                        <UIcon name="i-ph-minus" class="style-step-icon" />
                     </button>
                     <input
                         id="annotation-width-input"
@@ -49,7 +49,7 @@
                         :aria-label="t('annotations.increaseWidth')"
                         @click="nudgeWidth(activeWidthControl.step)"
                     >
-                        <UIcon name="i-lucide-plus" class="style-step-icon" />
+                        <UIcon name="i-ph-plus" class="style-step-icon" />
                     </button>
                 </div>
             </div>
@@ -72,7 +72,7 @@
         </template>
 
         <div v-else class="annotation-style-editor-idle" role="status" aria-live="polite">
-            <UIcon name="i-lucide-sliders-horizontal" class="annotation-style-editor-idle-icon" />
+            <UIcon name="i-ph-sliders-horizontal" class="annotation-style-editor-idle-icon" />
             <span class="annotation-style-editor-idle-label">{{ t('annotations.styleDescription') }}</span>
         </div>
     </div>

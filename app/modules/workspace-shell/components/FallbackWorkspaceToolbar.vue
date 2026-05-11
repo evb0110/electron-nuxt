@@ -146,7 +146,7 @@
                 can-print-current-page
                 :can-convert-to-pdf="canUseDjvu && snapshot.isDjvuMode"
                 :is-preparing-print="snapshot.isPreparingPrint"
-                trigger-icon="i-lucide-ellipsis"
+                trigger-icon="i-ph-dots-three"
                 @update:open="emit('update:overflowMenuOpen', $event)"
                 @capture-region="emit('capture-region')"
                 @crop="emit('crop')"
