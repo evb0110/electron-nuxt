@@ -2,7 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
-} from '@contracts/electron-api';
+} from '@contracts/pdf-conformance';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';

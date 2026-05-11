@@ -1,7 +1,7 @@
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-} from '@contracts/electron-api';
+} from '@contracts/electron-api-common';
 import {
     assertAbsolutePath,
     assertNonEmptyString,

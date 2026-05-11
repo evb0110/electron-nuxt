@@ -1,5 +1,5 @@
 import type {IpcRenderer} from 'electron';
-import type { IOcrCapability } from '@contracts/electron-api';
+import type { IOcrCapability } from '@contracts/electron-api-ocr';
 import type { TDocumentRef } from '@contracts/platform-api';
 import {
     assertAbsolutePath,

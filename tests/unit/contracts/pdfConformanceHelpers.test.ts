@@ -6,7 +6,7 @@ import {
 import {
     buildPdfSaveRestrictions,
     createDefaultPdfConformanceProfile,
-} from '@contracts/electron-api';
+} from '@electron/features/documents/main/pdf-conformance-helpers';
 
 describe('PDF conformance contract helpers', () => {
     it('creates the unrestricted default profile', () => {

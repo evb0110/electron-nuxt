@@ -20,6 +20,7 @@ import { clearTextLayerIndexCache } from '@app/composables/pdfSearchHighlightDom
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { measureDevPerf } from '@app/utils/dev-perf';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { guardAsync } from '@app/utils/async-guard';
 
 interface IHighlightDebugInfo {
     userUnit: number;
@@ -783,6 +784,66 @@ export const usePdfTextLayerRenderer = (deps: {
         clearOcrDebugBoxes(container);
     }
 
+    function scheduleRenderOcrDebugBoxes(
+        container: HTMLElement,
+        pageNumber: number,
+        wcPath: string,
+        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        rawPageWidth: number,
+        rawPageHeight: number,
+    ) {
+        guardAsync(
+            renderOcrDebugBoxes(
+                container,
+                pageNumber,
+                wcPath,
+                viewport,
+                rawPageWidth,
+                rawPageHeight,
+            ),
+            {
+                scope: 'pdf-renderer',
+                message: `Failed to render OCR debug overlays for page ${pageNumber}`,
+            },
+        );
+    }
+
+    function scheduleOcrDebugForPage(
+        pageNumber: number,
+        context: {
+            container: HTMLElement;
+            renderResult: {
+                viewport: ReturnType<PDFPageProxy['getViewport']>;
+                rawDims: {
+                    pageWidth: number;
+                    pageHeight: number;
+                };
+            };
+        },
+    ) {
+        if (!isOcrDebugEnabled()) {
+            return;
+        }
+
+        const wcPath = toValue(deps.workingCopyPath);
+        if (!wcPath) {
+            return;
+        }
+
+        const {
+            viewport,
+            rawDims,
+        } = context.renderResult;
+        scheduleRenderOcrDebugBoxes(
+            context.container,
+            pageNumber,
+            wcPath,
+            viewport,
+            rawDims.pageWidth,
+            rawDims.pageHeight,
+        );
+    }
+
     return {
         renderTextLayer,
         setupTextLayerInteraction,
@@ -793,6 +854,8 @@ export const usePdfTextLayerRenderer = (deps: {
         clearOcrDebug,
         isOcrDebugEnabled,
         renderOcrDebugBoxes,
+        scheduleRenderOcrDebugBoxes,
+        scheduleOcrDebugForPage,
         getCurrentMatchRanges,
     };
 };

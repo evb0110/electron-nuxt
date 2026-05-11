@@ -17,7 +17,7 @@ import {
     pickSaveTarget,
     saveBlobToPickerOrDownload,
     saveBytesToPickerOrDownload,
-} from '@app/platform/browser-api/documents-file-capability';
+} from '@app/platform/browser-api/browser-file-picker-adapter';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,

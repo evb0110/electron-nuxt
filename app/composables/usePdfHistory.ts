@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
+import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/public';
 import {
     capturePdfReloadSnapshot,
     createPdfReloadWaiter,

@@ -362,58 +362,12 @@
                 </template>
             </WorkspaceViewerHost>
         </WorkspaceSidebarHost>
-        <div
-            v-if="pageOpBatchProgress && isPageOperationInProgress"
-            class="pointer-events-none absolute bottom-28 right-4 z-50 w-60 rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg"
-            role="status"
-            aria-live="polite"
-        >
-            <div class="flex items-center gap-2">
-                <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
-                <div class="min-w-0">
-                    <p class="m-0 text-xs font-medium text-default">
-                        {{ t('emptyState.preparingBatch') }}
-                    </p>
-                    <p class="m-0 text-[11px] text-muted">
-                        {{ t('emptyState.preparingBatchProgress', {
-                            processed: displayProcessedCount(pageOpBatchProgress.processed, pageOpBatchProgress.total),
-                            total: pageOpBatchProgress.total,
-                        }) }}
-                    </p>
-                    <p v-if="pageOpBatchEtaText" class="m-0 text-[11px] text-dimmed">
-                        {{ t('emptyState.preparingBatchEta', { eta: pageOpBatchEtaText }) }}
-                    </p>
-                </div>
-            </div>
-            <UProgress :value="pageOpBatchProgress.percent" class="mt-2" />
-        </div>
-        <div
-            v-if="exportOverlay"
-            class="pointer-events-none absolute bottom-12 right-4 z-50 w-60 rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg"
-            role="status"
-            aria-live="polite"
-        >
-            <div class="flex items-center gap-2">
-                <UIcon :name="exportOverlayIcon" :class="exportOverlayIconClass" />
-                <div class="min-w-0">
-                    <p class="m-0 text-xs font-medium text-default">
-                        {{ exportOverlayTitle }}
-                    </p>
-                    <p class="m-0 text-[11px] text-muted">
-                        {{ exportOverlayDetail }}
-                    </p>
-                </div>
-            </div>
-            <UProgress
-                v-if="exportOverlay.state === 'success'"
-                :value="100"
-                class="mt-2"
-            />
-            <UProgress
-                v-else
-                class="mt-2"
-            />
-        </div>
+        <WorkspacePageOpProgressOverlay
+            :progress="pageOpBatchProgress"
+            :eta-text="pageOpBatchEtaText"
+            :is-page-operation-in-progress="isPageOperationInProgress"
+        />
+        <WorkspaceExportProgressOverlay :overlay="exportOverlay" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
                 :file-path="statusFilePath"
@@ -488,48 +442,39 @@
             @cancel="handleDjvuCancel"
         />
 
-        <PdfExportScopeDialog
-            v-model:open="exportScopeDialogOpen"
-            :mode="exportScopeDialogMode"
+        <WorkspaceSaveDialogHost
+            :export-scope-dialog-open="exportScopeDialogOpen"
+            :export-scope-dialog-mode="exportScopeDialogMode"
+            :export-scope-dialog-selected-pages="exportScopeDialogSelectedPages"
+            :print-dialog-open="printDialogOpen"
+            :print-dialog-selected-pages="printDialogSelectedPages"
+            :print-status="printStatus"
+            :print-error="printError"
+            :is-preparing-print="isPreparingPrint"
+            :crop-dialog-open="cropDialogOpen"
+            :crop-dialog-loading="cropDialogLoading"
+            :crop-dialog-page-number="cropDialogPageNumber"
+            :crop-dialog-margins="cropDialogMargins"
+            :crop-dialog-media-box="cropDialogMediaBox"
+            :crop-dialog-current-box="cropDialogCurrentBox"
+            :crop-dialog-rotation="cropDialogRotation"
+            :selected-thumbnail-pages="selectedThumbnailPages"
             :total-pages="totalPages"
             :current-page="currentPage"
-            :selected-pages="exportScopeDialogSelectedPages"
-            @submit="handleExportScopeDialogSubmit"
-            @update:open="handleExportScopeDialogOpenChange"
-        />
-
-        <PdfPrintDialog
-            v-model:open="printDialogOpen"
-            :total-pages="totalPages"
-            :current-page="currentPage"
-            :selected-pages="printDialogSelectedPages"
-            :default-view-mode="viewMode"
-            :is-preparing="isPreparingPrint"
-            :status="printStatus"
-            :error="printError"
-            @submit="handlePrintDialogSubmit"
-            @update:open="handlePrintDialogOpenChange"
-        />
-
-        <PdfCropDialog
-            v-model:open="cropDialogOpen"
-            :loading="cropDialogLoading"
-            :total-pages="totalPages"
-            :current-page="cropDialogPageNumber"
-            :selected-pages="selectedThumbnailPages"
-            :initial-margins="cropDialogMargins"
-            :media-box="cropDialogMediaBox"
-            :current-visible-box="cropDialogCurrentBox"
-            :rotation="cropDialogRotation"
-            @apply="handleCropApply"
-            @remove="handleCropRemove"
-        />
-
-        <DjvuConvertDialog
-            v-if="canUseDjvu && isDjvuMode"
-            v-model:open="showConvertDialog"
+            :view-mode="viewMode"
+            :can-use-djvu="canUseDjvu"
+            :is-djvu-mode="isDjvuMode"
+            :show-convert-dialog="showConvertDialog"
             :djvu-path="djvuSourcePath"
-            @convert="handleDjvuConvert"
+            @export-submit="handleExportScopeDialogSubmit"
+            @export-open-change="handleExportScopeDialogOpenChange"
+            @print-submit="handlePrintDialogSubmit"
+            @print-open-change="handlePrintDialogOpenChange"
+            @crop-apply="handleCropApply"
+            @crop-remove="handleCropRemove"
+            @crop-open-change="cropDialogOpen = $event"
+            @djvu-convert="handleDjvuConvert"
+            @convert-open-change="showConvertDialog = $event"
         />
     </WorkspaceShell>
 </template>
@@ -542,10 +487,7 @@ import '@app/assets/css/pdf-search-highlights.css';
 import '@app/assets/css/pdf-animations.css';
 import '@app/assets/css/pdf-debug-overlays.css';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
-import PdfCropDialog from '@app/components/pdf/PdfCropDialog.vue';
-import PdfExportScopeDialog from '@app/components/pdf/PdfExportScopeDialog.vue';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
-import PdfPrintDialog from '@app/components/pdf/PdfPrintDialog.vue';
 import PdfSidebar from '@app/components/pdf/PdfSidebar.vue';
 import PdfStatusBar from '@app/components/pdf/PdfStatusBar.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
@@ -557,12 +499,16 @@ import { useAnalytics } from '@app/composables/useAnalytics';
 import { bucketPageCount } from '@app/utils/analytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/composables/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
+import WorkspaceExportProgressOverlay from '@app/modules/workspace-shell/components/WorkspaceExportProgressOverlay.vue';
+import WorkspacePageOpProgressOverlay from '@app/modules/workspace-shell/components/WorkspacePageOpProgressOverlay.vue';
+import WorkspaceSaveDialogHost from '@app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue';
 import WorkspaceShell from '@app/modules/workspace-shell/components/layout/WorkspaceShell.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
+import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
@@ -576,23 +522,14 @@ import type { IPdfPageMatches } from '@app/types/pdf';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
-import {
-    displayProcessedCount,
-    formatEtaDuration,
-} from '@app/utils/progress-formatting';
+import { formatEtaDuration } from '@app/utils/progress-formatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
 import type { IRecentFile } from '@contracts/shared';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
-const DjvuConvertDialog = defineAsyncComponent(() => import('@app/components/djvu/DjvuConvertDialog.vue'));
 const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));
-const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
-const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;
-const STARTUP_OPEN_VISUAL_READY_POLL_MS = 50;
-const STARTUP_OPEN_VISUAL_READY_FRAME_COUNT = 2;
-
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
@@ -631,7 +568,6 @@ const { isResolved: recentFilesResolved } = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const isRestoringSplitPayload = ref(false);
-let startupOpenVisualReadyToken = 0;
 const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
@@ -884,6 +820,13 @@ const showNativeDjvuViewer = computed(() => (
     && Boolean(djvuSourcePath.value)
     && !pdfSrc.value
 ));
+const {
+    scheduleStartupOpenVisualReady,
+    dispatchStartupOpenVisualReady,
+} = useWorkspaceStartupReadiness({
+    pdfViewerRef,
+    showNativeDjvuViewer,
+});
 const isDjvuOpening = computed(() => (
     Boolean(djvuOpeningPath.value)
     && !showNativeDjvuViewer.value
@@ -991,32 +934,7 @@ const {
     pdfViewerRef,
     isResizingSidebar,
 });
-const exportOverlayTitle = computed(() => {
-    if (!exportOverlay.value) {
-        return '';
-    }
-
-    if (exportOverlay.value.state === 'success') {
-        return exportOverlay.value.kind === 'images'
-            ? t('export.successImages')
-            : t('export.successTiff');
-    }
-
-    return exportOverlay.value.kind === 'images'
-        ? t('export.statusImages')
-        : t('export.statusTiff');
-});
-const exportOverlayDetail = computed(() => exportOverlay.value
-    ? t('export.pageCount', {count: exportOverlay.value.pageCount})
-    : '');
 const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
-const exportOverlayIcon = computed(() => exportOverlay.value?.state === 'success'
-    ? 'i-lucide-circle-check'
-    : 'i-lucide-loader-circle');
-const exportOverlayIconClass = computed(() => exportOverlay.value?.state === 'success'
-    ? 'size-4 text-[var(--ui-success)]'
-    : 'size-4 animate-spin text-muted');
-
 
 function handleDeletePages() {
     const pages = selectedThumbnailPages.value;
@@ -1069,102 +987,6 @@ function handleViewerCurrentPageUpdate(page: number) {
         viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
     });
     currentPage.value = page;
-}
-
-function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
-    if (typeof window === 'undefined') {
-        return;
-    }
-
-    window.dispatchEvent(new CustomEvent(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, {detail: {
-        reason,
-        timedOut,
-    }}));
-}
-
-function delayStartupVisualReady(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
-}
-
-function waitForStartupAnimationFrame() {
-    return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-    });
-}
-
-async function waitForStartupVisualFrames() {
-    for (let index = 0; index < STARTUP_OPEN_VISUAL_READY_FRAME_COUNT; index += 1) {
-        await waitForStartupAnimationFrame();
-    }
-}
-
-function hasRenderedStartupDocument() {
-    const viewer = pdfViewerRef.value;
-    const container = viewer?.getViewerContainer?.() ?? null;
-    if (container?.querySelector('.page_container--rendered .page_canvas canvas')) {
-        return true;
-    }
-
-    return Boolean(showNativeDjvuViewer.value)
-        && Boolean(container?.querySelector('canvas, img'));
-}
-
-function scheduleStartupOpenVisualReady(reason: string) {
-    const token = ++startupOpenVisualReadyToken;
-    void (async () => {
-        const startedAt = Date.now();
-        let timedOut = false;
-
-        try {
-            while (Date.now() - startedAt < STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS) {
-                if (token !== startupOpenVisualReadyToken) {
-                    return;
-                }
-
-                await nextTick();
-                const viewer = pdfViewerRef.value;
-                const waitForViewerLoadSettled = viewer?.waitForViewerLoadSettled;
-                if (typeof waitForViewerLoadSettled === 'function') {
-                    const remainingMs = Math.max(0, STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS - (Date.now() - startedAt));
-                    let settleTimedOut = false;
-                    await Promise.race([
-                        waitForViewerLoadSettled.call(viewer),
-                        delayStartupVisualReady(remainingMs).then(() => {
-                            settleTimedOut = true;
-                        }),
-                    ]);
-
-                    if (settleTimedOut) {
-                        timedOut = true;
-                        break;
-                    }
-                }
-
-                await nextTick();
-                await waitForStartupVisualFrames();
-                if (hasRenderedStartupDocument()) {
-                    break;
-                }
-
-                await delayStartupVisualReady(STARTUP_OPEN_VISUAL_READY_POLL_MS);
-            }
-
-            if (!hasRenderedStartupDocument()) {
-                timedOut = true;
-            }
-        } catch (error) {
-            timedOut = true;
-            BrowserLogger.warn('loader', 'Startup visual readiness wait failed', error);
-        }
-
-        if (token !== startupOpenVisualReadyToken) {
-            return;
-        }
-
-        dispatchStartupOpenVisualReady(reason, timedOut);
-    })();
 }
 
 watch(pdfSrc, (src) => {

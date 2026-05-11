@@ -1,9 +1,8 @@
 import {
     app,
     BrowserWindow,
-    nativeImage,
 } from 'electron';
-import type { IAppUpdateStatus } from '@contracts/electron-api';
+import type { IAppUpdateStatus } from '@contracts/electron-api-updates';
 import {
     dirname,
     join,
@@ -13,6 +12,7 @@ import {
     createExternalOpenManager,
     createMacOpenFileRouter,
 } from '@electron/bootstrap/external-open';
+import { runInitSequence } from '@electron/bootstrap/init-sequence';
 import {
     resolveExternalOpenDispatchWindow,
     shouldResetRendererReadyOnNavigation,
@@ -158,123 +158,6 @@ const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
 let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
 
-function blendColorChannel(base: number, overlay: number, alpha: number) {
-    return Math.round((base * (255 - alpha) + overlay * alpha) / 255);
-}
-
-function fillBitmapRect(
-    bitmap: Uint8ClampedArray,
-    width: number,
-    height: number,
-    startX: number,
-    startY: number,
-    rectWidth: number,
-    rectHeight: number,
-    color: {
-        r: number;
-        g: number;
-        b: number;
-        a: number;
-    },
-) {
-    const boundedStartX = Math.max(startX, 0);
-    const boundedStartY = Math.max(startY, 0);
-    const endX = Math.min(boundedStartX + Math.max(rectWidth, 0), width);
-    const endY = Math.min(boundedStartY + Math.max(rectHeight, 0), height);
-    for (let y = boundedStartY; y < endY; y += 1) {
-        for (let x = boundedStartX; x < endX; x += 1) {
-            const offset = ((y * width) + x) * 4;
-            const blue = bitmap[offset] ?? 0;
-            const green = bitmap[offset + 1] ?? 0;
-            const red = bitmap[offset + 2] ?? 0;
-            const alpha = bitmap[offset + 3] ?? 0;
-            bitmap[offset] = blendColorChannel(blue, color.b, color.a);
-            bitmap[offset + 1] = blendColorChannel(green, color.g, color.a);
-            bitmap[offset + 2] = blendColorChannel(red, color.r, color.a);
-            bitmap[offset + 3] = Math.max(alpha, color.a);
-        }
-    }
-}
-
-function createDevDockIcon() {
-    const baseIcon = nativeImage.createFromPath(devDockIconPath);
-    if (baseIcon.isEmpty()) {
-        return null;
-    }
-
-    const {
-        width,
-        height,
-    } = baseIcon.getSize();
-    if (width <= 0 || height <= 0) {
-        return null;
-    }
-
-    const bitmap = new Uint8ClampedArray(baseIcon.toBitmap());
-    const markerSize = Math.max(Math.floor(Math.min(width, height) * 0.28), 56);
-    const inset = Math.max(Math.floor(markerSize * 0.12), 8);
-    const borderWidth = Math.max(Math.floor(markerSize * 0.08), 4);
-    const anchorX = width - markerSize - inset;
-    const anchorY = inset;
-
-    fillBitmapRect(bitmap, width, height, anchorX, anchorY, markerSize, markerSize, {
-        r: 219,
-        g: 39,
-        b: 39,
-        a: 255,
-    });
-    fillBitmapRect(
-        bitmap,
-        width,
-        height,
-        anchorX + borderWidth,
-        anchorY + borderWidth,
-        markerSize - (borderWidth * 2),
-        markerSize - (borderWidth * 2),
-        {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        },
-    );
-    fillBitmapRect(
-        bitmap,
-        width,
-        height,
-        anchorX + Math.floor(markerSize * 0.35),
-        anchorY + Math.floor(markerSize * 0.18),
-        borderWidth,
-        Math.floor(markerSize * 0.64),
-        {
-            r: 219,
-            g: 39,
-            b: 39,
-            a: 255,
-        },
-    );
-    fillBitmapRect(
-        bitmap,
-        width,
-        height,
-        anchorX + Math.floor(markerSize * 0.18),
-        anchorY + Math.floor(markerSize * 0.47),
-        Math.floor(markerSize * 0.64),
-        borderWidth,
-        {
-            r: 219,
-            g: 39,
-            b: 39,
-            a: 255,
-        },
-    );
-
-    return nativeImage.createFromBitmap(Buffer.from(bitmap), {
-        width,
-        height,
-    });
-}
-
 function isMainWindowRendererReady() {
     const mainWindow = getMainWindow();
     if (!mainWindow) {
@@ -394,203 +277,38 @@ function broadcastUpdateStatus(status: IAppUpdateStatus) {
 
 const allowMultipleAutomationSessions = process.env.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS === '1';
 
-if (!allowMultipleAutomationSessions) {
-    const singleInstanceLock = app.requestSingleInstanceLock();
-    if (!singleInstanceLock) {
-        app.quit();
-        process.exit(0);
-    }
-} else {
-    logger.info('Automation harness mode: bypassing single-instance lock to allow multiple sessions');
-}
-
-// Windows/Linux: the OS passes the file path as a command-line argument
-if (process.platform !== 'darwin') {
-    externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));
-}
-
-app.on('second-instance', (_event, commandLine) => {
-    externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1));
-    externalOpenManager.requestMainWindowForExternalOpen();
-});
-
-async function init() {
-    logStartupPhase('Bootstrap init started');
-    await app.whenReady();
-    logStartupPhase('app.whenReady resolved');
-    setupAppProtocolHandler();
-    if (config.automation.noFocus && process.platform === 'darwin') {
-        try {
-            app.dock?.hide();
-        } catch (error) {
-            logger.warn(`Failed to hide dock before window creation in automation mode: ${getErrorMessage(error)}`);
-        }
-        app.hide();
-    }
-    // In packaged builds, macOS uses the app bundle's .icns icon.
-    // Only override in development where the host Electron binary has the default icon.
-    if (process.platform === 'darwin' && !app.isPackaged && !config.automation.noFocus) {
-        try {
-            const devDockIcon = createDevDockIcon();
-            app.dock?.setIcon(devDockIcon ?? devDockIconPath);
-            app.dock?.setBadge(DEV_DOCK_BADGE_TEXT);
-        } catch (err) {
-            logger.warn(`Failed to set dock icon: ${getErrorMessage(err)}`);
-        }
-    }
-    const appVersion = app.getVersion();
-    app.setAboutPanelOptions({
-        applicationName: 'EVB Viewer',
-        applicationVersion: appVersion,
-        version: appVersion.startsWith('0.') ? 'Beta' : undefined,
-        copyright: 'Copyright \u00A9 2026 Eugene Barsky',
-        iconPath: aboutIconPath,
-        authors: ['Eugene Barsky'],
-    });
-
-    registerIpcHandlers({
-        onRendererReady: (event) => {
-            const window = BrowserWindow.fromWebContents(event.sender);
-            if (!window) {
-                return;
-            }
-
-            readyWindowIds.add(window.id);
-            markWindowTabTransferReady(window.id);
-
-            externalOpenManager.scheduleFlushPendingFiles();
-            markWindowRendererReady(window.id);
-            if (window.id === getMainWindow()?.id) {
-                logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
-                maybePromptForDefaultViewer();
-            }
-        },
-        claimPendingExternalOpenPaths: (event) => {
-            const window = BrowserWindow.fromWebContents(event.sender);
-            if (!window || window.id !== getMainWindow()?.id) {
-                return [];
-            }
-
-            const paths = externalOpenManager.claimPendingOpenPaths();
-            allowOpenPaths(paths, event.sender);
-            return paths;
-        },
-    });
-    logStartupPhase('IPC handlers registered');
-
-    installHostEnvironmentDisplayWatcher();
-
-    void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
-        logger.warn(`Failed to sweep stale default-app temp PDFs: ${String(error)}`);
-    });
-
-    void cleanupStaleWorkingCopyDirectories()
-        .then((result) => {
-            if (result.removedDirectories > 0 || result.removedOcrDirectories > 0) {
-                logger.info(
-                    `Removed stale working-copy directories: work=${result.removedDirectories}, ocr=${result.removedOcrDirectories}`,
-                );
-            }
-        })
-        .catch((error) => {
-            logger.warn(`Failed to cleanup stale working-copy directories: ${getErrorMessage(error)}`);
-        });
-
-    app.on('browser-window-created', (_event, window) => {
-        attachHostEnvironmentToWindow(window);
-
-        const markNotReady = () => {
-            readyWindowIds.delete(window.id);
-        };
-
-        window.webContents.on('did-start-navigation', (_navEvent, _url, isInPlace, isMainFrame) => {
-            if (!shouldResetRendererReadyOnNavigation({
-                isMainFrame,
-                isInPlace,
-            })) {
-                return;
-            }
-            markNotReady();
-        });
-        window.webContents.on('render-process-gone', markNotReady);
-
-        window.on('closed', () => {
-            markNotReady();
-            markWindowTabTransferWindowClosed(window.id);
-        });
-    });
-
-    app.on('window-all-closed', () => {
-        if (!config.isMac) {
-            app.quit();
-        }
-    });
-
-    app.on('before-quit', (event) => {
-        if (shutdownCoordinator?.isQuittingAfterCleanup() || shutdownCoordinator?.isFatalShutdownInProgress()) {
-            return;
-        }
-        event.preventDefault();
-        shutdownCoordinator?.requestGracefulQuit();
-    });
-
-    app.on('activate', () => {
-        if (config.automation.noFocus) {
-            return;
-        }
-
-        if (!hasWindows()) {
-            readyWindowIds.clear();
-            void createWindow().catch((error) => {
-                logger.error(`Failed to create window on activate: ${getErrorMessage(error)}`);
-            });
-            return;
-        }
-        focusMainWindow();
-        externalOpenManager.scheduleFlushPendingFiles();
-    });
-
-    externalOpenManager.markBootstrapReady();
-    readyWindowIds.clear();
-    logStartupPhase('Creating main window');
-    await createWindow({ waitForInitialRendererReady: true });
-    logStartupPhase('Main window creation requested');
-
-    if (config.automation.noFocus && process.platform === 'darwin') {
-        try {
-            if (app.dock) {
-                app.dock.hide();
-            }
-        } catch (error) {
-            logger.warn(`Failed to hide dock in automation mode: ${getErrorMessage(error)}`);
-        }
-        app.hide();
-    }
-
-    void (async () => {
-        try {
-            initializeUpdates(broadcastUpdateStatus);
-            logStartupPhase('Update service initialized');
-        } catch (error) {
-            logger.error(`Failed to initialize updates: ${getErrorMessage(error)}`);
-        }
-
-        try {
-            await initRecentFilesCache();
-            logStartupPhase('Recent files cache initialized');
-        } catch (error) {
-            logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`);
-        }
-
-        try {
-            setupMenu();
-            logStartupPhase('Application menu initialized');
-        } catch (error) {
-            logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`);
-        }
-    })();
-}
-
-void init().catch((error) => {
+void runInitSequence({
+    app,
+    aboutIconPath,
+    allowMultipleAutomationSessions,
+    allowOpenPaths,
+    attachHostEnvironmentToWindow,
+    broadcastUpdateStatus,
+    cleanupStaleWorkingCopyDirectories,
+    createWindow,
+    devDockBadgeText: DEV_DOCK_BADGE_TEXT,
+    devDockIconPath,
+    externalOpenManager,
+    focusMainWindow,
+    getMainWindow,
+    getWindowFromWebContents: BrowserWindow.fromWebContents,
+    hasWindows,
+    initRecentFilesCache,
+    initializeUpdates,
+    installHostEnvironmentDisplayWatcher,
+    logger,
+    logStartupPhase,
+    markWindowRendererReady,
+    markWindowTabTransferReady,
+    markWindowTabTransferWindowClosed,
+    maybePromptForDefaultViewer,
+    readyWindowIds,
+    registerIpcHandlers,
+    setupAppProtocolHandler,
+    setupMenu,
+    shouldResetRendererReadyOnNavigation,
+    shutdownCoordinator,
+    sweepStaleDefaultAppTempPdfs,
+}).catch((error) => {
     requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
 });

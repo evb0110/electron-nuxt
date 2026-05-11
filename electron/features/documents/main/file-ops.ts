@@ -35,7 +35,7 @@ import { createLogger } from '@electron/utils/logger';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
-} from '@contracts/electron-api';
+} from '@contracts/pdf-conformance';
 import {
     analyzePdfConformanceFile,
     validatePdfData as validatePdfBytes,

@@ -29,7 +29,6 @@ import {
 import {
     isRenderingCancelledError,
     captureScrollSnapshot,
-    restoreScrollFromSnapshot,
     formatRenderError,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
 import {
@@ -39,13 +38,21 @@ import {
 } from '@app/composables/pdf/pdfPageBufferManager';
 import { normalizePageMetrics } from '@app/composables/pdf/pdfPageLayout';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    guardAsync,
-    runGuardedTask,
-} from '@app/utils/async-guard';
+import { runGuardedTask } from '@app/utils/async-guard';
 import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatchScroller';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
-import { getMostVisiblePageFromDom } from '@app/composables/pdf/pdfScrollVisibility';
+import {
+    createPdfRerenderRestorationLogger,
+    type IRerenderRestorationContext,
+} from '@app/composables/pdf/pdfRerenderRestoration';
+import {
+    isPageRenderTimeoutError,
+    withPageStageTimeout,
+    type IPageRenderStallPayload,
+    type IPageRenderTimeoutError,
+} from '@app/composables/pdf/pdfPageRenderTimeout';
+
+export type { IPageRenderStallPayload } from '@app/composables/pdf/pdfPageRenderTimeout';
 
 interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
@@ -82,20 +89,6 @@ interface ICancelableRenderTask {
     promise: Promise<unknown>;
 }
 
-type TPageRenderStallStage = 'page-load' | 'canvas-render';
-
-export interface IPageRenderStallPayload {
-    pageNumber: number;
-    stage: TPageRenderStallStage;
-    timeoutMs: number;
-}
-
-interface IPageRenderTimeoutError extends Error {
-    pageNumber: number;
-    stage: TPageRenderStallStage;
-    timeoutMs: number;
-}
-
 interface IRenderVisiblePagesOptions {
     preserveRenderedPages?: boolean;
     bufferOverride?: number;
@@ -124,11 +117,6 @@ interface ISinglePageRenderTarget {
     canvasHost: HTMLDivElement;
 }
 
-interface IRoundedScrollPosition {
-    scrollTop: number | null;
-    scrollLeft: number | null;
-}
-
 interface IRenderVisiblePagesRequest extends IVisibleRenderBounds {
     containerRoot: HTMLElement;
     version: number;
@@ -147,37 +135,9 @@ interface INormalizedRerenderOptions {
     maxCanvasPixelsOverride?: number;
 }
 
-interface IRerenderRestoreContext extends INormalizedRerenderOptions {
+interface IRerenderRestoreContext extends INormalizedRerenderOptions, IRerenderRestorationContext {
     version: number;
     snapshotToRestore: IScrollSnapshot | null;
-}
-
-type TRerenderRestoreMode = 'preserve' | 'full';
-
-function createPageRenderTimeoutError(
-    pageNumber: number,
-    stage: TPageRenderStallStage,
-    timeoutMs: number,
-): IPageRenderTimeoutError {
-    const error = new Error(
-        `Timed out waiting for ${stage} on page ${pageNumber} after ${timeoutMs}ms`,
-    ) as IPageRenderTimeoutError;
-    error.name = 'PdfPageRenderTimeoutError';
-    error.pageNumber = pageNumber;
-    error.stage = stage;
-    error.timeoutMs = timeoutMs;
-    return error;
-}
-
-function isPageRenderTimeoutError(error: unknown): error is IPageRenderTimeoutError {
-    return Boolean(
-        error
-        && typeof error === 'object'
-        && 'name' in error
-        && 'stage' in error
-        && 'timeoutMs' in error
-        && (error as { name?: unknown }).name === 'PdfPageRenderTimeoutError',
-    );
 }
 
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
@@ -243,53 +203,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const textLayerCleanupFns = new Map<number, () => void>();
 
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
-
-    async function withPageStageTimeout<T>(
-        promise: Promise<T>,
-        payload: IPageRenderStallPayload,
-        shouldNotify: () => boolean,
-        onTimeout?: () => void,
-    ) {
-        return new Promise<T>((resolve, reject) => {
-            let settled = false;
-            const timeoutHandle = setTimeout(() => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                onTimeout?.();
-                if (shouldNotify()) {
-                    options.onRenderStall?.(payload);
-                }
-                reject(
-                    createPageRenderTimeoutError(
-                        payload.pageNumber,
-                        payload.stage,
-                        payload.timeoutMs,
-                    ),
-                );
-            }, payload.timeoutMs);
-
-            promise.then(
-                (value) => {
-                    if (settled) {
-                        return;
-                    }
-                    settled = true;
-                    clearTimeout(timeoutHandle);
-                    resolve(value);
-                },
-                (error) => {
-                    if (settled) {
-                        return;
-                    }
-                    settled = true;
-                    clearTimeout(timeoutHandle);
-                    reject(error);
-                },
-            );
-        });
-    }
 
     function cancelActiveRenderTask(pageNumber: number) {
         const activeRenderTask = activeRenderTasks.get(pageNumber);
@@ -362,30 +275,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             {
                 scope: 'pdf-renderer',
                 message: `Failed to schedule follow-up render for page ${pageNumber}`,
-            },
-        );
-    }
-
-    function scheduleRenderOcrDebugBoxes(
-        container: HTMLElement,
-        pageNumber: number,
-        wcPath: string,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
-        rawPageWidth: number,
-        rawPageHeight: number,
-    ) {
-        guardAsync(
-            textLayerRenderer.renderOcrDebugBoxes(
-                container,
-                pageNumber,
-                wcPath,
-                viewport,
-                rawPageWidth,
-                rawPageHeight,
-            ),
-            {
-                scope: 'pdf-renderer',
-                message: `Failed to render OCR debug overlays for page ${pageNumber}`,
             },
         );
     }
@@ -575,6 +464,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             () => {
                 cancelActiveRenderTask(pageNumber);
             },
+            options.onRenderStall,
         );
     }
 
@@ -603,6 +493,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 timeoutMs: PDF_PAGE_LOAD_TIMEOUT_MS,
             },
             () => renderVersion === version,
+            undefined,
+            options.onRenderStall,
         );
         return renderVersion === version ? pdfPage : null;
     }
@@ -856,33 +748,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         };
     }
 
-    function scheduleOcrDebugForPage(
-        pageNumber: number,
-        context: IRenderPageContext,
-    ) {
-        if (!textLayerRenderer.isOcrDebugEnabled()) {
-            return;
-        }
-
-        const wcPath = toValue(workingCopyPath);
-        if (!wcPath) {
-            return;
-        }
-
-        const {
-            viewport,
-            rawDims,
-        } = context.renderResult;
-        scheduleRenderOcrDebugBoxes(
-            context.container,
-            pageNumber,
-            wcPath,
-            viewport,
-            rawDims.pageWidth,
-            rawDims.pageHeight,
-        );
-    }
-
     function finalizePageRender(
         pageNumber: number,
         version: number,
@@ -991,7 +856,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
-        scheduleOcrDebugForPage(pageNumber, renderContext);
+        textLayerRenderer.scheduleOcrDebugForPage?.(pageNumber, renderContext);
         finalizePageRender(pageNumber, version, pdfPage);
     }
 
@@ -1278,104 +1143,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         );
     }
 
-    function getRoundedScrollPosition(container: HTMLElement | null): IRoundedScrollPosition {
-        return {
-            scrollTop: container ? Math.round(container.scrollTop) : null,
-            scrollLeft: container ? Math.round(container.scrollLeft) : null,
-        };
-    }
-
-    function getNullableDelta(before: number | null, after: number | null) {
-        return before !== null && after !== null
-            ? after - before
-            : null;
-    }
-
-    function logRerenderSnapshotCapture(
-        version: number,
-        preserveExistingPages: boolean,
-        anchorSnapshot: IScrollSnapshot | null,
-        snapshot: IScrollSnapshot | null,
-        containerAtCapture: HTMLElement | null,
-    ) {
-        if (snapshot) {
-            BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-captured', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] captured version=${version}`, {
-                version,
-                preserveExistingPages,
-                hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-                currentPage: options.currentPage.value,
-                numPages: numPages.value,
-                snapshot,
-                scrollTop: containerAtCapture ? Math.round(containerAtCapture.scrollTop) : null,
-                clientHeight: containerAtCapture ? Math.round(containerAtCapture.clientHeight) : null,
-                mostVisiblePage: containerAtCapture
-                    ? getMostVisiblePageFromDom(containerAtCapture, numPages.value)
-                    : null,
-            });
-            return;
-        }
-
-        BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-missing', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] missing version=${version}`, {
-            version,
-            preserveExistingPages,
-            hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-            currentPage: options.currentPage.value,
-            numPages: numPages.value,
-            hasContainer: Boolean(containerAtCapture),
-        });
-    }
-
-    function logRerenderZoomRestore(
-        mode: TRerenderRestoreMode,
-        rerenderSource: string,
-        version: number,
-        beforeScroll: IRoundedScrollPosition,
-        afterScroll: IRoundedScrollPosition,
-        disableOptions: {
-            disableHorizontalAnchorRestore: boolean;
-            disableVerticalAnchorRestore: boolean;
-            disablePageAnchorRestore: boolean;
-        },
-        snapshotToRestore: IScrollSnapshot | null,
-    ) {
-        BrowserLogger.warnThrottled('pdf-zoom-debug', `rerender-restore-${mode}`, RERENDER_LOG_THROTTLE_MS, `[rerender-restore] ${mode} source=${rerenderSource} version=${version}`, {
-            rerenderSource,
-            version,
-            beforeScrollTop: beforeScroll.scrollTop,
-            afterScrollTop: afterScroll.scrollTop,
-            deltaScrollTop: getNullableDelta(beforeScroll.scrollTop, afterScroll.scrollTop),
-            beforeScrollLeft: beforeScroll.scrollLeft,
-            afterScrollLeft: afterScroll.scrollLeft,
-            deltaScrollLeft: getNullableDelta(beforeScroll.scrollLeft, afterScroll.scrollLeft),
-            ...disableOptions,
-            snapshot: snapshotToRestore,
-        });
-    }
-
-    function logRerenderNavRestore(
-        mode: TRerenderRestoreMode,
-        version: number,
-        preserveExistingPages: boolean,
-        anchorSnapshot: IScrollSnapshot | null,
-        snapshotToRestore: IScrollSnapshot | null,
-        containerAfterRestore: HTMLElement | null,
-    ) {
-        BrowserLogger.warnThrottled('pdf-nav', mode === 'preserve' ? 'rerender-snapshot-restored-preserve' : 'rerender-snapshot-restored', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] restored${mode === 'preserve' ? '-preserve' : ''} version=${version}`, {
-            version,
-            ...(mode === 'preserve' ? { preserveExistingPages } : {}),
-            hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-            currentPage: options.currentPage.value,
-            numPages: numPages.value,
-            snapshot: snapshotToRestore,
-            scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
-            clientHeight: containerAfterRestore
-                ? Math.round(containerAfterRestore.clientHeight)
-                : null,
-            mostVisiblePage: containerAfterRestore
-                ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
-                : null,
-        });
-    }
+    const {
+        logRerenderSnapshotCapture,
+        restoreScrollAndLog,
+    } = createPdfRerenderRestorationLogger({
+        container: options.container,
+        currentPage: options.currentPage,
+        numPages,
+        throttleMs: RERENDER_LOG_THROTTLE_MS,
+    });
 
     function normalizeRerenderOptions(
         rerenderOptions?: IRerenderAllVisiblePagesOptions,
@@ -1417,44 +1193,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return null;
         }
         return range;
-    }
-
-    function restoreScrollAndLog(
-        mode: TRerenderRestoreMode,
-        context: IRerenderRestoreContext,
-    ) {
-        const containerBeforeRestore = options.container.value;
-        const beforeScroll = getRoundedScrollPosition(containerBeforeRestore);
-        restoreScrollFromSnapshot(options.container.value, context.snapshotToRestore, {
-            restoreHorizontal: !context.disableHorizontalAnchorRestore,
-            restoreVertical: !context.disableVerticalAnchorRestore,
-            preferPageAnchor: !context.disablePageAnchorRestore,
-            allowVerticalRatioFallback: context.rerenderSource !== 'zoom-change',
-        });
-        const containerAfterRestore = options.container.value;
-        const afterScroll = getRoundedScrollPosition(containerAfterRestore);
-
-        logRerenderZoomRestore(
-            mode,
-            context.rerenderSource,
-            context.version,
-            beforeScroll,
-            afterScroll,
-            {
-                disableHorizontalAnchorRestore: context.disableHorizontalAnchorRestore,
-                disableVerticalAnchorRestore: context.disableVerticalAnchorRestore,
-                disablePageAnchorRestore: context.disablePageAnchorRestore,
-            },
-            context.snapshotToRestore,
-        );
-        logRerenderNavRestore(
-            mode,
-            context.version,
-            context.preserveExistingPages,
-            context.anchorSnapshot,
-            context.snapshotToRestore,
-            containerAfterRestore,
-        );
     }
 
     async function renderMountedVisiblePagesAfterRestore(
