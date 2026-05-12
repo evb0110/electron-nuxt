@@ -107,6 +107,7 @@ describe('usePdfSearch', () => {
         expect(search.isSearching.value).toBe(false);
         expect(search.totalMatches.value).toBe(2);
         expect(search.currentMatch.value).toBe(1);
+        expect(search.currentResultNavigationId.value).toBe(1);
         expect(search.currentResult.value).toEqual(expect.objectContaining({
             pageIndex: 1,
             pageMatchIndex: 1,
@@ -188,12 +189,69 @@ describe('usePdfSearch', () => {
             startOffset: 8,
             endOffset: 12,
         }));
+        expect(search.currentResultNavigationId.value).toBe(1);
 
         resolveSearch({
             results: [],
             truncated: false,
         });
         await promise;
+    });
+
+    it('advances match navigation only for explicit result commands after initial selection', async () => {
+        mockSearch.run.mockResolvedValue({
+            results: [
+                {
+                    pageNumber: 2,
+                    pageMatchIndex: 0,
+                    matchIndex: 4,
+                    startOffset: 10,
+                    endOffset: 15,
+                    excerpt: {
+                        before: '',
+                        match: 'alpha',
+                        after: '',
+                    },
+                },
+                {
+                    pageNumber: 7,
+                    pageMatchIndex: 0,
+                    matchIndex: 9,
+                    startOffset: 20,
+                    endOffset: 25,
+                    excerpt: {
+                        before: '',
+                        match: 'alpha',
+                        after: '',
+                    },
+                },
+            ],
+            truncated: false,
+        });
+
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await promise;
+
+        expect(search.currentResultIndex.value).toBe(0);
+        expect(search.currentResultNavigationId.value).toBe(1);
+
+        search.setResultIndex(1);
+        expect(search.currentResult.value).toEqual(expect.objectContaining({
+            pageIndex: 6,
+            matchIndex: 9,
+        }));
+        expect(search.currentResultNavigationId.value).toBe(2);
+
+        search.setResultIndex(1);
+        expect(search.currentResultNavigationId.value).toBe(3);
+
+        search.goToResult('next');
+        expect(search.currentResultIndex.value).toBe(0);
+        expect(search.currentResultNavigationId.value).toBe(4);
     });
 
     it('cancels active searches on clear and resets backend cache explicitly', async () => {

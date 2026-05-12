@@ -78,6 +78,7 @@ interface IUsePdfPageRendererOptions {
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
+    currentSearchMatchNavigationId?: MaybeRefOrGetter<number>;
 
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
@@ -163,6 +164,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const searchPageMatches =
         options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
     const currentSearchMatch = options.currentSearchMatch ?? null;
+    const currentSearchMatchNavigationId = options.currentSearchMatchNavigationId ?? 0;
     const workingCopyPath = options.workingCopyPath ?? null;
 
     const outputScale =
@@ -1362,6 +1364,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return result;
     }
 
+    let lastHandledSearchNavigationId = 0;
+
     watch(
         () => {
             const match = toValue(currentSearchMatch);
@@ -1379,23 +1383,40 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
+            applySearchHighlights();
+        },
+    );
+
+    watch(
+        () => [
+            isLoading.value,
+            toValue(currentSearchMatchNavigationId),
+        ] as const,
+        ([
+            ,
+            navigationId,
+        ]) => {
+            if (navigationId <= 0 || navigationId === lastHandledSearchNavigationId) {
+                return;
+            }
+            if (isLoading.value) {
+                return;
+            }
+
             const currentMatchValue = toValue(currentSearchMatch);
             const matchPageIndex = currentMatchValue && numPages.value > 0
                 ? Math.max(0, Math.min(currentMatchValue.pageIndex, numPages.value - 1))
                 : null;
 
-            logPdfNav(`[PDF-NAV] watcher fired: matchPageIndex=${matchPageIndex}`);
+            if (matchPageIndex === null) {
+                searchMatchScroller.invalidatePendingRequests();
+                lastHandledSearchNavigationId = navigationId;
+                return;
+            }
 
-            applySearchHighlights();
-
-            void nextTick(() => {
-                if (matchPageIndex === null) {
-                    return;
-                }
-
-                logPdfNav(`[PDF-NAV] watcher nextTick: calling requestScrollToMatch(${matchPageIndex})`);
-                searchMatchScroller.requestScrollToMatch(matchPageIndex);
-            });
+            logPdfNav(`[PDF-NAV] navigation watcher: requestScrollToMatch(${matchPageIndex})`);
+            lastHandledSearchNavigationId = navigationId;
+            searchMatchScroller.requestScrollToMatch(matchPageIndex);
         },
     );
 

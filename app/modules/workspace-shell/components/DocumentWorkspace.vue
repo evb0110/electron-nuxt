@@ -306,6 +306,7 @@
                         :annotation-settings="annotationSettings"
                         :search-page-matches="viewerSearchPageMatches"
                         :current-search-match="viewerCurrentSearchMatch"
+                        :current-search-match-navigation-id="currentResultNavigationId"
                         :working-copy-path="workingCopyPath"
                         :author-name="appSettings.authorName"
                         @update:zoom="zoom = $event"
@@ -677,6 +678,7 @@ const {
     results,
     pageMatches,
     currentResultIndex,
+    currentResultNavigationId,
     currentResult,
     isSearching,
     searchError,

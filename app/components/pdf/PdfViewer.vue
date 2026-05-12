@@ -158,6 +158,7 @@ interface IProps {
     annotationSettings?: IAnnotationSettings | null;
     searchPageMatches?: Map<number, IPdfPageMatches>;
     currentSearchMatch?: IPdfSearchMatch | null;
+    currentSearchMatchNavigationId?: number;
     workingCopyPath?: string | null;
     authorName?: string | null;
 }
@@ -186,6 +187,7 @@ const annotationSettings = computed<IAnnotationSettings | null>(() => props.anno
 const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
 const searchPageMatches = computed(() => props.searchPageMatches ?? emptySearchPageMatches);
 const currentSearchMatch = computed(() => props.currentSearchMatch ?? null);
+const currentSearchMatchNavigationId = computed(() => props.currentSearchMatchNavigationId ?? 0);
 const workingCopyPath = computed(() => props.workingCopyPath ?? null);
 const continuousScroll = computed(() => props.continuousScroll ?? true);
 const authorName = computed(() => props.authorName);
@@ -502,6 +504,7 @@ const {
     endSearchNavigation: (settleMs?: number) => singlePageScroll.endSearchNavigation(settleMs),
     searchPageMatches,
     currentSearchMatch,
+    currentSearchMatchNavigationId,
     workingCopyPath,
     onRenderStall: relayPageRenderStall,
     onPageRendered: managedEmbeddedPdfShapes.syncAfterPageRendered,

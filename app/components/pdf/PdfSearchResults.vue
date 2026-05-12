@@ -86,7 +86,7 @@
                             :is-active="match.matchIndex === activeMatchIndex"
                             :page-labels="pageLabels"
                             :show-page-label="false"
-                            @activate="$emit('goToResult', match.matchIndex)"
+                            @activate="$emit('goToResult', resultIndexByMatchIndex.get(match.matchIndex) ?? -1)"
                         />
                     </div>
                 </section>
@@ -153,6 +153,13 @@ const groupedResults = computed(() => {
         matches,
     }));
 });
+
+const resultIndexByMatchIndex = computed(() => new Map(
+    props.results.map((result, index) => [
+        result.matchIndex,
+        index,
+    ]),
+));
 
 const isQueryTooShort = computed(() => {
     const min = minQueryLength.value;

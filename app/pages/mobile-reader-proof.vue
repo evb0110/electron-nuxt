@@ -185,6 +185,7 @@
                     :annotation-tool="'none'"
                     :search-page-matches="pageMatches"
                     :current-search-match="currentResult"
+                    :current-search-match-navigation-id="currentResultNavigationId"
                     :working-copy-path="workingCopyPath"
                     @update:zoom="zoom = $event"
                     @update:zoom-mode="zoomMode = $event"
@@ -249,6 +250,7 @@ const {
     search,
     pageMatches,
     currentResult,
+    currentResultNavigationId,
     currentMatch,
     totalMatches,
     isSearching,

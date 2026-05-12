@@ -41,6 +41,7 @@ export const usePdfSearch = () => {
     const results = ref<IPdfSearchMatch[]>([]);
     const pageMatches = ref<Map<number, IPdfPageMatches>>(new Map());
     const currentResultIndex = ref(-1);
+    const currentResultNavigationId = ref(0);
     const isSearching = ref(false);
     const searchError = ref<string | null>(null);
     const searchProgress = ref<{
@@ -171,8 +172,10 @@ export const usePdfSearch = () => {
 
         if (currentResultIndex.value < 0) {
             currentResultIndex.value = 0;
+            currentResultNavigationId.value += 1;
         } else if (currentResultIndex.value >= mergedResults.length) {
             currentResultIndex.value = mergedResults.length - 1;
+            currentResultNavigationId.value += 1;
         }
     }
 
@@ -405,11 +408,15 @@ export const usePdfSearch = () => {
                 ? results.value.length - 1
                 : currentResultIndex.value - 1;
         }
+        currentResultNavigationId.value += 1;
     }
 
     function setResultIndex(index: number) {
         if (index >= 0 && index < results.value.length) {
-            currentResultIndex.value = index;
+            if (currentResultIndex.value !== index) {
+                currentResultIndex.value = index;
+            }
+            currentResultNavigationId.value += 1;
         }
     }
 
@@ -460,6 +467,7 @@ export const usePdfSearch = () => {
         results,
         pageMatches,
         currentResultIndex,
+        currentResultNavigationId,
         currentResult,
         isSearching,
         searchError,
