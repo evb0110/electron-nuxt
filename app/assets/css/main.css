@@ -214,7 +214,6 @@
     --app-pdf-note-delete-fg: #a61414;
     --app-pdf-note-shadow: 0 14px 28px rgb(0 0 0 / 16%), 0 4px 10px rgb(0 0 0 / 8%);
     --app-pdf-popover-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
-    --app-pdf-control-thumb-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
     --app-notes-item-selected-ring: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
     --app-pdf-color-swatch-border: color-mix(in srgb, var(--ui-border) 80%, var(--ui-text) 20%);
     --app-pdf-shape-default-fill: var(--ui-bg);
@@ -450,7 +449,6 @@
     --app-pdf-note-delete-fg: #f08080;
     --app-pdf-note-shadow: 0 14px 28px rgb(0 0 0 / 40%), 0 4px 10px rgb(0 0 0 / 25%);
     --app-pdf-popover-shadow: 0 4px 12px rgb(0 0 0 / 0.35);
-    --app-pdf-control-thumb-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
     --app-pdf-color-swatch-border: color-mix(in srgb, var(--ui-border) 74%, var(--ui-text) 26%);
     --app-pdf-style-active-border: color-mix(in srgb, var(--ui-primary) 58%, var(--ui-border) 42%);
     --app-pdf-style-active-bg: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg-elevated) 84%);
