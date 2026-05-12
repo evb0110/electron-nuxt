@@ -23,6 +23,8 @@
         :is-placing-page-note="snapshot.isPlacingPageNote"
         :has-ocr-action="canUseOcr"
         :surface="toolbarSurface"
+        :is-fullscreen="isFullscreen"
+        :fullscreen-supported="fullscreenSupported"
         @open-file="emit('open-file')"
         @open-settings="emit('open-settings')"
         @save="emit('save')"
@@ -40,6 +42,7 @@
         @capture-region="emit('capture-region')"
         @crop="emit('crop')"
         @quick-note="emit('quick-note')"
+        @toggle-fullscreen="emit('toggle-fullscreen')"
     >
         <template #app-menu>
             <ToolbarAppMenu
@@ -146,6 +149,8 @@
                 can-print-current-page
                 :can-convert-to-pdf="canUseDjvu && snapshot.isDjvuMode"
                 :is-preparing-print="snapshot.isPreparingPrint"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
                 trigger-icon="i-ph-dots-three"
                 @update:open="emit('update:overflowMenuOpen', $event)"
                 @capture-region="emit('capture-region')"
@@ -162,6 +167,7 @@
                 @combine-images="emit('combine-images')"
                 @print-current-page="emit('print-current-page')"
                 @convert-to-pdf="emit('convert-to-pdf')"
+                @toggle-fullscreen="emit('toggle-fullscreen')"
             />
         </template>
     </PdfToolbar>
@@ -188,6 +194,8 @@ const props = defineProps<{
     pageDropdownOpen: boolean;
     overflowMenuOpen: boolean;
     appMenuOpen: boolean;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
 }>();
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
@@ -236,6 +244,7 @@ const emit = defineEmits<{
     'capture-region': [];
     'crop': [];
     'quick-note': [];
+    'toggle-fullscreen': [];
     'set-view-mode': [mode: TPdfViewMode];
     'go-to-page': [];
     'ocr-complete': [];

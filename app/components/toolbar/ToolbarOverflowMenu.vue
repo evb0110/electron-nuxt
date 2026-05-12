@@ -253,8 +253,8 @@
                         <button
                             v-if="shouldShowMenuCommand('fullscreen')"
                             class="overflow-menu-item"
-                            :disabled="!fullscreenSupported"
-                            @click="toggleFullscreen(); close()"
+                            :disabled="!hasInteractiveDocument || !fullscreenSupported"
+                            @click="emit('toggle-fullscreen'); close()"
                         >
                             <UIcon :name="isFullscreen ? 'i-ph-corners-in' : 'i-ph-corners-out'" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('toolbar.fullscreen') }}</span>
@@ -313,6 +313,8 @@ interface IProps {
     isCropSelecting: boolean
     isPlacingPageNote: boolean
     documentBusy?: boolean
+    isFullscreen?: boolean
+    fullscreenSupported?: boolean
     surface?: IReaderCommandSurface
     triggerIcon: string
     showDocumentSection?: boolean
@@ -338,23 +340,20 @@ const emit = defineEmits<{
     (e: 'capture-region'): void
     (e: 'crop'): void
     (e: 'quick-note'): void
+    (e: 'toggle-fullscreen'): void
     (e: 'open-settings'): void
     (e: 'combine-images'): void
     (e: 'print-current-page'): void
     (e: 'convert-to-pdf'): void
 }>();
 
-const {
-    isFullscreen,
-    isSupported: fullscreenSupported,
-    toggleFullscreen,
-} = useFullscreen();
-
 const isOpen = computed({
     get: () => props.open,
     set: (value: boolean) => emit('update:open', value),
 });
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
+const isFullscreen = computed(() => props.isFullscreen === true);
+const fullscreenSupported = computed(() => props.fullscreenSupported !== false);
 const triggerRef = ref<HTMLElement | null>(null);
 const contentOptions = {
     side: 'bottom' as const,

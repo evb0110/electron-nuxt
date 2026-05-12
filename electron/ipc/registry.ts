@@ -41,7 +41,11 @@ import {
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
 import { registerRendererLogBridge } from '@electron/ipc/renderer-log-bridge';
-import { snapshotHostEnvironmentForWindow } from '@electron/host-environment';
+import {
+    setHostZenModeForWindow,
+    snapshotHostEnvironmentForWindow,
+    snapshotHostZenModeForWindow,
+} from '@electron/host-environment';
 
 export { normalizeRendererLogEntry } from '@electron/ipc/renderer-log-bridge';
 
@@ -312,6 +316,16 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     registrar.handle('host:getEnvironment', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         return snapshotHostEnvironmentForWindow(window);
+    });
+
+    registrar.handle('host:getZenModeState', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        return snapshotHostZenModeForWindow(window);
+    });
+
+    registrar.handle('host:setZenMode', (event, active: unknown) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        return setHostZenModeForWindow(window, active === true);
     });
 }
 

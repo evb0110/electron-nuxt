@@ -10,7 +10,10 @@ import type {
     IMenuEventUnsubscribe,
     IRendererLogEntry,
 } from '@contracts/electron-api-common';
-import type { IHostEnvironmentSnapshot } from '@contracts/electron-api-host';
+import type {
+    IHostEnvironmentSnapshot,
+    IHostZenModeState,
+} from '@contracts/electron-api-host';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTransferAck,
@@ -93,6 +96,14 @@ interface ICoreInvokeMap {
         args: [];
         result: IHostEnvironmentSnapshot;
     };
+    'host:getZenModeState': {
+        args: [];
+        result: IHostZenModeState;
+    };
+    'host:setZenMode': {
+        args: [active: boolean];
+        result: IHostZenModeState;
+    };
 }
 
 interface ICoreEventMap {
@@ -109,6 +120,7 @@ interface ICoreEventMap {
     'menu:copyTabToGroup': 'left' | 'right' | 'up' | 'down';
     'debug:log': IDebugLogEntry;
     'host:environmentChanged': IHostEnvironmentSnapshot;
+    'host:zenModeChanged': IHostZenModeState;
 }
 
 function stringifyDetails(details?: Record<string, unknown>) {
@@ -231,6 +243,10 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             getEnvironment: () => invokeCore('host:getEnvironment'),
             onEnvironmentChange: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onPayload('host:environmentChanged', callback),
+            getZenModeState: () => invokeCore('host:getZenModeState'),
+            setZenMode: (active: boolean) => invokeCore('host:setZenMode', active),
+            onZenModeChange: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload('host:zenModeChanged', callback),
         },
 
         windowTabs: {

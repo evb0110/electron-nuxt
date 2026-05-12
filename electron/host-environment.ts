@@ -1,7 +1,16 @@
-import { screen } from 'electron';
-import type { BrowserWindow } from 'electron';
+import {
+    globalShortcut,
+    screen,
+} from 'electron';
+import type {
+    BrowserWindow,
+    Event,
+    Input,
+    Rectangle,
+} from 'electron';
 import type {
     IHostEnvironmentSnapshot,
+    IHostZenModeState,
     THostPlatform,
 } from '@contracts/electron-api-host';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
@@ -11,6 +20,20 @@ import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('host-env');
 
 const HOST_ENV_CHANGE_CHANNEL = 'host:environmentChanged';
+const HOST_ZEN_MODE_CHANGE_CHANNEL = 'host:zenModeChanged';
+const ZEN_ESCAPE_ACCELERATOR = 'Esc';
+const ZEN_EXIT_SETTLE_MS = 140;
+const ZEN_STATE_EVENT_TIMEOUT_MS = 220;
+
+interface IZenWindowPlacement {
+    bounds: Rectangle;
+    wasMaximized: boolean;
+}
+
+const zenWindowPlacementByWindow = new WeakMap<BrowserWindow, IZenWindowPlacement>();
+const zenExitInProgressByWindow = new WeakSet<BrowserWindow>();
+let zenEscapeShortcutWindow: BrowserWindow | null = null;
+let zenEscapeShortcutRegistered = false;
 
 function resolvePlatform(): THostPlatform {
     if (process.platform === 'darwin') {
@@ -51,6 +74,249 @@ export function snapshotHostEnvironmentForWindow(window: BrowserWindow | null): 
     };
 }
 
+function isWindowInHostZenMode(window: BrowserWindow) {
+    return process.platform === 'darwin'
+        ? window.isSimpleFullScreen() || window.isFullScreen()
+        : window.isFullScreen();
+}
+
+function delay(ms: number) {
+    return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        timer.unref?.();
+    });
+}
+
+function focusZenWindowContents(window: BrowserWindow) {
+    if (window.isDestroyed()) {
+        return;
+    }
+
+    try {
+        window.focus();
+        window.webContents.focus();
+    } catch (error) {
+        logger.warn(`Failed to focus zen window contents: ${getErrorMessage(error)}`);
+    }
+}
+
+function handleZenEscapeShortcut() {
+    const window = zenEscapeShortcutWindow;
+    if (!window || window.isDestroyed() || !isWindowInHostZenMode(window)) {
+        unregisterZenEscapeShortcut(window);
+        return;
+    }
+
+    if (!window.isFocused()) {
+        return;
+    }
+
+    void setHostZenModeForWindow(window, false).catch((error: unknown) => {
+        logger.warn(`Failed to exit zen mode from Escape shortcut: ${getErrorMessage(error)}`);
+    });
+}
+
+function registerZenEscapeShortcut(window: BrowserWindow) {
+    zenEscapeShortcutWindow = window;
+    if (zenEscapeShortcutRegistered) {
+        return;
+    }
+
+    try {
+        zenEscapeShortcutRegistered = globalShortcut.register(
+            ZEN_ESCAPE_ACCELERATOR,
+            handleZenEscapeShortcut,
+        );
+    } catch (error) {
+        logger.warn(`Failed to register zen Escape shortcut: ${getErrorMessage(error)}`);
+        zenEscapeShortcutRegistered = false;
+    }
+
+    if (!zenEscapeShortcutRegistered) {
+        logger.warn('Zen Escape shortcut was not registered');
+    }
+}
+
+function unregisterZenEscapeShortcut(window: BrowserWindow | null) {
+    if (window && zenEscapeShortcutWindow !== window) {
+        return;
+    }
+
+    zenEscapeShortcutWindow = null;
+    if (!zenEscapeShortcutRegistered) {
+        return;
+    }
+
+    try {
+        globalShortcut.unregister(ZEN_ESCAPE_ACCELERATOR);
+    } catch (error) {
+        logger.warn(`Failed to unregister zen Escape shortcut: ${getErrorMessage(error)}`);
+    } finally {
+        zenEscapeShortcutRegistered = false;
+    }
+}
+
+function captureZenWindowPlacement(window: BrowserWindow) {
+    if (zenWindowPlacementByWindow.has(window)) {
+        return;
+    }
+
+    try {
+        zenWindowPlacementByWindow.set(window, {
+            bounds: window.getBounds(),
+            wasMaximized: window.isMaximized(),
+        });
+    } catch (error) {
+        logger.warn(`Failed to capture pre-zen window placement: ${getErrorMessage(error)}`);
+    }
+}
+
+function resolveZenRestoreBounds(placement: IZenWindowPlacement) {
+    if (!placement.wasMaximized) {
+        return placement.bounds;
+    }
+
+    try {
+        return screen.getDisplayMatching(placement.bounds).workArea;
+    } catch (error) {
+        logger.warn(`Failed to resolve maximized restore bounds: ${getErrorMessage(error)}`);
+        return placement.bounds;
+    }
+}
+
+function restoreZenWindowPlacement(
+    window: BrowserWindow,
+    options: { preservePlacement?: boolean } = {},
+) {
+    if (window.isDestroyed() || isWindowInHostZenMode(window)) {
+        return;
+    }
+
+    const placement = zenWindowPlacementByWindow.get(window);
+    if (!placement) {
+        return;
+    }
+
+    try {
+        window.setBounds(resolveZenRestoreBounds(placement), false);
+        focusZenWindowContents(window);
+    } catch (error) {
+        logger.warn(`Failed to restore pre-zen window placement: ${getErrorMessage(error)}`);
+    }
+
+    if (options.preservePlacement !== true) {
+        zenWindowPlacementByWindow.delete(window);
+    }
+}
+
+async function waitForHostZenModeState(window: BrowserWindow, active: boolean) {
+    if (window.isDestroyed() || isWindowInHostZenMode(window) === active) {
+        return;
+    }
+
+    await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            if (active) {
+                window.removeListener('enter-full-screen', finish);
+            } else {
+                window.removeListener('leave-full-screen', finish);
+            }
+            resolve();
+        };
+        const timer = setTimeout(finish, ZEN_STATE_EVENT_TIMEOUT_MS);
+        timer.unref?.();
+        if (active) {
+            window.once('enter-full-screen', finish);
+        } else {
+            window.once('leave-full-screen', finish);
+        }
+    });
+}
+
+export function snapshotHostZenModeForWindow(window: BrowserWindow | null): IHostZenModeState {
+    if (!window || window.isDestroyed()) {
+        return {
+            active: false,
+            supported: false,
+        };
+    }
+
+    return {
+        active: isWindowInHostZenMode(window),
+        supported: true,
+    };
+}
+
+export async function setHostZenModeForWindow(
+    window: BrowserWindow | null,
+    active: boolean,
+): Promise<IHostZenModeState> {
+    if (!window || window.isDestroyed()) {
+        return {
+            active: false,
+            supported: false,
+        };
+    }
+
+    const currentlyActive = isWindowInHostZenMode(window);
+    if (active) {
+        if (!currentlyActive) {
+            captureZenWindowPlacement(window);
+        }
+
+        if (process.platform === 'darwin') {
+            window.setSimpleFullScreen(true);
+        } else {
+            window.setFullScreen(true);
+        }
+        registerZenEscapeShortcut(window);
+        focusZenWindowContents(window);
+
+        const snapshot = {
+            active: true,
+            supported: true,
+        };
+        broadcastHostZenModeForWindow(window, snapshot);
+        return snapshot;
+    } else {
+        zenExitInProgressByWindow.add(window);
+        try {
+            if (process.platform === 'darwin') {
+                if (window.isSimpleFullScreen()) {
+                    window.setSimpleFullScreen(false);
+                }
+                if (window.isFullScreen()) {
+                    window.setFullScreen(false);
+                }
+            } else {
+                window.setFullScreen(false);
+            }
+
+            restoreZenWindowPlacement(window, {preservePlacement: true});
+            await waitForHostZenModeState(window, false);
+            restoreZenWindowPlacement(window, {preservePlacement: true});
+            await delay(ZEN_EXIT_SETTLE_MS);
+            restoreZenWindowPlacement(window);
+        } finally {
+            zenExitInProgressByWindow.delete(window);
+            unregisterZenEscapeShortcut(window);
+        }
+    }
+
+    const snapshot = {
+        active: isWindowInHostZenMode(window),
+        supported: true,
+    };
+    broadcastHostZenModeForWindow(window, snapshot);
+    return snapshot;
+}
+
 function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
     if (window.isDestroyed()) {
         return;
@@ -60,6 +326,21 @@ function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
         window.webContents.send(HOST_ENV_CHANGE_CHANNEL, snapshot);
     } catch (error) {
         logger.warn(`Failed to send host environment update: ${getErrorMessage(error)}`);
+    }
+}
+
+function broadcastHostZenModeForWindow(
+    window: BrowserWindow,
+    snapshot = snapshotHostZenModeForWindow(window),
+) {
+    if (window.isDestroyed()) {
+        return;
+    }
+
+    try {
+        window.webContents.send(HOST_ZEN_MODE_CHANGE_CHANNEL, snapshot);
+    } catch (error) {
+        logger.warn(`Failed to send host zen mode update: ${getErrorMessage(error)}`);
     }
 }
 
@@ -90,11 +371,42 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     const handleMove = () => {
         broadcastHostEnvironmentForWindow(window);
     };
+    const handleZenModeChange = () => {
+        const isManagedExit = zenExitInProgressByWindow.has(window);
+        restoreZenWindowPlacement(window, {preservePlacement: isManagedExit});
+        if (!isWindowInHostZenMode(window)) {
+            unregisterZenEscapeShortcut(window);
+        } else {
+            registerZenEscapeShortcut(window);
+            focusZenWindowContents(window);
+        }
+
+        if (!isManagedExit) {
+            broadcastHostZenModeForWindow(window);
+        }
+    };
+    const handleBeforeInputEvent = (event: Event, input: Input) => {
+        if (input.type !== 'keyDown' || input.key !== 'Escape' || !isWindowInHostZenMode(window)) {
+            return;
+        }
+
+        event.preventDefault();
+        void setHostZenModeForWindow(window, false);
+    };
 
     window.on('move', handleMove);
     window.on('moved', handleMove);
+    window.on('enter-full-screen', handleZenModeChange);
+    window.on('leave-full-screen', handleZenModeChange);
+    window.webContents.on('before-input-event', handleBeforeInputEvent);
     window.once('closed', () => {
         window.removeListener('move', handleMove);
         window.removeListener('moved', handleMove);
+        window.removeListener('enter-full-screen', handleZenModeChange);
+        window.removeListener('leave-full-screen', handleZenModeChange);
+        window.webContents.removeListener('before-input-event', handleBeforeInputEvent);
+        zenWindowPlacementByWindow.delete(window);
+        zenExitInProgressByWindow.delete(window);
+        unregisterZenEscapeShortcut(window);
     });
 }

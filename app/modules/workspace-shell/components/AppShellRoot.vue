@@ -1,5 +1,8 @@
 <template>
-    <div class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
+    <div
+        class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]"
+        :class="{ 'is-zen-mode': isFullscreen }"
+    >
         <div v-if="showBrowserInstallHint" class="browser-install-hint">
             <UIcon name="i-ph-download-simple" class="browser-install-icon" />
             <a
@@ -33,6 +36,8 @@
                 :page-dropdown-open="fallbackPageDropdownOpen"
                 :overflow-menu-open="fallbackOverflowMenuOpen"
                 :app-menu-open="fallbackAppMenuOpen"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
                 @update:ocr-popup-open="fallbackOcrPopupOpen = $event"
                 @update:zoom-dropdown-open="fallbackZoomDropdownOpen = $event"
                 @update:page-dropdown-open="fallbackPageDropdownOpen = $event"
@@ -72,6 +77,7 @@
                 @disable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleDisableDragMode())"
                 @capture-region="runFallbackWorkspaceAction((workspace) => workspace.handleCaptureRegion())"
                 @quick-note="runFallbackWorkspaceAction((workspace) => workspace.handleQuickNote())"
+                @toggle-fullscreen="handleToggleFullscreen"
                 @set-view-mode="handleFallbackOverflowSetViewMode"
                 @go-to-page="noopFallbackAction"
                 @ocr-complete="noopFallbackAction"
@@ -94,6 +100,10 @@
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
             :start-section-by-tab-id="startSectionByTabId"
+            :zen-mode="isFullscreen"
+            :zen-active-tab-id="activeTabId"
+            :is-fullscreen="isFullscreen"
+            :fullscreen-supported="fullscreenSupported"
             @activate-group="activateGroup"
             @activate-tab="activateTab"
             @close-tab="handleCloseTab"
@@ -108,6 +118,7 @@
             @request-close-tab="handleCloseTab"
             @open-settings="openSettingsPage"
             @open-combine="openCombinePage"
+            @toggle-fullscreen="handleToggleFullscreen"
             @update-split-ratio="setSplitRatio"
         />
 
@@ -138,6 +149,7 @@
 </template>
 
 <script setup lang="ts">
+import { useEventListener } from '@vueuse/core';
 import { guardAsync } from '@app/utils/async-guard';
 import { BROWSER_INSTALL_HINT_COOKIE_KEY } from '@app/utils/browser-runtime-persistence';
 import { resolveAppWindowTitle } from '@app/utils/app-window-title';
@@ -172,6 +184,7 @@ import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/
 import type { TPdfViewMode } from '@contracts/shared';
 import type { TStartSection } from '@app/types/start-page';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { IHostZenModeState } from '@contracts/electron-api-host';
 import type { TOpenFileResult } from '@contracts/platform-api';
 import { getPlatformAPI } from '@app/utils/platform';
 
@@ -206,6 +219,9 @@ const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const isStartupOpenClaimPending = ref(false);
 const { isBrowserRuntime } = useRuntimeEnvironment();
+const isFullscreen = ref(false);
+const fullscreenSupported = ref(true);
+let zenModeRequestInFlight = false;
 const runtimeConfig = useRuntimeConfig();
 const browserInstallHintCookie = useCookie<string | null>(
     BROWSER_INSTALL_HINT_COOKIE_KEY,
@@ -322,6 +338,85 @@ function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Pro
         });
     }
 }
+
+function activeWorkspaceHasDocument() {
+    const workspace = activeWorkspace.value;
+    if (!workspace) {
+        return false;
+    }
+
+    const snapshot = workspace.getToolbarSnapshot();
+    return snapshot.hasPdf || snapshot.isDjvuMode;
+}
+
+function handleToggleFullscreen() {
+    if (!fullscreenSupported.value || (!isFullscreen.value && !activeWorkspaceHasDocument())) {
+        return;
+    }
+
+    setZenMode(!isFullscreen.value);
+}
+
+function applyZenModeState(state: IHostZenModeState) {
+    fullscreenSupported.value = state.supported;
+    isFullscreen.value = state.active;
+}
+
+function setZenMode(active: boolean) {
+    if (zenModeRequestInFlight || active === isFullscreen.value) {
+        return;
+    }
+
+    const previousActive = isFullscreen.value;
+    if (active) {
+        isFullscreen.value = true;
+    }
+    zenModeRequestInFlight = true;
+
+    guardAsync(
+        getPlatformAPI().host.setZenMode(active)
+            .then(applyZenModeState)
+            .catch((error: unknown) => {
+                isFullscreen.value = previousActive;
+                throw error;
+            })
+            .finally(() => {
+                zenModeRequestInFlight = false;
+            }),
+        {
+            scope: 'shell',
+            message: 'Failed to toggle zen mode',
+        },
+    );
+}
+
+useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || !isFullscreen.value) {
+        return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setZenMode(false);
+}, { capture: true });
+
+let unsubscribeZenModeChange: (() => void) | null = null;
+
+onMounted(() => {
+    guardAsync(
+        getPlatformAPI().host.getZenModeState().then(applyZenModeState),
+        {
+            scope: 'shell',
+            message: 'Failed to read zen mode state',
+        },
+    );
+    unsubscribeZenModeChange = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+});
+
+onUnmounted(() => {
+    unsubscribeZenModeChange?.();
+    unsubscribeZenModeChange = null;
+});
 
 const {
     fallbackAppMenuOpen,
@@ -814,6 +909,12 @@ useAppShellLifecycle({
     height: 1.9rem;
     min-height: 1.9rem;
     flex: 0 0 1.9rem;
+}
+
+.app-shell-root.is-zen-mode .browser-install-hint,
+.app-shell-root.is-zen-mode .editor-global-toolbar-shell,
+.app-shell-root.is-zen-mode .editor-global-status-host {
+    display: none !important;
 }
 
 @media (width <= 900px) {

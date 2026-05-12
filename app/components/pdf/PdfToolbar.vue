@@ -272,8 +272,8 @@
                 :icon="isFullscreen ? 'ph:corners-in' : 'ph:corners-out'"
                 :tooltip="t('toolbar.fullscreen')"
                 :active="isFullscreen"
-                :disabled="!fullscreenSupported"
-                @click="toggleFullscreen()"
+                :disabled="!hasInteractiveDocument || !fullscreenSupported"
+                @click="emit('toggle-fullscreen')"
             />
             <ToolbarButton
                 v-if="isCommandInline('settings')"
@@ -300,10 +300,14 @@ const {
     surface = undefined,
     variant = 'editor',
     documentBusy = false,
+    isFullscreen = false,
+    fullscreenSupported = true,
 } = defineProps<{
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
     documentBusy?: boolean;
+    isFullscreen?: boolean;
+    fullscreenSupported?: boolean;
     hasOcrAction?: boolean;
     canToggleSidebar?: boolean;
     canSave: boolean;
@@ -349,15 +353,10 @@ const emit = defineEmits<{
     'capture-region': [];
     'crop': [];
     'quick-note': [];
+    'toggle-fullscreen': [];
 }>();
 
 const { t } = useTypedI18n();
-
-const {
-    isFullscreen,
-    isSupported: fullscreenSupported,
-    toggleFullscreen,
-} = useFullscreen();
 
 const shortcutLabels = getShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy);
