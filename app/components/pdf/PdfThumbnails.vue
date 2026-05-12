@@ -77,6 +77,7 @@ interface IProps {
         id: number;
         pages: number[];
     } | null;
+    isActive?: boolean;
 }
 
 const THUMBNAIL_GAP = 8;
@@ -95,6 +96,13 @@ const AUTO_SYNC_COMFORT_PADDING_MIN_PX = 16;
 const AUTO_SYNC_COMFORT_PADDING_MAX_PX = 48;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
 const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
+const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
+const AUTO_SYNC_ACTIVATION_RETRY_DELAYS_MS = [
+    0,
+    50,
+    150,
+    350,
+] as const;
 const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 
 const props = defineProps<IProps>();
@@ -138,6 +146,7 @@ let lastProgrammaticScrollAtMs = 0;
 let currentPageSyncRunId = 0;
 let thumbnailSourceCycleId = 0;
 let manualScrollSourceCycleId = -1;
+const activePaneRefreshTimers = new Set<number>();
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
@@ -512,6 +521,17 @@ function isCurrentPageAutoSyncSuppressed() {
         && isThumbnailLayoutStabilizing();
 }
 
+function waitForNextFrame() {
+    return new Promise<void>((resolve) => {
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            resolve();
+            return;
+        }
+
+        window.requestAnimationFrame(() => resolve());
+    });
+}
+
 function isThumbnailLayoutStabilizing() {
     return (
         !hasResolvedThumbnailItemHeight
@@ -728,8 +748,10 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
         return null;
     }
 
-    const thumbnailTop = thumbnail.offsetTop;
-    const thumbnailBottom = thumbnailTop + thumbnail.offsetHeight;
+    const containerRect = container.getBoundingClientRect();
+    const thumbnailRect = thumbnail.getBoundingClientRect();
+    const thumbnailTop = container.scrollTop + thumbnailRect.top - containerRect.top;
+    const thumbnailBottom = thumbnailTop + thumbnailRect.height;
     const comfortPadding = getComfortPaddingPx(container);
     const scrollsTowardBottom = thumbnailBottom > (
         container.scrollTop + container.clientHeight - comfortPadding
@@ -739,6 +761,20 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
         : thumbnailTop - comfortPadding;
 
     return Math.max(0, Math.min(getMaxScrollTop(container), nextScrollTop));
+}
+
+function isThumbnailElementFullyVisible(container: HTMLElement, page: number) {
+    const thumbnail = getThumbnailElement(page);
+    if (!thumbnail) {
+        return false;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const thumbnailRect = thumbnail.getBoundingClientRect();
+    return (
+        thumbnailRect.top >= containerRect.top
+        && thumbnailRect.bottom <= containerRect.bottom
+    );
 }
 
 function applyThumbnailScrollTop(container: HTMLElement, nextScrollTop: number) {
@@ -753,24 +789,20 @@ function applyThumbnailScrollTop(container: HTMLElement, nextScrollTop: number) 
     return true;
 }
 
-function resolveCurrentPageSyncRequest(reason: string) {
+function resolveCurrentPageSyncRequest(
+    reason: string,
+    options: { force?: boolean } = {},
+) {
     const container = resolveVisibleContainer(`current-page-sync:${reason}`);
     if (
         !container ||
         props.totalPages <= 0 ||
         isDragging.value ||
         isExternalDragOver.value ||
-        isCurrentPageAutoSyncSuppressed()
+        (!options.force && isCurrentPageAutoSyncSuppressed())
     ) {
         return null;
     }
-    if (
-        shouldPreferVisibleAnchorOverCurrentPage()
-        && (manualScrollSourceCycleId === thumbnailSourceCycleId || isThumbnailLayoutStabilizing())
-    ) {
-        return null;
-    }
-
     const targetScrollTop = resolveCurrentPageSyncScrollTop(container, props.currentPage);
     return targetScrollTop === null ? null : {
         container,
@@ -783,8 +815,11 @@ async function isCurrentPageSyncRunActive(syncRunId: number) {
     return syncRunId === currentPageSyncRunId;
 }
 
-function applyRefinedCurrentPageSync(container: HTMLElement) {
-    if (isCurrentPageAutoSyncSuppressed()) {
+function applyRefinedCurrentPageSync(
+    container: HTMLElement,
+    options: { force?: boolean } = {},
+) {
+    if (!options.force && isCurrentPageAutoSyncSuppressed()) {
         return;
     }
 
@@ -805,6 +840,10 @@ function isContainerVisible(container: HTMLElement) {
 }
 
 function resolveVisibleContainer(reason: string) {
+    if (props.isActive === false) {
+        return null;
+    }
+
     const container = containerRef.value;
     if (!container) {
         if (containerVisibilityState !== 'unknown') {
@@ -883,8 +922,11 @@ function updateViewportMetrics() {
     }
 }
 
-async function syncCurrentPageIntoView(reason: string) {
-    const request = resolveCurrentPageSyncRequest(reason);
+async function syncCurrentPageIntoView(
+    reason: string,
+    options: { force?: boolean } = {},
+) {
+    const request = resolveCurrentPageSyncRequest(reason, options);
     if (!request || !applyThumbnailScrollTop(request.container, request.targetScrollTop)) {
         return;
     }
@@ -894,7 +936,7 @@ async function syncCurrentPageIntoView(reason: string) {
         return;
     }
 
-    applyRefinedCurrentPageSync(request.container);
+    applyRefinedCurrentPageSync(request.container, options);
 }
 
 function findRenderedMeasurementItem(container: HTMLElement) {
@@ -1353,6 +1395,60 @@ const scheduleVisibleThumbnailRender = useDebounceFn(() => {
     });
 }, 20);
 
+async function refreshVisibleThumbnailPane(reason: string) {
+    if (props.isActive === false) {
+        return;
+    }
+
+    for (let attempt = 0; attempt < AUTO_SYNC_LAYOUT_RETRY_COUNT; attempt += 1) {
+        await nextTick();
+        await waitForNextFrame();
+        updateViewportMetrics();
+        await syncCurrentPageIntoView(reason, {force: true});
+        await nextTick();
+
+        const container = containerRef.value;
+        if (container && isContainerVisible(container) && isThumbnailElementFullyVisible(container, props.currentPage)) {
+            break;
+        }
+    }
+
+    void scheduleVisibleThumbnailRender();
+    void measureThumbnailHeight();
+}
+
+function clearActivePaneRefreshTimers() {
+    if (typeof window === 'undefined') {
+        activePaneRefreshTimers.clear();
+        return;
+    }
+
+    for (const timer of activePaneRefreshTimers) {
+        window.clearTimeout(timer);
+    }
+    activePaneRefreshTimers.clear();
+}
+
+function scheduleActivePaneRefresh(reason: string) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    if (props.isActive === false) {
+        clearActivePaneRefreshTimers();
+        return;
+    }
+
+    clearActivePaneRefreshTimers();
+    for (const delayMs of AUTO_SYNC_ACTIVATION_RETRY_DELAYS_MS) {
+        const timer = window.setTimeout(() => {
+            activePaneRefreshTimers.delete(timer);
+            void refreshVisibleThumbnailPane(reason);
+        }, delayMs);
+        activePaneRefreshTimers.add(timer);
+    }
+}
+
 async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
     const pageNum = Math.max(1, Math.min(props.totalPages, props.currentPage || 1));
     try {
@@ -1368,9 +1464,7 @@ async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId:
             'preload-viewport',
             {page: pageNum},
         );
-        void scheduleVisibleThumbnailRender();
-        void measureThumbnailHeight();
-        void syncCurrentPageIntoView('preload-viewport');
+        void refreshVisibleThumbnailPane('preload-viewport');
     } catch (error) {
         if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
             return;
@@ -1458,9 +1552,7 @@ watch(
                 return;
             }
 
-            void scheduleVisibleThumbnailRender();
-            void measureThumbnailHeight();
-            void syncCurrentPageIntoView('document-ready');
+            void refreshVisibleThumbnailPane('document-ready');
         });
     },
     { immediate: true },
@@ -1481,10 +1573,12 @@ watch(
 watch(
     () => props.currentPage,
     () => {
-        void scheduleVisibleThumbnailRender();
-        void syncCurrentPageIntoView('current-page');
+        scheduleActivePaneRefresh('current-page');
     },
-    { immediate: true },
+    {
+        flush: 'post',
+        immediate: true,
+    },
 );
 
 watch(
@@ -1493,13 +1587,31 @@ watch(
         if (Math.abs(nextHeight - previousHeight) < 1) {
             return;
         }
-        if (preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight)) {
+        void nextTick(() => {
+            if (preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight)) {
+                return;
+            }
+            if (isCurrentPageAutoSyncSuppressed()) {
+                return;
+            }
+            void syncCurrentPageIntoView('thumbnail-measure');
+        });
+    },
+);
+
+watch(
+    () => props.isActive ?? true,
+    (isActive) => {
+        if (!isActive) {
+            clearActivePaneRefreshTimers();
             return;
         }
-        if (isCurrentPageAutoSyncSuppressed()) {
-            return;
-        }
-        void syncCurrentPageIntoView('thumbnail-measure');
+
+        scheduleActivePaneRefresh('pane-active');
+    },
+    {
+        flush: 'post',
+        immediate: true,
     },
 );
 
@@ -1551,6 +1663,10 @@ watch(virtualPages, async () => {
     void scheduleVisibleThumbnailRender();
 });
 
+onMounted(() => {
+    scheduleActivePaneRefresh('mounted');
+});
+
 useResizeObserver(containerRef, () => {
     resolveVisibleContainer('resize-observer');
     updateViewportMetrics();
@@ -1560,6 +1676,7 @@ useResizeObserver(containerRef, () => {
 });
 
 onBeforeUnmount(() => {
+    clearActivePaneRefreshTimers();
     cancelAllRenders();
     renderRunId += 1;
     clearRenderedState();
@@ -1570,7 +1687,10 @@ onBeforeUnmount(() => {
 .pdf-thumbnails {
   position: relative;
   height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
   overflow: auto;
+  overflow-anchor: none;
   padding: 8px;
 }
 
