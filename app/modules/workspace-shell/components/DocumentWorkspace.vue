@@ -113,7 +113,7 @@
                         v-model:view-mode="viewMode"
                         :effective-zoom="effectiveZoom"
                         :open="zoomDropdownOpen"
-                        :disabled="!toolbarHasPdf || isDocumentBusy"
+                        :disabled="toolbarControlsDisabled"
                         :compact-level="collapseTier >= 1 ? 1 : 0"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:open="handleDropdownOpen('zoom', $event)"
@@ -123,10 +123,10 @@
                     <PdfPageDropdown
                         v-model="currentPage"
                         :open="pageDropdownOpen"
-                        :total-pages="totalPages"
+                        :total-pages="documentMetadataReady ? totalPages : 0"
                         :view-mode="viewMode"
-                        :page-labels="pageLabels"
-                        :disabled="!toolbarHasPdf || isDocumentBusy"
+                        :page-labels="documentMetadataReady ? pageLabels : null"
+                        :disabled="toolbarControlsDisabled"
                         :compact-level="collapseTier >= 3 ? 3 : collapseTier >= 2 ? 2 : collapseTier >= 1 ? 1 : 0"
                         @go-to-page="handleGoToPage"
                         @update:open="handleDropdownOpen('page', $event)"
@@ -645,6 +645,7 @@ const {
     exportScopeDialogSelectedPages,
     pageLabels,
     pageLabelRanges,
+    pageLabelsResolved,
     handlePageLabelRangesUpdate,
     bookmarkEditMode,
     handleBookmarksChange,
@@ -865,6 +866,14 @@ const canToggleSidebar = computed(() => (
 ));
 const isConversionBusy = computed(() => conversionState.value.isConverting);
 const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
+const documentMetadataReady = computed(() => (
+    toolbarHasPdf.value
+    && totalPages.value > 0
+    && pageLabelsResolved.value
+));
+const toolbarControlsDisabled = computed(() => (
+    !documentMetadataReady.value || isDocumentBusy.value
+));
 
 async function revealRecentFile(file: IRecentFile) {
     try {

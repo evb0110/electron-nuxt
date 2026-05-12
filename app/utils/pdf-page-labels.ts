@@ -495,6 +495,8 @@ export interface IPageIndicatorLayoutMetrics {
     displayWidthCh: number;
 }
 
+const PAGE_INDICATOR_MIN_TOTAL_WIDTH_CH = 3;
+
 export function getPageIndicatorLayoutMetrics(
     totalPages: number,
     pageLabels: string[] | null,
@@ -513,7 +515,10 @@ export function getPageIndicatorLayoutMetrics(
         };
     }
 
-    const totalWidthCh = Math.max(1, String(totalPages).length);
+    const totalWidthCh = Math.max(
+        PAGE_INDICATOR_MIN_TOTAL_WIDTH_CH,
+        String(totalPages).length,
+    );
     const separatorWidthCh = 1;
 
     return {

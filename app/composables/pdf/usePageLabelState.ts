@@ -31,6 +31,7 @@ export const usePageLabelState = (deps: {
     const pageLabels = ref<string[] | null>(null);
     const pageLabelRanges = ref<IPdfPageLabelRange[]>([]);
     const pageLabelsDirty = ref(false);
+    const pageLabelsResolved = ref(true);
 
     function materializePageLabels(
         totalPagesValue: number,
@@ -55,31 +56,38 @@ export const usePageLabelState = (deps: {
                 pageLabelRanges.value = [];
             }
             pageLabelsDirty.value = false;
+            pageLabelsResolved.value = true;
             onPageLabelsSynchronized?.();
             return;
         }
 
-        let labels: string[] | null = null;
-        try {
-            const raw = await doc.getPageLabels();
-            labels = raw && raw.length === doc.numPages ? raw : null;
-        } catch (error) {
-            BrowserLogger.debug(
-                'page-labels',
-                'Failed to read page labels from PDF document',
-                error,
-            );
-            labels = null;
-        }
+        pageLabelsResolved.value = false;
 
-        const nextRanges = derivePageLabelRangesFromLabels(
-            labels,
-            doc.numPages,
-        );
-        pageLabelRanges.value = nextRanges;
-        pageLabels.value = materializePageLabels(doc.numPages, nextRanges, labels);
-        pageLabelsDirty.value = false;
-        onPageLabelsSynchronized?.();
+        try {
+            let labels: string[] | null = null;
+            try {
+                const raw = await doc.getPageLabels();
+                labels = raw && raw.length === doc.numPages ? raw : null;
+            } catch (error) {
+                BrowserLogger.debug(
+                    'page-labels',
+                    'Failed to read page labels from PDF document',
+                    error,
+                );
+                labels = null;
+            }
+
+            const nextRanges = derivePageLabelRangesFromLabels(
+                labels,
+                doc.numPages,
+            );
+            pageLabelRanges.value = nextRanges;
+            pageLabels.value = materializePageLabels(doc.numPages, nextRanges, labels);
+            pageLabelsDirty.value = false;
+        } finally {
+            pageLabelsResolved.value = true;
+            onPageLabelsSynchronized?.();
+        }
     }
 
     function markPageLabelsSaved() {
@@ -118,6 +126,9 @@ export const usePageLabelState = (deps: {
     watch(
         pdfDocument,
         (doc) => {
+            if (doc) {
+                pageLabelsResolved.value = false;
+            }
             scheduleSyncPageLabelsFromDocument(doc);
         },
         { immediate: true },
@@ -127,6 +138,7 @@ export const usePageLabelState = (deps: {
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
+        pageLabelsResolved,
         syncPageLabelsFromDocument,
         markPageLabelsSaved,
         handlePageLabelRangesUpdate,
