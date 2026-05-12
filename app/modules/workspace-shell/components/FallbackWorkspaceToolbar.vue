@@ -104,7 +104,7 @@
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
                 :disabled="!hasPdf"
-                :compact-level="collapseTier >= 1 ? 1 : 0"
+                :compact-level="collapseTier >= 3 ? 2 : collapseTier >= 2 ? 1 : 0"
                 @update:effective-zoom="emit('update:effectiveZoom', $event)"
                 @update:open="emit('update:zoomDropdownOpen', $event)"
             />
