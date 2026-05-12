@@ -198,9 +198,9 @@ const menuStyle = computed(() => ({
 }
 
 .bookmarks-style-toggle.is-active {
-    border-color: var(--ui-primary);
-    color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 18%, var(--ui-bg) 82%);
+    border-color: var(--app-control-active-border);
+    color: var(--ui-text-highlighted);
+    background: var(--app-control-active-bg);
 }
 
 .bookmarks-context-menu-color-row {
@@ -217,7 +217,7 @@ const menuStyle = computed(() => ({
 }
 
 .bookmarks-color-swatch.is-active {
-    border-color: var(--ui-bg);
-    box-shadow: 0 0 0 1px var(--ui-bg), 0 0 0 3px var(--ui-primary);
+    border-color: var(--app-sidebar-bg);
+    box-shadow: 0 0 0 1px var(--app-sidebar-bg), 0 0 0 3px var(--ui-text);
 }
 </style>

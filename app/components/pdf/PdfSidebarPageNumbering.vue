@@ -625,8 +625,9 @@ watch(
 }
 
 .pdf-sidebar-pages-scope-option-active {
-    border-color: var(--ui-primary);
-    color: var(--ui-primary);
+    border-color: var(--app-control-active-border);
+    background: var(--app-control-active-bg);
+    color: var(--ui-text-highlighted);
 }
 
 .pdf-sidebar-pages-scope-input {

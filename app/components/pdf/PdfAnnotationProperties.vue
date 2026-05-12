@@ -313,9 +313,8 @@ function toggleFill() {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: var(--ui-primary);
-    border: 2px solid var(--ui-bg);
-    box-shadow: var(--app-pdf-control-thumb-shadow);
+    background: var(--ui-text);
+    border: 2px solid var(--app-sidebar-bg);
     cursor: pointer;
 }
 
