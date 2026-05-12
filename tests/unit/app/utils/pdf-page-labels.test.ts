@@ -190,6 +190,21 @@ describe('pdf-page-labels', () => {
         });
     });
 
+    it('reserves a stable placeholder total width when the document is empty', () => {
+        const emptyMetrics = getPageIndicatorLayoutMetrics(0, null, true);
+        const typicalMetrics = getPageIndicatorLayoutMetrics(348, null, true);
+
+        expect(emptyMetrics.totalWidthCh).toBe(3);
+        expect(emptyMetrics.displayWidthCh).toBe(typicalMetrics.displayWidthCh);
+    });
+
+    it('reserves a stable placeholder total width for short documents', () => {
+        const shortMetrics = getPageIndicatorLayoutMetrics(5, null, true);
+
+        expect(shortMetrics.totalWidthCh).toBe(3);
+        expect(shortMetrics.displayWidthCh).toBe(getPageIndicatorLayoutMetrics(348, null, true).displayWidthCh);
+    });
+
     it('prefers numeric page labels over physical page numbers when labels exist', () => {
         const totalPages = 348;
         const pageLabels = Array.from({ length: totalPages }, (_, index) => {
