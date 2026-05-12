@@ -396,6 +396,9 @@ watch(() => props.tabs, (tabs) => {
     background: var(--app-editor-group-active-tabbar-bg);
     border-bottom-color: var(--app-editor-group-active-tabbar-divider);
     box-shadow: inset 0 1px 0 var(--app-editor-group-active-tabbar-glow);
+
+    --app-tab-divider: var(--app-editor-group-active-tabbar-divider);
+    --app-tab-hover-bg: color-mix(in oklab, var(--app-editor-group-active-tabbar-bg) 55%, var(--ui-bg) 45%);
 }
 
 .editor-group-content {

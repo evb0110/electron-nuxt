@@ -509,7 +509,6 @@ onClickOutside(contextMenuRef, () => {
     overflow: auto hidden;
     min-width: 0;
     scrollbar-width: none;
-    padding-top: 0.25rem;
     padding-left: var(--app-tab-list-start-padding);
 }
 
@@ -533,26 +532,40 @@ onClickOutside(contextMenuRef, () => {
     position: relative;
     touch-action: none;
     -webkit-app-region: no-drag;
-    transition: color 0.12s ease;
+    transition: color 0.12s ease, background-color 0.12s ease;
 }
 
-.tab:hover {
+.tab:not(.is-active):hover {
     color: var(--ui-text);
+    background: var(--app-tab-hover-bg);
 }
 
 .tab.is-active {
     color: var(--ui-text);
+    background: var(--app-tab-active-bg);
+    border-top-left-radius: var(--app-tab-active-radius);
+    border-top-right-radius: var(--app-tab-active-radius);
+    margin-bottom: -1px;
+    z-index: 1;
 }
 
-.tab.is-active::before {
+.tab + .tab::before {
     content: '';
     position: absolute;
-    right: 0;
-    bottom: 0;
     left: 0;
-    height: 2px;
-    background: var(--ui-text);
+    top: 28%;
+    bottom: 28%;
+    width: 1px;
+    background: var(--app-tab-divider);
     pointer-events: none;
+    transition: opacity 0.12s ease;
+}
+
+.tab.is-active::before,
+.tab.is-active + .tab::before,
+.tab:hover::before,
+.tab:hover + .tab::before {
+    opacity: 0;
 }
 
 .tab-label {
@@ -570,6 +583,10 @@ onClickOutside(contextMenuRef, () => {
     border-radius: 50%;
     background: var(--ui-text-dimmed);
     margin: 0 0.1875rem;
+}
+
+.tab.is-active .tab-dirty-dot {
+    background: var(--ui-text);
 }
 
 .tab-close {
@@ -612,7 +629,7 @@ onClickOutside(contextMenuRef, () => {
     width: var(--app-tab-min-padding-x, 1.875rem);
     min-width: var(--app-tab-min-padding-x, 1.875rem);
     height: 100%;
-    margin-top: 0;
+    margin: 0 0 0 0.25rem;
     border: none;
     background: transparent;
     color: var(--ui-text-dimmed);
