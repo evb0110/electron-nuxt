@@ -1720,27 +1720,11 @@ onBeforeUnmount(() => {
 }
 
 .pdf-thumbnail:hover {
-  background: var(--ui-bg-muted);
-}
-
-.pdf-thumbnail.is-active {
-  background: var(--ui-bg-accented);
-}
-
-.pdf-thumbnail.is-active::before {
-  content: "";
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 0;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--ui-primary);
+  background: var(--app-sidebar-control-hover-bg);
 }
 
 .pdf-thumbnail.is-selected {
-  border-color: var(--ui-primary);
-  background: var(--ui-bg-elevated);
+  background: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-primary) 12%);
 }
 
 .pdf-thumbnail-canvas {
@@ -1750,12 +1734,18 @@ onBeforeUnmount(() => {
   max-width: 100%;
   border: 1px solid var(--ui-border);
   border-radius: 2px;
-  box-shadow: var(--app-pdf-thumbnail-shadow);
-  transition: box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .pdf-thumbnail.is-active .pdf-thumbnail-canvas {
-  box-shadow: var(--app-pdf-thumbnail-shadow-active);
+  border-color: var(--ui-text);
+  box-shadow: 0 0 0 1px var(--ui-text);
+}
+
+.pdf-thumbnail.is-selected .pdf-thumbnail-canvas {
+  border-color: var(--ui-primary);
 }
 
 .pdf-thumbnail-number {
@@ -1764,15 +1754,16 @@ onBeforeUnmount(() => {
   line-height: 16px;
   min-height: 16px;
   color: var(--ui-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .pdf-thumbnail.is-active .pdf-thumbnail-number {
-  color: var(--ui-primary);
+  color: var(--ui-text);
   font-weight: 600;
 }
 
 .pdf-thumbnail.is-selected .pdf-thumbnail-number {
-  color: var(--ui-primary);
+  color: var(--ui-text);
 }
 
 .pdf-thumbnail.is-dragged {

@@ -49,7 +49,8 @@ const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.resu
 <style lang="scss" scoped>
 .pdf-search-result {
     width: 100%;
-    border: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
     text-align: left;
     padding: 8px 12px;
     cursor: pointer;
@@ -58,11 +59,12 @@ const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.resu
 }
 
 .pdf-search-result:hover {
-    background: var(--ui-bg-muted);
+    background: var(--app-sidebar-control-hover-bg);
 }
 
 .pdf-search-result.is-active {
-    background: var(--ui-bg-accented);
+    border-color: var(--app-control-active-border);
+    background: var(--app-control-active-bg);
 }
 
 .pdf-search-result:focus-visible {
@@ -103,5 +105,9 @@ const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.resu
     background: var(--app-pdf-search-result-highlight-bg);
     color: var(--ui-text);
     font-weight: 700;
+}
+
+.pdf-search-result.is-active .pdf-search-result-highlight {
+    background: var(--app-pdf-search-result-highlight-current-bg);
 }
 </style>

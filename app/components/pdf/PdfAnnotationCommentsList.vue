@@ -316,22 +316,27 @@ function openComment(comment: IAnnotationCommentSummary) {
 
 .note-item {
     position: relative;
-    border: 1px solid var(--ui-border);
+    border: 1px solid var(--app-sidebar-border);
     border-radius: 0.55rem;
-    background: var(--ui-bg);
+    background: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-muted) 30%);
     color: var(--ui-text-highlighted);
     text-align: left;
     padding: 0.5rem;
     gap: 0.35rem;
     cursor: pointer;
+    transition:
+        background-color 0.12s ease,
+        border-color 0.12s ease;
+}
+
+.note-item:hover {
+    border-color: var(--ui-border);
+    background: color-mix(in oklab, var(--ui-bg) 82%, var(--ui-bg-muted) 18%);
 }
 
 .note-item.is-active {
-    border-color: var(--ui-primary);
-    border-width: 2px;
-    padding: calc(0.5rem - 1px);
-    background: color-mix(in oklab, var(--ui-primary) 8%, var(--ui-bg) 92%);
-    box-shadow: inset 3px 0 0 0 var(--ui-primary);
+    border-color: var(--ui-border);
+    background: var(--ui-bg);
 }
 
 .note-item-top {

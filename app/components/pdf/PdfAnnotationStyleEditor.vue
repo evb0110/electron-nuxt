@@ -366,10 +366,10 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .swatch.is-active {
-    border-color: var(--ui-bg);
+    border-color: var(--app-sidebar-bg);
     box-shadow:
-        0 0 0 1px var(--ui-bg),
-        0 0 0 3px var(--ui-primary);
+        0 0 0 1px var(--app-sidebar-bg),
+        0 0 0 3px var(--ui-text);
 }
 
 .style-range {
@@ -387,9 +387,8 @@ function applyDrawStyle(style: TDrawStyle) {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--ui-primary);
-    border: 2px solid var(--ui-bg);
-    box-shadow: var(--app-pdf-control-thumb-shadow);
+    background: var(--ui-text);
+    border: 2px solid var(--app-sidebar-bg);
     cursor: pointer;
 }
 
@@ -406,9 +405,9 @@ function applyDrawStyle(style: TDrawStyle) {
     border: 1px solid var(--ui-border);
     border-radius: 0.4rem;
     background: var(--ui-bg);
-    color: var(--ui-text-highlighted);
-    width: 1.8rem;
-    height: 1.8rem;
+    color: var(--ui-text);
+    width: 1.75rem;
+    height: 1.75rem;
     padding: 0;
     cursor: pointer;
 }
@@ -419,7 +418,8 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-step-button:hover {
-    border-color: var(--app-pdf-style-active-border);
+    background: var(--app-sidebar-control-hover-bg);
+    border-color: var(--app-control-active-hover-border);
 }
 
 .draw-style-row {
@@ -433,9 +433,9 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .draw-style-button {
-    border: 1px solid var(--ui-border);
+    border: 1px solid transparent;
     border-radius: 0.45rem;
-    background: var(--ui-bg);
+    background: transparent;
     color: var(--ui-text-muted);
     min-height: 1.9rem;
     font-size: 0.78rem;
@@ -444,9 +444,14 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .draw-style-button.is-active {
-    border-color: var(--app-pdf-style-active-border);
-    color: var(--ui-text-highlighted);
-    background: var(--app-pdf-style-active-bg);
+    border-color: var(--app-control-active-border);
+    color: var(--ui-text);
+    background: var(--app-control-active-bg);
+}
+
+.draw-style-button:hover {
+    background: var(--app-sidebar-control-hover-bg);
+    color: var(--ui-text);
 }
 
 @media (width <= 860px) {
