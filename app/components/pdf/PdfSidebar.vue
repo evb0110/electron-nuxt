@@ -78,6 +78,7 @@
                         :page-labels="pageLabels"
                         :selected-pages="selectedThumbnailPages"
                         :invalidation-request="thumbnailInvalidationRequest"
+                        :is-active="isOpen && activeTab === 'thumbnails'"
                         @go-to-page="emit('goToPage', $event)"
                         @update:selected-pages="handleSelectedPagesUpdate"
                         @page-context-menu="emit('page-context-menu', $event)"
@@ -427,6 +428,6 @@ const sidebarStyle = computed(() => {
 .pdf-sidebar-pages-thumbnails {
     flex: 1;
     min-height: 80px;
-    overflow: hidden auto;
+    overflow: hidden;
 }
 </style>
