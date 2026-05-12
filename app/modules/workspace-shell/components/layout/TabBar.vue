@@ -9,9 +9,11 @@
                 class="tab"
                 :class="{
                     'is-active': tab.id === activeTabId,
+                    'is-dirty': tab.isDirty,
                     'is-dragging': isDragging && dragIndex === index,
                 }"
                 :aria-label="resolveTabTitle(tab)"
+                :aria-description="tab.isDirty ? t('tabs.unsavedChanges') : undefined"
                 :aria-selected="tab.id === activeTabId"
                 :tabindex="tab.id === activeTabId ? 0 : -1"
                 @click="handleTabClick(tab.id)"
@@ -27,11 +29,6 @@
                 >
                     <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
                 </AppTooltip>
-                <span
-                    v-if="tab.isDirty"
-                    class="tab-dirty-dot"
-                    :aria-label="t('tabs.unsavedChanges')"
-                />
                 <button
                     type="button"
                     class="tab-close"
@@ -576,19 +573,6 @@ onClickOutside(contextMenuRef, () => {
     min-width: 0;
 }
 
-.tab-dirty-dot {
-    width: 0.5rem;
-    height: 0.5rem;
-    min-width: 0.5rem;
-    border-radius: 50%;
-    background: var(--ui-text-dimmed);
-    margin: 0 0.1875rem;
-}
-
-.tab.is-active .tab-dirty-dot {
-    background: var(--ui-text);
-}
-
 .tab-close {
     display: flex;
     align-items: center;
@@ -605,9 +589,42 @@ onClickOutside(contextMenuRef, () => {
     transition: opacity 0.1s ease, background-color 0.1s ease;
 }
 
+.tab.is-dirty .tab-close {
+    opacity: 1;
+    color: var(--ui-text-muted);
+}
+
+.tab.is-dirty .tab-close :deep(svg),
+.tab.is-dirty .tab-close :deep(.iconify) {
+    display: none;
+}
+
+.tab.is-dirty .tab-close::before {
+    content: '';
+    display: block;
+    width: var(--app-tab-dirty-dot-size, 0.4375rem);
+    height: var(--app-tab-dirty-dot-size, 0.4375rem);
+    flex: 0 0 var(--app-tab-dirty-dot-size, 0.4375rem);
+    border-radius: 50%;
+    background: currentcolor;
+}
+
+.tab.is-dirty .tab-close:hover:not(:disabled)::before {
+    display: none;
+}
+
+.tab.is-dirty .tab-close:hover:not(:disabled) :deep(svg),
+.tab.is-dirty .tab-close:hover:not(:disabled) :deep(.iconify) {
+    display: inline;
+}
+
 .tab-close:disabled {
     cursor: not-allowed;
     opacity: 0.35;
+}
+
+.tab.is-dirty .tab-close:disabled {
+    opacity: 1;
 }
 
 .tab:hover .tab-close:not(:disabled),

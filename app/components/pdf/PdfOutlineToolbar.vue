@@ -113,7 +113,7 @@ const displayModeOptions = computed<Array<{
     align-items: center;
     gap: 0.375rem;
     padding: 0.375rem 0.5rem;
-    border-bottom: 1px solid var(--ui-border);
+    border-bottom: 1px solid var(--app-sidebar-border);
 }
 
 .pdf-bookmarks-view-modes {
@@ -125,9 +125,9 @@ const displayModeOptions = computed<Array<{
 
 .pdf-bookmarks-view-mode-button,
 .pdf-bookmarks-icon-button {
-    border: 1px solid var(--ui-border);
+    border: 1px solid transparent;
     border-radius: 0.375rem;
-    background: var(--ui-bg);
+    background: transparent;
     color: var(--ui-text-muted);
     display: inline-flex;
     align-items: center;
@@ -139,14 +139,14 @@ const displayModeOptions = computed<Array<{
 
 .pdf-bookmarks-view-mode-button:hover,
 .pdf-bookmarks-icon-button:hover {
-    background: var(--ui-bg-muted);
-    color: var(--ui-text-highlighted);
+    background: var(--app-sidebar-control-hover-bg);
+    color: var(--ui-text);
 }
 
 .pdf-bookmarks-view-mode-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
-    color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
+    border-color: var(--app-control-active-border);
+    color: var(--ui-text);
+    background: var(--app-control-active-bg);
 }
 
 .pdf-bookmarks-toolbar-actions {

@@ -422,13 +422,17 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
     padding: 6px 8px;
     border-radius: 6px;
     cursor: pointer;
-    transition: background-color 0.15s;
+    border: 1px solid transparent;
+    transition:
+        background-color 0.15s,
+        border-color 0.15s,
+        color 0.15s;
     user-select: none;
     outline: none;
 }
 
 .pdf-bookmark-item-row:hover {
-    background: var(--ui-bg-muted);
+    background: var(--app-sidebar-control-hover-bg);
 }
 
 .pdf-bookmark-item-row:focus-visible {
@@ -436,16 +440,18 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 }
 
 .pdf-bookmark-item-row.is-active {
-    background: var(--ui-bg-accented);
-    color: var(--ui-primary);
+    border-color: var(--app-control-active-border);
+    background: var(--app-control-active-bg);
+    color: var(--ui-text);
 }
 
 .pdf-bookmark-item-row.is-selected:not(.is-active) {
-    background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg) 90%);
+    background: color-mix(in srgb, var(--ui-primary) 10%, var(--app-sidebar-bg) 90%);
 }
 
 .pdf-bookmark-item-row.is-editing {
-    background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-bg) 90%);
+    border-color: var(--app-control-active-border);
+    background: var(--app-control-active-bg);
 }
 
 .pdf-bookmark-item-row.is-dragging {

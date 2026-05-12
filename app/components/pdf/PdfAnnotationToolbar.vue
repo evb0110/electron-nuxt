@@ -16,7 +16,6 @@
                     @click="emit('set-tool', tool === toolItem.id ? 'none' : toolItem.id)"
                 >
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
-                    <span v-if="tool === toolItem.id" class="tool-button-active-indicator" aria-hidden="true" />
                 </button>
             </AppTooltip>
         </div>
@@ -113,38 +112,31 @@ const toolItems = computed<IToolItem[]>(() => [
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.5rem;
-    background: var(--ui-bg);
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    background: transparent;
     color: var(--ui-text-muted);
-    min-height: 2.1rem;
+    min-height: 2rem;
     cursor: pointer;
+    transition:
+        background-color 0.12s ease,
+        border-color 0.12s ease,
+        color 0.12s ease;
 }
 
 .tool-button:hover {
-    border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
-    color: var(--ui-text-highlighted);
+    background: var(--app-sidebar-control-hover-bg);
+    color: var(--ui-text);
 }
 
 .tool-button.is-active {
-    border-color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 22%, var(--ui-bg) 78%);
-    color: var(--ui-primary);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-primary) 24%, transparent);
+    border-color: var(--app-control-active-border);
+    background: var(--app-control-active-bg);
+    color: var(--ui-text);
 }
 
 .tool-button-icon {
     font-size: 0.95rem;
 }
 
-.tool-button-active-indicator {
-    position: absolute;
-    top: 0.32rem;
-    right: 0.32rem;
-    width: 0.36rem;
-    height: 0.36rem;
-    border-radius: 999px;
-    background: var(--ui-primary);
-    box-shadow: 0 0 0 1px var(--ui-bg);
-}
 </style>

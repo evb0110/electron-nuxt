@@ -55,28 +55,31 @@
         <div class="flex items-center gap-1">
             <UButton
                 label="Aa"
-                :variant="options.matchCase ? 'soft' : 'ghost'"
-                :color="options.matchCase ? 'primary' : 'neutral'"
+                variant="ghost"
+                color="neutral"
                 size="xs"
-                class="min-w-auto px-1.5 text-[11px] font-semibold"
+                class="search-option-chip min-w-auto px-1.5 text-[11px] font-semibold"
+                :class="{ 'is-active': options.matchCase }"
                 :aria-label="t('search.caseSensitive')"
                 @click="toggleOption('matchCase')"
             />
             <UButton
                 label="W"
-                :variant="options.wholeWord ? 'soft' : 'ghost'"
-                :color="options.wholeWord ? 'primary' : 'neutral'"
+                variant="ghost"
+                color="neutral"
                 size="xs"
-                class="min-w-auto px-1.5 text-[11px] font-semibold"
+                class="search-option-chip min-w-auto px-1.5 text-[11px] font-semibold"
+                :class="{ 'is-active': options.wholeWord }"
                 :aria-label="t('search.wholeWord')"
                 @click="toggleOption('wholeWord')"
             />
             <UButton
                 label=".*"
-                :variant="options.useRegex ? 'soft' : 'ghost'"
-                :color="options.useRegex ? 'primary' : 'neutral'"
+                variant="ghost"
+                color="neutral"
                 size="xs"
-                class="min-w-auto px-1.5 text-[11px] font-semibold"
+                class="search-option-chip min-w-auto px-1.5 text-[11px] font-semibold"
+                :class="{ 'is-active': options.useRegex }"
                 :aria-label="t('search.regex')"
                 @click="toggleOption('useRegex')"
             />
@@ -140,3 +143,21 @@ function toggleOption(key: keyof IProps['options']) {
 
 defineExpose({ focus });
 </script>
+
+<style scoped>
+.search-option-chip {
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+}
+
+.search-option-chip:hover {
+    background: var(--app-sidebar-control-hover-bg);
+    color: var(--ui-text);
+}
+
+.search-option-chip.is-active {
+    border-color: var(--app-control-active-border);
+    background: var(--app-control-active-bg);
+    color: var(--ui-text);
+}
+</style>

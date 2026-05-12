@@ -13,9 +13,9 @@
             size="sm"
             :ui="{
                 root: 'gap-0',
-                list: 'p-0 mb-0 rounded-none bg-transparent border-b border-default',
-                indicator: 'bg-primary/60 rounded-none bottom-0',
-                trigger: 'flex-1 min-w-0 justify-center px-1 py-2 rounded-none text-[11.5px] font-semibold tracking-[0.01em] whitespace-nowrap data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/40',
+                list: 'gap-0.5 p-1.5 mb-0 rounded-none bg-transparent border-b border-default',
+                indicator: 'hidden',
+                trigger: 'flex-1 min-w-0 justify-center px-1.5 py-1 rounded-md border border-transparent text-[11.5px] font-semibold tracking-[0.01em] whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default',
                 leadingIcon: 'size-3.5 shrink-0',
             }"
             class="shrink-0"
@@ -415,7 +415,7 @@ const sidebarStyle = computed(() => {
     height: 100%;
     flex-direction: column;
     overflow: hidden;
-    background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
+    background: var(--app-sidebar-bg);
 }
 
 .pdf-sidebar-pages {
