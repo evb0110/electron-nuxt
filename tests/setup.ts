@@ -38,6 +38,15 @@ const i18nComposer = {
 
 vi.mock('vue-i18n', () => ({useI18n: () => i18nComposer}));
 
+vi.stubGlobal('useRuntimeConfig', () => ({public: {
+    analyticsEnabled: false,
+    browserOcrLanguageBaseUrl: '',
+    landingUrl: '',
+    siteUrl: '',
+}}));
+
+vi.stubGlobal('useRoute', () => ({path: '/'}));
+
 let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
 let consoleErrorSpy: ReturnType<typeof vi.spyOn> | null = null;
 let vueRuntimeMessages: string[] = [];

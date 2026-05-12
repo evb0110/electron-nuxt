@@ -12,16 +12,18 @@ export const useRuntimeEnvironment = () => {
         ? useState('runtime:is-desktop', () => initialDesktopRuntime)
         : ref(initialDesktopRuntime);
 
-    onMounted(() => {
-        if (!import.meta.client) {
-            return;
-        }
-        isDesktopRuntime.value = shouldPreferDesktopPlatform(
-            routePath,
-            isDesktopRuntime.value,
-            isDesktopPlatformActive(),
-        );
-    });
+    if (getCurrentInstance()) {
+        onMounted(() => {
+            if (!import.meta.client) {
+                return;
+            }
+            isDesktopRuntime.value = shouldPreferDesktopPlatform(
+                routePath,
+                isDesktopRuntime.value,
+                isDesktopPlatformActive(),
+            );
+        });
+    }
 
     return {
         isDesktopRuntime: computed(() => isDesktopRuntime.value),
