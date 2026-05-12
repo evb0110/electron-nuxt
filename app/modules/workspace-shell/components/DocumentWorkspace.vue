@@ -28,6 +28,8 @@
                 :document-busy="isDocumentBusy"
                 :has-ocr-action="canUseOcr"
                 :surface="toolbarSurface"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @save="handleToolbarSave"
@@ -46,6 +48,7 @@
                 @capture-region="handleToolbarCaptureRegion"
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
+                @toggle-fullscreen="emit('toggle-fullscreen')"
             >
                 <template #app-menu>
                     <ToolbarAppMenu
@@ -158,6 +161,8 @@
                         :can-convert-to-pdf="canUseDjvu && isDjvuMode"
                         :is-preparing-print="isPreparingPrint"
                         :is-preparing-current-page-print="isPreparingCurrentPagePrint"
+                        :is-fullscreen="isFullscreen"
+                        :fullscreen-supported="fullscreenSupported"
                         trigger-icon="i-ph-dots-three"
                         @update:open="handleDropdownOpen('overflow', $event)"
                         @capture-region="handleToolbarCaptureRegion"
@@ -175,6 +180,7 @@
                         @combine-images="emit('open-combine')"
                         @print-current-page="handlePrintCurrentPage"
                         @convert-to-pdf="openConvertDialog"
+                        @toggle-fullscreen="emit('toggle-fullscreen')"
                     />
                 </template>
             </PdfToolbar>
@@ -534,6 +540,8 @@ const props = defineProps<{
     tabId: string;
     isActive: boolean;
     isTabTransitionBusy: boolean;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
     pendingDocumentOpen?: boolean;
     startSection?: TStartSection;
 }>();
@@ -560,6 +568,7 @@ const emit = defineEmits<{
     'request-close-tab': [];
     'open-settings': [];
     'open-combine': [];
+    'toggle-fullscreen': [];
 }>();
 
 const { t } = useTypedI18n();

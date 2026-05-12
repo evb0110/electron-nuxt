@@ -10,6 +10,7 @@
     >
         <template v-if="groupForLeaf">
             <TabBar
+                v-if="!zenMode"
                 :tabs="tabsForGroup(groupForLeaf!.id)"
                 :active-tab-id="groupForLeaf!.activeTabId"
                 :context-availability="tabContextAvailabilityByGroup[groupForLeaf!.id] ?? null"
@@ -31,6 +32,8 @@
                     :is-startup-open-claim-pending="isStartupOpenClaimPending"
                     :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
                     :is-tab-transition-busy="isTabTransitionBusy"
+                    :is-fullscreen="isFullscreen"
+                    :fullscreen-supported="fullscreenSupported"
                     :start-section="startSectionByTabId[tab.id] ?? 'recent'"
                     @update-tab="(updates) => emit('update-tab', tab.id, updates)"
                     @update:start-section="(section) => emit('update-tab-start-section', tab.id, section)"
@@ -38,6 +41,7 @@
                     @request-close-tab="emit('request-close-tab', groupForLeaf!.id, tab.id)"
                     @open-settings="emit('open-settings')"
                     @open-combine="emit('open-combine')"
+                    @toggle-fullscreen="emit('toggle-fullscreen')"
                 />
             </div>
         </template>
@@ -50,7 +54,11 @@
         class="editor-split"
         :class="splitNode.orientation === 'horizontal' ? 'is-horizontal' : 'is-vertical'"
     >
-        <div class="editor-split-pane editor-split-pane-first" :style="firstPaneStyle">
+        <div
+            v-if="!zenMode || firstPaneHasZenActiveTab"
+            class="editor-split-pane editor-split-pane-first"
+            :style="firstPaneStyle"
+        >
             <EditorGroupsGrid
                 :node="splitNode.first"
                 :groups="groups"
@@ -60,6 +68,10 @@
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 :start-section-by-tab-id="startSectionByTabId"
+                :zen-mode="zenMode"
+                :zen-active-tab-id="zenActiveTabId"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
                 @activate-group="(groupId) => emit('activate-group', groupId)"
                 @activate-tab="(groupId, tabId) => emit('activate-tab', groupId, tabId)"
                 @close-tab="(groupId, tabId) => emit('close-tab', groupId, tabId)"
@@ -74,11 +86,13 @@
                 @request-close-tab="(groupId, tabId) => emit('request-close-tab', groupId, tabId)"
                 @open-settings="emit('open-settings')"
                 @open-combine="emit('open-combine')"
+                @toggle-fullscreen="emit('toggle-fullscreen')"
                 @update-split-ratio="(splitId, ratio) => emit('update-split-ratio', splitId, ratio)"
             />
         </div>
 
         <div
+            v-if="!zenMode"
             class="editor-sash"
             :class="splitNode!.orientation === 'horizontal' ? 'is-vertical-line' : 'is-horizontal-line'"
             role="separator"
@@ -86,7 +100,10 @@
             @pointerdown.prevent="(event) => startResize(event, splitNode!.id, splitNode!.orientation)"
         />
 
-        <div class="editor-split-pane editor-split-pane-second">
+        <div
+            v-if="!zenMode || secondPaneHasZenActiveTab"
+            class="editor-split-pane editor-split-pane-second"
+        >
             <EditorGroupsGrid
                 :node="splitNode.second"
                 :groups="groups"
@@ -96,6 +113,10 @@
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 :start-section-by-tab-id="startSectionByTabId"
+                :zen-mode="zenMode"
+                :zen-active-tab-id="zenActiveTabId"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
                 @activate-group="(groupId) => emit('activate-group', groupId)"
                 @activate-tab="(groupId, tabId) => emit('activate-tab', groupId, tabId)"
                 @close-tab="(groupId, tabId) => emit('close-tab', groupId, tabId)"
@@ -110,6 +131,7 @@
                 @request-close-tab="(groupId, tabId) => emit('request-close-tab', groupId, tabId)"
                 @open-settings="emit('open-settings')"
                 @open-combine="emit('open-combine')"
+                @toggle-fullscreen="emit('toggle-fullscreen')"
                 @update-split-ratio="(splitId, ratio) => emit('update-split-ratio', splitId, ratio)"
             />
         </div>
@@ -150,6 +172,10 @@ const props = defineProps<{
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
+    zenMode: boolean;
+    zenActiveTabId: string | null;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -167,6 +193,7 @@ const emit = defineEmits<{
     'request-close-tab': [groupId: string, tabId: string];
     'open-settings': [];
     'open-combine': [];
+    'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
 }>();
 
@@ -211,8 +238,18 @@ const firstPaneStyle = computed(() => {
         return undefined;
     }
 
+    if (props.zenMode) {
+        return {flexBasis: '100%'};
+    }
+
     return {flexBasis: `${clamp(splitNode.value.ratio, 0.15, 0.85) * 100}%`};
 });
+const firstPaneHasZenActiveTab = computed(() => (
+    Boolean(splitNode.value && nodeContainsTab(splitNode.value.first, props.zenActiveTabId))
+));
+const secondPaneHasZenActiveTab = computed(() => (
+    Boolean(splitNode.value && nodeContainsTab(splitNode.value.second, props.zenActiveTabId))
+));
 
 const groupForLeaf = computed(() => {
     const leaf = leafNode.value;
@@ -224,7 +261,24 @@ const groupForLeaf = computed(() => {
 });
 
 function tabsForGroup(groupId: string) {
-    return tabsByGroupId.value.get(groupId) ?? [];
+    const groupTabs = tabsByGroupId.value.get(groupId) ?? [];
+    if (!props.zenMode || !props.zenActiveTabId) {
+        return groupTabs;
+    }
+
+    return groupTabs.filter(tab => tab.id === props.zenActiveTabId);
+}
+
+function nodeContainsTab(node: TEditorLayoutNode, tabId: string | null): boolean {
+    if (!tabId) {
+        return false;
+    }
+
+    if (node.type === 'leaf') {
+        return tabsByGroupId.value.get(node.groupId)?.some(tab => tab.id === tabId) ?? false;
+    }
+
+    return nodeContainsTab(node.first, tabId) || nodeContainsTab(node.second, tabId);
 }
 
 function workspaceRefHandler(tabId: string) {

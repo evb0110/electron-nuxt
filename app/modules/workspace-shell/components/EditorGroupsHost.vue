@@ -10,6 +10,10 @@
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
             :start-section-by-tab-id="startSectionByTabId"
+            :zen-mode="zenMode"
+            :zen-active-tab-id="zenActiveTabId"
+            :is-fullscreen="isFullscreen"
+            :fullscreen-supported="fullscreenSupported"
             @activate-group="emit('activate-group', $event)"
             @activate-tab="(groupId: string, tabId: string) => emit('activate-tab', groupId, tabId)"
             @close-tab="(groupId: string, tabId: string) => emit('close-tab', groupId, tabId)"
@@ -24,6 +28,7 @@
             @request-close-tab="(groupId: string, tabId: string) => emit('request-close-tab', groupId, tabId)"
             @open-settings="emit('open-settings')"
             @open-combine="emit('open-combine')"
+            @toggle-fullscreen="emit('toggle-fullscreen')"
             @update-split-ratio="(splitId: string, ratio: number) => emit('update-split-ratio', splitId, ratio)"
         />
     </div>
@@ -57,6 +62,10 @@ defineProps<{
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
+    zenMode: boolean;
+    zenActiveTabId: string | null;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -74,6 +83,7 @@ const emit = defineEmits<{
     'request-close-tab': [groupId: string, tabId: string];
     'open-settings': [];
     'open-combine': [];
+    'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
 }>();
 </script>
