@@ -114,7 +114,7 @@
                         :effective-zoom="effectiveZoom"
                         :open="zoomDropdownOpen"
                         :disabled="toolbarControlsDisabled"
-                        :compact-level="collapseTier >= 1 ? 1 : 0"
+                        :compact-level="collapseTier >= 3 ? 2 : collapseTier >= 2 ? 1 : 0"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:open="handleDropdownOpen('zoom', $event)"
                     />
