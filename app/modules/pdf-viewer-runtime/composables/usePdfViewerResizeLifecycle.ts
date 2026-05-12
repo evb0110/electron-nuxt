@@ -19,6 +19,7 @@ export interface IBuildResizeAnchorContextOptions {
     anchorViewportY?: number | null;
     preferredAnchorPage?: number | null;
     trustPreferredAnchorPage?: boolean;
+    preferSnapshotAnchorPage?: boolean;
 }
 
 interface IUsePdfViewerResizeLifecycleOptions {
@@ -152,6 +153,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             mostVisiblePage,
             snapshotAnchorPage,
             currentPage: currentPage.value,
+            preferSnapshotAnchorPage: optionsOverride?.preferSnapshotAnchorPage,
         });
         const snapshot = captureScrollSnapshot(viewerContainer.value, {
             ...optionsOverride,
@@ -179,16 +181,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         } satisfies IResizeAnchorContext;
     }
 
-    const debouncedRenderOnResize = useDebounceFn(() => {
-        if (isLoading.value || !pdfDocument.value) {
-            return;
-        }
-        scheduleResizeAwareRerender('re-render visible pages after resize', {
-            source: 'resize-observer',
-            stabilize: true,
-        });
-    }, 200);
-
     const debouncedRenderOnResizeWithAnchor = useDebounceFn(() => {
         if (isLoading.value || !pdfDocument.value) {
             if (pendingResizeAnchor) {
@@ -214,9 +206,23 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         if (isLoading.value || isResizing.value) {
             return;
         }
-        const resizeAnchor = buildResizeAnchorContext();
+        const resizeAnchor = buildResizeAnchorContext({
+            anchorViewportY: 0,
+            preferSnapshotAnchorPage: true,
+        });
         const updated = computeFitWidthScale(viewerContainer.value);
-        if (updated && pdfDocument.value) {
+        if (pdfDocument.value) {
+            if (pendingResizeAnchor) {
+                BrowserLogger.warnThrottled('pdf-zoom-debug', 'resize-anchor-preserved', ZOOM_QUEUE_LOG_THROTTLE_MS, '[resize-anchor] preserved first anchor in resize burst', {
+                    updated,
+                    preservedAnchorPage: pendingResizeAnchor.page,
+                    ignoredAnchorPage: resizeAnchor.page,
+                    preservedAnchorAgeMs: Date.now() - pendingResizeAnchor.capturedAtMs,
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                });
+                void debouncedRenderOnResizeWithAnchor();
+                return;
+            }
             const transitionToken = beginResizeTransition('resize-observer', resizeAnchor.page);
             const anchoredResizeContext: IResizeAnchorContext = {
                 ...resizeAnchor,
@@ -240,9 +246,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
             });
             void debouncedRenderOnResizeWithAnchor();
-            return;
         }
-        void debouncedRenderOnResize();
     }
 
     useResizeObserver(viewerContainer, handleResize);
