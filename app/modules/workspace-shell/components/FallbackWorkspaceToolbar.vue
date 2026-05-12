@@ -34,6 +34,7 @@
         @undo="emit('undo')"
         @redo="emit('redo')"
         @toggle-sidebar="emit('toggle-sidebar')"
+        @actual-size="emit('actual-size')"
         @fit-width="emit('fit-width')"
         @fit-height="emit('fit-height')"
         @toggle-continuous-scroll="emit('toggle-continuous-scroll')"
@@ -95,7 +96,7 @@
                 @ocr-complete="emit('ocr-complete')"
             />
         </template>
-        <template #zoom-dropdown="{ collapseTier }">
+        <template #zoom-dropdown="{ compactLevel }">
             <PdfZoomDropdown
                 v-model:zoom="zoom"
                 v-model:zoom-mode="zoomMode"
@@ -104,12 +105,12 @@
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
                 :disabled="!hasPdf"
-                :compact-level="collapseTier >= 3 ? 2 : collapseTier >= 2 ? 1 : 0"
+                :compact-level="compactLevel"
                 @update:effective-zoom="emit('update:effectiveZoom', $event)"
                 @update:open="emit('update:zoomDropdownOpen', $event)"
             />
         </template>
-        <template #page-dropdown="{ collapseTier }">
+        <template #page-dropdown="{ compactLevel }">
             <PdfPageDropdown
                 v-model="currentPage"
                 :open="pageDropdownOpen"
@@ -117,7 +118,7 @@
                 :view-mode="snapshot.viewMode"
                 :page-labels="null"
                 :disabled="!hasPdf"
-                :compact-level="collapseTier >= 3 ? 3 : collapseTier >= 2 ? 2 : collapseTier >= 1 ? 1 : 0"
+                :compact-level="compactLevel"
                 @go-to-page="emit('go-to-page')"
                 @update:open="emit('update:pageDropdownOpen', $event)"
             />
@@ -156,6 +157,7 @@
                 @capture-region="emit('capture-region')"
                 @crop="emit('crop')"
                 @toggle-sidebar="emit('toggle-sidebar')"
+                @actual-size="emit('actual-size')"
                 @fit-width="emit('fit-width')"
                 @fit-height="emit('fit-height')"
                 @enable-drag="emit('enable-drag')"
@@ -236,6 +238,7 @@ const emit = defineEmits<{
     'rotate-ccw': [];
     'insert-pages': [];
     'toggle-sidebar': [];
+    'actual-size': [];
     'fit-width': [];
     'fit-height': [];
     'toggle-continuous-scroll': [];

@@ -8,21 +8,6 @@ import {
 
 const MAX_COLLAPSE_TIER = 5;
 const OVERFLOW_TOLERANCE_PX = 0.5;
-const EXPAND_RETRY_WIDTH_DELTA_PX = 8;
-
-function normalizeCollapseTier(tier: number) {
-    return Math.max(0, Math.min(tier, MAX_COLLAPSE_TIER));
-}
-
-function shouldSkipExpandRetry(options: {
-    tier: number;
-    width: number;
-    failedTier: number | null;
-    failedWidth: number;
-}) {
-    return options.failedTier === options.tier
-        && options.width <= (options.failedWidth + EXPAND_RETRY_WIDTH_DELTA_PX);
-}
 
 export const useToolbarOverflow = () => {
     const toolbarRef = ref<HTMLElement | null>(null);
@@ -31,21 +16,19 @@ export const useToolbarOverflow = () => {
     let isRecalculating = false;
     let needsRecalculation = false;
     let suppressMutationEvents = false;
-    let failedExpandTier: number | null = null;
-    let failedExpandWidth = 0;
     let rafPending = false;
 
     function isElementOverflowing(el: HTMLElement) {
         return (el.scrollWidth - el.clientWidth) > OVERFLOW_TOLERANCE_PX;
     }
 
-    function hasOutOfBoundsChildren(el: HTMLElement) {
+    function hasOutOfBoundsDescendants(el: HTMLElement) {
         const containerRect = el.getBoundingClientRect();
         if (containerRect.width <= 0) {
             return false;
         }
 
-        return Array.from(el.children).some((child) => {
+        return Array.from(el.querySelectorAll<HTMLElement>('*')).some((child) => {
             if (!(child instanceof HTMLElement)) {
                 return false;
             }
@@ -61,7 +44,7 @@ export const useToolbarOverflow = () => {
     }
 
     function isOverflowing(toolbar: HTMLElement) {
-        if (isElementOverflowing(toolbar) || hasOutOfBoundsChildren(toolbar)) {
+        if (isElementOverflowing(toolbar) || hasOutOfBoundsDescendants(toolbar)) {
             return true;
         }
 
@@ -70,7 +53,7 @@ export const useToolbarOverflow = () => {
             return false;
         }
 
-        return isElementOverflowing(centerSection) || hasOutOfBoundsChildren(centerSection);
+        return isElementOverflowing(centerSection) || hasOutOfBoundsDescendants(centerSection);
     }
 
     async function waitForLayout() {
@@ -87,66 +70,21 @@ export const useToolbarOverflow = () => {
         }
 
         try {
-            let tier = normalizeCollapseTier(collapseTier.value);
-            collapseTier.value = tier;
-            await waitForLayout();
-
-            let currentToolbar = toolbarRef.value;
-            if (!currentToolbar) {
-                return;
-            }
-
-            let collapsedDuringPass = false;
-
-            while (tier < MAX_COLLAPSE_TIER && isOverflowing(currentToolbar)) {
-                tier += 1;
+            for (let tier = 0; tier <= MAX_COLLAPSE_TIER; tier += 1) {
                 collapseTier.value = tier;
-                collapsedDuringPass = true;
                 await waitForLayout();
 
-                currentToolbar = toolbarRef.value;
-                if (!currentToolbar) {
-                    return;
-                }
-            }
-
-            if (collapsedDuringPass) {
-                failedExpandTier = null;
-                return;
-            }
-
-            while (tier > 0) {
-                currentToolbar = toolbarRef.value;
+                const currentToolbar = toolbarRef.value;
                 if (!currentToolbar) {
                     return;
                 }
 
-                const currentTierWidth = currentToolbar.clientWidth;
-
-                if (shouldSkipExpandRetry({
-                    tier,
-                    width: currentTierWidth,
-                    failedTier: failedExpandTier,
-                    failedWidth: failedExpandWidth,
-                })) {
+                if (!isOverflowing(currentToolbar)) {
                     return;
                 }
-
-                const candidateTier = tier - 1;
-                collapseTier.value = candidateTier;
-                await waitForLayout();
-
-                currentToolbar = toolbarRef.value;
-                if (!currentToolbar || isOverflowing(currentToolbar)) {
-                    collapseTier.value = tier;
-                    failedExpandTier = tier;
-                    failedExpandWidth = currentTierWidth;
-                    return;
-                }
-
-                failedExpandTier = null;
-                tier = candidateTier;
             }
+
+            collapseTier.value = MAX_COLLAPSE_TIER;
         } finally {
             suppressMutationEvents = false;
         }
@@ -215,7 +153,8 @@ export const useToolbarOverflow = () => {
     }, {
         subtree: true,
         childList: true,
-        characterData: false,
+        characterData: true,
+        attributes: true,
     });
 
     useEventListener(typeof window !== 'undefined' ? window : undefined, 'resize', () => {
@@ -224,6 +163,9 @@ export const useToolbarOverflow = () => {
 
     tryOnMounted(() => {
         scheduleRecalculation();
+        void document.fonts?.ready.then(() => {
+            scheduleRecalculation();
+        });
     });
 
     const hasOverflowItems = computed(() => collapseTier.value > 0);

@@ -17,6 +17,7 @@ export const READER_COMMANDS = [
     'crop',
     'drag-mode',
     'export-docx',
+    'actual-size',
     'fit-height',
     'fit-width',
     'fullscreen',
@@ -110,6 +111,13 @@ export const READER_COMMAND_DESCRIPTORS = Object.freeze({
         category: 'export',
         labelKey: 'toolbar.exportDocx',
         icon: 'file-text',
+        requiresDocument: true,
+    },
+    'actual-size': {
+        id: 'actual-size',
+        category: 'view',
+        labelKey: 'zoom.actualSize',
+        icon: 'magnifying-glass',
         requiresDocument: true,
     },
     'fit-height': {

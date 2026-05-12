@@ -181,6 +181,15 @@
                             />
                         </button>
                         <button
+                            v-if="shouldShowMenuCommand('actual-size', 3)"
+                            class="overflow-menu-item"
+                            :disabled="!hasInteractiveDocument"
+                            @click="emit('actual-size'); close()"
+                        >
+                            <UIcon name="i-ph-magnifying-glass" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('zoom.actualSize') }}</span>
+                        </button>
+                        <button
                             v-if="shouldShowMenuCommand('fit-width', 3)"
                             :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
                             :disabled="!hasInteractiveDocument"
@@ -331,6 +340,7 @@ const emit = defineEmits<{
     (e: 'update:open', value: boolean): void
     (e: 'open-ocr'): void
     (e: 'toggle-sidebar'): void
+    (e: 'actual-size'): void
     (e: 'fit-width'): void
     (e: 'fit-height'): void
     (e: 'enable-drag'): void
@@ -382,6 +392,7 @@ const hasToolItems = computed(() => (
 const hasViewItems = computed(() => (
     shouldShowMenuCommand('toggle-sidebar')
     || shouldShowMenuCommand('view-mode', 2)
+    || shouldShowMenuCommand('actual-size', 3)
     || shouldShowMenuCommand('fit-width', 3)
     || shouldShowMenuCommand('fit-height', 3)
     || shouldShowMenuCommand('continuous-scroll', 2)

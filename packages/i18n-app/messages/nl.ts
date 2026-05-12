@@ -82,6 +82,7 @@ export default {
         'textSelect': 'Tekst selecteren',
         'zoomOut': 'Uitzoomen',
         'zoomIn': 'Inzoomen',
+        'actualSize': 'Werkelijke grootte',
         'apply': 'Zoom toepassen',
         'custom': 'Aangepast',
         'sectionZoom': 'Zoom',

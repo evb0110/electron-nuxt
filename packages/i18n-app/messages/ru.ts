@@ -82,6 +82,7 @@ export default {
         'textSelect': 'Выделение текста',
         'zoomOut': 'Уменьшить',
         'zoomIn': 'Увеличить',
+        'actualSize': 'Реальный размер',
         'apply': 'Применить масштаб',
         'custom': 'Свой',
         'sectionZoom': 'Масштаб',

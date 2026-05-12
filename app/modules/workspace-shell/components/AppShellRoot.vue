@@ -70,6 +70,7 @@
                 @rotate-ccw="runFallbackWorkspaceAction((workspace) => workspace.handleRotateCcw())"
                 @insert-pages="runFallbackWorkspaceAction((workspace) => workspace.handleInsertPages())"
                 @toggle-sidebar="runFallbackWorkspaceAction((workspace) => workspace.handleToggleSidebar())"
+                @actual-size="runFallbackWorkspaceAction((workspace) => workspace.handleActualSize())"
                 @fit-width="runFallbackWorkspaceAction((workspace) => workspace.handleFitWidth())"
                 @fit-height="runFallbackWorkspaceAction((workspace) => workspace.handleFitHeight())"
                 @toggle-continuous-scroll="runFallbackWorkspaceAction((workspace) => workspace.handleToggleContinuousScroll())"
