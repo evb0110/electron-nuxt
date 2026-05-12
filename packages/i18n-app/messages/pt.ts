@@ -82,6 +82,7 @@ export default {
         'textSelect': 'Selecionar Texto',
         'zoomOut': 'Reduzir',
         'zoomIn': 'Ampliar',
+        'actualSize': 'Tamanho Real',
         'apply': 'Aplicar Zoom',
         'custom': 'Personalizado',
         'sectionZoom': 'Zoom',

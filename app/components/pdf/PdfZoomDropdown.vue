@@ -176,7 +176,7 @@ const effectiveCompactLevel = computed(() => {
     return Math.max(0, Math.min(compactLevel, 2));
 });
 
-const showStepButtons = computed(() => effectiveCompactLevel.value < 1);
+const showStepButtons = computed(() => true);
 const shortcutLabels = getShortcutLabels();
 
 function normalizeZoomLevel(value: number) {

@@ -170,6 +170,10 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         void pdfViewerRef.value.captureRegionToClipboard();
     }
 
+    function handleActualSize() {
+        setCustomZoomFromDisplay(1);
+    }
+
     const {
         cropDialogOpen,
         cropDialogLoading,
@@ -218,6 +222,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
     return {
         isCapturingRegion,
         handleCaptureRegion,
+        handleActualSize,
         cropDialogOpen,
         cropDialogLoading,
         cropDialogMargins,

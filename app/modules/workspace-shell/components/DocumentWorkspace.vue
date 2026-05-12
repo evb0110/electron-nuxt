@@ -40,6 +40,7 @@
                 @undo="handleToolbarUndo"
                 @redo="handleToolbarRedo"
                 @toggle-sidebar="handleToolbarToggleSidebar"
+                @actual-size="handleActualSize"
                 @fit-width="handleToolbarFitWidth"
                 @fit-height="handleToolbarFitHeight"
                 @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
@@ -105,7 +106,7 @@
                         @ocr-complete="handleOcrComplete"
                     />
                 </template>
-                <template #zoom-dropdown="{ collapseTier }">
+                <template #zoom-dropdown="{ compactLevel }">
                     <PdfZoomDropdown
                         v-model:zoom="zoom"
                         v-model:zoom-mode="zoomMode"
@@ -114,12 +115,12 @@
                         :effective-zoom="effectiveZoom"
                         :open="zoomDropdownOpen"
                         :disabled="toolbarControlsDisabled"
-                        :compact-level="collapseTier >= 3 ? 2 : collapseTier >= 2 ? 1 : 0"
+                        :compact-level="compactLevel"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:open="handleDropdownOpen('zoom', $event)"
                     />
                 </template>
-                <template #page-dropdown="{ collapseTier }">
+                <template #page-dropdown="{ compactLevel }">
                     <PdfPageDropdown
                         v-model="currentPage"
                         :open="pageDropdownOpen"
@@ -127,7 +128,7 @@
                         :view-mode="viewMode"
                         :page-labels="documentMetadataReady ? pageLabels : null"
                         :disabled="toolbarControlsDisabled"
-                        :compact-level="collapseTier >= 3 ? 3 : collapseTier >= 2 ? 2 : collapseTier >= 1 ? 1 : 0"
+                        :compact-level="compactLevel"
                         @go-to-page="handleGoToPage"
                         @update:open="handleDropdownOpen('page', $event)"
                     />
@@ -169,6 +170,7 @@
                         @crop="handleToolbarCrop"
                         @open-ocr="handleDropdownOpen('ocr', true)"
                         @toggle-sidebar="handleToolbarToggleSidebar"
+                        @actual-size="handleActualSize"
                         @fit-width="handleToolbarFitWidth"
                         @fit-height="handleToolbarFitHeight"
                         @enable-drag="handleToolbarEnableDrag"
@@ -802,6 +804,7 @@ const {
     handleOpenFileDirectBatchWithPersist,
     handleOpenFileWithResult,
     handleCloseFileFromUi,
+    handleActualSize,
     openRecentFile,
     captureSplitPayload,
     restoreSplitPayload,
