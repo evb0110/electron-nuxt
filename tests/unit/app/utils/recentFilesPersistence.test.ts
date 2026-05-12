@@ -82,6 +82,48 @@ describe('recent-files-persistence', () => {
         });
     });
 
+    it('keeps only the newest entry for each recent file path', () => {
+        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({
+            v: 1,
+            t: false,
+            f: [
+                [
+                    '/tmp/example.pdf',
+                    'example-new.pdf',
+                    3,
+                    456,
+                ],
+                [
+                    '/tmp/other.pdf',
+                    'other.pdf',
+                    2,
+                    123,
+                ],
+                [
+                    '/tmp/example.pdf',
+                    'example-old.pdf',
+                    1,
+                    456,
+                ],
+            ],
+        }));
+
+        expect(snapshot.recentFiles).toEqual([
+            {
+                originalPath: '/tmp/example.pdf',
+                fileName: 'example-new.pdf',
+                timestamp: 3,
+                fileSize: 456,
+            },
+            {
+                originalPath: '/tmp/other.pdf',
+                fileName: 'other.pdf',
+                timestamp: 2,
+                fileSize: 123,
+            },
+        ]);
+    });
+
     it('reads a complete browser cookie snapshot synchronously', () => {
         const payload = serializeRecentFilesCookiePayload([{
             originalPath: 'browser://documents/cookie',
