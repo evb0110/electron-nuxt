@@ -1047,11 +1047,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         visibleRange: IPageRange,
         version: number,
     ) {
-        const pagesMissingMountedContainer = pagesToRenderNow.filter(
-            (pageNumber) => !getPageContainer(containerRoot, pageNumber - 1),
-        );
-        if (pagesMissingMountedContainer.length === 0) {
-            return;
+        let pagesMissingMountedContainer: number[] = [];
+
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            pagesMissingMountedContainer = pagesToRenderNow.filter(
+                (pageNumber) => !getPageContainer(containerRoot, pageNumber - 1),
+            );
+            if (pagesMissingMountedContainer.length === 0 || renderVersion !== version) {
+                return;
+            }
+
+            await nextTick();
         }
 
         BrowserLogger.warnThrottled(
@@ -1067,7 +1073,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 currentPage: options.currentPage.value,
             },
         );
-        await nextTick();
     }
 
     async function renderVisiblePageBatches(

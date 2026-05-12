@@ -63,7 +63,7 @@ describe('rerenderStrategy', () => {
         })).toBe(true);
     });
 
-    it('preserves resize rerenders only when a visible page is already rendered', () => {
+    it('always preserves resize rerenders', () => {
         expect(shouldPreserveExistingRerenderContent({
             source: 'resize-observer',
             visibleRange: {
@@ -80,7 +80,7 @@ describe('rerenderStrategy', () => {
                 end: 7,
             },
             isPageRendered: () => false,
-        })).toBe(false);
+        })).toBe(true);
     });
 
     it('does not preserve unrelated rerender sources by default', () => {

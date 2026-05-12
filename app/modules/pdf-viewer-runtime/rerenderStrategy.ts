@@ -49,11 +49,7 @@ export function shouldPreserveExistingRerenderContent(options: {
     visibleRange: IPageRange;
     isPageRendered: (page: number) => boolean;
 }) {
-    const {
-        source,
-        visibleRange,
-        isPageRendered,
-    } = options;
+    const { source } = options;
 
     if (PRESERVE_EXISTING_RENDER_SOURCES.has(source)) {
         return true;
@@ -63,5 +59,5 @@ export function shouldPreserveExistingRerenderContent(options: {
         return false;
     }
 
-    return hasRenderedPageInRange(visibleRange, isPageRendered);
+    return true;
 }

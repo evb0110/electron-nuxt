@@ -3,15 +3,23 @@ import { useEventListener } from '@vueuse/core';
 import { SIDEBAR } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
+const SIDEBAR_LAYOUT_SETTLE_MS = 140;
+
 export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     const { showSidebar } = deps;
 
     const sidebarWidth = ref(SIDEBAR.DEFAULT_WIDTH);
     const lastOpenSidebarWidth = ref(SIDEBAR.DEFAULT_WIDTH);
-    const isResizingSidebar = ref(false);
+    const isPointerResizingSidebar = ref(false);
+    const isSidebarLayoutSettling = ref(false);
+    const isResizingSidebar = computed(() => (
+        isPointerResizingSidebar.value
+        || isSidebarLayoutSettling.value
+    ));
 
     let resizeStartX = 0;
     let resizeStartWidth = 0;
+    let layoutSettleTimer: ReturnType<typeof setTimeout> | null = null;
     const sidebarWrapperStyle = computed(() => ({
         width: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
         minWidth: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
@@ -23,8 +31,26 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         // tear down between resize sessions.
     }
 
+    function clearSidebarLayoutSettleTimer() {
+        if (layoutSettleTimer === null) {
+            return;
+        }
+
+        clearTimeout(layoutSettleTimer);
+        layoutSettleTimer = null;
+    }
+
+    function settleSidebarLayoutAfterToggle() {
+        clearSidebarLayoutSettleTimer();
+        isSidebarLayoutSettling.value = true;
+        layoutSettleTimer = setTimeout(() => {
+            layoutSettleTimer = null;
+            isSidebarLayoutSettling.value = false;
+        }, SIDEBAR_LAYOUT_SETTLE_MS);
+    }
+
     function handleSidebarResize(event: PointerEvent) {
-        if (!isResizingSidebar.value) {
+        if (!isPointerResizingSidebar.value) {
             return;
         }
         const deltaX = event.clientX - resizeStartX;
@@ -48,11 +74,11 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     }
 
     function stopSidebarResize() {
-        if (!isResizingSidebar.value) {
+        if (!isPointerResizingSidebar.value) {
             return;
         }
 
-        isResizingSidebar.value = false;
+        isPointerResizingSidebar.value = false;
         cleanupSidebarResizeListeners();
     }
 
@@ -63,7 +89,9 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
 
         event.preventDefault();
 
-        isResizingSidebar.value = true;
+        clearSidebarLayoutSettleTimer();
+        isSidebarLayoutSettling.value = false;
+        isPointerResizingSidebar.value = true;
         resizeStartX = event.clientX;
         resizeStartWidth = sidebarWidth.value;
         BrowserLogger.warn('pdf-nav', '[sidebar-resize] start', {
@@ -96,7 +124,10 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
             sidebarWidth: Math.round(sidebarWidth.value),
             lastOpenSidebarWidth: Math.round(lastOpenSidebarWidth.value),
             isResizingSidebar: isResizingSidebar.value,
+            isPointerResizingSidebar: isPointerResizingSidebar.value,
+            isSidebarLayoutSettling: isSidebarLayoutSettling.value,
         });
+        settleSidebarLayoutAfterToggle();
         if (isOpen) {
             const width = Math.min(
                 Math.max(lastOpenSidebarWidth.value, SIDEBAR.DEFAULT_WIDTH),
@@ -119,8 +150,16 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
             next: Math.round(next),
             open: showSidebar.value,
             isResizingSidebar: isResizingSidebar.value,
+            isPointerResizingSidebar: isPointerResizingSidebar.value,
+            isSidebarLayoutSettling: isSidebarLayoutSettling.value,
         });
     });
+
+    if (getCurrentInstance()) {
+        onBeforeUnmount(() => {
+            clearSidebarLayoutSettleTimer();
+        });
+    }
 
     return {
         sidebarWidth,
