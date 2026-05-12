@@ -287,6 +287,82 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
+    it('uses a top-biased snapshot anchor when sidebar resizing settles', async () => {
+        vi.useFakeTimers();
+        try {
+            const isResizing = ref(true);
+            const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(4));
+            const scheduleResizeAwareRerender = vi.fn();
+            const beginResizeTransition = vi.fn(() => 7);
+
+            usePdfViewerRerenderCoordinator({
+                viewerContainer: ref(null),
+                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                isLoading: ref(false),
+                numPages: ref(10),
+                currentPage: ref(4),
+                visibleRange: ref({
+                    start: 4,
+                    end: 5,
+                }),
+                zoom: computed(() => 1),
+                zoomMode: computed(() => 'fit-width' as const),
+                fitMode: computed(() => 'width' as const),
+                viewMode: computed(() => 'single' as const),
+                isResizing: computed(() => isResizing.value),
+                continuousScroll: computed(() => true),
+                getVisibleRange: () => ({
+                    start: 4,
+                    end: 5,
+                }),
+                reRenderAllVisiblePages: vi.fn(async () => {}),
+                isPageRendered: vi.fn(() => true),
+                summarizeViewerMetricsForLog: vi.fn(() => null),
+                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
+                syncCurrentPageFromViewport: vi.fn(async () => {}),
+                markLowResZoomRerenderUsed: vi.fn(),
+                buildResizeAnchorContext,
+                scheduleEndResizeTransition: vi.fn(),
+                enqueueZoomSync: vi.fn(),
+                scheduleResizeAwareRerender,
+                cancelInFlightPageRenders: vi.fn(),
+                computeFitWidthScale: vi.fn(() => true),
+                syncHorizontalScrollForZoomMode: vi.fn(() => true),
+                setupPagePlaceholders: vi.fn(),
+                scrollToPage: vi.fn(),
+                getMostVisiblePage: vi.fn(() => 4),
+                resetContinuousScrollState: vi.fn(),
+                resetZoomRerenderQueueState: vi.fn(),
+                consumeZoomViewportAnchor: vi.fn(() => null),
+                beginResizeTransition,
+                consumeSuppressedZoomRerender: vi.fn(() => false),
+            });
+
+            isResizing.value = false;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(25);
+            await nextTick();
+
+            expect(buildResizeAnchorContext).toHaveBeenCalledWith({
+                anchorViewportY: 0,
+                preferSnapshotAnchorPage: true,
+            });
+            expect(beginResizeTransition).toHaveBeenCalledWith('resize-settle', 4);
+            expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
+                're-render visible pages after resize settle',
+                expect.objectContaining({
+                    source: 'resize-settle',
+                    resizeAnchor: expect.objectContaining({
+                        page: 4,
+                        transitionToken: 7,
+                    }),
+                }),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('does not rerender custom zoom when fit mode is width and the current page changes', async () => {
         const currentPage = ref(1);
         const computeFitWidthScale = vi.fn(() => true);

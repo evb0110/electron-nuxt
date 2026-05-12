@@ -7,7 +7,7 @@ import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer-runtime/resizeA
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer-runtime/reloadZoom';
 
 describe('resolveResizeAnchorPage', () => {
-    it('prefers the current page over other resize anchor candidates', () => {
+    it('prefers the current page over nearby resize anchor candidates by default', () => {
         expect(resolveResizeAnchorPage({
             totalPages: 12,
             mostVisiblePage: 5,
@@ -40,6 +40,16 @@ describe('resolveResizeAnchorPage', () => {
             mostVisiblePage: null,
             snapshotAnchorPage: 6,
             currentPage: Number.NaN,
+        })).toBe(6);
+    });
+
+    it('can prefer the captured snapshot page for viewport-preserving resizes', () => {
+        expect(resolveResizeAnchorPage({
+            totalPages: 12,
+            mostVisiblePage: 5,
+            snapshotAnchorPage: 6,
+            currentPage: 4,
+            preferSnapshotAnchorPage: true,
         })).toBe(6);
     });
 

@@ -469,7 +469,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         if (!isViewerAsyncRunActive(runId, resizeSettleRunId, document) || isResizing.value) {
             return;
         }
-        const resizeAnchor = buildResizeAnchorContext();
+        const resizeAnchor = buildResizeAnchorContext({
+            anchorViewportY: 0,
+            preferSnapshotAnchorPage: true,
+        });
         const updated = computeFitWidthScale(viewerContainer.value);
         if (!updated) {
             return;
