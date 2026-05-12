@@ -49,10 +49,23 @@ function normalizeRecentFilesCollection(value: unknown) {
         return [];
     }
 
-    return value
-        .map(candidate => normalizeRecentFile(candidate) ?? normalizeRecentFileTuple(candidate))
-        .filter((entry): entry is IRecentFile => entry !== null)
-        .slice(0, RECENT_FILES_LIMIT);
+    const recentFiles: IRecentFile[] = [];
+    const seenPaths = new Set<string>();
+
+    for (const candidateValue of value) {
+        const candidate = normalizeRecentFile(candidateValue) ?? normalizeRecentFileTuple(candidateValue);
+        if (!candidate || seenPaths.has(candidate.originalPath)) {
+            continue;
+        }
+
+        seenPaths.add(candidate.originalPath);
+        recentFiles.push(candidate);
+        if (recentFiles.length >= RECENT_FILES_LIMIT) {
+            break;
+        }
+    }
+
+    return recentFiles;
 }
 
 function buildRecentFilesCookiePayload(recentFiles: IRecentFile[], truncated: boolean) {

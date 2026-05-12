@@ -91,6 +91,38 @@ describe('BrowserDocumentStore', () => {
         })]);
     });
 
+    it('dedupes stored recent files by original path', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'report.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        localStorage.setItem('evb-viewer:browser:recent-files', JSON.stringify([
+            {
+                originalPath: ref,
+                fileName: 'report-new.pdf',
+                timestamp: 3,
+                fileSize: 1,
+            },
+            {
+                originalPath: ref,
+                fileName: 'report-old.pdf',
+                timestamp: 1,
+                fileSize: 1,
+            },
+        ]));
+
+        expect(store.getRecentFiles()).toEqual([expect.objectContaining({
+            originalPath: ref,
+            fileName: 'report-new.pdf',
+        })]);
+    });
+
     it('rehydrates persisted bytes after unloading in-memory data', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(

@@ -106,7 +106,12 @@ function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
 function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
     let removedMissingCount = 0;
     let unreadableCount = 0;
+    const seenPaths = new Set<string>();
     const checks = files.map((file) => {
+        if (seenPaths.has(file.originalPath)) {
+            return null;
+        }
+
         const status = inspectPath(file.originalPath);
         if (status === 'missing') {
             removedMissingCount += 1;
@@ -115,6 +120,7 @@ function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
         if (status === 'unreadable') {
             unreadableCount += 1;
         }
+        seenPaths.add(file.originalPath);
         return file;
     });
 

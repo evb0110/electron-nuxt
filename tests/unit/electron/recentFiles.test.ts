@@ -111,6 +111,46 @@ describe('recent-files persistence', () => {
         ]);
     });
 
+    it('dedupes persisted recent files by path when rebuilding the cache from disk', async () => {
+        const fileA = writeFixture('alpha.pdf');
+        const fileB = writeFixture('beta.pdf');
+        writeFileSync(join(userDataDir, 'recent-files.json'), JSON.stringify({
+            version: 1,
+            files: [
+                {
+                    originalPath: fileA,
+                    fileName: 'alpha-new.pdf',
+                    timestamp: 3,
+                    fileSize: 5,
+                },
+                {
+                    originalPath: fileB,
+                    fileName: 'beta.pdf',
+                    timestamp: 2,
+                    fileSize: 4,
+                },
+                {
+                    originalPath: fileA,
+                    fileName: 'alpha-old.pdf',
+                    timestamp: 1,
+                    fileSize: 5,
+                },
+            ],
+        }));
+
+        const recentFiles = await loadRecentFilesModule();
+        await recentFiles.initRecentFilesCache();
+
+        expect(recentFiles.getRecentFilesSync()).toEqual([
+            fileA,
+            fileB,
+        ]);
+        expect((await recentFiles.getRecentFiles()).map(file => file.fileName)).toEqual([
+            'alpha-new.pdf',
+            'beta.pdf',
+        ]);
+    });
+
     it('drops missing files when rebuilding the cache from disk', async () => {
         const filePath = writeFixture('stale.pdf');
 

@@ -58,9 +58,15 @@ function normalizeRecentFileSize(fileSize: number | undefined) {
 export function pruneRecentFiles(recentFiles: IRecentFile[]) {
     const keptRecentFiles: IRecentFile[] = [];
     const evictedRefs = new Set<string>();
+    const keptRefs = new Set<string>();
     let totalBytes = 0;
 
     for (const recentFile of recentFiles) {
+        if (keptRefs.has(recentFile.originalPath)) {
+            evictedRefs.add(recentFile.originalPath);
+            continue;
+        }
+
         const fileSize = normalizeRecentFileSize(recentFile.fileSize);
         const exceedsCountLimit = keptRecentFiles.length >= BROWSER_MAX_RECENT_FILES;
         const exceedsByteLimit = keptRecentFiles.length > 0
@@ -75,6 +81,7 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
             ...recentFile,
             fileSize,
         });
+        keptRefs.add(recentFile.originalPath);
         totalBytes += fileSize;
     }
 
