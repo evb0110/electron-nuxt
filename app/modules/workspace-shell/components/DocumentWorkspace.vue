@@ -1138,6 +1138,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleOpenFileDirectBatchWithPersist,
     handleOpenFileWithResult,
     handleCloseFileFromUi,
+    openRecentFile,
     handleExportDocx,
     handleExportImages,
     handleExportMultiPageTiff,

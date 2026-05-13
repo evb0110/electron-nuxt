@@ -20,6 +20,7 @@ const FILE_PORT_METHODS = [
     'handleOpenFileDirectBatchWithPersist',
     'handleOpenFileWithResult',
     'handleCloseFileFromUi',
+    'openRecentFile',
 ] as const satisfies ReadonlyArray<keyof IWorkspaceFilePort>;
 
 const EXPORT_PORT_METHODS = [
