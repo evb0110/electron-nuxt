@@ -470,8 +470,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
         const resizeAnchor = buildResizeAnchorContext({
-            anchorViewportY: 0,
-            preferSnapshotAnchorPage: true,
+            preferredAnchorPage: currentPage.value,
+            trustPreferredAnchorPage: true,
         });
         const updated = computeFitWidthScale(viewerContainer.value);
         if (!updated) {

@@ -27,9 +27,6 @@ export function buildThumbnailRenderQueue(
     const currentPage = normalizePageNumber(options.currentPage, totalPages);
     const queue: number[] = [];
     const seen = new Set<number>();
-    const isColdStart =
-        options.renderedPages.size === 0
-        && options.renderingPages.size === 0;
 
     const push = (page: number) => {
         const normalizedPage = normalizePageNumber(page, totalPages);
@@ -54,18 +51,18 @@ export function buildThumbnailRenderQueue(
 
     push(currentPage);
 
-    if (isColdStart) {
-        return queue;
+    const normalizedVisiblePages = options.visiblePages
+        .map(page => normalizePageNumber(page, totalPages))
+        .filter(page => page > 0);
+
+    for (const page of normalizedVisiblePages) {
+        push(page);
     }
 
     pushRange(
         currentPage - options.immediateRenderRadius,
         currentPage + options.immediateRenderRadius,
     );
-
-    const normalizedVisiblePages = options.visiblePages
-        .map(page => normalizePageNumber(page, totalPages))
-        .filter(page => page > 0);
 
     if (normalizedVisiblePages.length > 0) {
         const firstVisible = normalizedVisiblePages[0]!;

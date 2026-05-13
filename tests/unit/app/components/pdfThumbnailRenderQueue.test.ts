@@ -6,7 +6,7 @@ import {
 import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRenderQueue';
 
 describe('buildThumbnailRenderQueue', () => {
-    it('renders only the current page on a cold start', () => {
+    it('prioritizes the current page and mounted visible pages on a cold start', () => {
         expect(buildThumbnailRenderQueue({
             totalPages: 158,
             currentPage: 9,
@@ -20,10 +20,24 @@ describe('buildThumbnailRenderQueue', () => {
             renderingPages: new Set<number>(),
             immediateRenderRadius: 2,
             prefetchRenderRadius: 4,
-        })).toEqual([9]);
+        })).toEqual([
+            9,
+            1,
+            2,
+            3,
+            4,
+            7,
+            8,
+            10,
+            11,
+            5,
+            6,
+            12,
+            13,
+        ]);
     });
 
-    it('stages nearby and visible pages once warm-up has started', () => {
+    it('stages visible pages before nearby prefetches once warm-up has started', () => {
         expect(buildThumbnailRenderQueue({
             totalPages: 20,
             currentPage: 5,
@@ -37,12 +51,12 @@ describe('buildThumbnailRenderQueue', () => {
             immediateRenderRadius: 2,
             prefetchRenderRadius: 4,
         })).toEqual([
+            1,
+            2,
             3,
             4,
             6,
             7,
-            1,
-            2,
             8,
             9,
         ]);

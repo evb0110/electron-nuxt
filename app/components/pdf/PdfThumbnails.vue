@@ -34,7 +34,12 @@
         @click="handleThumbnailClick($event, page)"
         @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
       >
-        <canvas class="pdf-thumbnail-canvas" :style="thumbnailCanvasStyle" />
+        <canvas
+          :key="getThumbnailRenderKey(page)"
+          class="pdf-thumbnail-canvas"
+          :style="thumbnailCanvasStyle"
+          :data-thumbnail-render-key="getThumbnailRenderKey(page)"
+        />
         <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
       </div>
     </div>
@@ -97,15 +102,17 @@ const AUTO_SYNC_COMFORT_PADDING_MAX_PX = 48;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
 const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
-const AUTO_SYNC_ACTIVATION_RETRY_DELAYS_MS = [
-    0,
-    50,
-    150,
-    350,
-] as const;
 const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 
-const props = defineProps<IProps>();
+const {
+    currentPage,
+    invalidationRequest = undefined,
+    isActive,
+    pageLabels = undefined,
+    pdfDocument,
+    selectedPages = undefined,
+    totalPages,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'go-to-page', page: number): void;
@@ -133,6 +140,8 @@ const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
 const renderedCanvases = new Map<number, HTMLCanvasElement>();
 const renderingCanvases = new Map<number, HTMLCanvasElement>();
+const renderingCanvasKeys = new Map<number, string>();
+const pageRenderEpochs = new Map<number, number>();
 let renderRunId = 0;
 let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
@@ -146,24 +155,26 @@ let lastProgrammaticScrollAtMs = 0;
 let currentPageSyncRunId = 0;
 let thumbnailSourceCycleId = 0;
 let manualScrollSourceCycleId = -1;
-const activePaneRefreshTimers = new Set<number>();
+let activePaneRefreshRunId = 0;
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
 const thumbnailItemHeight = ref(DEFAULT_THUMBNAIL_ITEM_HEIGHT);
 const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
 const thumbnailAspectRatio = ref<number | null>(null);
+const documentRenderEpoch = ref(0);
+const thumbnailKeySignal = ref(0);
 const selectionFocusPage = ref<number | null>(null);
 
 const multiSelection = useMultiSelection<number>();
-const selectedPagesSet = computed(() => new Set(props.selectedPages ?? []));
+const selectedPagesSet = computed(() => new Set(selectedPages ?? []));
 
 const itemPitch = computed(() =>
     Math.max(1, thumbnailItemHeight.value + THUMBNAIL_GAP),
 );
 
 const visibleStartIndex = computed(() => {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return 0;
     }
     return Math.max(
@@ -173,18 +184,18 @@ const visibleStartIndex = computed(() => {
 });
 
 const visibleEndIndex = computed(() => {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return -1;
     }
     const viewportBottom = scrollTop.value + Math.max(viewportHeight.value, itemPitch.value);
     return Math.min(
-        props.totalPages - 1,
+        totalPages - 1,
         Math.ceil(viewportBottom / itemPitch.value) + VIRTUAL_OVERSCAN,
     );
 });
 
 const virtualPages = computed(() => {
-    if (props.totalPages <= 0 || visibleEndIndex.value < visibleStartIndex.value) {
+    if (totalPages <= 0 || visibleEndIndex.value < visibleStartIndex.value) {
         return [] as number[];
     }
 
@@ -196,10 +207,10 @@ const virtualPages = computed(() => {
 });
 
 const virtualWrapperStyle = computed(() => {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return {height: '0px'};
     }
-    const totalHeight = props.totalPages * itemPitch.value - THUMBNAIL_GAP;
+    const totalHeight = totalPages * itemPitch.value - THUMBNAIL_GAP;
     return {height: `${Math.max(0, totalHeight)}px`};
 });
 
@@ -212,6 +223,20 @@ const thumbnailCanvasStyle = computed(() => {
 
 function getThumbnailStyle(page: number) {
     return {transform: `translateY(${(page - 1) * itemPitch.value}px)`};
+}
+
+function getThumbnailRenderKey(page: number) {
+    // Read the signal so page-local epoch bumps invalidate Vue's keyed canvas.
+    void thumbnailKeySignal.value;
+    const pageEpoch = pageRenderEpochs.get(page) ?? 0;
+    const outputScale = resolveThumbnailOutputScale().toFixed(3);
+    return [
+        documentRenderEpoch.value,
+        page,
+        Math.round(thumbnailRenderWidth.value),
+        outputScale,
+        pageEpoch,
+    ].join(':');
 }
 
 const {
@@ -227,13 +252,13 @@ const {
     handleExternalDrop,
 } = usePageDragDrop({
     containerRef,
-    totalPages: toRef(props, 'totalPages'),
-    selectedPages: computed(() => props.selectedPages ?? []),
+    totalPages: computed(() => totalPages),
+    selectedPages: computed(() => selectedPages ?? []),
     resolveDropIndex: (clientY, container) => {
         const rect = container.getBoundingClientRect();
         const offsetY = clientY - rect.top + container.scrollTop;
         const index = Math.floor(offsetY / itemPitch.value);
-        return Math.max(0, Math.min(props.totalPages, index));
+        return Math.max(0, Math.min(totalPages, index));
     },
     onReorder: (newOrder) => emit('reorder', newOrder),
     onExternalFileDrop: (afterPage, filePaths) =>
@@ -249,10 +274,10 @@ function isSelected(page: number) {
 }
 
 function getThumbnailSelectionFallbackAnchor() {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return null;
     }
-    return clampPage(props.currentPage);
+    return clampPage(currentPage);
 }
 
 function handleThumbnailClick(event: MouseEvent, page: number) {
@@ -265,7 +290,7 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         return;
     }
 
-    const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
+    const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
     multiSelection.toggle(page, allPages, {
         shift: event.shiftKey,
         meta: event.metaKey || event.ctrlKey,
@@ -274,7 +299,7 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
     selectionFocusPage.value = page;
     const normalized = normalizeSelectedPageNumbers(
         Array.from(multiSelection.selected.value),
-        props.totalPages,
+        totalPages,
     );
     emit('update:selected-pages', normalized);
 }
@@ -288,7 +313,7 @@ function handleThumbnailContextMenu(event: MouseEvent, page: number) {
     }
     const pages = normalizeSelectedPageNumbers(
         Array.from(multiSelection.selected.value),
-        props.totalPages,
+        totalPages,
     );
     emit('page-context-menu', {
         clientX: event.clientX,
@@ -317,11 +342,15 @@ function getThumbnailElement(pageNum: number) {
 }
 
 function getPageIndicator(page: number) {
-    return formatPageIndicator(page, props.pageLabels ?? null);
+    return formatPageIndicator(page, pageLabels ?? null);
 }
 
 function isCanvasRendered(canvas: HTMLCanvasElement | null) {
     return canvas?.dataset.thumbnailRendered === 'true';
+}
+
+function isCanvasForRenderKey(canvas: HTMLCanvasElement | null, renderKey: string) {
+    return canvas?.dataset.thumbnailRenderKey === renderKey;
 }
 
 function isCurrentThumbnailCanvasRendered(pageNum: number) {
@@ -330,8 +359,10 @@ function isCurrentThumbnailCanvasRendered(pageNum: number) {
         return false;
     }
 
+    const renderKey = getThumbnailRenderKey(pageNum);
     return renderedCanvases.get(pageNum) === canvas
-        && isCanvasRendered(canvas);
+        && isCanvasRendered(canvas)
+        && isCanvasForRenderKey(canvas, renderKey);
 }
 
 function isCurrentThumbnailCanvasRendering(pageNum: number) {
@@ -340,8 +371,10 @@ function isCurrentThumbnailCanvasRendering(pageNum: number) {
         return false;
     }
 
+    const renderKey = getThumbnailRenderKey(pageNum);
     return renderingPages.has(pageNum)
-        && renderingCanvases.get(pageNum) === canvas;
+        && renderingCanvases.get(pageNum) === canvas
+        && renderingCanvasKeys.get(pageNum) === renderKey;
 }
 
 function roundMetric(value: number) {
@@ -392,6 +425,37 @@ function resolveThumbnailOutputScale() {
     return Math.min(MAX_THUMBNAIL_OUTPUT_SCALE, window.devicePixelRatio);
 }
 
+function clearThumbnailCanvas(canvas: HTMLCanvasElement, renderKey: string | null = null) {
+    canvas.width = 0;
+    canvas.height = 0;
+    delete canvas.dataset.thumbnailRendered;
+    if (renderKey) {
+        canvas.dataset.thumbnailRenderKey = renderKey;
+        return;
+    }
+    delete canvas.dataset.thumbnailRenderKey;
+}
+
+function clearVisibleThumbnailCanvases(pages: number[] | null = null) {
+    const container = containerRef.value;
+    if (!container) {
+        return;
+    }
+
+    const pageFilter = pages ? new Set(pages) : null;
+    const thumbnails = container.querySelectorAll<HTMLElement>('.pdf-thumbnail');
+    for (const thumbnail of thumbnails) {
+        const page = Number(thumbnail.dataset.page);
+        if (pageFilter && !pageFilter.has(page)) {
+            continue;
+        }
+        const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
+        if (canvas) {
+            clearThumbnailCanvas(canvas, null);
+        }
+    }
+}
+
 function resolveThumbnailItemHeightFromCanvasHeight(canvasHeight: number) {
     return Math.ceil(canvasHeight)
         + THUMBNAIL_ITEM_VERTICAL_PADDING
@@ -432,8 +496,8 @@ function updateThumbnailItemHeight(
         previousHeight: roundMetric(previousHeight),
         nextHeight: roundMetric(thumbnailItemHeight.value),
         itemPitch: roundMetric(itemPitch.value),
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+        currentPage: currentPage,
+        totalPages: totalPages,
         ...data,
     });
 
@@ -465,8 +529,8 @@ function updateThumbnailAspectRatio(
         reason,
         previousAspectRatio: previousAspectRatio === null ? null : roundMetric(previousAspectRatio),
         nextAspectRatio: roundMetric(nextAspectRatio),
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+        currentPage: currentPage,
+        totalPages: totalPages,
         ...data,
     });
 
@@ -503,8 +567,8 @@ function markUserInteraction(reason: string) {
     lastUserInteractionLogAtMs = now;
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail user interaction detected', {
         reason,
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+        currentPage: currentPage,
+        totalPages: totalPages,
     });
 }
 
@@ -530,6 +594,10 @@ function waitForNextFrame() {
 
         window.requestAnimationFrame(() => resolve());
     });
+}
+
+function isThumbnailPaneActive() {
+    return isActive !== false;
 }
 
 function isThumbnailLayoutStabilizing() {
@@ -561,11 +629,11 @@ function getPageBounds(page: number) {
 }
 
 function clampPage(page: number) {
-    return Math.max(1, Math.min(props.totalPages, page));
+    return Math.max(1, Math.min(totalPages, page));
 }
 
 function resolveViewportAnchorPage(pitch = itemPitch.value) {
-    if (props.totalPages <= 0 || pitch <= 0) {
+    if (totalPages <= 0 || pitch <= 0) {
         return null;
     }
 
@@ -573,7 +641,7 @@ function resolveViewportAnchorPage(pitch = itemPitch.value) {
 }
 
 function shouldPreferVisibleAnchorOverCurrentPage() {
-    return !getThumbnailElement(props.currentPage);
+    return !getThumbnailElement(currentPage);
 }
 
 function markManualThumbnailScroll(reason: string) {
@@ -609,25 +677,25 @@ function getKeyboardSelectionBasePage() {
     if (
         selectionFocusPage.value !== null
         && selectionFocusPage.value >= 1
-        && selectionFocusPage.value <= props.totalPages
+        && selectionFocusPage.value <= totalPages
     ) {
         return selectionFocusPage.value;
     }
 
-    const normalized = normalizeSelectedPageNumbers(props.selectedPages ?? [], props.totalPages);
-    return normalized.at(-1) ?? clampPage(props.currentPage);
+    const normalized = normalizeSelectedPageNumbers(selectedPages ?? [], totalPages);
+    return normalized.at(-1) ?? clampPage(currentPage);
 }
 
 function getKeyboardSelectionAnchorPage(basePage: number) {
     if (
         multiSelection.anchor.value !== null
         && multiSelection.anchor.value >= 1
-        && multiSelection.anchor.value <= props.totalPages
+        && multiSelection.anchor.value <= totalPages
     ) {
         return multiSelection.anchor.value;
     }
 
-    const normalized = normalizeSelectedPageNumbers(props.selectedPages ?? [], props.totalPages);
+    const normalized = normalizeSelectedPageNumbers(selectedPages ?? [], totalPages);
     return normalized[0] ?? basePage;
 }
 
@@ -649,7 +717,7 @@ function handleContainerKeyDown(event: KeyboardEvent) {
         || event.altKey
         || event.metaKey
         || event.ctrlKey
-        || props.totalPages <= 0
+        || totalPages <= 0
         || isDragging.value
         || isExternalDragOver.value
     ) {
@@ -676,7 +744,7 @@ function handleContainerKeyDown(event: KeyboardEvent) {
     const basePage = getKeyboardSelectionBasePage();
     const nextFocusPage = clampPage(basePage + direction);
     const anchorPage = getKeyboardSelectionAnchorPage(basePage);
-    const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
+    const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
     multiSelection.anchor.value = anchorPage;
     multiSelection.toggle(nextFocusPage, allPages, {shift: true});
@@ -684,7 +752,7 @@ function handleContainerKeyDown(event: KeyboardEvent) {
 
     const normalized = normalizeSelectedPageNumbers(
         Array.from(multiSelection.selected.value),
-        props.totalPages,
+        totalPages,
     );
     emit('update:selected-pages', normalized);
     emit('go-to-page', nextFocusPage);
@@ -796,14 +864,14 @@ function resolveCurrentPageSyncRequest(
     const container = resolveVisibleContainer(`current-page-sync:${reason}`);
     if (
         !container ||
-        props.totalPages <= 0 ||
+        totalPages <= 0 ||
         isDragging.value ||
         isExternalDragOver.value ||
         (!options.force && isCurrentPageAutoSyncSuppressed())
     ) {
         return null;
     }
-    const targetScrollTop = resolveCurrentPageSyncScrollTop(container, props.currentPage);
+    const targetScrollTop = resolveCurrentPageSyncScrollTop(container, currentPage);
     return targetScrollTop === null ? null : {
         container,
         targetScrollTop,
@@ -823,7 +891,7 @@ function applyRefinedCurrentPageSync(
         return;
     }
 
-    const refinedScrollTop = resolveRefinedCurrentPageScrollTop(container, props.currentPage);
+    const refinedScrollTop = resolveRefinedCurrentPageScrollTop(container, currentPage);
     if (refinedScrollTop !== null) {
         applyThumbnailScrollTop(container, refinedScrollTop);
     }
@@ -840,7 +908,7 @@ function isContainerVisible(container: HTMLElement) {
 }
 
 function resolveVisibleContainer(reason: string) {
-    if (props.isActive === false) {
+    if (isActive === false) {
         return null;
     }
 
@@ -850,8 +918,8 @@ function resolveVisibleContainer(reason: string) {
             BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail container detached', {
                 reason,
                 stateBeforeDetach: containerVisibilityState,
-                currentPage: props.currentPage,
-                totalPages: props.totalPages,
+                currentPage: currentPage,
+                totalPages: totalPages,
             });
             containerVisibilityState = 'unknown';
         }
@@ -866,8 +934,8 @@ function resolveVisibleContainer(reason: string) {
             ? 'Thumbnail container became visible'
             : 'Thumbnail container became hidden', {
             reason,
-            currentPage: props.currentPage,
-            totalPages: props.totalPages,
+            currentPage: currentPage,
+            totalPages: totalPages,
             geometry: describeContainerGeometry(container),
             itemHeight: roundMetric(thumbnailItemHeight.value),
             renderedPages: renderedCanvases.size,
@@ -906,8 +974,8 @@ function updateViewportMetrics() {
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail render width changed', {
             previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
             nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
-            currentPage: props.currentPage,
-            totalPages: props.totalPages,
+            currentPage: currentPage,
+            totalPages: totalPages,
             geometry: describeContainerGeometry(container),
         });
     }
@@ -915,8 +983,8 @@ function updateViewportMetrics() {
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail viewport height changed', {
             previousViewportHeight: roundMetric(previousViewportHeight),
             nextViewportHeight: roundMetric(viewportHeight.value),
-            currentPage: props.currentPage,
-            totalPages: props.totalPages,
+            currentPage: currentPage,
+            totalPages: totalPages,
             geometry: describeContainerGeometry(container),
         });
     }
@@ -960,8 +1028,8 @@ function warnMissingMeasurementItem(container: HTMLElement) {
 
     measurementState = 'no-item';
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+        currentPage: currentPage,
+        totalPages: totalPages,
         geometry: describeContainerGeometry(container),
     });
 }
@@ -977,8 +1045,8 @@ function warnMissingRenderedCanvas(
 
     measurementState = 'no-rendered-canvas';
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+        currentPage: currentPage,
+        totalPages: totalPages,
         geometry: describeContainerGeometry(container),
         itemPage: measurementItem.dataset.page ?? null,
         canvasWidth: canvas?.width ?? null,
@@ -996,8 +1064,8 @@ function logMeasurementReady(
 
     measurementState = 'ready';
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+        currentPage: currentPage,
+        totalPages: totalPages,
         itemPage: measurementItem.dataset.page ?? null,
         canvasWidth: canvas.width,
         canvasHeight: canvas.height,
@@ -1052,9 +1120,9 @@ function handleContainerPointerDown() {
 }
 
 watch(
-    () => props.selectedPages,
+    () => selectedPages,
     (pages) => {
-        const normalized = normalizeSelectedPageNumbers(pages ?? [], props.totalPages);
+        const normalized = normalizeSelectedPageNumbers(pages ?? [], totalPages);
         if (!arePageNumberListsEqual(normalized, pages ?? [])) {
             emit('update:selected-pages', normalized);
             return;
@@ -1097,6 +1165,8 @@ function cancelAllRenders() {
     }
     renderTasks.clear();
     renderingPages.clear();
+    renderingCanvases.clear();
+    renderingCanvasKeys.clear();
 }
 
 function cancelRenderForPage(page: number) {
@@ -1112,6 +1182,7 @@ function cancelRenderForPage(page: number) {
 
     renderingPages.delete(page);
     renderingCanvases.delete(page);
+    renderingCanvasKeys.delete(page);
 }
 
 function cancelStaleThumbnailRender(pageNum: number) {
@@ -1126,6 +1197,7 @@ function cancelStaleThumbnailRender(pageNum: number) {
     }
     renderingPages.delete(pageNum);
     renderingCanvases.delete(pageNum);
+    renderingCanvasKeys.delete(pageNum);
 }
 
 function pruneDetachedThumbnailState() {
@@ -1158,17 +1230,25 @@ function prepareThumbnailCanvas(pageNum: number) {
         return null;
     }
 
+    const renderKey = getThumbnailRenderKey(pageNum);
     if (renderingPages.has(pageNum)) {
-        if (renderingCanvases.get(pageNum) === canvas) {
+        if (
+            renderingCanvases.get(pageNum) === canvas
+            && renderingCanvasKeys.get(pageNum) === renderKey
+        ) {
             return null;
         }
         cancelStaleThumbnailRender(pageNum);
     }
 
-    delete canvas.dataset.thumbnailRendered;
+    clearThumbnailCanvas(canvas, renderKey);
     renderingPages.add(pageNum);
     renderingCanvases.set(pageNum, canvas);
-    return canvas;
+    renderingCanvasKeys.set(pageNum, renderKey);
+    return {
+        canvas,
+        renderKey,
+    };
 }
 
 function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNum: number) {
@@ -1219,8 +1299,12 @@ function buildThumbnailRenderTransform(scaleX: number, scaleY: number) {
         : undefined;
 }
 
-function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement) {
-    if (getCanvas(pageNum) !== canvas) {
+function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
+    if (
+        getCanvas(pageNum) !== canvas
+        || getThumbnailRenderKey(pageNum) !== renderKey
+        || !isCanvasForRenderKey(canvas, renderKey)
+    ) {
         void scheduleVisibleThumbnailRender();
         return;
     }
@@ -1250,9 +1334,15 @@ async function renderPreparedThumbnail(
     pageNum: number,
     runId: number,
     canvas: HTMLCanvasElement,
+    renderKey: string,
 ) {
     const page = await pdfDocument.getPage(pageNum);
-    if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+    if (
+        runId !== renderRunId
+        || !isPdfDocumentUsable(pdfDocument)
+        || getThumbnailRenderKey(pageNum) !== renderKey
+        || !isCanvasForRenderKey(canvas, renderKey)
+    ) {
         return;
     }
 
@@ -1272,13 +1362,17 @@ async function renderPreparedThumbnail(
     renderTasks.set(pageNum, task);
     await task.promise;
     renderTasks.delete(pageNum);
-    finalizeRenderedThumbnail(pageNum, canvas);
+    finalizeRenderedThumbnail(pageNum, canvas, renderKey);
 }
 
-function cleanupThumbnailRenderState(pageNum: number, canvas: HTMLCanvasElement) {
-    if (renderingCanvases.get(pageNum) === canvas) {
+function cleanupThumbnailRenderState(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
+    if (
+        renderingCanvases.get(pageNum) === canvas
+        && renderingCanvasKeys.get(pageNum) === renderKey
+    ) {
         renderingPages.delete(pageNum);
         renderingCanvases.delete(pageNum);
+        renderingCanvasKeys.delete(pageNum);
     }
 }
 
@@ -1313,11 +1407,17 @@ async function renderThumbnail(
     }
 
     try {
-        await renderPreparedThumbnail(pdfDocument, pageNum, runId, canvas);
+        await renderPreparedThumbnail(
+            pdfDocument,
+            pageNum,
+            runId,
+            canvas.canvas,
+            canvas.renderKey,
+        );
     } catch (error) {
         handleThumbnailRenderError(error, pdfDocument, pageNum, runId);
     } finally {
-        cleanupThumbnailRenderState(pageNum, canvas);
+        cleanupThumbnailRenderState(pageNum, canvas.canvas, canvas.renderKey);
     }
 }
 
@@ -1330,13 +1430,13 @@ function buildRenderQueue(totalPages: number) {
     const currentRenderingPages = new Set(
         virtualPages.value.filter(page => isCurrentThumbnailCanvasRendering(page)),
     );
-    const currentPage = shouldPreferVisibleAnchorOverCurrentPage()
-        ? resolveViewportAnchorPage() ?? props.currentPage
-        : props.currentPage;
+    const queueCurrentPage = shouldPreferVisibleAnchorOverCurrentPage()
+        ? resolveViewportAnchorPage() ?? currentPage
+        : currentPage;
 
     return buildThumbnailRenderQueue({
         totalPages,
-        currentPage,
+        currentPage: queueCurrentPage,
         visiblePages: virtualPages.value,
         renderedPages: currentRenderedPages,
         renderingPages: currentRenderingPages,
@@ -1376,8 +1476,7 @@ async function renderThumbnailQueue(
 }
 
 const scheduleVisibleThumbnailRender = useDebounceFn(() => {
-    const doc = props.pdfDocument;
-    const totalPages = props.totalPages;
+    const doc = pdfDocument;
 
     if (!doc || totalPages <= 0) {
         return;
@@ -1396,19 +1495,26 @@ const scheduleVisibleThumbnailRender = useDebounceFn(() => {
 }, 20);
 
 async function refreshVisibleThumbnailPane(reason: string) {
-    if (props.isActive === false) {
+    if (!isThumbnailPaneActive()) {
         return;
     }
 
+    const refreshRunId = ++activePaneRefreshRunId;
     for (let attempt = 0; attempt < AUTO_SYNC_LAYOUT_RETRY_COUNT; attempt += 1) {
         await nextTick();
         await waitForNextFrame();
+        if (refreshRunId !== activePaneRefreshRunId || !isThumbnailPaneActive()) {
+            return;
+        }
         updateViewportMetrics();
         await syncCurrentPageIntoView(reason, {force: true});
         await nextTick();
+        if (refreshRunId !== activePaneRefreshRunId || !isThumbnailPaneActive()) {
+            return;
+        }
 
         const container = containerRef.value;
-        if (container && isContainerVisible(container) && isThumbnailElementFullyVisible(container, props.currentPage)) {
+        if (container && isContainerVisible(container) && isThumbnailElementFullyVisible(container, currentPage)) {
             break;
         }
     }
@@ -1417,40 +1523,21 @@ async function refreshVisibleThumbnailPane(reason: string) {
     void measureThumbnailHeight();
 }
 
-function clearActivePaneRefreshTimers() {
-    if (typeof window === 'undefined') {
-        activePaneRefreshTimers.clear();
-        return;
-    }
-
-    for (const timer of activePaneRefreshTimers) {
-        window.clearTimeout(timer);
-    }
-    activePaneRefreshTimers.clear();
+function cancelActivePaneRefresh() {
+    activePaneRefreshRunId += 1;
 }
 
 function scheduleActivePaneRefresh(reason: string) {
-    if (typeof window === 'undefined') {
+    if (!isThumbnailPaneActive()) {
+        cancelActivePaneRefresh();
         return;
     }
 
-    if (props.isActive === false) {
-        clearActivePaneRefreshTimers();
-        return;
-    }
-
-    clearActivePaneRefreshTimers();
-    for (const delayMs of AUTO_SYNC_ACTIVATION_RETRY_DELAYS_MS) {
-        const timer = window.setTimeout(() => {
-            activePaneRefreshTimers.delete(timer);
-            void refreshVisibleThumbnailPane(reason);
-        }, delayMs);
-        activePaneRefreshTimers.add(timer);
-    }
+    void refreshVisibleThumbnailPane(reason);
 }
 
 async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
-    const pageNum = Math.max(1, Math.min(props.totalPages, props.currentPage || 1));
+    const pageNum = Math.max(1, Math.min(totalPages, currentPage || 1));
     try {
         const page = await pdfDocument.getPage(pageNum);
         if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
@@ -1471,8 +1558,8 @@ async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId:
         }
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Failed to preload thumbnail aspect ratio', {
             page: pageNum,
-            currentPage: props.currentPage,
-            totalPages: props.totalPages,
+            currentPage: currentPage,
+            totalPages: totalPages,
             error,
         });
     }
@@ -1485,7 +1572,9 @@ function clearRenderedState(options: {
     renderedCanvases.clear();
     renderingPages.clear();
     renderingCanvases.clear();
+    renderingCanvasKeys.clear();
     renderTasks.clear();
+    clearVisibleThumbnailCanvases();
     thumbnailItemHeight.value = DEFAULT_THUMBNAIL_ITEM_HEIGHT;
     if (!options.preserveRenderWidth) {
         thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
@@ -1499,8 +1588,8 @@ function clearRenderedState(options: {
 
 watch(
     [
-        () => props.pdfDocument,
-        () => props.totalPages,
+        () => pdfDocument,
+        () => totalPages,
     ],
     ([
         doc,
@@ -1509,6 +1598,10 @@ watch(
         cancelAllRenders();
         renderRunId += 1;
         thumbnailSourceCycleId += 1;
+        documentRenderEpoch.value += 1;
+        thumbnailKeySignal.value += 1;
+        pageRenderEpochs.clear();
+        clearVisibleThumbnailCanvases();
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
             hasDocument: Boolean(doc),
             hadDocument: Boolean(oldDoc),
@@ -1516,7 +1609,7 @@ watch(
             renderRunId,
             reloadTransition,
             pendingInvalidation: pendingInvalidation?.slice(0, 24) ?? null,
-            currentPage: props.currentPage,
+            currentPage: currentPage,
         });
 
         if (!doc || total <= 0) {
@@ -1536,6 +1629,7 @@ watch(
                     renderedCanvases.delete(page);
                     renderingPages.delete(page);
                     renderingCanvases.delete(page);
+                    renderingCanvasKeys.delete(page);
                 }
                 pendingInvalidation = null;
             } else {
@@ -1561,7 +1655,7 @@ watch(
 watch(
     () =>
         [
-            props.currentPage,
+            currentPage,
             visibleStartIndex.value,
             visibleEndIndex.value,
         ] as const,
@@ -1571,7 +1665,7 @@ watch(
 );
 
 watch(
-    () => props.currentPage,
+    () => currentPage,
     () => {
         scheduleActivePaneRefresh('current-page');
     },
@@ -1600,10 +1694,10 @@ watch(
 );
 
 watch(
-    () => props.isActive ?? true,
+    () => isActive ?? true,
     (isActive) => {
         if (!isActive) {
-            clearActivePaneRefreshTimers();
+            cancelActivePaneRefresh();
             return;
         }
 
@@ -1617,11 +1711,15 @@ watch(
 
 function invalidatePages(pages: number[]) {
     pendingInvalidation = pages;
+    for (const page of pages) {
+        pageRenderEpochs.set(page, (pageRenderEpochs.get(page) ?? 0) + 1);
+    }
+    thumbnailKeySignal.value += 1;
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Invalidating thumbnail pages', {
         pages: pages.slice(0, 40),
         totalPages: pages.length,
         renderRunId,
-        currentPage: props.currentPage,
+        currentPage: currentPage,
     });
     for (const page of pages) {
         renderedCanvases.delete(page);
@@ -1629,7 +1727,7 @@ function invalidatePages(pages: number[]) {
 
         const canvas = getCanvas(page);
         if (canvas) {
-            delete canvas.dataset.thumbnailRendered;
+            clearThumbnailCanvas(canvas, getThumbnailRenderKey(page));
         }
     }
 
@@ -1637,9 +1735,9 @@ function invalidatePages(pages: number[]) {
 }
 
 watch(
-    () => props.invalidationRequest?.id,
+    () => invalidationRequest?.id,
     () => {
-        const pages = props.invalidationRequest?.pages;
+        const pages = invalidationRequest?.pages;
         if (!pages || pages.length === 0) {
             return;
         }
@@ -1676,7 +1774,7 @@ useResizeObserver(containerRef, () => {
 });
 
 onBeforeUnmount(() => {
-    clearActivePaneRefreshTimers();
+    cancelActivePaneRefresh();
     cancelAllRenders();
     renderRunId += 1;
     clearRenderedState();

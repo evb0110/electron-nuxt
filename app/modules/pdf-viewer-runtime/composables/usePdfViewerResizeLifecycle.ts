@@ -4,7 +4,10 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
+import {
+    captureScrollSnapshot,
+    restoreScrollFromSnapshot,
+} from '@app/composables/pdf/pdfPageRenderPipeline';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
@@ -202,13 +205,53 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         });
     }, 200);
 
+    function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
+        if (!anchor.snapshot || typeof window === 'undefined') {
+            return;
+        }
+
+        const token = anchor.transitionToken;
+        const restoreIfCurrent = (phase: string) => {
+            if (token !== resizeTransitionToken) {
+                return;
+            }
+
+            restoreScrollFromSnapshot(viewerContainer.value, anchor.snapshot, {
+                restoreHorizontal: false,
+                restoreVertical: true,
+                preferPageAnchor: true,
+                allowVerticalRatioFallback: true,
+            });
+            BrowserLogger.warnThrottled(
+                'pdf-zoom-debug',
+                'resize-anchor-immediate-restore',
+                ZOOM_QUEUE_LOG_THROTTLE_MS,
+                '[resize-anchor] immediate vertical restore after layout',
+                {
+                    source,
+                    phase,
+                    token,
+                    anchorPage: anchor.page,
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                },
+            );
+        };
+
+        void nextTick(() => {
+            restoreIfCurrent('next-tick');
+            window.requestAnimationFrame(() => {
+                restoreIfCurrent('animation-frame');
+            });
+        });
+    }
+
     function handleResize() {
         if (isLoading.value || isResizing.value) {
             return;
         }
         const resizeAnchor = buildResizeAnchorContext({
-            anchorViewportY: 0,
-            preferSnapshotAnchorPage: true,
+            preferredAnchorPage: currentPage.value,
+            trustPreferredAnchorPage: true,
         });
         const updated = computeFitWidthScale(viewerContainer.value);
         if (pdfDocument.value) {
@@ -229,6 +272,9 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 transitionToken,
             };
             pendingResizeAnchor = anchoredResizeContext;
+            if (updated) {
+                restoreResizeAnchorAfterLayout(anchoredResizeContext, 'resize-observer');
+            }
             BrowserLogger.warn('pdf-nav', 'Resize observer requested re-render'
                 + ` anchorPage=${anchoredResizeContext.page}`
                 + ` anchorRange=${anchoredResizeContext.visibleRange.start}-${anchoredResizeContext.visibleRange.end}`

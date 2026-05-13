@@ -287,7 +287,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
-    it('uses a top-biased snapshot anchor when sidebar resizing settles', async () => {
+    it('keeps the current page as the anchor when sidebar resizing settles', async () => {
         vi.useFakeTimers();
         try {
             const isResizing = ref(true);
@@ -344,8 +344,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await nextTick();
 
             expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-                anchorViewportY: 0,
-                preferSnapshotAnchorPage: true,
+                preferredAnchorPage: 4,
+                trustPreferredAnchorPage: true,
             });
             expect(beginResizeTransition).toHaveBeenCalledWith('resize-settle', 4);
             expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
