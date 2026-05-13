@@ -116,7 +116,7 @@ import { getDjvuCapability } from '@app/utils/platform-djvu';
 
 const { t } = useTypedI18n();
 
-const props = defineProps<{djvuPath: TDocumentRef | null;}>();
+const { djvuPath } = defineProps<{djvuPath: TDocumentRef | null;}>();
 
 const emit = defineEmits<{convert: [subsample: number, preserveBookmarks: boolean];}>();
 
@@ -164,7 +164,7 @@ const largeDocumentWarning = computed(() => {
     return null;
 });
 
-const fileName = computed(() => getDocumentRefBaseName(props.djvuPath) ?? '');
+const fileName = computed(() => getDocumentRefBaseName(djvuPath) ?? '');
 
 function formatBytes(bytes: number) {
     if (bytes < 1024) {
@@ -211,12 +211,12 @@ function resolveDefaultSubsample(pageCount: number) {
 }
 
 watch(open, async (isOpen, _wasOpen, onCleanup) => {
-    if (!isOpen || !props.djvuPath) {
+    if (!isOpen || !djvuPath) {
         return;
     }
 
     let isCurrentRequest = true;
-    const requestPath = props.djvuPath;
+    const requestPath = djvuPath;
     onCleanup(() => {
         isCurrentRequest = false;
     });

@@ -43,7 +43,11 @@ import { clamp } from 'es-toolkit/math';
 const DRAG_THRESHOLD = 5;
 const DEFAULT_POINT_MARKER_SIZE = 0.0016;
 
-const props = defineProps<{
+const {
+    annotation,
+    leftPercent,
+    topPercent,
+} = defineProps<{
     annotation: IAnnotationCommentSummary;
     clustered: IAnnotationCommentSummary[];
     isActive: boolean;
@@ -84,8 +88,8 @@ const dragStyle = computed(() => {
 });
 
 watch([
-    () => props.leftPercent,
-    () => props.topPercent,
+    () => leftPercent,
+    () => topPercent,
 ], () => {
     if (pendingDragCommit) {
         pendingDragCommit = false;
@@ -104,11 +108,11 @@ function handleClick() {
         suppressClick = false;
         return;
     }
-    emit('openNote', props.annotation);
+    emit('openNote', annotation);
 }
 
 function handleContextMenu(event: MouseEvent) {
-    emit('contextMenu', props.annotation, event);
+    emit('contextMenu', annotation, event);
 }
 
 function handlePointerDown(event: PointerEvent) {
@@ -194,7 +198,7 @@ function commitDrag(clientX: number, clientY: number) {
     };
 
     pendingDragCommit = true;
-    emit('moveMarker', props.annotation, markerRect);
+    emit('moveMarker', annotation, markerRect);
 }
 
 function cleanup(pointerId?: number) {

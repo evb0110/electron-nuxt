@@ -120,7 +120,10 @@ interface IContextMenuSection {
     actions: IContextMenuAction[];
 }
 
-const props = defineProps<{
+const {
+    contextAvailability = undefined,
+    tabs,
+} = defineProps<{
     tabs: ITab[];
     activeTabId: string | null;
     contextAvailability?: ITabContextAvailability | null;
@@ -157,14 +160,14 @@ const contextMenuStyle = computed(() => ({
     left: `${contextMenu.value.x}px`,
     top: `${contextMenu.value.y}px`,
 }));
-const canCloseTabs = computed(() => props.contextAvailability?.canClose ?? true);
+const canCloseTabs = computed(() => contextAvailability?.canClose ?? true);
 
 function resolveTabTitle(tab: ITab) {
     return getDocumentRefDisplayLabel(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
 }
 
 function isDirectionEnabled(kind: TDirectionalAvailabilityKind, direction: TGroupDirection) {
-    return props.contextAvailability?.[kind][direction] ?? true;
+    return contextAvailability?.[kind][direction] ?? true;
 }
 
 function resolveDirectionalAvailabilityKind(command: TDirectionalTabContextCommand): TDirectionalAvailabilityKind {
@@ -181,9 +184,9 @@ function isDirectionalCommandEnabled(command: TDirectionalTabContextCommand) {
 
 function isStaticCommandEnabled(command: Exclude<TTabContextCommand, TDirectionalTabContextCommand>) {
     const staticAvailabilityByKind = {
-        'new-tab': props.contextAvailability?.canCreate ?? true,
-        'close-tab': props.contextAvailability?.canClose ?? true,
-        'move-to-new-window': props.contextAvailability?.canMoveToNewWindow ?? props.tabs.length > 1,
+        'new-tab': contextAvailability?.canCreate ?? true,
+        'close-tab': contextAvailability?.canClose ?? true,
+        'move-to-new-window': contextAvailability?.canMoveToNewWindow ?? tabs.length > 1,
         'move-to-window': true,
     } satisfies Record<TStaticCommandKind, boolean>;
 
@@ -355,14 +358,14 @@ const {
     tabBarRef,
     (from, to) => emit('reorder', from, to),
     (index) => {
-        const tab = props.tabs[index];
+        const tab = tabs[index];
         if (tab) emit('activate', tab.id);
     },
     (index, direction) => {
         if (!isDirectionEnabled('move', direction)) {
             return;
         }
-        const tab = props.tabs[index];
+        const tab = tabs[index];
         if (tab) {
             emit('move-direction', tab.id, direction);
         }

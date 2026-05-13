@@ -86,7 +86,7 @@
             <UButton
                 color="primary"
                 :label="dialogActionLabel"
-                :disabled="props.totalPages <= 0"
+                :disabled="totalPages <= 0"
                 @click="handleSubmit"
             />
         </template>
@@ -103,7 +103,12 @@ type TExportMode = 'images' | 'multipage-tiff';
 
 const open = defineModel<boolean>('open', { required: true });
 
-const props = defineProps<{
+const {
+    currentPage,
+    mode,
+    selectedPages,
+    totalPages,
+} = defineProps<{
     mode: TExportMode;
     totalPages: number;
     currentPage: number;
@@ -115,20 +120,25 @@ const emit = defineEmits<{submit: [payload: { pageNumbers?: number[] }];}>();
 const { t } = useTypedI18n();
 
 const dialogTitle = computed(() => (
-    props.mode === 'images'
+    mode === 'images'
         ? t('dialogs.exportImages')
         : t('dialogs.exportMultiPageTiff')
 ));
 
 const dialogActionLabel = computed(() => (
-    props.mode === 'images'
+    mode === 'images'
         ? t('export.exportImagesAction')
         : t('export.exportTiffAction')
 ));
 
 const rangePages = computed(() => {
-    return expandPageRange(parsePageRangeInput(rangeInput.value, props.totalPages));
+    return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
 });
+const pageScopeProps = {
+    get totalPages() { return totalPages; },
+    get currentPage() { return currentPage; },
+    get selectedPages() { return selectedPages; },
+};
 
 const {
     scope,
@@ -137,14 +147,14 @@ const {
     normalizedSelectedPages,
     resetScopeForOpen,
     resolveScopedPageNumbers,
-} = usePdfPageScopeDialogSetup(props, () => rangePages.value);
+} = usePdfPageScopeDialogSetup(pageScopeProps, () => rangePages.value);
 
 const exportSummary = computed(() => {
     if (scope.value === 'all') {
-        return t('export.summaryAll', { count: props.totalPages });
+        return t('export.summaryAll', { count: totalPages });
     }
     if (scope.value === 'current') {
-        return t('export.summaryCurrent', { page: props.currentPage });
+        return t('export.summaryCurrent', { page: currentPage });
     }
     if (scope.value === 'selected') {
         return t('export.summarySelected', { count: normalizedSelectedPages.value.length });
@@ -156,7 +166,7 @@ const exportSummary = computed(() => {
 });
 
 function handleSubmit() {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return;
     }
 

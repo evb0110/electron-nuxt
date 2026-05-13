@@ -163,34 +163,58 @@ interface IProps {
     authorName?: string | null;
 }
 
-const props = defineProps<IProps>();
+const {
+    annotationCursorMode: annotationCursorModeProp,
+    annotationKeepActive: annotationKeepActiveProp,
+    annotationSettings: annotationSettingsProp = undefined,
+    annotationTool: annotationToolProp = undefined,
+    authorName: authorNameProp = undefined,
+    bufferPages: bufferPagesProp = undefined,
+    continuousScroll: continuousScrollProp,
+    currentSearchMatch: currentSearchMatchProp = undefined,
+    currentSearchMatchNavigationId: currentSearchMatchNavigationIdProp = undefined,
+    dragMode: dragModeProp,
+    fitMode: fitModeProp = undefined,
+    invertColors: invertColorsProp,
+    isAnySaving: isAnySavingProp,
+    isResizing: isResizingProp,
+    searchPageMatches: searchPageMatchesProp = undefined,
+    showAnnotations: showAnnotationsProp,
+    sourcePdfData: sourcePdfDataProp = undefined,
+    src: srcProp,
+    suppressLoadingOverlay: suppressLoadingOverlayProp,
+    viewMode: viewModeProp = undefined,
+    workingCopyPath: workingCopyPathProp = undefined,
+    zoom: zoomProp = undefined,
+    zoomMode: zoomModeProp = undefined,
+} = defineProps<IProps>();
 
-const src = computed(() => props.src);
-const sourcePdfData = computed(() => props.sourcePdfData ?? null);
-const suppressLoadingOverlay = computed(() => props.suppressLoadingOverlay === true);
-const bufferPages = computed(() => props.bufferPages ?? 2);
-const isAnySaving = computed(() => props.isAnySaving ?? false);
-const zoom = computed(() => props.zoom ?? 1);
-const dragMode = computed(() => props.dragMode ?? false);
-const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
-const zoomMode = computed<TZoomMode>(() => props.zoomMode ?? (
+const src = computed(() => srcProp);
+const sourcePdfData = computed(() => sourcePdfDataProp ?? null);
+const suppressLoadingOverlay = computed(() => suppressLoadingOverlayProp === true);
+const bufferPages = computed(() => bufferPagesProp ?? 2);
+const isAnySaving = computed(() => isAnySavingProp ?? false);
+const zoom = computed(() => zoomProp ?? 1);
+const dragMode = computed(() => dragModeProp ?? false);
+const fitMode = computed<TFitMode>(() => fitModeProp ?? 'width');
+const zoomMode = computed<TZoomMode>(() => zoomModeProp ?? (
     fitMode.value === 'height' ? 'fit-height' : 'fit-width'
 ));
-const viewMode = computed<TPdfViewMode>(() => props.viewMode ?? 'single');
-const isResizing = computed(() => props.isResizing ?? false);
-const invertColors = computed(() => props.invertColors ?? false);
-const showAnnotations = computed(() => props.showAnnotations ?? true);
-const annotationTool = computed<TAnnotationTool>(() => props.annotationTool ?? 'none');
-const annotationCursorMode = computed(() => props.annotationCursorMode ?? false);
-const annotationKeepActive = computed(() => props.annotationKeepActive ?? true);
-const annotationSettings = computed<IAnnotationSettings | null>(() => props.annotationSettings ?? null);
+const viewMode = computed<TPdfViewMode>(() => viewModeProp ?? 'single');
+const isResizing = computed(() => isResizingProp ?? false);
+const invertColors = computed(() => invertColorsProp ?? false);
+const showAnnotations = computed(() => showAnnotationsProp ?? true);
+const annotationTool = computed<TAnnotationTool>(() => annotationToolProp ?? 'none');
+const annotationCursorMode = computed(() => annotationCursorModeProp ?? false);
+const annotationKeepActive = computed(() => annotationKeepActiveProp ?? true);
+const annotationSettings = computed<IAnnotationSettings | null>(() => annotationSettingsProp ?? null);
 const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
-const searchPageMatches = computed(() => props.searchPageMatches ?? emptySearchPageMatches);
-const currentSearchMatch = computed(() => props.currentSearchMatch ?? null);
-const currentSearchMatchNavigationId = computed(() => props.currentSearchMatchNavigationId ?? 0);
-const workingCopyPath = computed(() => props.workingCopyPath ?? null);
-const continuousScroll = computed(() => props.continuousScroll ?? true);
-const authorName = computed(() => props.authorName);
+const searchPageMatches = computed(() => searchPageMatchesProp ?? emptySearchPageMatches);
+const currentSearchMatch = computed(() => currentSearchMatchProp ?? null);
+const currentSearchMatchNavigationId = computed(() => currentSearchMatchNavigationIdProp ?? 0);
+const workingCopyPath = computed(() => workingCopyPathProp ?? null);
+const continuousScroll = computed(() => continuousScrollProp ?? true);
+const authorName = computed(() => authorNameProp);
 const { t } = useTypedI18n();
 
 const emit = defineEmits<{

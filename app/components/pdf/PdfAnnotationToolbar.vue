@@ -35,11 +35,11 @@ interface IProps { tool: TAnnotationTool }
 
 const { t } = useTypedI18n();
 
-const props = defineProps<IProps>();
+const { tool: toolProp } = defineProps<IProps>();
 
 const emit = defineEmits<{ (e: 'set-tool', tool: TAnnotationTool): void }>();
 
-const tool = computed(() => props.tool);
+const tool = computed(() => toolProp);
 
 const toolItems = computed<IToolItem[]>(() => [
     {

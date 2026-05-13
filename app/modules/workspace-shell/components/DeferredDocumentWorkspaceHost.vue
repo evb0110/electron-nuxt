@@ -105,7 +105,16 @@ import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
 import type { TStartSection } from '@app/types/start-page';
 
-const props = defineProps<{
+const {
+    hasDocumentHint,
+    isActive,
+    isFullscreen,
+    isStartupOpenClaimPending,
+    isTabTransitionBusy,
+    fullscreenSupported,
+    startSection = undefined,
+    tabId,
+} = defineProps<{
     tabId: string;
     isActive: boolean;
     isTabTransitionBusy: boolean;
@@ -168,7 +177,7 @@ const DocumentWorkspace = import.meta.client
         suspensible: false,
         onError: (error, retry, fail, attempts) => {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace async chunk load failed', {
-                tabId: props.tabId,
+                tabId: tabId,
                 attempts,
                 error,
             });
@@ -217,7 +226,7 @@ const mountedWorkspace = computed<IWorkspaceExpose | null>(() => (
 ));
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
-const workspaceRenderKey = computed(() => `${props.tabId}:${workspaceRenderNonce.value}`);
+const workspaceRenderKey = computed(() => `${tabId}:${workspaceRenderNonce.value}`);
 const workspaceVisibleDocument = computed(() => {
     const workspace = mountedWorkspace.value;
     if (!workspace) {
@@ -229,7 +238,7 @@ const workspaceVisibleDocument = computed(() => {
 });
 const isPlaceholderVisible = computed(() => (
     !isDocumentOpenInFlight.value
-    && props.isStartupOpenClaimPending !== true
+    && isStartupOpenClaimPending !== true
     && !hasQueuedSplitRestore.value
     && !workspaceVisibleDocument.value
 ));
@@ -281,7 +290,7 @@ function readWorkspaceToolbarSnapshot() {
     lastToolbarSnapshot.value = snapshot;
     return snapshot;
 }
-const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
+const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
@@ -294,7 +303,7 @@ const isHostErrorVisible = computed(() => (
 ));
 const isHostLoaderVisible = computed(() => (
     !isHostErrorVisible.value && (
-        props.isStartupOpenClaimPending === true
+        isStartupOpenClaimPending === true
     || isDocumentOpenInFlight.value
     || (workspaceRequested.value && !hasMountedWorkspace.value && shouldShowWorkspaceMountLoader.value)
     )
@@ -308,7 +317,7 @@ const loaderVariant = computed(() => {
         return 'none';
     }
 
-    if (props.isStartupOpenClaimPending === true) {
+    if (isStartupOpenClaimPending === true) {
         return 'startup-open:claiming';
     }
 
@@ -330,8 +339,8 @@ const loaderVariant = computed(() => {
 watch(
     [
         hasQueuedSplitRestore,
-        () => props.hasDocumentHint === true,
-        () => props.isActive,
+        () => hasDocumentHint === true,
+        () => isActive,
     ],
     ([
         hasQueued,
@@ -353,7 +362,7 @@ watch(loaderVariant, (nextVariant, previousVariant) => {
     }
 
     BrowserLogger.debug(LOADER_LOG_SECTION, 'Workspace host loader variant changed', {
-        tabId: props.tabId,
+        tabId: tabId,
         previousVariant,
         nextVariant,
         spinnerSizeRem: 1.25,
@@ -371,7 +380,7 @@ watch(hasMountedWorkspace, (mounted) => {
 });
 
 function handleRetryWorkspaceMount() {
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying DocumentWorkspace async chunk load', {tabId: props.tabId});
+    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying DocumentWorkspace async chunk load', {tabId: tabId});
 
     workspaceChunkLoadError.value = null;
     workspaceRenderNonce.value += 1;
@@ -423,21 +432,21 @@ async function preloadWorkspaceComponent(reason: string) {
     }
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Preloading DocumentWorkspace chunk', {
-        tabId: props.tabId,
+        tabId: tabId,
         reason,
     });
 
     workspacePreloadPromise = loadDocumentWorkspace()
         .then(() => {
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace chunk preloaded', {
-                tabId: props.tabId,
+                tabId: tabId,
                 reason,
             });
             return true;
         })
         .catch((error) => {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
-                tabId: props.tabId,
+                tabId: tabId,
                 reason,
                 error,
             });
@@ -481,13 +490,13 @@ async function ensureWorkspaceLoaded(reason: string) {
     const preloadSucceeded = await preloadWorkspaceComponent(`ensureWorkspaceLoaded:${reason}`);
     if (!preloadSucceeded) {
         BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Proceeding with workspace mount after preload failure', {
-            tabId: props.tabId,
+            tabId: tabId,
             reason,
         });
     }
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
-        tabId: props.tabId,
+        tabId: tabId,
         reason,
         workspaceRequested: workspaceRequested.value,
     });
@@ -503,19 +512,19 @@ async function ensureWorkspaceLoaded(reason: string) {
     if (!loadedWorkspace) {
         if (hasWorkspaceChunkLoadError.value) {
             BrowserLogger.error('workspace-host', 'Workspace load failed due to async chunk error', {
-                tabId: props.tabId,
+                tabId: tabId,
                 reason,
                 error: workspaceChunkLoadError.value,
             });
         } else {
             BrowserLogger.error('workspace-host', 'Workspace load timed out', {
-                tabId: props.tabId,
+                tabId: tabId,
                 reason,
             });
         }
     } else {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
-            tabId: props.tabId,
+            tabId: tabId,
             reason,
         });
     }
@@ -532,7 +541,7 @@ async function withLoadedWorkspace(action: string, run: (workspace: IWorkspaceEx
         await run(workspace);
     } catch (error) {
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
-            tabId: props.tabId,
+            tabId: tabId,
             error,
         });
     }
@@ -540,7 +549,7 @@ async function withLoadedWorkspace(action: string, run: (workspace: IWorkspaceEx
 
 async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
-        tabId: props.tabId,
+        tabId: tabId,
         action,
         hasMountedWorkspace: hasMountedWorkspace.value,
         workspaceRequested: workspaceRequested.value,
@@ -550,7 +559,7 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
     if (!workspace) {
         if (hasWorkspaceChunkLoadError.value) {
             BrowserLogger.warn('workspace-host', 'Workspace unavailable due to async chunk load failure', {
-                tabId: props.tabId,
+                tabId: tabId,
                 action,
                 error: workspaceChunkLoadError.value,
             });
@@ -560,7 +569,7 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
     }
     if (!workspace) {
         BrowserLogger.error('workspace-host', 'Workspace unavailable for action', {
-            tabId: props.tabId,
+            tabId: tabId,
             action,
         });
         return;
@@ -569,13 +578,13 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
     try {
         await run(workspace);
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
-            tabId: props.tabId,
+            tabId: tabId,
             action,
             hasPdf: workspaceHasPdf(workspace),
         });
     } catch (error) {
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
-            tabId: props.tabId,
+            tabId: tabId,
             error,
         });
     }
@@ -583,7 +592,7 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
 
 async function openPath(path: string, action: string) {
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
-        tabId: props.tabId,
+        tabId: tabId,
         action,
         path,
     });
@@ -592,7 +601,7 @@ async function openPath(path: string, action: string) {
 
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
-        tabId: props.tabId,
+        tabId: tabId,
         path: file.originalPath,
         workspaceRequested: workspaceRequested.value,
         hasMountedWorkspace: hasMountedWorkspace.value,
@@ -602,7 +611,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
         if (!preloadedWorkspace) {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
-                tabId: props.tabId,
+                tabId: tabId,
                 path: file.originalPath,
             });
             return;
@@ -655,10 +664,10 @@ onMounted(() => {
         workspaceRequested.value = true;
     });
 
-    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: props.tabId});
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: tabId});
     void loadRecentFiles().finally(() => {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host recent files load settled', {
-            tabId: props.tabId,
+            tabId: tabId,
             count: recentFiles.value.length,
         });
     });

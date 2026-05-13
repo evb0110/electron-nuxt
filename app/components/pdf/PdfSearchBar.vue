@@ -98,7 +98,10 @@ interface IProps {
     options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
 }
 
-const props = defineProps<IProps>();
+const {
+    modelValue,
+    options,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
@@ -111,9 +114,9 @@ const emit = defineEmits<{
 const inputRef = ref<{ $el: HTMLElement } | null>(null);
 
 const searchQuery = computed({
-    get: () => props.modelValue,
+    get: () => modelValue,
     set: (value: string) => {
-        if (value === props.modelValue) {
+        if (value === modelValue) {
             return;
         }
         emit('update:modelValue', value);
@@ -147,8 +150,8 @@ function onPrevious() {
 
 function toggleOption(key: keyof IProps['options']) {
     emit('update:options', {
-        ...props.options,
-        [key]: !props.options[key],
+        ...options,
+        [key]: !options[key],
     });
     focus();
 }

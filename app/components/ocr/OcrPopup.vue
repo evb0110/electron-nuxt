@@ -300,7 +300,15 @@ interface IProps {
     hideTrigger?: boolean;
 }
 
-const props = defineProps<IProps>();
+const {
+    currentPage,
+    externalError = undefined,
+    isExportingDocx,
+    open,
+    pdfDocument,
+    totalPages,
+    workingCopyPath,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void;
@@ -330,11 +338,11 @@ const {
 } = useOcr();
 
 const isOpen = computed({
-    get: () => props.open,
+    get: () => open,
     set: (value: boolean) => emit('update:open', value),
 });
-const isExporting = computed(() => props.isExportingDocx ?? false);
-const effectiveError = computed(() => error.value ?? props.externalError ?? null);
+const isExporting = computed(() => isExportingDocx ?? false);
+const effectiveError = computed(() => error.value ?? externalError ?? null);
 const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
 const showSuccessState = ref(false);
@@ -422,8 +430,8 @@ function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
     return [
         'EVB Viewer OCR diagnostics',
         `generatedAt=${new Date().toISOString()}`,
-        `currentPage=${props.currentPage}`,
-        `totalPages=${props.totalPages}`,
+        `currentPage=${currentPage}`,
+        `totalPages=${totalPages}`,
         `selectedLanguages=${getSelectedLanguagesForDiagnostics()}`,
         `isRunning=${progress.value.isRunning}`,
         `uiError=${effectiveError.value}`,
@@ -466,11 +474,11 @@ async function handleCopyLogs() {
 }
 
 function handleRunOcr() {
-    if (!props.pdfDocument || !props.workingCopyPath) {
+    if (!pdfDocument || !workingCopyPath) {
         return;
     }
-    activeOcrSourcePath.value = props.workingCopyPath;
-    void runOcr(props.currentPage, props.totalPages, props.workingCopyPath);
+    activeOcrSourcePath.value = workingCopyPath;
+    void runOcr(currentPage, totalPages, workingCopyPath);
 }
 
 function handleCancel() {

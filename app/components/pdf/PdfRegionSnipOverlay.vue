@@ -40,7 +40,7 @@ import {
     type IRegionSelectionOverlayBaseProps,
     type IRegionSelectionOverlayEmits,
     regionRectStyle,
-    useEmittedPdfRegionSelectionOverlay,
+    usePdfRegionSelectionOverlay,
 } from '@app/composables/pdf/usePdfRegionSelectionOverlay';
 
 interface IProps {
@@ -55,7 +55,12 @@ interface IProps {
     copiedLabel: string;
 }
 
-const props = defineProps<IProps>();
+const {
+    active,
+    badgePosition,
+    flashRect,
+    selectionRect,
+} = defineProps<IProps>();
 
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 
@@ -65,18 +70,24 @@ const {
     handlePointerUp,
     handleContextMenu,
     handleWheel,
-} = useEmittedPdfRegionSelectionOverlay(props, emit);
+} = usePdfRegionSelectionOverlay({
+    isActive: () => active,
+    onPointerStart: payload => emit('pointer-start', payload),
+    onPointerMove: payload => emit('pointer-move', payload),
+    onPointerEnd: payload => emit('pointer-end', payload),
+    onCancel: () => emit('cancel'),
+});
 
-const shouldRender = computed(() => props.active || Boolean(props.flashRect) || Boolean(props.badgePosition));
-const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
-const flashStyle = computed(() => regionRectStyle(props.flashRect));
+const shouldRender = computed(() => active || Boolean(flashRect) || Boolean(badgePosition));
+const selectionStyle = computed(() => regionRectStyle(selectionRect));
+const flashStyle = computed(() => regionRectStyle(flashRect));
 const badgeStyle = computed<CSSProperties>(() => {
-    if (!props.badgePosition) {
+    if (!badgePosition) {
         return {};
     }
     return {
-        left: `${props.badgePosition.x}px`,
-        top: `${props.badgePosition.y}px`,
+        left: `${badgePosition.x}px`,
+        top: `${badgePosition.y}px`,
     };
 });
 

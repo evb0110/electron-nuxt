@@ -187,7 +187,11 @@ interface IProps {
     documentBusy?: boolean
 }
 
-const props = defineProps<IProps>();
+const {
+    documentBusy,
+    hasPdf,
+    open,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void
@@ -224,7 +228,7 @@ type TMenuCommand =
     | 'paste-image-from-clipboard';
 
 const shortcutLabels = getShortcutLabels();
-const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
+const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const menuContentOptions = {
     side: 'bottom' as const,
     align: 'start' as const,
@@ -233,7 +237,7 @@ const menuContentOptions = {
 };
 
 const menuOpen = computed({
-    get: () => props.open,
+    get: () => open,
     set: (open: boolean) => emit('update:open', open),
 });
 
@@ -254,7 +258,7 @@ const menuCommandHandlers = {
     'paste-image-from-clipboard': () => emit('paste-image-from-clipboard'),
 } satisfies Record<TMenuCommand, () => void>;
 
-watch(() => props.open, (open) => {
+watch(() => open, (open) => {
     if (!open) {
         menuOpen.value = false;
     }

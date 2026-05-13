@@ -334,7 +334,23 @@ interface IProps {
     isPreparingCurrentPagePrint?: boolean
 }
 
-const props = defineProps<IProps>();
+const {
+    canCaptureRegion,
+    canCombineFiles,
+    canConvertToPdf,
+    canCrop,
+    canPrintCurrentPage,
+    canQuickNote,
+    canUseOcr,
+    collapseTier,
+    documentBusy,
+    fullscreenSupported: fullscreenSupportedProp,
+    hasPdf,
+    isFullscreen: isFullscreenProp,
+    open,
+    showDocumentSection,
+    surface = undefined,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void
@@ -376,12 +392,12 @@ type TMenuCommand =
     | 'convert-to-pdf';
 
 const isOpen = computed({
-    get: () => props.open,
+    get: () => open,
     set: (value: boolean) => emit('update:open', value),
 });
-const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
-const isFullscreen = computed(() => props.isFullscreen === true);
-const fullscreenSupported = computed(() => props.fullscreenSupported !== false);
+const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
+const isFullscreen = computed(() => isFullscreenProp === true);
+const fullscreenSupported = computed(() => fullscreenSupportedProp !== false);
 const triggerRef = ref<HTMLElement | null>(null);
 const contentOptions = {
     side: 'bottom' as const,
@@ -413,17 +429,17 @@ const menuCommandHandlers = {
 } satisfies Record<TMenuCommand, () => void>;
 
 const hasDocumentItems = computed(() => (
-    props.showDocumentSection === true
-    && (props.canCombineFiles === true
-        || props.canPrintCurrentPage === true
-        || props.canConvertToPdf === true)
+    showDocumentSection === true
+    && (canCombineFiles === true
+        || canPrintCurrentPage === true
+        || canConvertToPdf === true)
 ));
 
 const hasToolItems = computed(() => (
-    (props.canCaptureRegion && shouldShowMenuCommand('capture-region', 3))
-    || (props.canCrop && shouldShowMenuCommand('crop', 3))
-    || (props.canQuickNote && shouldShowMenuCommand('quick-note', 4))
-    || (props.canUseOcr && shouldShowMenuCommand('ocr', 3))
+    (canCaptureRegion && shouldShowMenuCommand('capture-region', 3))
+    || (canCrop && shouldShowMenuCommand('crop', 3))
+    || (canQuickNote && shouldShowMenuCommand('quick-note', 4))
+    || (canUseOcr && shouldShowMenuCommand('ocr', 3))
 ));
 
 const hasViewItems = computed(() => (
@@ -454,16 +470,16 @@ function handleViewModeCommand(mode: TPdfViewMode) {
     close();
 }
 
-function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.POSITIVE_INFINITY) {
-    if (!isReaderCommandInMenu(props.surface, command)) {
+function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier = Number.POSITIVE_INFINITY) {
+    if (!isReaderCommandInMenu(surface, command)) {
         return false;
     }
 
-    if (!isReaderCommandInline(props.surface, command)) {
+    if (!isReaderCommandInline(surface, command)) {
         return true;
     }
 
-    return props.collapseTier >= collapseTier;
+    return collapseTier >= requiredCollapseTier;
 }
 </script>
 

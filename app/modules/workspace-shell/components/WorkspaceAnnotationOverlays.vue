@@ -177,7 +177,12 @@ interface IPageContextMenuState {
     pages: number[];
 }
 
-const props = defineProps<{
+const {
+    annotationNotePositions,
+    annotationViewportRoot = undefined,
+    annotationZoom = undefined,
+    sortedAnnotationNoteWindows,
+} = defineProps<{
     sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
     annotationViewportRoot?: HTMLElement | null;
@@ -203,7 +208,7 @@ const props = defineProps<{
 const { t } = useTypedI18n();
 
 const visibleAnnotationNoteWindows = computed(() =>
-    props.sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
+    sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
 );
 const openNoteAnchors = computed(() => {
     void indicatorDomTick.value;
@@ -214,7 +219,7 @@ const openNoteAnchors = computed(() => {
 });
 const viewportDomSnapshot = computed<IViewportDomSnapshot | null>(() => {
     void indicatorDomTick.value;
-    return collectViewportDomSnapshot(props.annotationViewportRoot);
+    return collectViewportDomSnapshot(annotationViewportRoot);
 });
 const openAnchorHiddenKeys = computed<Set<string>>(() => {
     void indicatorDomTick.value;
@@ -236,7 +241,7 @@ const anchoredAnnotationNoteWindows = computed(() => {
     if (!snapshot) {
         return [];
     }
-    return props.sortedAnnotationNoteWindows.filter((note) => (
+    return sortedAnnotationNoteWindows.filter((note) => (
         note.isMinimized
         && isFloatingIndicatorEligible(note.comment)
         && Boolean(getNoteMarkerRect(note))
@@ -619,7 +624,7 @@ function computeConnectorLines(): IConnectorLine[] {
     const lines: IConnectorLine[] = [];
     for (const note of openNoteAnchors.value) {
         const stableKey = note.comment.stableKey;
-        const position = props.annotationNotePositions[stableKey];
+        const position = annotationNotePositions[stableKey];
         if (!position) {
             continue;
         }
@@ -648,7 +653,7 @@ function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
 
 function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
     void indicatorDomTick.value;
-    void props.annotationZoom;
+    void annotationZoom;
 
     const markerRect = getNoteMarkerRect(note);
     if (!markerRect) {
@@ -684,7 +689,7 @@ function reconnectViewportObservers() {
     viewportResizeCleanup?.();
     viewportResizeCleanup = null;
 
-    const viewportRoot = props.annotationViewportRoot;
+    const viewportRoot = annotationViewportRoot;
     if (!viewportRoot) {
         return;
     }
@@ -878,7 +883,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-    () => props.annotationViewportRoot,
+    () => annotationViewportRoot,
     () => {
         reconnectViewportObservers();
         scheduleOverlayRefreshBurst(12);
@@ -886,7 +891,7 @@ watch(
 );
 
 watch(
-    () => props.annotationZoom,
+    () => annotationZoom,
     () => {
         scheduleOverlayRefreshBurst(12);
     },
@@ -907,7 +912,7 @@ watch(
 );
 
 watch(
-    () => props.annotationNotePositions,
+    () => annotationNotePositions,
     () => {
         scheduleOverlayRefreshBurst(3);
     },

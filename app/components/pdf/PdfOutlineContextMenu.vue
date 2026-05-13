@@ -126,7 +126,10 @@ interface IProps {
     applyStyleRangeLabel: string;
 }
 
-const props = defineProps<IProps>();
+const {
+    x,
+    y,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'edit', id: string): void;
@@ -149,8 +152,8 @@ const { t } = useTypedI18n();
 const colorPresets = BOOKMARK_COLOR_PRESETS;
 
 const menuStyle = computed(() => ({
-    left: `${props.x}px`,
-    top: `${props.y}px`,
+    left: `${x}px`,
+    top: `${y}px`,
 }));
 
 function editBookmark(id: string) {
