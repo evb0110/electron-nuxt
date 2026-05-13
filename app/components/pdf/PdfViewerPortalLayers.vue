@@ -34,7 +34,11 @@ interface IProps {
     linksByPage: Record<number, ILinkAnnotation[]>;
 }
 
-const props = defineProps<IProps>();
+const {
+    linksByPage,
+    markersByPage,
+    viewerContainer,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     'open-note': [comment: IAnnotationCommentSummary];
@@ -43,11 +47,11 @@ const emit = defineEmits<{
 }>();
 
 const markerLayerTargets = computed(() =>
-    resolvePageTargets(props.viewerContainer, [...props.markersByPage.keys()]),
+    resolvePageTargets(viewerContainer, [...markersByPage.keys()]),
 );
 
 const linkLayerTargets = computed(() =>
-    resolvePageTargets(props.viewerContainer, Object.keys(props.linksByPage).map(Number)),
+    resolvePageTargets(viewerContainer, Object.keys(linksByPage).map(Number)),
 );
 
 function handleOpenNote(comment: IAnnotationCommentSummary) {

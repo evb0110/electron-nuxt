@@ -38,12 +38,16 @@ interface IProps {
     showPageLabel?: boolean;
 }
 
-const props = defineProps<IProps>();
+const {
+    pageLabels = undefined,
+    result,
+    showPageLabel: showPageLabelProp,
+} = defineProps<IProps>();
 const emit = defineEmits<{(e: 'activate'): void;}>();
 
-const showPageLabel = computed(() => props.showPageLabel ?? true);
-const pageIndicator = computed(() => formatPageIndicator(props.result.pageIndex + 1, props.pageLabels ?? null));
-const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.result.matchIndex) + 1);
+const showPageLabel = computed(() => showPageLabelProp ?? true);
+const pageIndicator = computed(() => formatPageIndicator(result.pageIndex + 1, pageLabels ?? null));
+const matchIndicator = computed(() => (result.pageMatchIndex ?? result.matchIndex) + 1);
 
 function activate() {
     emit('activate');

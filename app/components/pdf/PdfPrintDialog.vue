@@ -168,7 +168,13 @@ import { usePdfPageScopeDialogSetup } from '@app/composables/pdf/usePdfPageScope
 
 const open = defineModel<boolean>('open', { required: true });
 
-const props = defineProps<{
+const {
+    currentPage,
+    defaultViewMode,
+    isPreparing,
+    selectedPages,
+    totalPages,
+} = defineProps<{
     totalPages: number;
     currentPage: number;
     selectedPages: number[];
@@ -189,7 +195,12 @@ const { t } = useTypedI18n();
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');
 
-const rangePages = computed(() => parsePrintPageRangeInput(rangeInput.value, props.totalPages));
+const rangePages = computed(() => parsePrintPageRangeInput(rangeInput.value, totalPages));
+const pageScopeProps = {
+    get totalPages() { return totalPages; },
+    get currentPage() { return currentPage; },
+    get selectedPages() { return selectedPages; },
+};
 
 const {
     scope,
@@ -198,14 +209,14 @@ const {
     normalizedSelectedPages,
     resetScopeForOpen,
     resolveScopedPageNumbers,
-} = usePdfPageScopeDialogSetup(props, () => rangePages.value);
+} = usePdfPageScopeDialogSetup(pageScopeProps, () => rangePages.value);
 
 const printPageCount = computed(() => {
     if (scope.value === 'all') {
-        return props.totalPages;
+        return totalPages;
     }
     if (scope.value === 'current') {
-        return props.totalPages > 0 ? 1 : 0;
+        return totalPages > 0 ? 1 : 0;
     }
     if (scope.value === 'selected') {
         return normalizedSelectedPages.value.length;
@@ -256,8 +267,8 @@ const printSummary = computed(() => t('print.summary', {
 }));
 
 const canSubmit = computed(() => (
-    props.totalPages > 0
-    && !props.isPreparing
+    totalPages > 0
+    && !isPreparing
     && (scope.value !== 'range' || rangePages.value !== null)
 ));
 
@@ -280,7 +291,7 @@ watch(open, (isOpen) => {
     }
 
     resetScopeForOpen();
-    viewMode.value = props.defaultViewMode;
+    viewMode.value = defaultViewMode;
     orientation.value = 'auto';
 });
 </script>

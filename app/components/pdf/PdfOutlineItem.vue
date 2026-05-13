@@ -149,7 +149,10 @@ interface IProps {
     pdfDocument: PDFDocumentProxy | null;
 }
 
-const props = defineProps<IProps>();
+const {
+    item,
+    pdfDocument,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'go-to-page', page: number): void;
@@ -186,7 +189,7 @@ const {
     isStyleRangeStart,
     bookmarkTitleStyle,
     isExpanded,
-} = usePdfOutlineItemState(toRef(props, 'item'));
+} = usePdfOutlineItemState(computed(() => item));
 
 const editingTitle = ref('');
 const titleInputRef = ref<HTMLInputElement | null>(null);
@@ -198,7 +201,7 @@ watch(
             return;
         }
 
-        editingTitle.value = props.item.title;
+        editingTitle.value = item.title;
         await nextTick();
         titleInputRef.value?.focus();
         titleInputRef.value?.select();
@@ -207,7 +210,7 @@ watch(
 );
 
 watch(
-    () => props.item.title,
+    () => item.title,
     (value) => {
         if (!isEditing.value) {
             editingTitle.value = value;
@@ -221,7 +224,7 @@ function openActions(payload: IBookmarkMenuPayload) {
 }
 
 function toggleExpand() {
-    emit('toggle-expand', props.item.id);
+    emit('toggle-expand', item.id);
 }
 
 function toggleExpandById(id: string) {
@@ -275,7 +278,7 @@ function openActionsFromPointer(event: MouseEvent) {
     }
 
     openActions({
-        id: props.item.id,
+        id: item.id,
         x: event.clientX,
         y: event.clientY,
     });
@@ -285,7 +288,7 @@ function openActionsFromButton(event: MouseEvent) {
     const target = event.currentTarget as HTMLElement | null;
     const rect = target?.getBoundingClientRect();
     openActions({
-        id: props.item.id,
+        id: item.id,
         x: rect ? rect.right : event.clientX,
         y: rect ? rect.bottom : event.clientY,
     });
@@ -293,13 +296,13 @@ function openActionsFromButton(event: MouseEvent) {
 
 function commitEdit() {
     emit('save-edit', {
-        id: props.item.id,
+        id: item.id,
         title: editingTitle.value,
     });
 }
 
 function cancelEdit() {
-    editingTitle.value = props.item.title;
+    editingTitle.value = item.title;
     emit('cancel-edit');
 }
 
@@ -328,11 +331,11 @@ function handleDragStart(event: DragEvent) {
         return;
     }
 
-    event.dataTransfer?.setData('text/plain', props.item.id);
+    event.dataTransfer?.setData('text/plain', item.id);
     if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move';
     }
-    emit('drag-start', { id: props.item.id });
+    emit('drag-start', { id: item.id });
 }
 
 function handleDragOver(event: DragEvent) {
@@ -345,7 +348,7 @@ function handleDragOver(event: DragEvent) {
         event.dataTransfer.dropEffect = 'move';
     }
     emit('drag-hover', {
-        targetId: props.item.id,
+        targetId: item.id,
         position,
     });
 }
@@ -357,7 +360,7 @@ function handleDrop(event: DragEvent) {
 
     const position = detectDropPosition(event);
     emit('drop-bookmark', {
-        targetId: props.item.id,
+        targetId: item.id,
         position,
     });
 }
@@ -382,17 +385,17 @@ function shouldSkipBookmarkNavigation(multiSelect: boolean, rangeSelect: boolean
 }
 
 async function navigateToBookmarkDestination() {
-    if (typeof props.item.pageIndex === 'number') {
-        emit('go-to-page', props.item.pageIndex + 1);
+    if (typeof item.pageIndex === 'number') {
+        emit('go-to-page', item.pageIndex + 1);
         return;
     }
 
-    if (!props.pdfDocument || !props.item.dest) {
+    if (!pdfDocument || !item.dest) {
         return;
     }
 
     try {
-        const page = await resolveBookmarkDestinationPage(props.pdfDocument, props.item.dest);
+        const page = await resolveBookmarkDestinationPage(pdfDocument, item.dest);
         if (page !== null) {
             emit('go-to-page', page);
         }
@@ -414,7 +417,7 @@ function isKnownBookmarkDestinationIssue(error: unknown) {
 function emitBookmarkActivation(multiSelect: boolean, rangeSelect: boolean) {
     const wasActive = isActive.value;
     emit('activate', {
-        id: props.item.id,
+        id: item.id,
         hasChildren: hasChildren.value,
         wasActive,
         multiSelect,
@@ -441,7 +444,7 @@ async function continueBookmarkClickNavigation(
     }
 
     if (shouldToggleBookmarkFromActivation(wasActive)) {
-        emit('toggle-expand', props.item.id);
+        emit('toggle-expand', item.id);
         return;
     }
 

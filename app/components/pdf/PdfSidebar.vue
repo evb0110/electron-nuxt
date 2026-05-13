@@ -62,7 +62,7 @@
             >
                 <PdfPageSelectionBar
                     :selected-count="selectedThumbnailPages.length"
-                    :is-operation-in-progress="props.isPageOperationInProgress ?? false"
+                    :is-operation-in-progress="isPageOperationInProgress ?? false"
                     @rotate-cw="rotateSelectedPagesClockwise"
                     @rotate-ccw="rotateSelectedPagesCounterClockwise"
                     @extract-pages="extractSelectedPages"
@@ -131,10 +131,10 @@
                         :search-options="searchOptions"
                         :page-labels="pageLabels"
                         :is-searching="isSearching"
-                        :search-error="props.searchError"
-                        :search-progress="props.searchProgress"
-                        :is-truncated="props.isTruncated"
-                        :min-query-length="props.minQueryLength"
+                        :search-error="searchError"
+                        :search-progress="searchProgress"
+                        :is-truncated="isTruncated"
+                        :min-query-length="minQueryLength"
                         @go-to-result="goToResult"
                     />
                 </div>
@@ -208,14 +208,39 @@ interface IProps {
 
 const { t } = useTypedI18n();
 
-const props = defineProps<IProps>();
 const {
+    activeTab: activeTabProp = undefined,
+    annotationActiveCommentStableKey: annotationActiveCommentStableKeyProp = undefined,
     annotationTool,
     annotationKeepActive,
     annotationSettings,
     annotationComments,
-} = toRefs(props);
-const annotationActiveCommentStableKey = computed(() => props.annotationActiveCommentStableKey ?? null);
+    bookmarkEditMode,
+    currentPage,
+    currentResultIndex,
+    isDjvuMode,
+    isOpen,
+    isPageOperationInProgress,
+    isSearching,
+    isTruncated = undefined,
+    minQueryLength = undefined,
+    pageLabelRanges = undefined,
+    pageLabels = undefined,
+    pdfDocument,
+    searchError = undefined,
+    searchFocusRequest = undefined,
+    searchProgress = undefined,
+    searchOptions,
+    searchQuery,
+    searchResults,
+    selectedThumbnailPages: selectedThumbnailPagesProp,
+    submittedSearchQuery = undefined,
+    thumbnailInvalidationRequest = undefined,
+    totalMatches,
+    totalPages,
+    width = undefined,
+} = defineProps<IProps>();
+const annotationActiveCommentStableKey = computed(() => annotationActiveCommentStableKeyProp ?? null);
 
 const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
@@ -263,9 +288,9 @@ const emit = defineEmits<{
 const activeTabLocal = ref<TPdfSidebarTab>('thumbnails');
 
 const activeTab = computed<TPdfSidebarTab>({
-    get: () => props.activeTab ?? activeTabLocal.value,
+    get: () => activeTabProp ?? activeTabLocal.value,
     set: (value) => {
-        if (props.activeTab !== undefined) {
+        if (activeTabProp !== undefined) {
             emit('update:activeTab', value);
             return;
         }
@@ -274,12 +299,12 @@ const activeTab = computed<TPdfSidebarTab>({
 });
 
 const searchQueryProxy = computed({
-    get: () => props.searchQuery,
+    get: () => searchQuery,
     set: (value: string) => emit('update:searchQuery', value),
 });
 
 const searchBarRef = ref<{ focus: () => void } | null>(null);
-const selectedThumbnailPages = computed(() => props.selectedThumbnailPages);
+const selectedThumbnailPages = computed(() => selectedThumbnailPagesProp);
 
 async function focusSearch() {
     await nextTick();
@@ -405,7 +430,7 @@ function goToResult(index: number) {
 
 watch(
     () => [
-        props.isOpen,
+        isOpen,
         activeTab.value,
     ] as const,
     async ([
@@ -429,9 +454,9 @@ watch(
 );
 
 watch(
-    () => props.searchFocusRequest,
+    () => searchFocusRequest,
     async () => {
-        if (props.isOpen && activeTab.value === 'search') {
+        if (isOpen && activeTab.value === 'search') {
             await focusSearch();
         }
     },
@@ -439,16 +464,16 @@ watch(
 );
 
 watch(
-    () => props.totalPages,
+    () => totalPages,
     (totalPages) => {
         if (totalPages <= 0) {
             return;
         }
 
-        const filteredPages = props.selectedThumbnailPages.filter(page => page <= totalPages);
+        const filteredPages = selectedThumbnailPagesProp.filter(page => page <= totalPages);
         if (
-            filteredPages.length !== props.selectedThumbnailPages.length
-            || filteredPages.some((page, index) => page !== props.selectedThumbnailPages[index])
+            filteredPages.length !== selectedThumbnailPagesProp.length
+            || filteredPages.some((page, index) => page !== selectedThumbnailPagesProp[index])
         ) {
             emit('update:selectedThumbnailPages', filteredPages);
         }
@@ -463,7 +488,7 @@ interface IPdfSidebarTabItem {
 }
 
 const COMPACT_THRESHOLD = 280;
-const isCompact = computed(() => (props.width ?? 240) < COMPACT_THRESHOLD);
+const isCompact = computed(() => (width ?? 240) < COMPACT_THRESHOLD);
 
 const allTabs: IPdfSidebarTabItem[] = [
     {
@@ -493,7 +518,7 @@ const allTabs: IPdfSidebarTabItem[] = [
 ];
 
 const tabs = computed<IPdfSidebarTabItem[]>(() => {
-    const items = props.isDjvuMode
+    const items = isDjvuMode
         ? allTabs.filter((tab) => tab.value !== 'annotations')
         : allTabs;
 
@@ -505,11 +530,11 @@ const tabs = computed<IPdfSidebarTabItem[]>(() => {
 });
 
 const sidebarStyle = computed(() => {
-    const width = props.width ?? 240;
+    const sidebarWidth = width ?? 240;
 
     return {
-        width: `${width}px`,
-        minWidth: `${width}px`,
+        width: `${sidebarWidth}px`,
+        minWidth: `${sidebarWidth}px`,
     };
 });
 </script>

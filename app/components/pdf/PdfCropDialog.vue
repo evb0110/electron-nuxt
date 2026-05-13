@@ -200,7 +200,16 @@ import {
 
 const open = defineModel<boolean>('open', { required: true });
 
-const props = defineProps<{
+const {
+    currentPage,
+    currentVisibleBox = undefined,
+    initialMargins,
+    loading,
+    mediaBox,
+    rotation = undefined,
+    selectedPages,
+    totalPages,
+} = defineProps<{
     loading?: boolean;
     totalPages: number;
     currentPage: number;
@@ -231,7 +240,7 @@ const scope = ref<TCropScope>('current');
 const rangeInput = ref('');
 
 const normalizedSelectedPages = computed(() =>
-    normalizeSelectedPageNumbers(props.selectedPages, props.totalPages),
+    normalizeSelectedPageNumbers(selectedPages, totalPages),
 );
 
 const currentStep = computed(() => unitStep(unit.value));
@@ -258,8 +267,8 @@ function updateMargin(side: keyof ICropMargins, displayValue: string | number) {
 const previewAreaStyle = computed(() => {
     const rect = marginsToDisplayNormalizedRect(
         margins,
-        props.mediaBox,
-        props.rotation ?? 0,
+        mediaBox,
+        rotation ?? 0,
     );
     return {
         left: `${rect.x * 100}%`,
@@ -270,14 +279,14 @@ const previewAreaStyle = computed(() => {
 });
 
 const previewCurrentStyle = computed(() => {
-    if (!props.currentVisibleBox) {
+    if (!currentVisibleBox) {
         return null;
     }
 
     const rect = boxToDisplayNormalizedRect(
-        props.currentVisibleBox,
-        props.mediaBox,
-        props.rotation ?? 0,
+        currentVisibleBox,
+        mediaBox,
+        rotation ?? 0,
     );
     return {
         left: `${rect.x * 100}%`,
@@ -288,29 +297,29 @@ const previewCurrentStyle = computed(() => {
 });
 
 const previewPageStyle = computed(() => {
-    const normalizedRotation = normalizeCropRotation(props.rotation ?? 0);
+    const normalizedRotation = normalizeCropRotation(rotation ?? 0);
     const isQuarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
-    const width = Math.max(isQuarterTurn ? props.mediaBox.height : props.mediaBox.width, 1);
-    const height = Math.max(isQuarterTurn ? props.mediaBox.width : props.mediaBox.height, 1);
+    const width = Math.max(isQuarterTurn ? mediaBox.height : mediaBox.width, 1);
+    const height = Math.max(isQuarterTurn ? mediaBox.width : mediaBox.height, 1);
     return { aspectRatio: `${width} / ${height}` };
 });
 
 const isValid = computed(() => {
-    const cropWidth = props.mediaBox.width - margins.left - margins.right;
-    const cropHeight = props.mediaBox.height - margins.top - margins.bottom;
+    const cropWidth = mediaBox.width - margins.left - margins.right;
+    const cropHeight = mediaBox.height - margins.top - margins.bottom;
     return cropWidth > 0 && cropHeight > 0 && cropPages.value.length > 0;
 });
 
 const rangePages = computed(() => {
-    return expandPageRange(parsePageRangeInput(rangeInput.value, props.totalPages));
+    return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
 });
 
 const cropPages = computed((): number[] => {
     switch (scope.value) {
-        case 'all': return createAllPageNumbers(props.totalPages);
-        case 'current': return [props.currentPage];
-        case 'even': return createAllPageNumbers(props.totalPages).filter(page => page % 2 === 0);
-        case 'odd': return createAllPageNumbers(props.totalPages).filter(page => page % 2 !== 0);
+        case 'all': return createAllPageNumbers(totalPages);
+        case 'current': return [currentPage];
+        case 'even': return createAllPageNumbers(totalPages).filter(page => page % 2 === 0);
+        case 'odd': return createAllPageNumbers(totalPages).filter(page => page % 2 !== 0);
         case 'range': return rangePages.value ?? [];
         case 'selected': return normalizedSelectedPages.value;
         default: return [];
@@ -318,10 +327,10 @@ const cropPages = computed((): number[] => {
 });
 
 function syncMarginsFromProps() {
-    margins.top = props.initialMargins.top;
-    margins.bottom = props.initialMargins.bottom;
-    margins.left = props.initialMargins.left;
-    margins.right = props.initialMargins.right;
+    margins.top = initialMargins.top;
+    margins.bottom = initialMargins.bottom;
+    margins.left = initialMargins.left;
+    margins.right = initialMargins.right;
     marginsDirty.value = false;
 }
 
@@ -357,15 +366,15 @@ watch(open, (isOpen) => {
     rangeInput.value = '';
 });
 
-watch(() => props.loading, (loading, previousLoading) => {
+watch(() => loading, (loading, previousLoading) => {
     if (!open.value || loading || !previousLoading) {
         return;
     }
     syncMarginsFromProps();
 });
 
-watch(() => props.initialMargins, () => {
-    if (!open.value || props.loading || marginsDirty.value) {
+watch(() => initialMargins, () => {
+    if (!open.value || loading || marginsDirty.value) {
         return;
     }
     syncMarginsFromProps();

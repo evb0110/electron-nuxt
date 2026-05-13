@@ -164,7 +164,11 @@ const COMMENT_SUBTYPE_LABELS = [
 
 const { t } = useTypedI18n();
 
-const props = defineProps<IProps>();
+const {
+    activeCommentStableKey: activeCommentStableKeyProp = undefined,
+    authorName: authorNameProp = undefined,
+    comments,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'focus-comment', comment: IAnnotationCommentSummary): void;
@@ -182,11 +186,11 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
     timeStyle: 'short',
 });
 
-const authorName = computed(() => props.authorName ?? null);
-const activeCommentStableKey = computed(() => props.activeCommentStableKey ?? null);
+const authorName = computed(() => authorNameProp ?? null);
+const activeCommentStableKey = computed(() => activeCommentStableKeyProp ?? null);
 const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 
-const sortedComments = computed(() => props.comments.slice().sort(compareComments));
+const sortedComments = computed(() => comments.slice().sort(compareComments));
 const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
 
 const filteredComments = computed(() => {

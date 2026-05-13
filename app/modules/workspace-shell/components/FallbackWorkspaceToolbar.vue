@@ -188,7 +188,7 @@ import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 
-const props = defineProps<{
+const { snapshot } = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
     hasPdf: boolean;
     ocrPopupOpen: boolean;
@@ -414,27 +414,27 @@ function handleOcrComplete() {
 }
 
 const zoom = computed({
-    get: () => props.snapshot.zoom,
+    get: () => snapshot.zoom,
     set: value => emit('update:zoom', value),
 });
 const effectiveZoom = computed({
-    get: () => props.snapshot.effectiveZoom,
+    get: () => snapshot.effectiveZoom,
     set: value => emit('update:effectiveZoom', value),
 });
 const zoomMode = computed({
-    get: () => props.snapshot.zoomMode,
+    get: () => snapshot.zoomMode,
     set: value => emit('update:zoomMode', value),
 });
 const fitMode = computed({
-    get: () => props.snapshot.fitMode,
+    get: () => snapshot.fitMode,
     set: value => emit('update:fitMode', value),
 });
 const viewMode = computed({
-    get: () => props.snapshot.viewMode,
+    get: () => snapshot.viewMode,
     set: value => emit('update:viewMode', value),
 });
 const currentPage = computed({
-    get: () => props.snapshot.currentPage,
+    get: () => snapshot.currentPage,
     set: value => emit('update:currentPage', value),
 });
 </script>

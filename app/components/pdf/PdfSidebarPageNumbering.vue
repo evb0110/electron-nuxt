@@ -176,7 +176,12 @@ interface IProps {
     pageLabelRanges?: IPdfPageLabelRange[];
 }
 
-const props = defineProps<IProps>();
+const {
+    pageLabelRanges = undefined,
+    pageLabels = undefined,
+    selectedPages,
+    totalPages,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:selectedPages', pages: number[]): void;
@@ -202,7 +207,7 @@ const numberingScopeOptions = computed<Array<{
 }>>(() => [
     {
         value: 'all',
-        label: t('pageNumbering.scopeAll', { count: props.totalPages }),
+        label: t('pageNumbering.scopeAll', { count: totalPages }),
     },
     {
         value: 'range',
@@ -245,18 +250,18 @@ const pageLabelStyleOptions = computed<Array<{
 ]);
 
 const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
-    props.pageLabelRanges ?? [],
-    props.totalPages,
+    pageLabelRanges ?? [],
+    totalPages,
 ));
 
 function buildEffectivePageLabels() {
-    if (props.pageLabels && props.pageLabels.length === props.totalPages) {
-        return props.pageLabels;
+    if (pageLabels && pageLabels.length === totalPages) {
+        return pageLabels;
     }
-    return buildPageLabelsFromRanges(props.totalPages, normalizedPageLabelRanges.value);
+    return buildPageLabelsFromRanges(totalPages, normalizedPageLabelRanges.value);
 }
 
-const manualRange = computed(() => parsePageRangeInput(pageRangeInput.value, props.totalPages));
+const manualRange = computed(() => parsePageRangeInput(pageRangeInput.value, totalPages));
 
 function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
     if (pages.length === 0) {
@@ -264,7 +269,7 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
     }
 
     const sorted = uniq(pages)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= props.totalPages)
+        .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages)
         .sort((left, right) => left - right);
 
     if (sorted.length === 0) {
@@ -284,16 +289,16 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
     };
 }
 
-const selectionRange = computed(() => deriveContiguousSelectionRange(props.selectedPages));
+const selectionRange = computed(() => deriveContiguousSelectionRange(selectedPages));
 
 const allPagesRange = computed<IPdfPageRange | null>(() => {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return null;
     }
 
     return {
         startPage: 1,
-        endPage: props.totalPages,
+        endPage: totalPages,
     };
 });
 
@@ -311,10 +316,10 @@ const applyTargetRange = computed(() => {
 
 const targetSummary = computed(() => {
     if (numberingScope.value === 'all') {
-        if (props.totalPages <= 0) {
+        if (totalPages <= 0) {
             return t('pageNumbering.targetNone');
         }
-        return t('pageNumbering.targetAllPages', { count: props.totalPages });
+        return t('pageNumbering.targetAllPages', { count: totalPages });
     }
 
     if (numberingScope.value === 'range') {
@@ -328,7 +333,7 @@ const targetSummary = computed(() => {
         return t('pageNumbering.targetPages', {range: formatPageRange(manualRange.value)});
     }
 
-    if (props.selectedPages.length === 0) {
+    if (selectedPages.length === 0) {
         return t('pageNumbering.targetNone');
     }
 
@@ -382,7 +387,7 @@ function buildRangePages(range: IPdfPageRange) {
 }
 
 function setSelectedPagesSilently(pages: number[]) {
-    if (arePageNumberListsEqual(props.selectedPages, pages)) {
+    if (arePageNumberListsEqual(selectedPages, pages)) {
         return;
     }
     ignoreSelectionWatch.value = true;
@@ -412,7 +417,7 @@ function getConfiguredPageLabelRange(startPage: number): IPdfPageLabelRange {
 }
 
 function applyPageLabelsToWholeDocument() {
-    emit('update:pageLabelRanges', buildWholeDocumentPageLabelRanges(props.totalPages, {
+    emit('update:pageLabelRanges', buildWholeDocumentPageLabelRanges(totalPages, {
         style: getConfiguredPageLabelStyle(),
         prefix: pageLabelPrefix.value,
         startNumber: pageLabelStartNumber.value,
@@ -420,12 +425,12 @@ function applyPageLabelsToWholeDocument() {
 }
 
 function applyPageLabelsToRange(range: IPdfPageRange) {
-    if (props.totalPages <= 0) {
+    if (totalPages <= 0) {
         return;
     }
 
     const nextLabels = [...buildEffectivePageLabels()];
-    if (nextLabels.length !== props.totalPages) {
+    if (nextLabels.length !== totalPages) {
         return;
     }
 
@@ -438,7 +443,7 @@ function applyPageLabelsToRange(range: IPdfPageRange) {
         nextLabels[range.startPage - 1 + index] = label;
     });
 
-    const nextRanges = derivePageLabelRangesFromLabels(nextLabels, props.totalPages);
+    const nextRanges = derivePageLabelRangesFromLabels(nextLabels, totalPages);
     emit('update:pageLabelRanges', nextRanges);
 }
 
@@ -468,7 +473,7 @@ function clearAll() {
 }
 
 watch(
-    () => props.selectedPages,
+    () => selectedPages,
     (pages) => {
         if (ignoreSelectionWatch.value) {
             ignoreSelectionWatch.value = false;

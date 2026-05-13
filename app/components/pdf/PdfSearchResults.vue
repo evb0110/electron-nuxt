@@ -108,11 +108,6 @@ interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
-    searchOptions?: {
-        matchCase?: boolean;
-        wholeWord?: boolean;
-        useRegex?: boolean;
-    };
     pageLabels?: string[] | null;
     isSearching?: boolean;
     searchError?: string | null;
@@ -124,22 +119,32 @@ interface IProps {
     minQueryLength?: number;
 }
 
-const props = defineProps<IProps>();
+const {
+    currentResultIndex,
+    isSearching = undefined,
+    isTruncated: isTruncatedProp,
+    minQueryLength: minQueryLengthProp = undefined,
+    pageLabels = undefined,
+    results,
+    searchError = undefined,
+    searchProgress = undefined,
+    searchQuery,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{(e: 'goToResult', index: number): void;}>();
 
-const trimmedQuery = computed(() => props.searchQuery.trim());
-const minQueryLength = computed(() => props.minQueryLength ?? 0);
-const isTruncated = computed(() => props.isTruncated ?? false);
+const trimmedQuery = computed(() => searchQuery.trim());
+const minQueryLength = computed(() => minQueryLengthProp ?? 0);
+const isTruncated = computed(() => isTruncatedProp ?? false);
 const expandedPages = ref<Set<number>>(new Set());
 const resultItemRefs = new Map<number, HTMLElement>();
 
-const activeMatchIndex = computed(() => props.results[props.currentResultIndex]?.matchIndex ?? -1);
+const activeMatchIndex = computed(() => results[currentResultIndex]?.matchIndex ?? -1);
 
 const groupedResults = computed(() => {
     const groups = new Map<number, IPdfSearchMatch[]>();
 
-    props.results.forEach((result) => {
+    results.forEach((result) => {
         const matches = groups.get(result.pageIndex) ?? [];
         matches.push(result);
         groups.set(result.pageIndex, matches);
@@ -155,7 +160,7 @@ const groupedResults = computed(() => {
 });
 
 const resultIndexByMatchIndex = computed(() => new Map(
-    props.results.map((result, index) => [
+    results.map((result, index) => [
         result.matchIndex,
         index,
     ]),
@@ -174,12 +179,12 @@ const isQueryTooShort = computed(() => {
 });
 
 const progressText = computed(() => {
-    if (!props.searchProgress || props.searchProgress.total === 0) {
+    if (!searchProgress || searchProgress.total === 0) {
         return '';
     }
 
-    const total = props.searchProgress.total;
-    const processed = Math.min(props.searchProgress.processed, total);
+    const total = searchProgress.total;
+    const processed = Math.min(searchProgress.processed, total);
     return t('searchResults.pagesProgress', {
         processed,
         total,
@@ -229,8 +234,8 @@ watch(
 
 watch(
     () => [
-        props.currentResultIndex,
-        props.results.length,
+        currentResultIndex,
+        results.length,
     ] as const,
     async ([
         nextIndex,
@@ -240,7 +245,7 @@ watch(
             return;
         }
 
-        const currentResult = props.results[nextIndex];
+        const currentResult = results[nextIndex];
         if (!currentResult) {
             return;
         }

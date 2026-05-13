@@ -154,7 +154,15 @@ interface IDjvuPageState {
     token: number;
 }
 
-const props = defineProps<IProps>();
+const {
+    continuousScroll: continuousScrollProp,
+    dragMode: dragModeProp,
+    fitMode = undefined,
+    src,
+    viewMode: viewModeProp = undefined,
+    zoom = undefined,
+    zoomMode: zoomModeProp = undefined,
+} = defineProps<IProps>();
 const emit = defineEmits<{
     (e: 'update:effectiveZoom', value: number): void;
     (e: 'update:currentPage', value: number): void;
@@ -177,23 +185,23 @@ const totalPages = computed(() => pageSizes.value.length);
 const scrollTop = ref(0);
 const currentPage = ref(1);
 const viewerError = ref<string | null>(null);
-const isLoading = ref(Boolean(props.src));
+const isLoading = ref(Boolean(src));
 const hasVisiblePagePreview = computed(() => (
     pageStates.value.some(state => Boolean(state.objectUrl))
 ));
 const isInitialPreviewPending = computed(() => (
-    Boolean(props.src)
+    Boolean(src)
     && isLoading.value
     && !viewerError.value
     && !hasVisiblePagePreview.value
 ));
 const containerWidth = ref(0);
 const containerHeight = ref(0);
-const dragMode = computed(() => props.dragMode ?? false);
-const isContinuousScroll = computed(() => props.continuousScroll ?? true);
-const viewMode = computed<TPdfViewMode>(() => props.viewMode ?? 'single');
-const zoomMode = computed(() => props.zoomMode ?? (
-    props.fitMode === 'height' ? 'fit-height' : 'fit-width'
+const dragMode = computed(() => dragModeProp ?? false);
+const isContinuousScroll = computed(() => continuousScrollProp ?? true);
+const viewMode = computed<TPdfViewMode>(() => viewModeProp ?? 'single');
+const zoomMode = computed(() => zoomModeProp ?? (
+    fitMode === 'height' ? 'fit-height' : 'fit-width'
 ));
 const renderedPagesLayoutClass = computed(() => (
     isContinuousScroll.value || renderedPageNumbers.value.length <= 1
@@ -530,7 +538,7 @@ const continuousScrollBottomSpacerHeight = computed(() => {
     );
 });
 const manualZoom = computed(() => {
-    const candidate = props.zoom ?? 1;
+    const candidate = zoom ?? 1;
     if (!Number.isFinite(candidate) || candidate <= 0) {
         return 1;
     }
@@ -1104,12 +1112,23 @@ watch(renderedPageNumbers, async () => {
     }
 
     await nextTick();
-    scrollActiveSpreadIntoView();
     syncLoadedPages();
 }, { flush: 'post' });
 
+watch([
+    currentPage,
+    viewMode,
+], async () => {
+    if (!import.meta.client || totalPages.value <= 0 || isContinuousScroll.value) {
+        return;
+    }
+
+    await nextTick();
+    scrollActiveSpreadIntoView();
+}, { flush: 'post' });
+
 watch(
-    () => props.src,
+    () => src,
     async (src) => {
         loadGeneration += 1;
         const generation = loadGeneration;

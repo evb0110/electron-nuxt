@@ -35,32 +35,32 @@ interface IWorkspaceExportOverlay {
     pageCount: number;
 }
 
-const props = defineProps<{overlay: IWorkspaceExportOverlay | null;}>();
+const { overlay } = defineProps<{overlay: IWorkspaceExportOverlay | null;}>();
 
 const { t } = useTypedI18n();
 
 const title = computed(() => {
-    if (!props.overlay) {
+    if (!overlay) {
         return '';
     }
 
-    if (props.overlay.state === 'success') {
-        return props.overlay.kind === 'images'
+    if (overlay.state === 'success') {
+        return overlay.kind === 'images'
             ? t('export.successImages')
             : t('export.successTiff');
     }
 
-    return props.overlay.kind === 'images'
+    return overlay.kind === 'images'
         ? t('export.statusImages')
         : t('export.statusTiff');
 });
-const detail = computed(() => props.overlay
-    ? t('export.pageCount', {count: props.overlay.pageCount})
+const detail = computed(() => overlay
+    ? t('export.pageCount', {count: overlay.pageCount})
     : '');
-const icon = computed(() => props.overlay?.state === 'success'
+const icon = computed(() => overlay?.state === 'success'
     ? 'i-ph-check-circle'
     : 'i-ph-circle-notch');
-const iconClass = computed(() => props.overlay?.state === 'success'
+const iconClass = computed(() => overlay?.state === 'success'
     ? 'size-4 text-[var(--ui-success)]'
     : 'size-4 animate-spin text-muted');
 </script>

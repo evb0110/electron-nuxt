@@ -25,7 +25,11 @@
 import type { CSSProperties } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-const props = defineProps<{
+const {
+    isResizingSidebar,
+    showSidebar,
+    sidebarWrapperStyle = undefined,
+} = defineProps<{
     showSidebar: boolean;
     sidebarWrapperStyle?: CSSProperties | null;
     isResizingSidebar: boolean;
@@ -40,9 +44,9 @@ function handleResizeStart(event: PointerEvent) {
 
 watch(
     () => [
-        props.showSidebar,
-        props.sidebarWrapperStyle?.width,
-        props.isResizingSidebar,
+        showSidebar,
+        sidebarWrapperStyle?.width,
+        isResizingSidebar,
     ] as const,
     ([
         nextShowSidebar,

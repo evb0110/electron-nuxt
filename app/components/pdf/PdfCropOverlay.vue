@@ -25,10 +25,13 @@ import {
     type IRegionSelectionOverlayBaseProps,
     type IRegionSelectionOverlayEmits,
     regionRectStyle,
-    useEmittedPdfRegionSelectionOverlay,
+    usePdfRegionSelectionOverlay,
 } from '@app/composables/pdf/usePdfRegionSelectionOverlay';
 
-const props = defineProps<IRegionSelectionOverlayBaseProps>();
+const {
+    active,
+    selectionRect,
+} = defineProps<IRegionSelectionOverlayBaseProps>();
 
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 
@@ -38,9 +41,15 @@ const {
     handlePointerUp,
     handleContextMenu,
     handleWheel,
-} = useEmittedPdfRegionSelectionOverlay(props, emit);
+} = usePdfRegionSelectionOverlay({
+    isActive: () => active,
+    onPointerStart: payload => emit('pointer-start', payload),
+    onPointerMove: payload => emit('pointer-move', payload),
+    onPointerEnd: payload => emit('pointer-end', payload),
+    onCancel: () => emit('cancel'),
+});
 
-const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
+const selectionStyle = computed(() => regionRectStyle(selectionRect));
 
 function cancelSelection() {
     emit('cancel');

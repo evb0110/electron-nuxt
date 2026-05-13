@@ -50,8 +50,11 @@ interface IProps {
 
 const { settings: appSettings } = useSettings();
 
-const props = defineProps<IProps>();
-const showStyleEditor = computed(() => isAuthoringAnnotationTool(props.tool));
+const {
+    activeCommentStableKey = undefined,
+    tool,
+} = defineProps<IProps>();
+const showStyleEditor = computed(() => isAuthoringAnnotationTool(tool));
 
 const emit = defineEmits<{
     (e: 'set-tool', tool: TAnnotationTool): void;
