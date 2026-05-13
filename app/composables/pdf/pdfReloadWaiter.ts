@@ -63,6 +63,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 return;
             }
 
+            const matchedDoc = doc;
             const viewer = options.pdfViewerRef.value;
             if (viewer?.waitForViewerLoadSettled) {
                 let settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,8 +87,14 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 return;
             }
 
+            if (options.pdfDocument.value !== matchedDoc) {
+                return;
+            }
             options.resetSearchCache();
             await nextTick();
+            if (isCancelled.value || options.pdfDocument.value !== matchedDoc) {
+                return;
+            }
             if (!captureScrollSnapshot) {
                 viewer?.scrollToPage(options.pageToRestore);
                 return;

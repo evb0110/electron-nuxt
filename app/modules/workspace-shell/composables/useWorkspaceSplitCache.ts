@@ -3,12 +3,19 @@ import type { Ref } from 'vue';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
 
 interface IWorkspaceSplitCacheEntry {
+    id: string;
     payload: TSplitPayload;
     createdAt: number;
 }
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 256;
+let nextCacheEntryId = 0;
+
+function createCacheEntryId() {
+    nextCacheEntryId += 1;
+    return `split-cache-entry:${Date.now()}:${nextCacheEntryId}`;
+}
 
 function useSplitPayloadCache() {
     return useState<Record<string, IWorkspaceSplitCacheEntry>>(
@@ -133,7 +140,7 @@ export const useWorkspaceSplitCache = () => {
 
         if (!payload || payload.kind === 'empty') {
             if (!(tabId in splitPayloadCache.value)) {
-                return;
+                return null;
             }
 
             splitPayloadCache.value = omitCacheEntry(splitPayloadCache.value, tabId);
@@ -145,12 +152,14 @@ export const useWorkspaceSplitCache = () => {
                     metadata: { tabId },
                 });
             }
-            return;
+            return null;
         }
 
+        const id = createCacheEntryId();
         splitPayloadCache.value = {
             ...splitPayloadCache.value,
             [tabId]: {
+                id,
                 payload: clonePayload(payload),
                 createdAt: Date.now(),
             },
@@ -171,13 +180,31 @@ export const useWorkspaceSplitCache = () => {
             });
         }
         pruneCache(splitPayloadCache, splitPayloadCacheRevision);
+        return id;
     }
 
-    function consume(tabId: string): TSplitPayload | null {
+    function peek(tabId: string): {
+        id: string;
+        payload: TSplitPayload;
+    } | null {
         pruneCache(splitPayloadCache, splitPayloadCacheRevision);
 
         const entry = splitPayloadCache.value[tabId];
         if (!entry) {
+            return null;
+        }
+
+        return {
+            id: entry.id,
+            payload: clonePayload(entry.payload),
+        };
+    }
+
+    function consume(tabId: string, entryId?: string | null): TSplitPayload | null {
+        pruneCache(splitPayloadCache, splitPayloadCacheRevision);
+
+        const entry = splitPayloadCache.value[tabId];
+        if (!entry || (entryId && entry.id !== entryId)) {
             return null;
         }
 
@@ -207,9 +234,12 @@ export const useWorkspaceSplitCache = () => {
         return false;
     }
 
-    function clear(tabId: string) {
+    function clear(tabId: string, entryId?: string | null) {
         const entry = splitPayloadCache.value[tabId];
         if (!entry) {
+            return;
+        }
+        if (entryId && entry.id !== entryId) {
             return;
         }
 
@@ -224,6 +254,7 @@ export const useWorkspaceSplitCache = () => {
 
     return {
         set,
+        peek,
         consume,
         has,
         clear,

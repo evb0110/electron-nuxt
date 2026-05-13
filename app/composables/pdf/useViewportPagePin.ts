@@ -76,6 +76,10 @@ export function useViewportPagePin(options: { summarizeViewerStateForLog: () => 
         });
     }
 
+    onScopeDispose(() => {
+        clearPinnedViewportPage('scope-dispose');
+    });
+
     return {
         viewportPagePin,
         clearPinnedViewportPage,
