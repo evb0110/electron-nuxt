@@ -3,7 +3,7 @@ import type {
     InjectionKey,
     ComputedRef,
 } from 'vue';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IContentInsets,
     PDFPageProxy,

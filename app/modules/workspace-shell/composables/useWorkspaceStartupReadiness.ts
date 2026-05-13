@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;

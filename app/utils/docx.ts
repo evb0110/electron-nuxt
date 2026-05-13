@@ -1,4 +1,4 @@
-import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 
 const CRC_TABLE = (() => {
     const table = new Uint32Array(256);

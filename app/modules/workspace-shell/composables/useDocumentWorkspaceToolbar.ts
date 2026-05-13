@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import type { TDocumentRef } from '@contracts/platformApi';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import type { ICropMargins } from '@app/types/crop';
 import type { TPdfViewMode } from '@contracts/shared';

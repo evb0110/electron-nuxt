@@ -9,9 +9,9 @@ import {
     isReaderCommandInMenu,
     isReaderCommandInline,
     listReaderCommandsForPlacement,
-} from '@app/utils/reader-command-surface';
+} from '@app/utils/readerCommandSurface';
 
-describe('reader-command-surface', () => {
+describe('readerCommandSurface', () => {
     it('keeps desktop editor tools inline while routing file-only actions through menus', () => {
         expect(isReaderCommandInline(DESKTOP_EDITOR_READER_COMMAND_SURFACE, 'open-file')).toBe(false);
         expect(isReaderCommandInMenu(DESKTOP_EDITOR_READER_COMMAND_SURFACE, 'open-file')).toBe(true);

@@ -10,7 +10,7 @@ import {
     cleanupTempOutput,
     makeTempPdfOutputPath,
     replaceTempOutput,
-} from '@electron/features/page-ops/main/temp-output';
+} from '@electron/features/page-ops/main/tempOutput';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
 
 const log = createLogger('page-ops-qpdf');

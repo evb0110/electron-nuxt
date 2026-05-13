@@ -186,16 +186,16 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/platform-api';
+import type { TOpenFileResult } from '@contracts/platformApi';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';
 import { getErrorMessage } from '@app/utils/error';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { hasElectronAPI } from '@app/utils/platform';
-import { BROWSER_COMBINE_IMAGE_EXTENSIONS } from '@app/platform/browser-api/browser-platform-helpers';
-import { browserDocumentStore } from '@app/platform/browser-document-store';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/documents-file-capability';
+import { BROWSER_COMBINE_IMAGE_EXTENSIONS } from '@app/platform/browser-api/browserPlatformHelpers';
+import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import { createCombinedPdfFromPaths } from '@app/platform/browser-api/documentsFileCapability';
 
 type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 

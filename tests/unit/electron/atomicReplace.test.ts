@@ -62,7 +62,7 @@ describe('atomicReplace', () => {
         const fsyncError = Object.assign(new Error('operation not permitted, fsync'), { code: 'EPERM' });
         mocks.sync.mockRejectedValueOnce(fsyncError);
 
-        const { atomicReplace } = await import('@electron/utils/atomic-replace');
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
 
         await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf')).resolves.toBeUndefined();
 
@@ -76,7 +76,7 @@ describe('atomicReplace', () => {
         const fsyncError = Object.assign(new Error('operation not permitted, fsync'), { code: 'EPERM' });
         mocks.sync.mockRejectedValueOnce(fsyncError);
 
-        const { atomicReplace } = await import('@electron/utils/atomic-replace');
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
 
         await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf')).rejects.toThrow('operation not permitted');
 

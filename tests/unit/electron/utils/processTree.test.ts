@@ -8,7 +8,7 @@ import {
 import {
     processTreeRuntime,
     terminateProcessTree,
-} from '@electron/utils/process-tree';
+} from '@electron/utils/processTree';
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe;
 // terminateProcessTree intentionally refuses to signal the current process.

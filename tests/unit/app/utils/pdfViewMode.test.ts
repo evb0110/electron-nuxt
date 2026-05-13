@@ -8,7 +8,7 @@ import {
     getViewColumnCount,
     isStandaloneSpreadPage,
     stepBySpread,
-} from '@app/utils/pdf-view-mode';
+} from '@app/utils/pdfViewMode';
 
 describe('pdf view mode helpers', () => {
     it('returns expected columns for each mode', () => {

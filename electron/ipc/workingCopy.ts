@@ -24,13 +24,13 @@ import {
     win32,
 } from 'path';
 import { createLogger } from '@electron/utils/logger';
-import { decryptPdfFileIfNeeded } from '@electron/utils/pdf-decrypt';
+import { decryptPdfFileIfNeeded } from '@electron/utils/pdfDecrypt';
 import { getErrorMessage } from '@electron/utils/error';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 import {
     atomicReplace,
     makeSiblingTempPath,
-} from '@electron/utils/atomic-replace';
+} from '@electron/utils/atomicReplace';
 
 const logger = createLogger('working-copy');
 const ALLOWED_SAVE_EXTENSIONS = new Set([

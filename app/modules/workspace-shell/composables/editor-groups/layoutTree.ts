@@ -2,7 +2,7 @@ import type {
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 
 export function collectLayoutGroupIds(node: TEditorLayoutNode, target: Set<string>) {
     if (node.type === 'leaf') {

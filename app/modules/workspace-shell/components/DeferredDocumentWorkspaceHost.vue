@@ -83,27 +83,27 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/platform-api';
+import type { TOpenFileResult } from '@contracts/platformApi';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TSplitPayload } from '@contracts/window-tabs';
+import type { TSplitPayload } from '@contracts/windowTabs';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
-} from '@app/types/workspace-expose';
-import { BrowserLogger } from '@app/utils/browser-logger';
+} from '@app/types/workspaceExpose';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPlatformAPI } from '@app/utils/platform';
 import {
     getAsyncChunkLoadErrorMessage,
     shouldRetryAsyncChunkLoad,
-} from '@app/modules/workspace-shell/composables/workspace-host-async-load';
-import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspace-expose-contract';
+} from '@app/modules/workspace-shell/composables/workspaceHostAsyncLoad';
+import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspaceExposeContract';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
-import type { TStartSection } from '@app/types/start-page';
+import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import type { TStartSection } from '@app/types/startPage';
 
 const {
     hasDocumentHint,

@@ -4,8 +4,8 @@ import type {
     IPdfSaveResult,
     TPdfSaveMode,
 } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platform-api';
-import { isTimeoutError } from '@contracts/timeout-error';
+import type { TDocumentRef } from '@contracts/platformApi';
+import { isTimeoutError } from '@contracts/timeoutError';
 import type {
     Ref,
     ShallowRef,
@@ -13,7 +13,7 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { withTimeout } from 'es-toolkit/promise';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     normalizePdfJsAnnotationId,

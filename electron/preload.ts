@@ -4,9 +4,9 @@ import {
     ipcRenderer,
     webUtils,
 } from 'electron';
-import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/dev-recovery';
-import { createElectronApi } from '@electron/preload/create-electron-api';
-import { pushDebugLogMessage } from '@electron/preload/debug-log-buffer';
+import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/devRecovery';
+import { createElectronApi } from '@electron/preload/createElectronApi';
+import { pushDebugLogMessage } from '@electron/preload/debugLogBuffer';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
 const PRELOAD_INSTALL_FLAG = '__preloadInstalled';
@@ -409,7 +409,7 @@ const logDevRecovery = (level: 'debug' | 'info' | 'warn' | 'error', message: str
         console.error(message);
     }
 
-    forwardPreloadLogToMain(level, 'dev-recovery', message, data);
+    forwardPreloadLogToMain(level, 'devRecovery', message, data);
 };
 
 installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });

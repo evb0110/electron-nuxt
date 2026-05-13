@@ -1,11 +1,11 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -23,11 +23,11 @@ import {
     serializePdfEditsOffThread,
     updateEmbeddedAnnotationTextOffThread,
 } from '@app/composables/pdf/pdfSerializationWorkerClient';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
-import { decodeBrowserImageBlob } from '@app/platform/browser-api/browser-image-decode';
-import { readDocumentBytes } from '@app/utils/document-bytes';
-import { measureDevPerfAsync } from '@app/utils/dev-perf';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { toTransferableUint8Array } from '@app/platform/browser-api/browserWorkerTransfer';
+import { decodeBrowserImageBlob } from '@app/platform/browser-api/browserImageDecode';
+import { readDocumentBytes } from '@app/utils/documentBytes';
+import { measureDevPerfAsync } from '@app/utils/devPerf';
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 

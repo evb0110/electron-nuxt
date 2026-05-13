@@ -3,7 +3,7 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,

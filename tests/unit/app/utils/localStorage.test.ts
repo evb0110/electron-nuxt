@@ -8,7 +8,7 @@ import {
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
-} from '@app/utils/local-storage';
+} from '@app/utils/localStorage';
 
 interface ITestGlobal {window?: unknown;}
 

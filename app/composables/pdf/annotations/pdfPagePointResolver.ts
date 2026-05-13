@@ -5,7 +5,7 @@ import {
     clamp01,
     normalizeMarkerRect,
 } from '@app/composables/pdf/annotationGeometry';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const DEFAULT_POINT_MARKER_SIZE = 0.0016;
 const NOTE_PLACEMENT_LOG_SECTION = 'note-placement';

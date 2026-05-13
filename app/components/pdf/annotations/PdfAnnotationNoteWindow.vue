@@ -56,7 +56,7 @@
 
 import { useResizeObserver } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { NOTE_WINDOW } from '@app/constants/pdf-layout';
+import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { clamp } from 'es-toolkit/math';
 
 interface IAnnotationNotePosition {

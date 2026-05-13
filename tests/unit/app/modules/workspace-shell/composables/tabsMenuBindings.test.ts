@@ -6,9 +6,9 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
-import type { IElectronAPI } from '@contracts/electron-api';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
+import type { IElectronAPI } from '@contracts/electronApi';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabsMenuBindings';
 
 function cast<T>(value: unknown): T {
     return value as T;

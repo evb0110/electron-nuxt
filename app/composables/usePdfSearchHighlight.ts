@@ -25,7 +25,7 @@ import {
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
 
-const HIGHLIGHT_API_NAME = 'pdf-search-match';
+const HIGHLIGHT_API_NAME = 'pdf-searchMatch';
 const HIGHLIGHT_API_CURRENT_NAME = 'pdf-search-current-match';
 
 export interface IHighlightResult {

@@ -32,7 +32,7 @@ import {
     applyPlacedImage,
     type IPdfSerializedPlacedImagePayload,
 } from './serialization/pdfSerializationPlacedImages';
-import { applyShapeAnnotations } from './serialization/pdfSerializationShapes';
+import { applyShapeAnnotations } from './serialization/pdfSerializationShapeAnnotations';
 
 export type { IPdfSerializedPlacedImagePayload } from './serialization/pdfSerializationPlacedImages';
 

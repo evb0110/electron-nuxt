@@ -1,9 +1,9 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { usePdfSearch } from '@app/composables/usePdfSearch';
 import { usePageSearch } from '@app/modules/workspace-shell/composables/usePageSearch';
 import { useSidebarResize } from '@app/modules/workspace-shell/composables/useSidebarResize';
-import type { TPdfSidebarTab } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import type { TPdfSidebarTab } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 
 interface IWorkspaceSearchSidebarOptions {
     workingCopyPath: Ref<TDocumentRef | null>;

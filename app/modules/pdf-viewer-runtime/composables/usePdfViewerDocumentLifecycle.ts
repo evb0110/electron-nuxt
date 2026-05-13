@@ -5,8 +5,8 @@ import type {
 } from 'vue';
 import { delay } from 'es-toolkit/promise';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import { runGuardedTask } from '@app/utils/async-guard';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
     PDFDocumentProxy,

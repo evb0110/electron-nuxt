@@ -30,7 +30,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('returns AbortError immediately when signal is already aborted', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/pdf-text-extractor');
+        const { extractTextFromPdf } = await import('@electron/search/pdfTextExtractor');
         const controller = new AbortController();
         controller.abort();
 
@@ -41,7 +41,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('forwards signal to runCommand and preserves paging behavior', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/pdf-text-extractor');
+        const { extractTextFromPdf } = await import('@electron/search/pdfTextExtractor');
         const controller = new AbortController();
 
         mocks.runCommand.mockResolvedValue({
@@ -82,7 +82,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('rethrows AbortError from runCommand without wrapping', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/pdf-text-extractor');
+        const { extractTextFromPdf } = await import('@electron/search/pdfTextExtractor');
         const abortError = createAbortError();
         mocks.runCommand.mockRejectedValue(abortError);
 

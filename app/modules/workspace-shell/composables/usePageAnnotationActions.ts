@@ -1,25 +1,25 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import type { TDocumentRef } from '@contracts/platformApi';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import { deleteEmbeddedAnnotationOffThread } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+} from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import { getShapeRect } from '@app/composables/pdf/pdfShapeResize';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
-} from '@app/utils/pdf-annotation-refs';
+} from '@app/utils/pdfAnnotationRefs';
 
 const SUPPORTED_IMAGE_MIME_TYPES = [
     'image/apng',

@@ -1,5 +1,5 @@
 import { uniq } from 'es-toolkit/array';
-import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
+import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { parseIntegerEnv } from '@electron/utils/env';
 
 type TOcrErrorCode =

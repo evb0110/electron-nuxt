@@ -23,7 +23,7 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const {
     isResizingSidebar,

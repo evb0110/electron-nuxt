@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { TEditorLayoutNode } from '@app/types/editor-groups';
+import type { TEditorLayoutNode } from '@app/types/editorGroups';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 

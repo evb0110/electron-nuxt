@@ -12,7 +12,7 @@ const mockDocuments = {
     fileExists: vi.fn(),
     readTextFile: vi.fn(),
 };
-vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => mockDocuments }));
+vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockDocuments }));
 
 function createViewport(): PageViewport {
     return {

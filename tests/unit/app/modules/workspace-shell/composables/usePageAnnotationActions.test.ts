@@ -11,13 +11,13 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 
 const { deleteEmbeddedAnnotationOffThread } = vi.hoisted(() => ({deleteEmbeddedAnnotationOffThread: vi.fn(async (

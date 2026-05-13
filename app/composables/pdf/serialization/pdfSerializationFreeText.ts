@@ -20,7 +20,7 @@ import {
 import {
     getPdfDictContents,
     getPdfStringValue,
-} from '@app/utils/pdf-dict';
+} from '@app/utils/pdfDict';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
@@ -30,7 +30,7 @@ import {
     iterateAnnotationRefDicts,
     resolvePageAnnotationContext,
 } from '@app/composables/pdf/pdfPageAnnotationIteration';
-import { toPdfDateString } from '@app/utils/pdf-date';
+import { toPdfDateString } from '@app/utils/pdfDate';
 import {
     appendAnnotationRefToPage,
     isAnnotationMarkerRect,

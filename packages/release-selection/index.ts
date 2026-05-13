@@ -17,7 +17,7 @@ export {
     parseUserAgent,
     recommendInstaller,
     selectPreferredInstallers,
-} from './release-selection';
+} from './releaseSelection';
 
 export type {
     ILatestReleaseResponse,

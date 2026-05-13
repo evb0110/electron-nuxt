@@ -10,7 +10,7 @@ import {
     normalizeBookmarkColor,
     resolveBookmarkDestinationPage,
     resolvePageIndex,
-} from '@app/utils/pdf-outline-helpers';
+} from '@app/utils/pdfOutlineHelpers';
 
 type TOutlinePdfDocumentStub = Pick<PDFDocumentProxy, 'numPages' | 'getDestination' | 'getPageIndex'>;
 
@@ -26,7 +26,7 @@ function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {})
     } as PDFDocumentProxy;
 }
 
-describe('pdf-outline-helpers', () => {
+describe('pdfOutlineHelpers', () => {
     it('converts outline color arrays to hex', () => {
         expect(convertOutlineColorToHex([
             255,

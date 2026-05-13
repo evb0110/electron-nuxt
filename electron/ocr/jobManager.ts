@@ -23,8 +23,8 @@ import {
     isScopedJobOwnedBySender,
     parseWorkerMessage,
     toScopedOcrJobId,
-} from '@electron/ocr/jobManager.protocol';
-import { createPendingResultFileStore } from '@electron/ocr/jobManager.resultFiles';
+} from '@electron/ocr/jobManagerProtocol';
+import { createPendingResultFileStore } from '@electron/ocr/jobManagerResultFiles';
 import { createOcrWorker } from '@electron/ocr/jobManager.worker';
 import type {
     IOcrActiveJob,
@@ -39,7 +39,7 @@ import type {
 import { createLogger } from '@electron/utils/logger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
-import { sendToLiveWindow } from '@electron/utils/ipc-window';
+import { sendToLiveWindow } from '@electron/utils/ipcWindow';
 
 const log = createLogger('ocr-ipc');
 const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {

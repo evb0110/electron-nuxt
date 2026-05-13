@@ -1,5 +1,5 @@
 import { getPlatformAPI } from '@app/utils/platform';
-import { guardAsync } from '@app/utils/async-guard';
+import { guardAsync } from '@app/utils/asyncGuard';
 import type {
     IUseWorkspaceShellStateOptions,
     IWorkspaceShellState,

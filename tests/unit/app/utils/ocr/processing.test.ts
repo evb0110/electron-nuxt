@@ -7,7 +7,7 @@ import {
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
-vi.mock('@app/platform/browser-api/browser-yield', () => ({yieldToBrowser: yieldToBrowserMock}));
+vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: yieldToBrowserMock}));
 
 describe('ocrProcessing', () => {
     it('yields while extracting pdf text page by page', async () => {

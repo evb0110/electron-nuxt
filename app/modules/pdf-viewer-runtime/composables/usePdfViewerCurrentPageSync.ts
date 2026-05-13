@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
-import { waitForVisualFrames } from '@app/utils/async-helpers';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import type {

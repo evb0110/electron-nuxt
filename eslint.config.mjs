@@ -245,7 +245,7 @@ export default withNuxt(
                         group: [
                             '@i18n-core/*',
                             '@i18n-app/*',
-                            '@release-selection/*',
+                            '@releaseSelection/*',
                         ],
                         message: 'Import shared packages via their root entrypoint to keep package APIs slim.',
                     },

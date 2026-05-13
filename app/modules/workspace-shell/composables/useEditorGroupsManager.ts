@@ -5,7 +5,7 @@ import type {
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
     TGroupDirection,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 import {
     removeLeafNode,
     replaceLeafWithSplit,
@@ -31,27 +31,27 @@ interface ICloseTabResult {
 
 export const useEditorGroupsManager = () => {
     const groups = useState<IEditorGroupState[]>(
-        'editor-groups:groups',
+        'editorGroups:groups',
         () => [],
     );
     const tabs = useState<ITab[]>(
-        'editor-groups:tabs',
+        'editorGroups:tabs',
         () => [],
     );
     const layout = useState<TEditorLayoutNode | null>(
-        'editor-groups:layout',
+        'editorGroups:layout',
         () => null,
     );
     const activeGroupId = useState<string | null>(
-        'editor-groups:active-group-id',
+        'editorGroups:active-group-id',
         () => null,
     );
     const groupMru = useState<string[]>(
-        'editor-groups:group-mru',
+        'editorGroups:group-mru',
         () => [],
     );
     const nextEntityId = useState<number>(
-        'editor-groups:entity-id',
+        'editorGroups:entity-id',
         () => 0,
     );
 

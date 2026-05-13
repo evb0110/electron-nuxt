@@ -6,7 +6,7 @@ import {
 import {
     formatWebTitleTemplate,
     resolveAppWindowTitle,
-} from '@app/utils/app-window-title';
+} from '@app/utils/appWindowTitle';
 
 describe('resolveAppWindowTitle', () => {
     it('falls back to the desktop app title when no document is open', () => {

@@ -6,7 +6,7 @@ import type {
 import {
     buildPageLabelsFromRanges,
     isImplicitDefaultPageLabels,
-} from '@app/utils/pdf-page-labels';
+} from '@app/utils/pdfPageLabels';
 
 interface IWorkspaceMetadataSnapshot {
     bookmarkItems: IPdfBookmarkEntry[];

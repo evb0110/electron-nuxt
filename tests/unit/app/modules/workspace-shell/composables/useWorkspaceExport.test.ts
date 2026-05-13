@@ -22,7 +22,7 @@ const mockDocumentsCapability = {
     cleanupFile: cleanupFileMock,
 };
 
-vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => mockDocumentsCapability }));
+vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockDocumentsCapability }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 
 function createComposable() {

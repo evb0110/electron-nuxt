@@ -147,12 +147,12 @@
 
 <script setup lang="ts">
 import AgentationWidget from '@app/components/AgentationWidget.vue';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_THEME_COOKIE_KEY,
-} from '@app/utils/browser-settings-persistence';
-import { waitForVisualFrames } from '@app/utils/async-helpers';
+} from '@app/utils/browserSettingsPersistence';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 
 const {
     load: loadSettings,

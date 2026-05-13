@@ -524,15 +524,15 @@ import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TStartSection } from '@app/types/start-page';
+import type { TStartSection } from '@app/types/startPage';
 import type { IPdfPageMatches } from '@app/types/pdf';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
-import { formatEtaDuration } from '@app/utils/progress-formatting';
-import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { formatEtaDuration } from '@app/utils/progressFormatting';
+import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));

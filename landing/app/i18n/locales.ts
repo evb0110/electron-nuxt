@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-imports */
 import en from '../locales/en';
-import type { EN_MESSAGE_SCHEMA } from './message-schema';
+import type { EN_MESSAGE_SCHEMA } from './messageSchema';
 import {
     DEFAULT_LOCALE,
     LOCALE_CODES,

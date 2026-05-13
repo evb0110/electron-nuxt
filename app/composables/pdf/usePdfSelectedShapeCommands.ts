@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { cloneShape } from '@app/composables/pdf/usePdfShapeHistory';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export function usePdfSelectedShapeCommands(options: {
     selectedShapeId: Ref<string | null>;

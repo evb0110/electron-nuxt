@@ -24,7 +24,7 @@ import {
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
-import { getPdfDictContents } from '@app/utils/pdf-dict';
+import { getPdfDictContents } from '@app/utils/pdfDict';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {

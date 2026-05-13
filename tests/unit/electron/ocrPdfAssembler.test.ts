@@ -15,7 +15,7 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { assembleSearchablePdf } from '@electron/ocr/worker/pdf-assembler';
+import { assembleSearchablePdf } from '@electron/ocr/worker/pdfAssembler';
 
 const ONE_PIXEL_PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/atXxKAAAAAASUVORK5CYII=',

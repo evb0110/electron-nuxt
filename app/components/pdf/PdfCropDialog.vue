@@ -190,13 +190,13 @@ import {
     pointsToUnit,
     unitStep,
     unitToPoints,
-} from '@app/utils/pdf-crop-coordinates';
-import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
+} from '@app/utils/pdfCropCoordinates';
+import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
 import {
     createAllPageNumbers,
     expandPageRange,
     normalizeSelectedPageNumbers,
-} from '@app/utils/pdf-page-selection';
+} from '@app/utils/pdfPageSelection';
 
 const open = defineModel<boolean>('open', { required: true });
 

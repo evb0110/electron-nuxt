@@ -15,10 +15,10 @@ import {
     shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
     isReusableNuxtResponse,
-} from '../../../scripts/electron-run/session-manager';
+} from '../../../scripts/electron-run/sessionManager';
 import { shouldWaitForExternalDevServer } from '../../../electron/server';
 
-describe('session-manager automation launch args', () => {
+describe('sessionManager automation launch args', () => {
     it('disables the Electron sandbox on Linux CI by default', () => {
         expect(shouldDisableAutomationSandbox({ CI: 'true' }, 'linux')).toBe(true);
 

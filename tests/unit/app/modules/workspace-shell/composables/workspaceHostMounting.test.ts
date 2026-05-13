@@ -7,7 +7,7 @@ import {
     hasDocumentMountHint,
     resolveWorkspaceRequestedState,
     shouldAutoRequestWorkspace,
-} from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+} from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 
 describe('hasDocumentMountHint', () => {
     it('returns false for placeholder tabs', () => {

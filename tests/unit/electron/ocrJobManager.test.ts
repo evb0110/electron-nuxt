@@ -80,7 +80,7 @@ vi.mock('fs/promises', () => ({
     stat: mocks.stat,
     unlink: mocks.unlink,
 }));
-vi.mock('@electron/ocr/language-models', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
+vi.mock('@electron/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
 

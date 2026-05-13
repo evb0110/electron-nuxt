@@ -6,7 +6,7 @@ import {
 import {
     isRtlOcrLanguage,
     resolveTesseractLanguageConfig,
-} from '@electron/ocr/tesseract-language-config';
+} from '@electron/ocr/tesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
     it('keeps non-rtl language order and applies spacing config', () => {

@@ -2,7 +2,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import { isTextMarkupSubtype } from '@app/services/pdf/annotation-subtype';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import {
     normalizeMarkerRect,
     markerRectIoU,

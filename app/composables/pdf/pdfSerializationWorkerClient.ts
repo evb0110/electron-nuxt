@@ -5,16 +5,16 @@ import {
     serializePdfEdits,
     updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
-import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     settleBrowserWorkerResult,
     type TBrowserWorkerResult,
     type IPendingBrowserWorkerRequest,
-} from '@app/platform/browser-api/browser-worker-requests';
+} from '@app/platform/browser-api/browserWorkerRequests';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,
-} from '@app/platform/browser-api/browser-worker-client';
+} from '@app/platform/browser-api/browserWorkerClient';
 
 interface ISerializationWorkerRequestMap {
     save: {

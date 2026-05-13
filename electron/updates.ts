@@ -8,7 +8,7 @@ import type {
 import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
-} from '@contracts/electron-api-updates';
+} from '@contracts/electronApiUpdates';
 import type { ILatestReleaseResponse } from '@contracts';
 import { config } from '@electron/config';
 import {
@@ -21,8 +21,8 @@ import { getErrorMessage } from '@electron/utils/error';
 import {
     compareVersions,
     normalizeVersion,
-} from '@electron/updates/version-compare';
-import { checkMacCodeSignature } from '@electron/updates/mac-codesign-probe';
+} from '@electron/updates/versionCompare';
+import { checkMacCodeSignature } from '@electron/updates/macCodesignProbe';
 
 const { autoUpdater } = electronUpdater;
 

@@ -1,5 +1,5 @@
 import { clamp } from 'es-toolkit/math';
-import { measureDevPerf } from '@app/utils/dev-perf';
+import { measureDevPerf } from '@app/utils/devPerf';
 
 export interface IVisiblePageRange {
     start: number;

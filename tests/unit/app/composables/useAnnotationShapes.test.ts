@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import type { IShapeAnnotation } from '@app/types/annotations';
 

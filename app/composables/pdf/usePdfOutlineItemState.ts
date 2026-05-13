@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IBookmarkItem } from '@app/types/pdf-outline';
+import type { IBookmarkItem } from '@app/types/pdfOutline';
 import {
     PDF_OUTLINE_TREE_KEY,
     type IPdfOutlineTreeContext,

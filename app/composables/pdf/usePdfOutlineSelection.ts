@@ -1,7 +1,7 @@
 import type {
     IBookmarkItem,
     TBookmarkDisplayMode,
-} from '@app/types/pdf-outline';
+} from '@app/types/pdfOutline';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 
 export const usePdfOutlineSelection = (

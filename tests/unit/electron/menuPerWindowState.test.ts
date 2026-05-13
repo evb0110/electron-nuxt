@@ -132,7 +132,7 @@ vi.mock('@electron/window', () => ({
         mocks.windows.find(window => window.id === windowId) ?? null,
 }));
 
-vi.mock('@electron/recent-files', () => ({getRecentFilesSync: () => []}));
+vi.mock('@electron/recentFiles', () => ({getRecentFilesSync: () => []}));
 
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
 

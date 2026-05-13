@@ -7,7 +7,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
     splitByQueryMatches,
     matchesCommentQuery,
-} from '@app/utils/pdf-annotation-comments';
+} from '@app/utils/pdfAnnotationComments';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -28,7 +28,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
     };
 }
 
-describe('pdf-annotation-comments', () => {
+describe('pdfAnnotationComments', () => {
     it('matches by explicit comment author', () => {
         const comment = createComment({author: 'Eugene'});
 

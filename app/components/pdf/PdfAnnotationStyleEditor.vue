@@ -83,8 +83,8 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
-import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotation-defaults';
+import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
+import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotationDefaults';
 import {
     isAuthoringAnnotationTool,
     isShapeTool,

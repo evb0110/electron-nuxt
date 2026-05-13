@@ -5,7 +5,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
+import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 interface IDjvuToolPaths {
     ddjvu: string;

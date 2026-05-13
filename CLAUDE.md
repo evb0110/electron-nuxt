@@ -17,6 +17,14 @@ Never hardcode UI-facing text. Use `t()` with keys in `packages/i18n-app/message
 ## Icon Bundling
 All icons must be in `clientBundle.icons` in `nuxt.config.ts`. Without this, icons fetch from Iconify API at runtime, violating CSP in Electron.
 
+## Naming
+Use ecosystem-standard path naming:
+- Directories: lower kebab-case for Nuxt, Vue, Electron, package, and feature folders.
+- TypeScript files: camelCase, with dot suffixes only for established roles such as `.test.ts`, `.types.ts`, `.worker.ts`, `.service.ts`, `.client.ts`, `.config.ts`, and route method handlers like `.get.ts` or `.post.ts`.
+- Vue components: PascalCase. Nuxt route files under route directories may be lower kebab-case.
+
+`pnpm run check:naming` enforces these rules and is part of `pnpm lint`.
+
 ## Electron Skill
 If the `electron-puppeteer` skill breaks, fix it and update `SKILL.md` — don't work around it.
 

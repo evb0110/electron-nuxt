@@ -1,18 +1,18 @@
 import type { PageViewport } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type { IPdfRawDims } from '@app/types/pdf';
 import type { IOcrWord } from '@contracts/shared';
 import {
     buildOcrTextLayerItemText,
     isLastOcrWordInLine,
-} from '@contracts/ocr-text';
-import { BrowserLogger } from '@app/utils/browser-logger';
+} from '@contracts/ocrText';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     sharedOcrTextContentCache,
     type IOcrManifest,
     type IOcrPageData,
 } from '@app/composables/pdf/ocrTextContentCache';
-import { readOptionalOcrArtifactJson } from '@app/utils/platform-ocr-artifacts';
+import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 
 const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
     'heb',

@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 
-import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotation-subtype';
+import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
 import {
     detectEditorSubtype,
     getCommentText,

@@ -1,0 +1,121 @@
+import type {
+    IBrowserPageOpsWorkerRequestMap,
+    IBrowserPageOpsWorkerResultMap,
+    IBrowserPageOpsWorkerRequest,
+    TBrowserPageOpsWorkerRequestType,
+    TBrowserPageOpsWorkerResponse,
+} from '@app/platform/browser-api/browserPageOpsWorker.types';
+import { toTransferableUint8Array } from '@app/platform/browser-api/browserWorkerTransfer';
+import {
+    settleBrowserWorkerResult,
+    type IPendingBrowserWorkerRequest,
+} from '@app/platform/browser-api/browserWorkerRequests';
+import {
+    BrowserWorkerClient,
+    canUseBrowserWorker,
+} from '@app/platform/browser-api/browserWorkerClient';
+import { getErrorMessage } from '@app/utils/error';
+
+type TAnyBrowserPageOpsWorkerRequest = {
+    [K in TBrowserPageOpsWorkerRequestType]: IBrowserPageOpsWorkerRequest<K>;
+}[TBrowserPageOpsWorkerRequestType];
+
+const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
+
+export class BrowserPageOpsWorkerUnavailableError extends Error {
+    public constructor(message: string) {
+        super(message);
+        this.name = 'BrowserPageOpsWorkerUnavailableError';
+    }
+}
+
+function buildWorkerRequestWithTransfers(
+    request: TAnyBrowserPageOpsWorkerRequest,
+) {
+    if (request.type === 'insertPages') {
+        const transferableData = toTransferableUint8Array(request.payload.data);
+        const transferableInsertionData = toTransferableUint8Array(request.payload.insertionData);
+        return {
+            request: {
+                ...request,
+                payload: {
+                    ...request.payload,
+                    data: transferableData,
+                    insertionData: transferableInsertionData,
+                },
+            },
+            transfer: [
+                transferableData.buffer,
+                transferableInsertionData.buffer,
+            ] satisfies Transferable[],
+        };
+    }
+
+    const transferableData = toTransferableUint8Array(request.payload.data);
+    return {
+        request: {
+            ...request,
+            payload: {
+                ...request.payload,
+                data: transferableData,
+            },
+        },
+        transfer: [transferableData.buffer] satisfies Transferable[],
+    };
+}
+
+export function canUseBrowserPageOpsWorker() {
+    return canUseBrowserWorker();
+}
+
+const browserPageOpsWorkerClient = new BrowserWorkerClient<
+    TBrowserPageOpsWorkerResponse,
+    IPendingBrowserWorkerRequest
+>({
+    idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
+    createWorker: () => {
+        try {
+            return new Worker(
+                new URL('./browserPageOps.worker.ts', import.meta.url),
+                { type: 'module' },
+            );
+        } catch (error) {
+            throw new BrowserPageOpsWorkerUnavailableError(
+                getErrorMessage(error),
+            );
+        }
+    },
+    createError: event => new BrowserPageOpsWorkerUnavailableError(
+        event.error instanceof Error ? event.error.message : event.message,
+    ),
+    handleMessage: settleBrowserWorkerResult,
+});
+
+export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
+    type: K,
+    payload: IBrowserPageOpsWorkerRequestMap[K],
+): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    const request: IBrowserPageOpsWorkerRequest<K> = {
+        id: browserPageOpsWorkerClient.createRequestId(),
+        type,
+        payload,
+    };
+
+    const worker = browserPageOpsWorkerClient.getWorker();
+
+    return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
+        browserPageOpsWorkerClient.clearIdleTerminateTimer();
+        browserPageOpsWorkerClient.pendingRequests.set(request.id, {
+            resolve: (value) => resolve(value as IBrowserPageOpsWorkerResultMap[K]),
+            reject,
+        });
+
+        try {
+            const workerRequest = buildWorkerRequestWithTransfers(request as TAnyBrowserPageOpsWorkerRequest);
+            worker.postMessage(workerRequest.request, workerRequest.transfer);
+        } catch (error) {
+            browserPageOpsWorkerClient.pendingRequests.delete(request.id);
+            reject(error instanceof Error ? error : new Error(String(error)));
+        }
+    });
+}

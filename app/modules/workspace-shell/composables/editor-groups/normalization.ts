@@ -2,7 +2,7 @@ import type { ITab } from '@app/types/tabs';
 import type {
     IEditorGroupState,
     TEditorLayoutNode,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 import {
     appendGroupToLayout,
     collectLayoutGroupIds,

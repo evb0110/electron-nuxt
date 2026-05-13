@@ -55,7 +55,7 @@ vi.mock('fs/promises', () => ({
     unlink: mocks.unlink,
 }));
 
-vi.mock('@electron/features/djvu/main/ddjvu-conversion', () => ({
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     cancelConversion: mocks.cancelConversion,
     convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
 }));
@@ -66,9 +66,9 @@ vi.mock('@electron/djvu/metadata', () => ({
 }));
 
 vi.mock('@electron/djvu/bookmarks', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
-vi.mock('@electron/djvu/pdf-bookmarks', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
-vi.mock('@electron/djvu/export-paths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
-vi.mock('@electron/djvu/ipc-shared', () => ({safeSendToWindow: mocks.safeSendToWindow}));
+vi.mock('@electron/djvu/pdfBookmarks', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
+vi.mock('@electron/djvu/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
+vi.mock('@electron/djvu/ipcShared', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
@@ -76,9 +76,9 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/atomic-replace', () => ({atomicReplace: mocks.atomicReplace}));
+vi.mock('@electron/utils/atomicReplace', () => ({atomicReplace: mocks.atomicReplace}));
 
-vi.mock('@electron/features/djvu/main/pdf-worker-client', () => ({
+vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
     createDjvuPdfBookmarkTask: mocks.createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError: mocks.StartupError,
 }));
@@ -86,7 +86,7 @@ vi.mock('@electron/features/djvu/main/pdf-worker-client', () => ({
 const {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
-} = await import('@electron/features/djvu/main/pdf-export');
+} = await import('@electron/features/djvu/main/pdfExport');
 
 const trustedDjvuPath = '/tmp/input.djvu' as TOpenPath;
 

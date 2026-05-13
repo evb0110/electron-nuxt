@@ -25,7 +25,7 @@ import {
     handleValidatePdfData,
     handleFileWrite,
     handleFileWriteDocx,
-} from '@electron/features/documents/main/file-ops';
+} from '@electron/features/documents/main/fileOps';
 import {
     handleOpenPdfInDefaultAppData,
     handleOpenPdfInDefaultAppPath,
@@ -40,7 +40,7 @@ import {
     clearRecentFiles,
     getRecentFiles,
     removeRecentFile,
-} from '@electron/recent-files';
+} from '@electron/recentFiles';
 import {
     allowOpenPaths,
     removeAllowedOpenPath,
@@ -112,7 +112,7 @@ export function createDocumentsService(): IDocumentsService {
             const files = await getRecentFiles();
             allowOpenPaths(files.map(file => file.originalPath), event.sender);
             if (STARTUP_TRACE_ENABLED) {
-                logger.info(`[startup] IPC recent-files:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
+                logger.info(`[startup] IPC recentFiles:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
             return files;
         },

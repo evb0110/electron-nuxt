@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 
-vi.mock('@app/constants/storage-keys', () => ({STORAGE_KEYS: {
+vi.mock('@app/constants/storageKeys', () => ({STORAGE_KEYS: {
     HIGHLIGHT_MODE: 'pdfHighlightMode',
     HIGHLIGHT_DEBUG: 'pdfHighlightDebug',
     HIGHLIGHT_DEBUG_VERBOSE: 'pdfHighlightDebugVerbose',

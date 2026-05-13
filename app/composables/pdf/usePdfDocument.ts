@@ -1,4 +1,4 @@
-import pdfjsLib from '@app/services/pdfjs/runtime-lib';
+import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 import type {
     PDFDataRangeTransport,
     PDFDocumentProxy,
@@ -8,13 +8,13 @@ import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdf';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { guardAsync } from '@app/utils/async-guard';
-import { readDocumentRange } from '@app/utils/platform-documents';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { guardAsync } from '@app/utils/asyncGuard';
+import { readDocumentRange } from '@app/utils/platformDocuments';
 import {
     getPdfjsAssetDir,
     getPdfjsWorkerUrl,
-} from '@app/utils/viewer-assets';
+} from '@app/utils/viewerAssets';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getPdfjsWorkerUrl();
 

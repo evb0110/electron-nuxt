@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('os', () => ({homedir: () => '/tmp/home'}));
-vi.mock('url', () => ({fileURLToPath: () => '/tmp/app.asar/dist/electron/ocr/language-models.js'}));
+vi.mock('url', () => ({fileURLToPath: () => '/tmp/app.asar/dist/electron/ocr/languageModels.js'}));
 vi.mock('fs', () => ({
     createWriteStream: vi.fn(),
     existsSync: (path: string) => mocks.existsSync(path),
@@ -59,7 +59,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
         const {
             ensureRuntimeTessdataSeeded,
             getRuntimeTessdataDir,
-        } = await import('@electron/ocr/language-models');
+        } = await import('@electron/ocr/languageModels');
         const runtimeDir = getRuntimeTessdataDir();
 
         await Promise.all([

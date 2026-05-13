@@ -4,7 +4,7 @@ import {
     drizzle,
     type NeonHttpDatabase,
 } from 'drizzle-orm/neon-http';
-import { getRuntimeEnv } from '../utils/runtime-env';
+import { getRuntimeEnv } from '../utils/runtimeEnv';
 import * as schema from '../db/schema';
 
 let dbInstance: NeonHttpDatabase<typeof schema> | null = null;

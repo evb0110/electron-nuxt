@@ -9,7 +9,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 

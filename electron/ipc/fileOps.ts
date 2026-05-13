@@ -1,1 +1,1 @@
-export * from '@electron/features/documents/main/file-ops';
+export * from '@electron/features/documents/main/fileOps';

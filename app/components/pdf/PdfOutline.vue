@@ -1,5 +1,5 @@
 <template>
-    <div class="pdf-bookmarks flex flex-col gap-3">
+    <div class="pdfBookmarks flex flex-col gap-3">
         <PdfOutlineToolbar
             :display-mode="displayMode"
             :is-edit-mode="isEditMode"
@@ -10,7 +10,7 @@
 
         <div
             v-if="isLoading"
-            class="pdf-bookmarks-loading"
+            class="pdfBookmarks-loading"
         >
             <UIcon
                 name="i-ph-circle-notch"
@@ -21,14 +21,14 @@
 
         <div
             v-else-if="bookmarks.length === 0"
-            class="pdf-bookmarks-empty"
+            class="pdfBookmarks-empty"
         >
             <UIcon name="i-ph-book-open" />
             <span>{{ t('bookmarks.noBookmarks') }}</span>
             <button
                 v-if="isEditMode"
                 type="button"
-                class="pdf-bookmarks-empty-action"
+                class="pdfBookmarks-empty-action"
                 :aria-label="t('bookmarks.addFirst')"
                 @click="addRootBookmark"
             >
@@ -42,7 +42,7 @@
 
         <div
             v-else
-            class="pdf-bookmarks-tree flex flex-col"
+            class="pdfBookmarks-tree flex flex-col"
             @click="closeBookmarkContextMenu"
         >
             <PdfOutlineItem
@@ -63,7 +63,7 @@
             />
             <div
                 v-if="isEditMode"
-                class="pdf-bookmarks-drop-end"
+                class="pdfBookmarks-drop-end"
                 :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
                 @dragover.prevent="handleTreeEndDragOver"
                 @drop.prevent="handleTreeEndDrop"
@@ -100,16 +100,16 @@ import type {
     IBookmarkActivatePayload,
     IBookmarkDropPayload,
     TBookmarkDisplayMode,
-} from '@app/types/pdf-outline';
+} from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
-import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
+import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
 import {
     buildResolvedOutline,
     flattenBookmarks,
     parseOutlineItems,
-} from '@app/utils/pdf-outline-helpers';
+} from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
@@ -454,7 +454,7 @@ function handleOutlineLoadError(
         return;
     }
 
-    BrowserLogger.error('pdf-outline', 'Failed to load bookmarks', error);
+    BrowserLogger.error('pdfOutline', 'Failed to load bookmarks', error);
     bookmarks.value = [];
     activeItemId.value = null;
     selection.clearSelection();

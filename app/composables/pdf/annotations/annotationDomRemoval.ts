@@ -9,7 +9,7 @@ import {
 import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
 import { refreshHighlightCompositeOverlay } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
-import { isTextMarkupSubtype } from '@app/services/pdf/annotation-subtype';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 
 const MIN_HIGHLIGHT_VISUAL_IOU = 0.2;
 const MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE = 0.025;

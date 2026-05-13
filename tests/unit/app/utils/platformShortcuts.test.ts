@@ -9,9 +9,9 @@ const isBrowserPlatformActiveMock = vi.fn();
 
 vi.mock('@app/utils/platform', () => ({ isBrowserPlatformActive: isBrowserPlatformActiveMock }));
 
-describe('platform-shortcuts', () => {
+describe('platformShortcuts', () => {
     it('uses renderer menu accelerators only when native Electron accelerators are unavailable', async () => {
-        const { shouldHandleRendererMenuAccelerators } = await import('@app/utils/platform-shortcuts');
+        const { shouldHandleRendererMenuAccelerators } = await import('@app/utils/platformShortcuts');
 
         isBrowserPlatformActiveMock.mockReturnValueOnce(false);
         expect(shouldHandleRendererMenuAccelerators()).toBe(false);

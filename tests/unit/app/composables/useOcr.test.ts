@@ -37,8 +37,8 @@ const mockElectronAPI = {
     documents: mockDocuments,
 };
 
-vi.mock('@app/utils/platform-ocr', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
-vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => mockElectronAPI.documents }));
+vi.mock('@app/utils/platformOcr', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
+vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockElectronAPI.documents }));
 vi.mock('@app/utils/ocr/processing', () => ({
     loadOcrText: loadOcrTextMock,
     extractPdfText: extractPdfTextMock,

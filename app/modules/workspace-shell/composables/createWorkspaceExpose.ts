@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import { ZOOM } from '@app/constants/pdf-layout';
+import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     TFitMode,
     TZoomMode,
@@ -10,7 +10,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceFilePort,
     IWorkspaceToolbarSnapshot,
-} from '@app/types/workspace-expose';
+} from '@app/types/workspaceExpose';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,

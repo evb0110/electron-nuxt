@@ -18,7 +18,7 @@ function cast<T>(obj: unknown): T {
 
 const loggerError = vi.fn();
 
-vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     error: loggerError,
     warn: vi.fn(),
     warnThrottled: vi.fn(),

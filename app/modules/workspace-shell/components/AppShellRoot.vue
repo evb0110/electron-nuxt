@@ -151,16 +151,16 @@
 
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core';
-import { guardAsync } from '@app/utils/async-guard';
-import { BROWSER_INSTALL_HINT_COOKIE_KEY } from '@app/utils/browser-runtime-persistence';
-import { resolveAppWindowTitle } from '@app/utils/app-window-title';
-import { traceRendererStartup } from '@app/utils/startup-trace';
-import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
+import { guardAsync } from '@app/utils/asyncGuard';
+import { BROWSER_INSTALL_HINT_COOKIE_KEY } from '@app/utils/browserRuntimePersistence';
+import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
+import { traceRendererStartup } from '@app/utils/startupTrace';
+import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorGroupsHost from '@app/modules/workspace-shell/components/EditorGroupsHost.vue';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 import FallbackWorkspaceToolbar from '@app/modules/workspace-shell/components/FallbackWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
@@ -183,10 +183,10 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { TStartSection } from '@app/types/start-page';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import type { IHostZenModeState } from '@contracts/electron-api-host';
-import type { TOpenFileResult } from '@contracts/platform-api';
+import type { TStartSection } from '@app/types/startPage';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IHostZenModeState } from '@contracts/electronApiHost';
+import type { TOpenFileResult } from '@contracts/platformApi';
 import { getPlatformAPI } from '@app/utils/platform';
 
 traceRendererStartup('index.vue script setup start');

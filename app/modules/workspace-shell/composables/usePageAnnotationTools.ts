@@ -5,7 +5,7 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 
 interface IPdfViewerForAnnotationTools {

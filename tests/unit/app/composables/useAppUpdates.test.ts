@@ -8,18 +8,18 @@ import {
 import type {
     IAppUpdateStatus,
     IUpdatesCapability,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 
 const getUpdatesCapabilityMock = vi.hoisted(() => vi.fn<() => IUpdatesCapability>());
 const isUpdatesCapabilitySupportedMock = vi.hoisted(() => vi.fn((status: IAppUpdateStatus) => status.phase !== 'unsupported'));
 const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/platform-updates', () => ({
+vi.mock('@app/utils/platformUpdates', () => ({
     getUpdatesCapability: getUpdatesCapabilityMock,
     isUpdatesCapabilitySupported: isUpdatesCapabilitySupportedMock,
 }));
 
-vi.mock('@app/utils/browser-logger', () => ({ BrowserLogger: { error: browserLoggerErrorMock } }));
+vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { error: browserLoggerErrorMock } }));
 
 function createUpdatesCapability(overrides: Partial<IUpdatesCapability> = {}): IUpdatesCapability {
     const listeners = new Set<(status: IAppUpdateStatus) => void>();

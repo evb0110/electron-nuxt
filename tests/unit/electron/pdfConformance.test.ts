@@ -146,7 +146,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
-const { analyzePdfConformanceFile } = await import('@electron/features/documents/main/pdf-conformance');
+const { analyzePdfConformanceFile } = await import('@electron/features/documents/main/pdfConformance');
 
 describe('analyzePdfConformanceFile', () => {
     beforeEach(() => {

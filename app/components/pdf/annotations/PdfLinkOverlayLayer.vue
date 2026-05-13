@@ -25,9 +25,9 @@
 
 <script setup lang="ts">
 import type { ILinkAnnotation } from '@app/types/annotations';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getShellCapability } from '@app/utils/platform-shell';
-import { normalizeAllowedExternalUrl } from '@contracts/external-url';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getShellCapability } from '@app/utils/platformShell';
+import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
 defineProps<{links: ILinkAnnotation[];}>();
 

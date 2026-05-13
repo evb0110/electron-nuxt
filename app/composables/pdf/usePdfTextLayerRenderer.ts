@@ -1,4 +1,4 @@
-import { TextLayer } from '@app/services/pdfjs/runtime-lib';
+import { TextLayer } from '@app/services/pdfjs/runtimeLib';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -17,10 +17,10 @@ import {
     isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
 } from '@app/composables/pdfSearchHighlightCss';
 import { clearTextLayerIndexCache } from '@app/composables/pdfSearchHighlightDom';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { measureDevPerf } from '@app/utils/dev-perf';
-import { logPdfNav } from '@app/utils/pdf-nav-log';
-import { guardAsync } from '@app/utils/async-guard';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { measureDevPerf } from '@app/utils/devPerf';
+import { logPdfNav } from '@app/utils/pdfNavLog';
+import { guardAsync } from '@app/utils/asyncGuard';
 
 interface IHighlightDebugInfo {
     userUnit: number;

@@ -1,7 +1,7 @@
 import type {
     IBookmarkItem,
     TBookmarkDisplayMode,
-} from '@app/types/pdf-outline';
+} from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import {
     findBookmarkLocation,
@@ -9,7 +9,7 @@ import {
     collectBookmarkIds,
     flattenBookmarks,
     normalizeBookmarkColor,
-} from '@app/utils/pdf-outline-helpers';
+} from '@app/utils/pdfOutlineHelpers';
 export const usePdfOutlineEditing = (
     bookmarks: Ref<IBookmarkItem[]>,
     activeItemId: Ref<string | null>,

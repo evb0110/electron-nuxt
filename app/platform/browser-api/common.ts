@@ -1,13 +1,13 @@
 import type * as PdfJsLibNamespace from 'pdfjs-dist';
-import type { IMenuEventUnsubscribe } from '@contracts/platform-api';
+import type { IMenuEventUnsubscribe } from '@contracts/platformApi';
 import {
     browserDocumentStore,
     BROWSER_DOCUMENT_CHUNK_SIZE,
-} from '@app/platform/browser-document-store';
+} from '@app/platform/browserDocumentStore';
 import {
     getPdfjsAssetDir,
     getPdfjsWorkerUrl,
-} from '@app/utils/viewer-assets';
+} from '@app/utils/viewerAssets';
 
 const SUPPORTED_IMAGE_EXTENSIONS = [
     '.apng',

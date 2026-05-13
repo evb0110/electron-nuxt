@@ -42,21 +42,21 @@ import type {
 import {
     clampDpi,
     detectSourceDpi,
-} from '@electron/ocr/worker/dpi-detection';
+} from '@electron/ocr/worker/dpiDetection';
 import {
     getPngDimensions,
     runOcrFileBased,
-} from '@electron/ocr/worker/tesseract-runner';
+} from '@electron/ocr/worker/tesseractRunner';
 import {
     assembleSearchablePdf,
     getPageCount,
-} from '@electron/ocr/worker/pdf-assembler';
+} from '@electron/ocr/worker/pdfAssembler';
 import {
     resolveSafeOcrIndexBasePath,
     writeOcrIndexV1,
     writeOcrIndexV2,
-} from '@electron/ocr/worker/index-writer';
-import { runOcrCommand } from '@electron/ocr/worker/run-command';
+} from '@electron/ocr/worker/indexWriter';
+import { runOcrCommand } from '@electron/ocr/worker/runCommand';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;

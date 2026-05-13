@@ -129,7 +129,7 @@ import type {
     TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
-import { ZOOM } from '@app/constants/pdf-layout';
+import { ZOOM } from '@app/constants/pdfLayout';
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 

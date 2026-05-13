@@ -1,12 +1,12 @@
 import type {
     IHostEnvironmentSnapshot,
     THostPlatform,
-} from '@contracts/electron-api-host';
+} from '@contracts/electronApiHost';
 import type {
     ISettingsData,
     TUiScalePreference,
 } from '@contracts/shared';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPlatformAPI } from '@app/utils/platform';
 
 const FALLBACK_PLATFORM: THostPlatform = typeof process !== 'undefined' && process.platform === 'darwin'

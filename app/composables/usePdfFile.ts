@@ -1,6 +1,6 @@
 import { clamp } from 'es-toolkit/math';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { getDocumentRefBaseName } from '@app/utils/document-ref';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type {
     IPdfConformanceProfile,
@@ -11,18 +11,18 @@ import type {
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { waitForVisualFrames } from '@app/utils/async-helpers';
+} from '@contracts/platformApi';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
     bucketFileSize,
     getLowercaseExtension,
 } from '@app/utils/analytics';
-import { readDocumentBytes } from '@app/utils/document-bytes';
+import { readDocumentBytes } from '@app/utils/documentBytes';
 import {
     getDocumentsCapability,
     shouldRefreshWorkingCopyAfterSaveAs,
-} from '@app/utils/platform-documents';
+} from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IOpenBatchProgressState {

@@ -3,7 +3,7 @@ import {
     AnnotationEditorLayer,
     AnnotationEditorType,
     DrawLayer,
-} from '@app/services/pdfjs/runtime-lib';
+} from '@app/services/pdfjs/runtimeLib';
 import type {
     PDFPageProxy,
     AnnotationEditorUIManager,
@@ -28,9 +28,9 @@ import {
     refreshHighlightCompositeOverlay,
 } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getShellCapability } from '@app/utils/platform-shell';
-import { normalizeAllowedExternalUrl } from '@contracts/external-url';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getShellCapability } from '@app/utils/platformShell';
+import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
 interface IAnnotationEditorLayerProto {
     disable?: (...args: unknown[]) => unknown;

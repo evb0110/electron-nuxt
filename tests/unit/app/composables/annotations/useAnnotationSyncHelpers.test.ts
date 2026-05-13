@@ -17,7 +17,7 @@ vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     POPUP: 5,
 }}));
 
-vi.mock('@app/services/pdfjs/runtime-lib', () => ({
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     AnnotationEditorType: {
         DISABLE: -1,
         NONE: 0,
@@ -42,7 +42,7 @@ vi.mock('@app/services/pdfjs/runtime-lib', () => ({
     }},
 }));
 
-vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),

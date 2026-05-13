@@ -1,11 +1,11 @@
 import type { Ref } from 'vue';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
-} from '@app/types/workspace-expose';
+} from '@app/types/workspaceExpose';
 import type {
     TFitMode,
     TPdfViewMode,

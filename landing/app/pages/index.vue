@@ -171,7 +171,7 @@ import {
     normalizeSiteUrl,
     SEO_IMAGE_PATH,
 } from '~~/shared/seo';
-import { selectInstallersForPlatform } from '~~/shared/release-assets';
+import { selectInstallersForPlatform } from '~~/shared/releaseAssets';
 import {
     formatFileSize,
     formatInstallerLabel,
@@ -185,7 +185,7 @@ import {
     type TReleaseArch,
     type IUserAgentProfile,
     type TReleasePlatform,
-} from '~~/shared/release-selection';
+} from '~~/shared/releaseInstallers';
 
 interface INavigatorUADataLike {
     platform?: string

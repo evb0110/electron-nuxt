@@ -280,10 +280,10 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IDebugLogEntry,
     TDocumentRef,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 import type { TTranslationKey } from '@i18n-app';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getSettingsCapability } from '@app/utils/platform-settings';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getSettingsCapability } from '@app/utils/platformSettings';
 
 const { t } = useTypedI18n();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;

@@ -12,7 +12,7 @@ import {
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/composables/pdf/pdfEmbeddedShapeImportPolicy';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import type { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
-import { readDocumentBytes } from '@app/utils/document-bytes';
+import { readDocumentBytes } from '@app/utils/documentBytes';
 
 interface IManagedEmbeddedPdfShapesPageRange {
     start: number;

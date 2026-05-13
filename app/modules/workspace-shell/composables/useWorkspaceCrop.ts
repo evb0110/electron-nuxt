@@ -3,11 +3,11 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/platform-api';
-import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
-import { getPageOpsCapability } from '@app/utils/platform-documents';
+import type { TDocumentRef } from '@contracts/platformApi';
+import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import { getPageOpsCapability } from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IUseWorkspaceCropOptions {

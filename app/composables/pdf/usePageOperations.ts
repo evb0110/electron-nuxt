@@ -1,13 +1,13 @@
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type { TTranslationKey } from '@i18n-app';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     getDocumentsCapability,
     getPageOpsCapability,
-} from '@app/utils/platform-documents';
+} from '@app/utils/platformDocuments';
 
 type TPageOpsRotation = 90 | 180 | 270;
 interface IPageOpsResult {success: boolean;}

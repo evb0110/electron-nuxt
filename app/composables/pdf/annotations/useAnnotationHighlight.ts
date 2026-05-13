@@ -1,4 +1,4 @@
-import { AnnotationEditorType } from '@app/services/pdfjs/runtime-lib';
+import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
@@ -25,8 +25,8 @@ import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotat
 import { clamp01 } from '@app/composables/pdf/annotationGeometry';
 import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
 import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     asPdfjsEditor,
     clearSelectedEditorState,

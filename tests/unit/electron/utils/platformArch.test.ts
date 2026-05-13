@@ -6,7 +6,7 @@ import {
 import {
     resolvePlatformArch,
     resolvePlatformArchTag,
-} from '@electron/utils/platform-arch';
+} from '@electron/utils/platformArch';
 
 interface IPlatformArchCase {
     platform: NodeJS.Platform;

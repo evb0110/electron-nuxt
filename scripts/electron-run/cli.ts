@@ -26,7 +26,7 @@ import {
     startSessionDetached,
     stopSession,
     stopSingleSession,
-} from './session-manager';
+} from './sessionManager';
 
 const CLI_COMMANDS = [
     'start',

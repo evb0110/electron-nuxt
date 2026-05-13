@@ -1,9 +1,9 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { uniq } from 'es-toolkit/array';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 type TExportOverlayKind = 'images' | 'multipage-tiff';

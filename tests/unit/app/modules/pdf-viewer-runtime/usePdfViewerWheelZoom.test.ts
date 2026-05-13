@@ -21,7 +21,7 @@ vi.mock('@app/composables/pdf/pdfPageRenderPipeline', () => ({
     restoreScrollFromSnapshot: (...args: unknown[]) => restoreScrollFromSnapshot(...args),
 }));
 
-vi.mock('@app/utils/browser-logger', () => {
+vi.mock('@app/utils/browserLogger', () => {
     return { BrowserLogger: {
         warn: vi.fn(),
         warnThrottled: vi.fn(),

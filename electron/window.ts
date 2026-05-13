@@ -14,15 +14,15 @@ import { createLogger } from '@electron/utils/logger';
 import { createWindowRuntime } from '@electron/window/runtime';
 import { createWindowSecurity } from '@electron/window/security';
 import { getErrorMessage } from '@electron/utils/error';
-import { waitForInitialRendererReady } from '@electron/window/renderer-ready';
-import { loadStartupPlaceholder } from '@electron/window/startup-placeholder';
+import { waitForInitialRendererReady } from '@electron/window/rendererReady';
+import { loadStartupPlaceholder } from '@electron/window/startupPlaceholder';
 import {
     getAllRegisteredAppWindows,
     getRegisteredMainWindow,
     getWindowByIdFromRegistry,
     registerAppWindow,
 } from '@electron/window/registry';
-import { attachShowLifecycle } from '@electron/window/show-lifecycle';
+import { attachShowLifecycle } from '@electron/window/showLifecycle';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

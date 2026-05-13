@@ -76,7 +76,7 @@ class FakeEventBus {
 
 function FakeGenericL10n() {}
 
-vi.mock('@app/services/pdfjs/runtime-lib', () => ({
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     AnnotationEditorParamsType: {
         CREATE: 0,
         HIGHLIGHT_SHOW_ALL: 1,
@@ -85,7 +85,7 @@ vi.mock('@app/services/pdfjs/runtime-lib', () => ({
     PixelsPerInch: { PDF_TO_CSS_UNITS: 1 },
 }));
 
-vi.mock('@app/services/pdfjs/viewer-runtime-lib', () => ({
+vi.mock('@app/services/pdfjs/viewerRuntimeLib', () => ({
     EventBus: FakeEventBus,
     GenericL10n: FakeGenericL10n,
 }));

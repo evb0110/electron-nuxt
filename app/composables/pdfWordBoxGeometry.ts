@@ -1,8 +1,8 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@app/types/pdf';
-import { STORAGE_KEYS } from '@app/constants/storage-keys';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { safeGetLocalStorageItem } from '@app/utils/local-storage';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { safeGetLocalStorageItem } from '@app/utils/localStorage';
 
 export interface IWordBoxOverlay {
     x: number;

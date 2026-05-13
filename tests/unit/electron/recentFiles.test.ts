@@ -36,18 +36,18 @@ vi.mock('@electron/utils/logger', () => ({ createLogger: () => mocks.logger }));
 
 async function loadRecentFilesModule() {
     vi.resetModules();
-    return import('@electron/recent-files');
+    return import('@electron/recentFiles');
 }
 
-describe('recent-files persistence', () => {
+describe('recentFiles persistence', () => {
     let appDataDir = '';
     let userDataDir = '';
 
     beforeEach(() => {
         vi.clearAllMocks();
         delete process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE;
-        appDataDir = mkdtempSync(join(tmpdir(), 'evb-recent-files-app-data-'));
-        userDataDir = mkdtempSync(join(tmpdir(), 'evb-recent-files-'));
+        appDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-app-data-'));
+        userDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-'));
         mocks.app.getPath.mockImplementation((name: string) => {
             if (name === 'appData') {
                 return appDataDir;
@@ -114,7 +114,7 @@ describe('recent-files persistence', () => {
     it('dedupes persisted recent files by path when rebuilding the cache from disk', async () => {
         const fileA = writeFixture('alpha.pdf');
         const fileB = writeFixture('beta.pdf');
-        writeFileSync(join(userDataDir, 'recent-files.json'), JSON.stringify({
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
             version: 1,
             files: [
                 {
@@ -190,7 +190,7 @@ describe('recent-files persistence', () => {
         const filePath = writeFixture('bootstrap.pdf');
         const canonicalDir = join(appDataDir, 'EVB Viewer Dev');
         mkdirSync(canonicalDir, { recursive: true });
-        writeFileSync(join(canonicalDir, 'recent-files.json'), JSON.stringify({
+        writeFileSync(join(canonicalDir, 'recentFiles.json'), JSON.stringify({
             version: 1,
             files: [{
                 originalPath: filePath,
@@ -203,7 +203,7 @@ describe('recent-files persistence', () => {
         let recentFiles = await loadRecentFilesModule();
         expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([filePath]);
 
-        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recent-files.json'), 'utf-8')) as { files: Array<{ originalPath: string }>; };
+        const persisted = JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')) as { files: Array<{ originalPath: string }>; };
         expect(persisted.files.map(file => file.originalPath)).toEqual([filePath]);
 
         await recentFiles.clearRecentFiles();

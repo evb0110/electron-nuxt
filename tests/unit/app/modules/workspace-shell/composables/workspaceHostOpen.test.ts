@@ -4,9 +4,9 @@ import {
     it,
     vi,
 } from 'vitest';
-import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/composables/workspace-host-open';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import type { TOpenFileResult } from '@contracts/platform-api';
+import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/composables/workspaceHostOpen';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { TOpenFileResult } from '@contracts/platformApi';
 
 function cast<T>(value: unknown): T {
     return value as T;

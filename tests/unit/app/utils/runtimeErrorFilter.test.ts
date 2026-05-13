@@ -6,7 +6,7 @@ import {
 import {
     getIgnorableRuntimeErrorMessage,
     isIgnorableRuntimeErrorMessage,
-} from '@app/utils/runtime-error-filter';
+} from '@app/utils/runtimeErrorFilter';
 
 describe('runtime error filter', () => {
     it('ignores known ResizeObserver browser warnings', () => {

@@ -4,8 +4,8 @@ import type {
     TFitMode,
 } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
-import { getViewColumnCount } from '@app/utils/pdf-view-mode';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { getViewColumnCount } from '@app/utils/pdfViewMode';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     normalizePageMetrics,
     resolveCurrentSpreadBaseWidth,

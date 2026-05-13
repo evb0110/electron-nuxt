@@ -18,7 +18,7 @@ import { parseDjvuOutline } from '@electron/djvu/bookmarks';
 import {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
-} from '@electron/features/djvu/main/pdf-export';
+} from '@electron/features/djvu/main/pdfExport';
 import { createLogger } from '@electron/utils/logger';
 import {
     cleanupDjvuTempPdfPath,
@@ -26,7 +26,7 @@ import {
     releaseDjvuViewingPath,
     sweepStaleDjvuTempPdfs,
 } from '@electron/features/djvu/main/viewing';
-import { isDjvuPath } from '@electron/image/pdf-conversion';
+import { isDjvuPath } from '@electron/image/pdfConversion';
 import {
     requireOpenPath,
     type TOpenPath,

@@ -1,7 +1,7 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
-import { AnnotationMode } from '@app/services/pdfjs/runtime-lib';
+import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 
 interface ICanvasRenderResult {

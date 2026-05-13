@@ -3,12 +3,12 @@ import { useEventListener } from '@vueuse/core';
 import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
-} from '@app/types/pdf-outline';
+} from '@app/types/pdfOutline';
 import {
     findBookmarkById,
     findBookmarkLocation,
     normalizeBookmarkColor,
-} from '@app/utils/pdf-outline-helpers';
+} from '@app/utils/pdfOutlineHelpers';
 import { usePositionedMenu } from '@app/composables/usePositionedMenu';
 
 export const usePdfOutlineContextMenu = (

@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 
 export interface ITab {
     id: string;

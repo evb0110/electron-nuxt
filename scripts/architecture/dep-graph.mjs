@@ -14,7 +14,7 @@ const INTERNAL_ROOTS = [
     'packages/contracts',
     'packages/i18n-core',
     'packages/i18n-app',
-    'packages/release-selection',
+    'packages/releaseSelection',
 ];
 
 const SOURCE_EXTENSIONS = [
@@ -65,8 +65,8 @@ const INTERNAL_LIKE_PREFIXES = [
     '@i18n-core/',
     '@i18n-app',
     '@i18n-app/',
-    '@release-selection',
-    '@release-selection/',
+    '@releaseSelection',
+    '@releaseSelection/',
     'app/',
     'electron/',
     'landing/',
@@ -207,8 +207,8 @@ const PACKAGE_ALIAS_RULES = [
         prefixTarget: 'packages/i18n-app/',
     },
     {
-        exact: '@release-selection',
-        prefix: '@release-selection/',
+        exact: '@releaseSelection',
+        prefix: '@releaseSelection/',
         exactTarget: 'packages/release-selection/index',
         prefixTarget: 'packages/release-selection/',
     },

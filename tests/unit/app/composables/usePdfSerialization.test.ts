@@ -14,7 +14,7 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';

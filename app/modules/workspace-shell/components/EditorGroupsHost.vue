@@ -35,21 +35,21 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/platform-api';
+import type { TOpenFileResult } from '@contracts/platformApi';
 import EditorGroupsGrid from '@app/modules/workspace-shell/components/EditorGroupsGrid.vue';
 import type {
     IEditorGroupState,
     TEditorLayoutNode,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 import type {
     ITabContextAvailability,
     TTabContextCommand,
-} from '@app/types/tab-context-menu';
+} from '@app/types/tabContextMenu';
 import type {
     ITab,
     TTabUpdate,
 } from '@app/types/tabs';
-import type { TStartSection } from '@app/types/start-page';
+import type { TStartSection } from '@app/types/startPage';
 
 defineOptions({ name: 'EditorGroupsHost' });
 

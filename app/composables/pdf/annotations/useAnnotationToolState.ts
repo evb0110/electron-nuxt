@@ -1,7 +1,7 @@
 import {
     AnnotationEditorParamsType,
     AnnotationEditorType,
-} from '@app/services/pdfjs/runtime-lib';
+} from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
@@ -43,7 +43,7 @@ import {
     createAnnotationEditorPresentation,
     normalizeMarkupSubtypeFragmentBoxes,
 } from '@app/composables/pdf/annotations/annotationEditorPresentation';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const OPAQUE_HIGHLIGHT_OPACITY = 1;
 

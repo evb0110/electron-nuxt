@@ -15,7 +15,7 @@ import {
     isSelectionInteractionTool,
     isShapeTool,
 } from '@app/composables/pdf/annotations/annotationRules';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import {
     getResizedBoundsForHandle,
     getShapeBounds,

@@ -22,7 +22,7 @@ const electronApiMock = vi.hoisted(() => ({documents: {
     cleanupFile: vi.fn(async () => {}),
 }}));
 
-vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => electronApiMock.documents }));
+vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => electronApiMock.documents }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/utils/ocr/processing', () => ({

@@ -44,14 +44,14 @@ vi.mock('fs/promises', () => ({
     open: mocks.open,
 }));
 
-vi.mock('@electron/utils/path-validator', () => ({
+vi.mock('@electron/utils/pathValidator', () => ({
     isAllowedReadPath: mocks.isAllowedReadPath,
     isAllowedWritePath: mocks.isAllowedWritePath,
     resolveAllowedReadPath: mocks.resolveAllowedReadPath,
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
 
-vi.mock('@electron/features/documents/main/pdf-conformance', () => ({
+vi.mock('@electron/features/documents/main/pdfConformance', () => ({
     analyzePdfConformanceFile: mocks.analyzePdfConformanceFile,
     validatePdfData: vi.fn(),
 }));
@@ -76,7 +76,7 @@ const {
     handleFileStat,
     handleFileWrite,
     handleFileWriteDocx,
-} = await import('@electron/features/documents/main/file-ops');
+} = await import('@electron/features/documents/main/fileOps');
 
 describe('fileOps path security', () => {
     beforeEach(() => {
@@ -124,7 +124,7 @@ describe('fileOps path security', () => {
         }));
     });
 
-    it('rejects read when path-validator blocks a symlink path', async () => {
+    it('rejects read when pathValidator blocks a symlink path', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
 
         await expect(
@@ -137,7 +137,7 @@ describe('fileOps path security', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
-    it('rejects write when path-validator blocks a symlink path', async () => {
+    it('rejects write when pathValidator blocks a symlink path', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue(null);
 
         await expect(

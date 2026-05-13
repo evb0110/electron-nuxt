@@ -7,9 +7,9 @@ import {
     derivePageLabelRangesFromLabels,
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
-} from '@app/utils/pdf-page-labels';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+} from '@app/utils/pdfPageLabels';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 
 export const usePageLabelState = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;

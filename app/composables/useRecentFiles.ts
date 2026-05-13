@@ -8,9 +8,9 @@ import {
     parseRecentFilesCookieSnapshot,
     readBrowserRecentFilesSnapshot,
     RECENT_FILES_COOKIE_KEY,
-} from '@app/utils/recent-files-persistence';
+} from '@app/utils/recentFilesPersistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
-import { getDocumentsCapability as getPlatformDocumentsCapability } from '@app/utils/platform-documents';
+import { getDocumentsCapability as getPlatformDocumentsCapability } from '@app/utils/platformDocuments';
 
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
@@ -60,7 +60,7 @@ export const useRecentFiles = () => {
         load: loadRecentFilesState,
         clearRetryTimer,
     } = usePlatformHydratedState<IRecentFile[]>({
-        key: 'recent-files',
+        key: 'recentFiles',
         initialValue: () => initialCookieSnapshot.recentFiles,
         initialResolved: !isDesktopRuntime.value && hasResolvedCookieSnapshot,
         async loadValue() {

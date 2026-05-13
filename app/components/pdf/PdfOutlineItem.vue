@@ -129,10 +129,10 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
-} from '@app/types/pdf-outline';
-import { resolveBookmarkDestinationPage } from '@app/utils/pdf-outline-helpers';
+} from '@app/types/pdfOutline';
+import { resolveBookmarkDestinationPage } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 
 const { t } = useTypedI18n();
@@ -401,7 +401,7 @@ async function navigateToBookmarkDestination() {
         }
     } catch (error) {
         if (!isKnownBookmarkDestinationIssue(error)) {
-            BrowserLogger.error('pdf-outline', 'Failed to navigate to bookmark destination', error);
+            BrowserLogger.error('pdfOutline', 'Failed to navigate to bookmark destination', error);
         }
     }
 }

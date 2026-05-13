@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 
 interface IWorkspaceHasPdfState {hasPdf: boolean | { value: boolean };}
 

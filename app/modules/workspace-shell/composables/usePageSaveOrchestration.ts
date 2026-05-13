@@ -14,7 +14,7 @@ import type {
     IPdfPageLabelRange,
     IScrollSnapshot,
 } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import {
@@ -22,13 +22,13 @@ import {
     type IFileOperationsDeps,
 } from '@app/composables/useFileOperations';
 import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/pdfSaveBaseData';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getSearchCapability } from '@app/utils/platform-search';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getSearchCapability } from '@app/utils/platformSearch';
 import {
     capturePdfReloadSnapshot,
     createPdfReloadWaiter,
 } from '@app/composables/pdf/pdfReloadWaiter';
-import { hasViewerShapeChanges } from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
+import { hasViewerShapeChanges } from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
 
 interface IPdfViewerForSave {
     scrollToPage: (pageNumber: number) => void;

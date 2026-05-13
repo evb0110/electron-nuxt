@@ -4,14 +4,14 @@ import type {
     TAppLocale,
     TAppTheme,
 } from '@contracts/shared';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_KEY,
     BROWSER_THEME_COOKIE_KEY,
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
-} from '@app/utils/browser-settings-persistence';
+} from '@app/utils/browserSettingsPersistence';
 import { getPlatformAPI } from '@app/utils/platform';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 

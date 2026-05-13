@@ -6,21 +6,21 @@ import type {
     IPageGeometry,
 } from '@contracts/shared';
 import { createLogger } from '@electron/utils/logger';
-import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
+import { measureElectronPerfAsync } from '@electron/utils/devPerf';
 import {
     cropPagesLocal,
     getPageGeometryLocal,
     removeCropFromPagesLocal,
-} from '@electron/features/page-ops/main/crop-local';
+} from '@electron/features/page-ops/main/cropLocal';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
-} from '@electron/utils/worker-task';
+} from '@electron/utils/workerTask';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CROP_WORKER_FILENAME = 'page-ops-crop-worker.js';
+const CROP_WORKER_FILENAME = 'page-ops-cropWorker.js';
 const CROP_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 
 class CropWorkerUnavailableError extends Error {

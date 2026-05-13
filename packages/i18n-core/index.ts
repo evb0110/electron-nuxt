@@ -2,9 +2,9 @@ export {
     DEFAULT_LOCALE,
     LOCALE_CODES,
     type TLocale,
-} from './locale-codes';
+} from './localeCodes';
 
-export { LOCALE_DEFINITIONS } from './locale-definitions';
+export { LOCALE_DEFINITIONS } from './localeDefinitions';
 
 export {
     formatTranslationLeaf,
@@ -18,7 +18,7 @@ export {
     type TPluralCategory,
     type IPluralForms,
     type TTranslationLeaf,
-} from './message-format';
+} from './messageFormat';
 
 export type {
     TLocaleMessagesShapeFrom,
@@ -27,11 +27,11 @@ export type {
     TTranslationKeyFromNode,
     TTranslationMessageFromSchema,
     TTranslationParamsFromSchema,
-} from './schema-types';
+} from './schemaTypes';
 
 export type {
     ILocaleComposerMethods,
     TTypedI18nComposer,
-} from './typed-composer';
+} from './typedComposer';
 
-export { createTypedI18nComposer } from './typed-composer';
+export { createTypedI18nComposer } from './typedComposer';

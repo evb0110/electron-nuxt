@@ -67,7 +67,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
 
-vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 
 vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({

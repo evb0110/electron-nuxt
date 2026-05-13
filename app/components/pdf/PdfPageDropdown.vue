@@ -101,8 +101,8 @@ import ToolbarButton from '@app/components/ToolbarButton.vue';
 import {
     findPageByPageLabelInput,
     getPageIndicatorLayoutMetrics,
-} from '@app/utils/pdf-page-labels';
-import { stepBySpread } from '@app/utils/pdf-view-mode';
+} from '@app/utils/pdfPageLabels';
+import { stepBySpread } from '@app/utils/pdfViewMode';
 
 const { t } = useTypedI18n();
 

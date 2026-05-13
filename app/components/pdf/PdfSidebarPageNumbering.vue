@@ -164,8 +164,8 @@ import {
     formatPageRange,
     normalizePageLabelRanges,
     parsePageRangeInput,
-} from '@app/utils/pdf-page-labels';
-import { arePageNumberListsEqual } from '@app/utils/pdf-page-selection';
+} from '@app/utils/pdfPageLabels';
+import { arePageNumberListsEqual } from '@app/utils/pdfPageSelection';
 
 type TNumberingScope = 'all' | 'range' | 'selection';
 

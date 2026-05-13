@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import { shell } from 'electron';
-import { inspectAllowedExternalUrl } from '@contracts/external-url';
+import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface ILogger {warn(message: string): void;}

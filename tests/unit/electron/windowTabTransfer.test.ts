@@ -9,7 +9,7 @@ import {
 import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
-} from '@contracts/window-tabs';
+} from '@contracts/windowTabs';
 
 vi.mock('@electron/window', () => ({
     createAppWindow: vi.fn(),
@@ -23,7 +23,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { WindowTabTransferBroker } = await import('@electron/window-tab-transfer');
+const { WindowTabTransferBroker } = await import('@electron/windowTabTransfer');
 
 interface ITestWindow {
     id: number;

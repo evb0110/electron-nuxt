@@ -1,7 +1,7 @@
 import type {
     IPlatformApi,
     TDocumentRef,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 
 declare global {
     interface Window {

@@ -117,7 +117,7 @@ import type {
     TZoomMode,
     TPdfViewMode,
 } from '@app/types/pdf';
-import { isStandaloneSpreadPage } from '@app/utils/pdf-view-mode';
+import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -125,15 +125,15 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
 import {
     isSelectionInteractionTool,
     isSelectionMarkupTool,
 } from '@app/composables/pdf/annotations/annotationRules';
-import { logPdfNav } from '@app/utils/pdf-nav-log';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { logPdfNav } from '@app/utils/pdfNavLog';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 

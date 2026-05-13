@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import { delay } from 'es-toolkit/promise';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     PDFDocumentProxy,
     IScrollSnapshot,

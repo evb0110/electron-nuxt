@@ -8,11 +8,11 @@ import {
     type IPageFileOperationsDeps,
     usePageFileOperations,
 } from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 
 interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps,
     'closeFile'

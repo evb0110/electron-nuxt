@@ -8,9 +8,9 @@ import {
 } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
-import { runGuardedTask } from '@app/utils/async-guard';
-import { stepBySpread } from '@app/utils/pdf-view-mode';
-import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { runGuardedTask } from '@app/utils/asyncGuard';
+import { stepBySpread } from '@app/utils/pdfViewMode';
+import { logPdfNav } from '@app/utils/pdfNavLog';
 import {
     getPageContainerByNumber,
     getPageScrollBounds as getPageScrollBoundsForContainer,

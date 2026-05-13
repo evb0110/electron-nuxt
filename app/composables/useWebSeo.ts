@@ -1,4 +1,4 @@
-import { formatWebTitleTemplate } from '@app/utils/app-window-title';
+import { formatWebTitleTemplate } from '@app/utils/appWindowTitle';
 
 interface IUseWebSeoOptions { noindex?: boolean; }
 

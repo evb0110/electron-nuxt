@@ -3,14 +3,14 @@ import {
     ipcMain,
     shell,
 } from 'electron';
-import type { IIpcMainRegistrar } from '@contracts/ipc-main';
+import type { IIpcMainRegistrar } from '@contracts/ipcMain';
 import type { ISettingsData } from '@contracts/shared';
-import { sanitizeAllowedExternalUrl } from '@contracts/external-url';
+import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type {
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
     IWindowTabTargetWindow,
-} from '@contracts/window-tabs';
+} from '@contracts/windowTabs';
 import { te } from '@electron/i18n';
 import {
     showTabContextMenu,
@@ -19,14 +19,14 @@ import {
 import {
     acknowledgeWindowTabTransfer,
     requestWindowTabTransfer,
-} from '@electron/window-tab-transfer';
+} from '@electron/windowTabTransfer';
 import { getAllAppWindows } from '@electron/window';
-import {registerDocumentsIpcAdapter} from '@electron/features/documents/ipc-adapter';
-import {registerImageExportIpcAdapter} from '@electron/features/image-export/ipc-adapter';
-import {registerOcrIpcAdapter} from '@electron/features/ocr/ipc-adapter';
-import {registerSearchIpcAdapter} from '@electron/features/search/ipc-adapter';
-import {registerDjvuIpcAdapter} from '@electron/features/djvu/ipc-adapter';
-import {registerPageOpsIpcAdapter} from '@electron/features/page-ops/ipc-adapter';
+import {registerDocumentsIpcAdapter} from '@electron/features/documents/ipcAdapter';
+import {registerImageExportIpcAdapter} from '@electron/features/image-export/ipcAdapter';
+import {registerOcrIpcAdapter} from '@electron/features/ocr/ipcAdapter';
+import {registerSearchIpcAdapter} from '@electron/features/search/ipcAdapter';
+import {registerDjvuIpcAdapter} from '@electron/features/djvu/ipcAdapter';
+import {registerPageOpsIpcAdapter} from '@electron/features/page-ops/ipcAdapter';
 import {
     loadSettings,
     updateSettings,
@@ -40,14 +40,14 @@ import {
 } from '@electron/updates';
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
-import { registerRendererLogBridge } from '@electron/ipc/renderer-log-bridge';
+import { registerRendererLogBridge } from '@electron/ipc/rendererLogBridge';
 import {
     setHostZenModeForWindow,
     snapshotHostEnvironmentForWindow,
     snapshotHostZenModeForWindow,
-} from '@electron/host-environment';
+} from '@electron/hostEnvironment';
 
-export { normalizeRendererLogEntry } from '@electron/ipc/renderer-log-bridge';
+export { normalizeRendererLogEntry } from '@electron/ipc/rendererLogBridge';
 
 const CORE_APP_CHANNELS = {
     rendererReady: 'app:rendererReady',

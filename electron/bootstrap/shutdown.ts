@@ -1,5 +1,5 @@
 import { withTimeout } from 'es-toolkit/promise';
-import { isTimeoutError } from '@contracts/timeout-error';
+import { isTimeoutError } from '@contracts/timeoutError';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/env';
 

@@ -1,4 +1,4 @@
-import {runNativeCommand} from '@electron/native-tools/command-runner';
+import {runNativeCommand} from '@electron/native-tools/commandRunner';
 
 interface IRunCommandResult {
     stdout: string;

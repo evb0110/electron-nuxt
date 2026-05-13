@@ -4,11 +4,11 @@ import {
 } from 'pdf-lib';
 import type { Ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { normalizeBookmarkColor } from '@app/utils/pdf-outline-helpers';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
 import { writeBookmarkOutlines } from '@app/composables/pdf/pdfBookmarkOutlineWriter';
 
-const BOOKMARK_SERIALIZATION_LOG_SECTION = 'pdf-bookmarks';
+const BOOKMARK_SERIALIZATION_LOG_SECTION = 'pdfBookmarks';
 
 export function normalizeBookmarkEntries(
     entries: IPdfBookmarkEntry[],

@@ -54,7 +54,7 @@ vi.mock('@electron/utils/concurrency', () => ({
     getTesseractThreadLimit: mocks.getTesseractThreadLimit,
     getSequentialProgressPage: mocks.getSequentialProgressPage,
 }));
-vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
 vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,

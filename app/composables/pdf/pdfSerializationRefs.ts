@@ -17,21 +17,21 @@ import {
     getPdfStringValue,
     getPdfDictSubtype,
     getPdfDictContents,
-} from '@app/utils/pdf-dict';
+} from '@app/utils/pdfDict';
 import {
     normalizeAnnotationSubtypeToken,
     normalizeComparableText,
-} from '@app/utils/text-normalization';
+} from '@app/utils/textNormalization';
 import {
     readPdfRectFromDict,
     resolvePdfPageView,
 } from '@app/composables/pdf/pdfPageBoxes';
-import { parsePdfJsAnnotationRef } from '@app/utils/pdf-annotation-refs';
+import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 export {
     formatPdfJsAnnotationRef,
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
-} from '@app/utils/pdf-annotation-refs';
+} from '@app/utils/pdfAnnotationRefs';
 
 const MANAGED_SHAPE_KEY_NAME = PDFName.of('EVBShapeKey');
 const MANAGED_SHAPE_STABLE_KEY_PREFIX = 'evb-shape:';

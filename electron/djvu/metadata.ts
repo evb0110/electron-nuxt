@@ -2,7 +2,7 @@ import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
-import { runNativeCommand } from '@electron/native-tools/command-runner';
+import { runNativeCommand } from '@electron/native-tools/commandRunner';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('djvu-metadata');

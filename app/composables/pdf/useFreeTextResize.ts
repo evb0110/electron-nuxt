@@ -1,4 +1,4 @@
-import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtime-lib';
+import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
@@ -7,7 +7,7 @@ import {
     getEditorsOnPage,
     setSelectedEditor,
 } from '@app/services/pdfjs/annotationEditorAdapter';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;

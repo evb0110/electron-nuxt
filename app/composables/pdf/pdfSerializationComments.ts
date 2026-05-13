@@ -7,9 +7,9 @@ import {
     PDFRef,
     PDFString,
 } from 'pdf-lib';
-import { getPdfDictSubtype } from '@app/utils/pdf-dict';
-import { normalizeAnnotationSubtypeToken } from '@app/utils/text-normalization';
-import { toPdfDateString } from '@app/utils/pdf-date';
+import { getPdfDictSubtype } from '@app/utils/pdfDict';
+import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
+import { toPdfDateString } from '@app/utils/pdfDate';
 
 export function setAnnotationDictContents(
     dict: PDFDict | null,

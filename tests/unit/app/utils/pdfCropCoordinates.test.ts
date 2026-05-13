@@ -9,7 +9,7 @@ import {
     marginsToDisplayNormalizedRect,
     marginsToNormalizedRect,
     screenRectToMargins,
-} from '@app/utils/pdf-crop-coordinates';
+} from '@app/utils/pdfCropCoordinates';
 
 describe('pdf crop coordinates', () => {
     it('clamps each selection edge independently when the drag starts outside the page', () => {
