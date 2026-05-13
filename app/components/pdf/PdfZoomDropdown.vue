@@ -48,7 +48,7 @@
                                     inputmode="decimal"
                                     :aria-label="t('zoom.custom')"
                                     @keydown.enter.prevent="applyCustomZoom"
-                                    @focus="($event.target as HTMLInputElement).select()"
+                                    @focus="selectCustomZoomInput"
                                 />
                                 <span class="zoom-chip-custom-suffix">%</span>
                             </div>
@@ -297,6 +297,12 @@ function applyCustomZoom() {
         setCustomZoomFromDisplay(parsed / 100);
         customZoomValue.value = '';
         close();
+    }
+}
+
+function selectCustomZoomInput(event: FocusEvent) {
+    if (event.target instanceof HTMLInputElement) {
+        event.target.select();
     }
 }
 </script>

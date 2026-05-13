@@ -273,12 +273,12 @@
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
                     @page-context-menu="showPageContextMenu"
-                    @page-rotate-cw="(pages: number[]) => handlePageRotate(pages, 90)"
-                    @page-rotate-ccw="(pages: number[]) => handlePageRotate(pages, 270)"
-                    @page-extract="(pages: number[]) => pageOpsExtract(pages)"
-                    @page-export="(pages: number[]) => handleExportImages(pages)"
-                    @page-delete="(pages: number[]) => pageOpsDelete(pages, totalPages)"
-                    @page-reorder="(order: number[]) => pageOpsReorder(order)"
+                    @page-rotate-cw="handlePageRotateCw"
+                    @page-rotate-ccw="handlePageRotateCcw"
+                    @page-extract="handlePageExtract"
+                    @page-export="handlePageExport"
+                    @page-delete="handlePageDelete"
+                    @page-reorder="handlePageReorder"
                     @page-file-drop="handlePageFileDrop"
                 />
             </template>
@@ -539,7 +539,15 @@ const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
 const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));
-const props = defineProps<{
+const {
+    fullscreenSupported,
+    isActive,
+    isFullscreen,
+    isTabTransitionBusy,
+    pendingDocumentOpen: pendingDocumentOpenProp = false,
+    startSection = 'recent',
+    tabId,
+} = defineProps<{
     tabId: string;
     isActive: boolean;
     isTabTransitionBusy: boolean;
@@ -600,10 +608,14 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
-const pendingDocumentOpen = computed(() => props.pendingDocumentOpen === true);
+const pendingDocumentOpen = computed(() => pendingDocumentOpenProp === true);
+const isActiveRef = computed({
+    get: () => isActive,
+    set: () => {},
+});
 
 const w = useWorkspaceOrchestration({
-    isActive: toRef(props, 'isActive'),
+    isActive: isActiveRef,
     emit,
 });
 
@@ -941,7 +953,7 @@ const {
     handleToolbarToggleSidebar,
     handleToolbarUndo,
 } = useDocumentWorkspaceToolbar({
-    tabId: props.tabId,
+    tabId: tabId,
     emitOpenSettings: () => emit('open-settings'),
     closeAllDropdowns,
     handleSave,
@@ -1003,6 +1015,30 @@ function handleRotateCcw() {
     }
 }
 
+function handlePageRotateCw(pages: number[]) {
+    void handlePageRotate(pages, 90);
+}
+
+function handlePageRotateCcw(pages: number[]) {
+    void handlePageRotate(pages, 270);
+}
+
+function handlePageExtract(pages: number[]) {
+    void pageOpsExtract(pages);
+}
+
+function handlePageExport(pages: number[]) {
+    void handleExportImages(pages);
+}
+
+function handlePageDelete(pages: number[]) {
+    void pageOpsDelete(pages, totalPages.value);
+}
+
+function handlePageReorder(order: number[]) {
+    void pageOpsReorder(order);
+}
+
 function handleInsertPages() {
     void pageOpsInsert(totalPages.value, totalPages.value);
 }
@@ -1057,9 +1093,9 @@ const {
     isExternallyRestoring,
     suppressEmptyState,
 } = useDocumentWorkspaceSplitRestore({
-    tabId: props.tabId,
+    tabId: tabId,
     pendingDocumentOpen,
-    isTabTransitionBusy: computed(() => props.isTabTransitionBusy === true),
+    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
     workspaceSplitCache,
     workspaceRestoreTracker,
     hasPdf,

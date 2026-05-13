@@ -26,12 +26,12 @@
             :is-crop-selecting="false"
             :is-placing-page-note="false"
             @open-file="handleOpen"
-            @open-settings="showSettings = true"
+            @open-settings="openSettings"
             @fit-width="handleFitWidth"
             @fit-height="handleFitHeight"
-            @toggle-continuous-scroll="continuousScroll = !continuousScroll"
-            @enable-drag="dragMode = true"
-            @disable-drag="dragMode = false"
+            @toggle-continuous-scroll="toggleContinuousScroll"
+            @enable-drag="enableDragMode"
+            @disable-drag="disableDragMode"
         >
             <template v-if="pdfSrc" #app-menu>
                 <ToolbarButton
@@ -46,7 +46,7 @@
                     icon="ph:magnifying-glass"
                     :active="isSearchOpen"
                     :tooltip="t('sidebar.search', undefined)"
-                    @click="isSearchOpen = !isSearchOpen"
+                    @click="toggleSearch"
                 />
                 <ToolbarOverflowMenu
                     :open="overflowMenuOpen"
@@ -75,12 +75,12 @@
                     @toggle-sidebar="noopToolbarAction"
                     @fit-width="handleFitWidth"
                     @fit-height="handleFitHeight"
-                    @enable-drag="dragMode = true"
-                    @disable-drag="dragMode = false"
-                    @set-view-mode="viewMode = $event"
-                    @toggle-continuous-scroll="continuousScroll = !continuousScroll"
+                    @enable-drag="enableDragMode"
+                    @disable-drag="disableDragMode"
+                    @set-view-mode="setViewMode"
+                    @toggle-continuous-scroll="toggleContinuousScroll"
                     @quick-note="noopToolbarAction"
-                    @open-settings="showSettings = true"
+                    @open-settings="openSettings"
                 />
             </template>
             <template v-if="pdfSrc" #page-dropdown>
@@ -342,6 +342,30 @@ function handleFitWidth() {
 function handleFitHeight() {
     fitMode.value = 'height';
     zoomMode.value = 'fit-height';
+}
+
+function openSettings() {
+    showSettings.value = true;
+}
+
+function toggleContinuousScroll() {
+    continuousScroll.value = !continuousScroll.value;
+}
+
+function enableDragMode() {
+    dragMode.value = true;
+}
+
+function disableDragMode() {
+    dragMode.value = false;
+}
+
+function toggleSearch() {
+    isSearchOpen.value = !isSearchOpen.value;
+}
+
+function setViewMode(mode: TPdfViewMode) {
+    viewMode.value = mode;
 }
 
 function noopToolbarAction() {}

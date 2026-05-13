@@ -25,7 +25,7 @@
                     type="color"
                     :value="shape.color"
                     class="annotation-properties-color"
-                    @input="updateProperty('color', ($event.target as HTMLInputElement).value)"
+                    @input="updateColor"
                 >
             </label>
 
@@ -37,7 +37,7 @@
                         :value="effectiveFillColor"
                         class="annotation-properties-color"
                         :disabled="!hasFill"
-                        @input="updateProperty('fillColor', ($event.target as HTMLInputElement).value)"
+                        @input="updateFillColor"
                     >
                     <label class="annotation-properties-checkbox">
                         <input
@@ -59,7 +59,7 @@
                     max="10"
                     step="0.5"
                     class="annotation-properties-range"
-                    @input="updateProperty('strokeWidth', Number(($event.target as HTMLInputElement).value))"
+                    @input="updateStrokeWidth"
                 >
                 <span class="annotation-properties-value">{{ shape.strokeWidth }}px</span>
             </label>
@@ -73,7 +73,7 @@
                     max="1"
                     step="0.1"
                     class="annotation-properties-range"
-                    @input="updateProperty('opacity', Number(($event.target as HTMLInputElement).value))"
+                    @input="updateOpacity"
                 >
                 <span class="annotation-properties-value">{{ Math.round(shape.opacity * 100) }}%</span>
             </label>
@@ -102,7 +102,11 @@ interface IProps {
     y: number;
 }
 
-const props = defineProps<IProps>();
+const {
+    shape,
+    x,
+    y,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update', updates: Partial<IShapeAnnotation>): void;
@@ -127,28 +131,52 @@ function getShapeLabel(type: IShapeAnnotation['type'] | undefined) {
 }
 
 const shapeLabel = computed(() => {
-    return getShapeLabel(props.shape?.type);
+    return getShapeLabel(shape?.type);
 });
 
 const hasFill = computed(() => {
-    const fill = props.shape?.fillColor;
+    const fill = shape?.fillColor;
     return !!fill && fill !== 'transparent' && fill !== 'none';
 });
 
 const effectiveFillColor = computed(() => {
     if (hasFill.value) {
-        return props.shape?.fillColor ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor;
+        return shape?.fillColor ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor;
     }
     return DEFAULT_ANNOTATION_SETTINGS.shapeColor;
 });
 
 const positionStyle = computed(() => ({
-    left: `${props.x}px`,
-    top: `${props.y}px`,
+    left: `${x}px`,
+    top: `${y}px`,
 }));
 
 function updateProperty<K extends keyof IShapeAnnotation>(key: K, value: IShapeAnnotation[K]) {
     emit('update', { [key]: value });
+}
+
+function inputValue(event: Event) {
+    return event.target instanceof HTMLInputElement ? event.target.value : '';
+}
+
+function numericInputValue(event: Event) {
+    return Number(inputValue(event));
+}
+
+function updateColor(event: Event) {
+    updateProperty('color', inputValue(event));
+}
+
+function updateFillColor(event: Event) {
+    updateProperty('fillColor', inputValue(event));
+}
+
+function updateStrokeWidth(event: Event) {
+    updateProperty('strokeWidth', numericInputValue(event));
+}
+
+function updateOpacity(event: Event) {
+    updateProperty('opacity', numericInputValue(event));
 }
 
 function close() {
@@ -163,7 +191,7 @@ function toggleFill() {
     if (hasFill.value) {
         emit('update', { fillColor: 'transparent' });
     } else {
-        emit('update', { fillColor: props.shape?.color ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor });
+        emit('update', { fillColor: shape?.color ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor });
     }
 }
 </script>

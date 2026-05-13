@@ -41,7 +41,7 @@
                         :max="activeWidthControl.max"
                         :step="activeWidthControl.step"
                         :value="activeWidthValue"
-                        @input="handleWidthInput(Number(($event.target as HTMLInputElement).value))"
+                        @input="handleWidthInputEvent"
                     />
                     <button
                         type="button"
@@ -114,7 +114,10 @@ interface IProps {
 
 const { t } = useTypedI18n();
 
-const props = defineProps<IProps>();
+const {
+    settings,
+    tool,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'set-tool', tool: TAnnotationTool): void;
@@ -125,7 +128,7 @@ const emit = defineEmits<{
 }>();
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;
-const hasStyleControls = computed(() => isAuthoringAnnotationTool(props.tool));
+const hasStyleControls = computed(() => isAuthoringAnnotationTool(tool));
 
 const drawStylePresets = computed<IDrawStylePreset[]>(() => [
     {
@@ -156,7 +159,7 @@ function updateSetting<K extends keyof IAnnotationSettings>(key: K, value: IAnno
 }
 
 const activeWidthControl = computed<IWidthControl | null>(() => {
-    if (props.tool === 'draw') {
+    if (tool === 'draw') {
         return {
             key: 'inkThickness',
             ...ANNOTATION_PROPERTY_RANGES.inkThickness,
@@ -164,7 +167,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
         };
     }
 
-    if (props.tool === 'highlight') {
+    if (tool === 'highlight') {
         return {
             key: 'highlightThickness',
             ...ANNOTATION_PROPERTY_RANGES.highlightThickness,
@@ -172,7 +175,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
         };
     }
 
-    if (isShapeTool(props.tool)) {
+    if (isShapeTool(tool)) {
         return {
             key: 'shapeStrokeWidth',
             ...ANNOTATION_PROPERTY_RANGES.shapeStrokeWidth,
@@ -180,7 +183,7 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
         };
     }
 
-    if (props.tool === 'text') {
+    if (tool === 'text') {
         return {
             key: 'textSize',
             ...ANNOTATION_PROPERTY_RANGES.textSize,
@@ -195,31 +198,31 @@ const activeWidthValue = computed(() => {
     if (!activeWidthControl.value) {
         return 0;
     }
-    return props.settings[activeWidthControl.value.key];
+    return settings[activeWidthControl.value.key];
 });
 
 const activeColorSwatch = computed(() => {
-    if (props.tool === 'draw') {
-        return props.settings.inkColor;
+    if (tool === 'draw') {
+        return settings.inkColor;
     }
 
-    if (props.tool === 'underline') {
-        return props.settings.underlineColor;
+    if (tool === 'underline') {
+        return settings.underlineColor;
     }
 
-    if (props.tool === 'text') {
-        return props.settings.textColor;
+    if (tool === 'text') {
+        return settings.textColor;
     }
 
-    if (props.tool === 'strikethrough') {
-        return props.settings.strikethroughColor;
+    if (tool === 'strikethrough') {
+        return settings.strikethroughColor;
     }
 
-    if (isShapeTool(props.tool)) {
-        return props.settings.shapeColor;
+    if (isShapeTool(tool)) {
+        return settings.shapeColor;
     }
 
-    return props.settings.highlightColor;
+    return settings.highlightColor;
 });
 
 function normalizeColorValue(color: string | null | undefined) {
@@ -241,8 +244,8 @@ const displayColorSwatches = computed(() => {
 });
 
 const activeDrawStyle = computed<TDrawStyle>(() => {
-    const thickness = props.settings.inkThickness;
-    const opacity = props.settings.inkOpacity;
+    const thickness = settings.inkThickness;
+    const opacity = settings.inkOpacity;
 
     if (thickness >= 5 || opacity <= 0.45) {
         return 'marker';
@@ -256,27 +259,27 @@ const activeDrawStyle = computed<TDrawStyle>(() => {
 });
 
 function handleColorInput(color: string) {
-    if (props.tool === 'draw') {
+    if (tool === 'draw') {
         updateSetting('inkColor', color);
         return;
     }
 
-    if (props.tool === 'underline') {
+    if (tool === 'underline') {
         updateSetting('underlineColor', color);
         return;
     }
 
-    if (props.tool === 'text') {
+    if (tool === 'text') {
         updateSetting('textColor', color);
         return;
     }
 
-    if (props.tool === 'strikethrough') {
+    if (tool === 'strikethrough') {
         updateSetting('strikethroughColor', color);
         return;
     }
 
-    if (isShapeTool(props.tool)) {
+    if (isShapeTool(tool)) {
         updateSetting('shapeColor', color);
         return;
     }
@@ -291,6 +294,13 @@ function handleWidthInput(width: number) {
     }
 
     updateSetting(control.key, width);
+}
+
+function handleWidthInputEvent(event: Event) {
+    if (!(event.target instanceof HTMLInputElement)) {
+        return;
+    }
+    handleWidthInput(Number(event.target.value));
 }
 
 function nudgeWidth(delta: number) {

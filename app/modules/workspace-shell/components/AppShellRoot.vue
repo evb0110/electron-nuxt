@@ -51,33 +51,33 @@
                 @update:current-page="fallbackCurrentPage = $event"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
-                @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
-                @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
-                @print="runFallbackWorkspaceAction((workspace) => workspace.handlePrint())"
-                @print-current-page="runFallbackWorkspaceAction((workspace) => workspace.handlePrintCurrentPage())"
+                @save="handleFallbackSave"
+                @save-as="handleFallbackSaveAs"
+                @print="handleFallbackPrint"
+                @print-current-page="handleFallbackPrintCurrentPage"
                 @combine-images="openCombinePage"
-                @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
-                @export-images="runFallbackWorkspaceAction((workspace) => workspace.handleExportImages())"
-                @export-multi-page-tiff="runFallbackWorkspaceAction((workspace) => workspace.handleExportMultiPageTiff())"
-                @convert-to-pdf="runFallbackWorkspaceAction((workspace) => workspace.handleConvertToPdf())"
-                @undo="runFallbackWorkspaceAction((workspace) => workspace.handleUndo())"
-                @redo="runFallbackWorkspaceAction((workspace) => workspace.handleRedo())"
-                @insert-image-from-file="runFallbackWorkspaceAction((workspace) => workspace.handleInsertImageFromFile())"
-                @paste-image-from-clipboard="runFallbackWorkspaceAction((workspace) => workspace.handlePasteImageFromClipboard())"
-                @delete-pages="runFallbackWorkspaceAction((workspace) => workspace.handleDeletePages())"
-                @extract-pages="runFallbackWorkspaceAction((workspace) => workspace.handleExtractPages())"
-                @rotate-cw="runFallbackWorkspaceAction((workspace) => workspace.handleRotateCw())"
-                @rotate-ccw="runFallbackWorkspaceAction((workspace) => workspace.handleRotateCcw())"
-                @insert-pages="runFallbackWorkspaceAction((workspace) => workspace.handleInsertPages())"
-                @toggle-sidebar="runFallbackWorkspaceAction((workspace) => workspace.handleToggleSidebar())"
-                @actual-size="runFallbackWorkspaceAction((workspace) => workspace.handleActualSize())"
-                @fit-width="runFallbackWorkspaceAction((workspace) => workspace.handleFitWidth())"
-                @fit-height="runFallbackWorkspaceAction((workspace) => workspace.handleFitHeight())"
-                @toggle-continuous-scroll="runFallbackWorkspaceAction((workspace) => workspace.handleToggleContinuousScroll())"
-                @enable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleEnableDragMode())"
-                @disable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleDisableDragMode())"
-                @capture-region="runFallbackWorkspaceAction((workspace) => workspace.handleCaptureRegion())"
-                @quick-note="runFallbackWorkspaceAction((workspace) => workspace.handleQuickNote())"
+                @export-docx="handleFallbackExportDocx"
+                @export-images="handleFallbackExportImages"
+                @export-multi-page-tiff="handleFallbackExportMultiPageTiff"
+                @convert-to-pdf="handleFallbackConvertToPdf"
+                @undo="handleFallbackUndo"
+                @redo="handleFallbackRedo"
+                @insert-image-from-file="handleFallbackInsertImageFromFile"
+                @paste-image-from-clipboard="handleFallbackPasteImageFromClipboard"
+                @delete-pages="handleFallbackDeletePages"
+                @extract-pages="handleFallbackExtractPages"
+                @rotate-cw="handleFallbackRotateCw"
+                @rotate-ccw="handleFallbackRotateCcw"
+                @insert-pages="handleFallbackInsertPages"
+                @toggle-sidebar="handleFallbackToggleSidebar"
+                @actual-size="handleFallbackActualSize"
+                @fit-width="handleFallbackFitWidth"
+                @fit-height="handleFallbackFitHeight"
+                @toggle-continuous-scroll="handleFallbackToggleContinuousScroll"
+                @enable-drag="handleFallbackEnableDragMode"
+                @disable-drag="handleFallbackDisableDragMode"
+                @capture-region="handleFallbackCaptureRegion"
+                @quick-note="handleFallbackQuickNote"
                 @toggle-fullscreen="handleToggleFullscreen"
                 @set-view-mode="handleFallbackOverflowSetViewMode"
                 @go-to-page="noopFallbackAction"
@@ -338,6 +338,110 @@ function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Pro
             message: 'Fallback workspace action failed',
         });
     }
+}
+
+function handleFallbackSave() {
+    runFallbackWorkspaceAction(workspace => workspace.handleSave());
+}
+
+function handleFallbackSaveAs() {
+    runFallbackWorkspaceAction(workspace => workspace.handleSaveAs());
+}
+
+function handleFallbackPrint() {
+    runFallbackWorkspaceAction(workspace => workspace.handlePrint());
+}
+
+function handleFallbackPrintCurrentPage() {
+    runFallbackWorkspaceAction(workspace => workspace.handlePrintCurrentPage());
+}
+
+function handleFallbackExportDocx() {
+    runFallbackWorkspaceAction(workspace => workspace.handleExportDocx());
+}
+
+function handleFallbackExportImages() {
+    runFallbackWorkspaceAction(workspace => workspace.handleExportImages());
+}
+
+function handleFallbackExportMultiPageTiff() {
+    runFallbackWorkspaceAction(workspace => workspace.handleExportMultiPageTiff());
+}
+
+function handleFallbackConvertToPdf() {
+    runFallbackWorkspaceAction(workspace => workspace.handleConvertToPdf());
+}
+
+function handleFallbackUndo() {
+    runFallbackWorkspaceAction(workspace => workspace.handleUndo());
+}
+
+function handleFallbackRedo() {
+    runFallbackWorkspaceAction(workspace => workspace.handleRedo());
+}
+
+function handleFallbackInsertImageFromFile() {
+    runFallbackWorkspaceAction(workspace => workspace.handleInsertImageFromFile());
+}
+
+function handleFallbackPasteImageFromClipboard() {
+    runFallbackWorkspaceAction(workspace => workspace.handlePasteImageFromClipboard());
+}
+
+function handleFallbackDeletePages() {
+    runFallbackWorkspaceAction(workspace => workspace.handleDeletePages());
+}
+
+function handleFallbackExtractPages() {
+    runFallbackWorkspaceAction(workspace => workspace.handleExtractPages());
+}
+
+function handleFallbackRotateCw() {
+    runFallbackWorkspaceAction(workspace => workspace.handleRotateCw());
+}
+
+function handleFallbackRotateCcw() {
+    runFallbackWorkspaceAction(workspace => workspace.handleRotateCcw());
+}
+
+function handleFallbackInsertPages() {
+    runFallbackWorkspaceAction(workspace => workspace.handleInsertPages());
+}
+
+function handleFallbackToggleSidebar() {
+    runFallbackWorkspaceAction(workspace => workspace.handleToggleSidebar());
+}
+
+function handleFallbackActualSize() {
+    runFallbackWorkspaceAction(workspace => workspace.handleActualSize());
+}
+
+function handleFallbackFitWidth() {
+    runFallbackWorkspaceAction(workspace => workspace.handleFitWidth());
+}
+
+function handleFallbackFitHeight() {
+    runFallbackWorkspaceAction(workspace => workspace.handleFitHeight());
+}
+
+function handleFallbackToggleContinuousScroll() {
+    runFallbackWorkspaceAction(workspace => workspace.handleToggleContinuousScroll());
+}
+
+function handleFallbackEnableDragMode() {
+    runFallbackWorkspaceAction(workspace => workspace.handleEnableDragMode());
+}
+
+function handleFallbackDisableDragMode() {
+    runFallbackWorkspaceAction(workspace => workspace.handleDisableDragMode());
+}
+
+function handleFallbackCaptureRegion() {
+    runFallbackWorkspaceAction(workspace => workspace.handleCaptureRegion());
+}
+
+function handleFallbackQuickNote() {
+    runFallbackWorkspaceAction(workspace => workspace.handleQuickNote());
 }
 
 function activeWorkspaceHasDocument() {
