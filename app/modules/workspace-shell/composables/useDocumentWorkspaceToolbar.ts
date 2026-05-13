@@ -41,7 +41,6 @@ interface IUseDocumentWorkspaceToolbarOptions {
 
 export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolbarOptions) => {
     const analytics = useAnalytics();
-    const sidebarToggleCheckpointTimers = new Set<ReturnType<typeof setTimeout>>();
 
     const canExportDocx = computed(() => (
         Boolean(options.workingCopyPath.value)
@@ -51,10 +50,8 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
     ));
 
     function clearSidebarToggleCheckpointTimers() {
-        for (const timer of sidebarToggleCheckpointTimers) {
-            clearTimeout(timer);
-        }
-        sidebarToggleCheckpointTimers.clear();
+        // Kept for split-restore cleanup callers; sidebar toggles no longer
+        // schedule delayed diagnostics.
     }
 
     function runToolbarAction(action: () => unknown) {
@@ -71,14 +68,11 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
     }
 
     function handleToolbarToggleSidebar() {
-        clearSidebarToggleCheckpointTimers();
-        const attemptId = `sidebar-toggle-${crypto.randomUUID()}`;
         const beforePage = options.currentPage.value;
         const beforeSidebar = options.showSidebar.value;
         const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
         const beforeViewerScrollTop = viewer ? Math.round(viewer.scrollTop) : null;
         BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle requested', {
-            attemptId,
             beforeSidebar,
             beforePage,
             sidebarTab: options.sidebarTab.value,
@@ -93,7 +87,6 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         runToolbarAction(() => {
             options.showSidebar.value = !options.showSidebar.value;
             BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle applied', {
-                attemptId,
                 afterSidebar: options.showSidebar.value,
                 pageAfterToggleWrite: options.currentPage.value,
             });
@@ -102,41 +95,6 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
             control: 'sidebar',
             previousValue: beforeSidebar,
             nextValue: !beforeSidebar,
-        });
-
-        const checkpointSchedule = [
-            0,
-            50,
-            150,
-            350,
-            700,
-            1200,
-        ];
-        checkpointSchedule.forEach((delayMs) => {
-            const timer = setTimeout(() => {
-                sidebarToggleCheckpointTimers.delete(timer);
-                const checkpointViewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;
-                BrowserLogger.warn(
-                    'pdf-nav',
-                    `[sidebar-toggle-checkpoint] attempt=${attemptId} t+${delayMs}ms page=${options.currentPage.value} sidebar=${options.showSidebar.value}`,
-                    {
-                        attemptId,
-                        delayMs,
-                        page: options.currentPage.value,
-                        sidebarOpen: options.showSidebar.value,
-                        sidebarTab: options.sidebarTab.value,
-                        isResizingSidebar: options.isResizingSidebar.value,
-                        fitMode: options.fitMode.value,
-                        viewMode: options.viewMode.value,
-                        continuousScroll: options.continuousScroll.value,
-                        zoom: options.zoom.value,
-                        viewerScrollTop: checkpointViewer ? Math.round(checkpointViewer.scrollTop) : null,
-                        viewerScrollLeft: checkpointViewer ? Math.round(checkpointViewer.scrollLeft) : null,
-                        viewerClientHeight: checkpointViewer ? Math.round(checkpointViewer.clientHeight) : null,
-                    },
-                );
-            }, delayMs);
-            sidebarToggleCheckpointTimers.add(timer);
         });
     }
 

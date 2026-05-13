@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import { SIDEBAR } from '@app/constants/pdf-layout';
 
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
@@ -93,5 +96,21 @@ describe('useSidebarResize', () => {
         expect(preventDefault).not.toHaveBeenCalled();
         expect(resize.isResizingSidebar.value).toBe(false);
         expect(resize.sidebarWidth.value).toBe(SIDEBAR.DEFAULT_WIDTH);
+    });
+
+    it('does not report a pointer resize during sidebar open and close toggles', async () => {
+        const showSidebar = ref(false);
+        const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
+        const resize = useSidebarResize({ showSidebar });
+
+        showSidebar.value = true;
+        await nextTick();
+
+        expect(resize.isResizingSidebar.value).toBe(false);
+
+        showSidebar.value = false;
+        await nextTick();
+
+        expect(resize.isResizingSidebar.value).toBe(false);
     });
 });
