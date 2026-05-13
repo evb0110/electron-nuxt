@@ -17,6 +17,11 @@ export const useToolbarOverflow = () => {
     let needsRecalculation = false;
     let suppressMutationEvents = false;
     let rafPending = false;
+    let lastStableState: {
+        tier: number
+        clientWidth: number
+        scrollWidth: number
+    } | null = null;
 
     function isElementOverflowing(el: HTMLElement) {
         return (el.scrollWidth - el.clientWidth) > OVERFLOW_TOLERANCE_PX;
@@ -65,11 +70,22 @@ export const useToolbarOverflow = () => {
         const toolbar = toolbarRef.value;
         if (!toolbar) {
             collapseTier.value = 0;
+            lastStableState = null;
             suppressMutationEvents = false;
             return;
         }
 
         try {
+            if (
+                lastStableState
+                && collapseTier.value === lastStableState.tier
+                && toolbar.clientWidth === lastStableState.clientWidth
+                && toolbar.scrollWidth === lastStableState.scrollWidth
+                && !isOverflowing(toolbar)
+            ) {
+                return;
+            }
+
             for (let tier = 0; tier <= MAX_COLLAPSE_TIER; tier += 1) {
                 collapseTier.value = tier;
                 await waitForLayout();
@@ -80,11 +96,21 @@ export const useToolbarOverflow = () => {
                 }
 
                 if (!isOverflowing(currentToolbar)) {
+                    lastStableState = {
+                        tier,
+                        clientWidth: currentToolbar.clientWidth,
+                        scrollWidth: currentToolbar.scrollWidth,
+                    };
                     return;
                 }
             }
 
             collapseTier.value = MAX_COLLAPSE_TIER;
+            lastStableState = {
+                tier: MAX_COLLAPSE_TIER,
+                clientWidth: toolbar.clientWidth,
+                scrollWidth: toolbar.scrollWidth,
+            };
         } finally {
             suppressMutationEvents = false;
         }
@@ -163,6 +189,10 @@ export const useToolbarOverflow = () => {
 
     tryOnMounted(() => {
         scheduleRecalculation();
+        if (typeof document === 'undefined') {
+            return;
+        }
+
         void document.fonts?.ready.then(() => {
             scheduleRecalculation();
         });

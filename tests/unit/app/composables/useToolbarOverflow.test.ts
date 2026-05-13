@@ -94,6 +94,10 @@ class FakeElement {
         return null;
     }
 
+    querySelectorAll<T = FakeElement>(_selector: string): T[] {
+        return this.children as T[];
+    }
+
     getBoundingClientRect() {
         return {
             left: this.rectLeft,
