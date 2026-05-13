@@ -13,7 +13,7 @@ import {
     resolveWorkspaceTabUpdate,
     resolveWorkspaceWindowTitle,
     useWorkspaceUiSyncWatchers,
-} from '@app/modules/workspace-shell/composables/workspace-ui-sync';
+} from '@app/modules/workspace-shell/composables/workspaceUiSync';
 
 type TWorkspaceUiSyncDeps = Parameters<typeof useWorkspaceUiSyncWatchers>[0];
 

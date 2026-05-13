@@ -2,11 +2,11 @@ import type {
     IBookmarkItem,
     IBookmarkDropTarget,
     IBookmarkDropPayload,
-} from '@app/types/pdf-outline';
+} from '@app/types/pdfOutline';
 import {
     findBookmarkLocation,
     collectBookmarkIds,
-} from '@app/utils/pdf-outline-helpers';
+} from '@app/utils/pdfOutlineHelpers';
 
 export const usePdfOutlineDragDrop = (
     bookmarks: Ref<IBookmarkItem[]>,

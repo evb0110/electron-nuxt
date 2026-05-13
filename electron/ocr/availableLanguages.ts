@@ -1,0 +1,9 @@
+import {
+    AVAILABLE_OCR_LANGUAGES,
+    AVAILABLE_OCR_LANGUAGE_CODES,
+} from '@contracts/ocrLanguages';
+
+export {
+    AVAILABLE_OCR_LANGUAGES,
+    AVAILABLE_OCR_LANGUAGE_CODES,
+};

@@ -1,5 +1,5 @@
 {
-  "name": "@evb/release-selection",
+  "name": "@evb/releaseSelection",
   "private": true,
   "type": "module",
   "exports": {

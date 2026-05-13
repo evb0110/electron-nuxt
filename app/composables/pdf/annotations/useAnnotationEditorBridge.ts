@@ -2,11 +2,11 @@ import {
     AnnotationEditorParamsType,
     AnnotationEditorUIManager,
     PixelsPerInch,
-} from '@app/services/pdfjs/runtime-lib';
+} from '@app/services/pdfjs/runtimeLib';
 import {
     EventBus,
     GenericL10n,
-} from '@app/services/pdfjs/viewer-runtime-lib';
+} from '@app/services/pdfjs/viewerRuntimeLib';
 import type { AnnotationEditorUIManager as TAnnotationEditorUIManager } from 'pdfjs-dist';
 import type { EventBus as TEventBus } from 'pdfjs-dist/types/web/event_utils';
 import type { GenericL10n as TGenericL10n } from 'pdfjs-dist/types/web/genericl10n';
@@ -44,8 +44,8 @@ import {
     setEditorDefaultParamUpdater,
     unselectAllEditors,
 } from '@app/services/pdfjs/annotationEditorAdapter';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = Parameters<TAnnotationEditorUIManager['updateParams']>[1];

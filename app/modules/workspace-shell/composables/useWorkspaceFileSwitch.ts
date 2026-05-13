@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 
 interface IWorkspaceFileSwitchDeps {
     workingCopyPath: Ref<TDocumentRef | null>;

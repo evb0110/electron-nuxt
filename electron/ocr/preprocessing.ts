@@ -7,8 +7,8 @@ import {
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
 import { createLogger } from '@electron/utils/logger';
-import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
+import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
 
 const log = createLogger('preprocessing');
 

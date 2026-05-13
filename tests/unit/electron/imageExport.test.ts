@@ -68,7 +68,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-vi.mock('@electron/utils/atomic-replace', () => ({
+vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
@@ -77,7 +77,7 @@ const {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
 } = await import('@electron/features/image-export/main/export');
-const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/tiff-combine-local');
+const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/tiffCombineLocal');
 
 const UTIF = utifModule as IUtifModule;
 

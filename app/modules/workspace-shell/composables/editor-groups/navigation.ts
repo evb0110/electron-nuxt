@@ -2,7 +2,7 @@ import type {
     IEditorGroupRect,
     TEditorLayoutNode,
     TGroupDirection,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 
 interface IFindDirectionalGroupIdParams {
     layout: TEditorLayoutNode | null;

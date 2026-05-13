@@ -1,10 +1,10 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { createDocxFromTextAsync } from '@app/utils/docx';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { hasRtlOcrLanguage } from '@app/utils/ocr/text-direction';
-import { exportTextAsDocx } from '@app/utils/docx-export';
+import { hasRtlOcrLanguage } from '@app/utils/ocr/textDirection';
+import { exportTextAsDocx } from '@app/utils/docxExport';
 
 export const useDocxExport = () => {
     const analytics = useAnalytics();

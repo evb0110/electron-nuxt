@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { displayProcessedCount } from '@app/utils/progress-formatting';
+import { displayProcessedCount } from '@app/utils/progressFormatting';
 
 defineProps<{
     progress: {

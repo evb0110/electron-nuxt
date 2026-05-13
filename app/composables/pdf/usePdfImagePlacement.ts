@@ -8,7 +8,7 @@ import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
     IPdfPlacedImageFinalizePayload,
-} from '@app/types/pdf-image-placement';
+} from '@app/types/pdfImagePlacement';
 
 interface IUsePdfImagePlacementOptions {
     viewerContainer: Ref<HTMLElement | null>;

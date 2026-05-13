@@ -56,19 +56,19 @@
         <div
             v-if="contextMenu.visible"
             ref="contextMenuRef"
-            class="tab-context-menu"
+            class="tabContextMenu"
             :style="contextMenuStyle"
             @click.stop
             @contextmenu.prevent
         >
             <template v-for="(section, sectionIndex) in menuSections" :key="section.key">
-                <div v-if="sectionIndex > 0" class="tab-context-menu-divider" />
-                <p v-if="section.title" class="tab-context-menu-section">{{ section.title }}</p>
+                <div v-if="sectionIndex > 0" class="tabContextMenu-divider" />
+                <p v-if="section.title" class="tabContextMenu-section">{{ section.title }}</p>
                 <button
                     v-for="action in section.actions"
                     :key="action.key"
                     type="button"
-                    class="tab-context-menu-action"
+                    class="tabContextMenu-action"
                     @click="runContextCommand(action.command)"
                 >
                     {{ action.label }}
@@ -87,14 +87,14 @@ import {
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
-import type { TGroupDirection } from '@app/types/editor-groups';
-import { getDocumentRefDisplayLabel } from '@app/utils/document-ref';
+import type { TGroupDirection } from '@app/types/editorGroups';
+import { getDocumentRefDisplayLabel } from '@app/utils/documentRef';
 import type {
     ITabContextAvailability,
     TTabContextCommand,
-} from '@app/types/tab-context-menu';
-import type { IWindowTabTargetWindow } from '@contracts/window-tabs';
-import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
+} from '@app/types/tabContextMenu';
+import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();

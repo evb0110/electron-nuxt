@@ -27,7 +27,7 @@ interface IBundleCheck {
 
 const BUNDLE_CHECKS: IBundleCheck[] = [
     {
-        file: 'pdf-combine-worker.js',
+        file: 'pdfCombineWorker.js',
         requiredSymbols: [
             'readImageDpi',
             'pixelsToPdfPoints',

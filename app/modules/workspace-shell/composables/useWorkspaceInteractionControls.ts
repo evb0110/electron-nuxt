@@ -2,16 +2,16 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { ZOOM } from '@app/constants/pdf-layout';
+import { ZOOM } from '@app/constants/pdfLayout';
 import { usePageShortcuts } from '@app/modules/workspace-shell/composables/usePageShortcuts';
 import { useWorkspaceCrop } from '@app/modules/workspace-shell/composables/useWorkspaceCrop';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 import type { ISettingsData } from '@contracts/shared';
 import type {
     IAnnotationSettings,

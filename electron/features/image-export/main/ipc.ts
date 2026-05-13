@@ -5,7 +5,7 @@ import {
 import { existsSync } from 'fs';
 import { extname } from 'path';
 import { uniq } from 'es-toolkit/array';
-import { isAllowedWritePath } from '@electron/utils/path-validator';
+import { isAllowedWritePath } from '@electron/utils/pathValidator';
 import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,

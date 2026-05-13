@@ -2,7 +2,7 @@ import {
     app,
     BrowserWindow,
 } from 'electron';
-import type { IAppUpdateStatus } from '@contracts/electron-api-updates';
+import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
 import {
     dirname,
     join,
@@ -11,17 +11,17 @@ import { fileURLToPath } from 'url';
 import {
     createExternalOpenManager,
     createMacOpenFileRouter,
-} from '@electron/bootstrap/external-open';
-import { runInitSequence } from '@electron/bootstrap/init-sequence';
+} from '@electron/bootstrap/externalOpen';
+import { runInitSequence } from '@electron/bootstrap/initSequence';
 import {
     resolveExternalOpenDispatchWindow,
     shouldResetRendererReadyOnNavigation,
-} from '@electron/bootstrap/renderer-ready';
+} from '@electron/bootstrap/rendererReady';
 import {
     createShutdownCoordinator,
     runShutdownSteps,
 } from '@electron/bootstrap/shutdown';
-import { createStartupTrace } from '@electron/bootstrap/startup-trace';
+import { createStartupTrace } from '@electron/bootstrap/startupTrace';
 import { config } from '@electron/config';
 import {
     registerIpcHandlers,
@@ -32,14 +32,14 @@ import { allowOpenPaths } from '@electron/ipc/openPathCapabilities';
 import {
     attachHostEnvironmentToWindow,
     installHostEnvironmentDisplayWatcher,
-} from '@electron/host-environment';
+} from '@electron/hostEnvironment';
 import {
     sendToWindow,
     setupMenu,
 } from '@electron/menu';
-import { initRecentFilesCache } from '@electron/recent-files';
+import { initRecentFilesCache } from '@electron/recentFiles';
 import { performDjvuViewingShutdownCleanup } from '@electron/features/djvu/main/viewing';
-import { shutdownDjvuConversions } from '@electron/features/djvu/main/pdf-export';
+import { shutdownDjvuConversions } from '@electron/features/djvu/main/pdfExport';
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
@@ -47,12 +47,12 @@ import {
     getMainWindow,
     hasWindows,
 } from '@electron/window';
-import { markWindowRendererReady } from '@electron/window/renderer-ready';
+import { markWindowRendererReady } from '@electron/window/rendererReady';
 import {
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
-} from '@electron/window-tab-transfer';
-import { promptSetDefaultViewer } from '@electron/default-viewer';
+} from '@electron/windowTabTransfer';
+import { promptSetDefaultViewer } from '@electron/defaultViewer';
 import { createLogger } from '@electron/utils/logger';
 import { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
 import {

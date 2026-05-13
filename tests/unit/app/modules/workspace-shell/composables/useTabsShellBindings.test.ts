@@ -11,7 +11,7 @@ import {
     ref,
 } from 'vue';
 import { renderToString } from '@vue/server-renderer';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
@@ -20,8 +20,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
-vi.mock('@app/utils/platform-shortcuts', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
-vi.mock('@app/modules/workspace-shell/composables/tabs-menu-bindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
+vi.mock('@app/utils/platformShortcuts', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
+vi.mock('@app/modules/workspace-shell/composables/tabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
 
 function cast<T>(obj: unknown): T {
     return obj as T;

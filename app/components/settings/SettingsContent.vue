@@ -43,7 +43,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { LOCALE_CODES } from '@i18n-core';
-import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
+import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';

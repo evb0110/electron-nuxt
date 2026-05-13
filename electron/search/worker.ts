@@ -1,6 +1,6 @@
 import { parentPort } from 'worker_threads';
 import { stat } from 'fs/promises';
-import type { IPdfSearchIndex } from '@electron/search/index-builder';
+import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
 import type {
     ISearchMatch,
     ISearchWorkerRequest,
@@ -17,13 +17,13 @@ import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
-} from '@electron/utils/worker-message';
+} from '@electron/utils/workerMessage';
 import {
     buildExcerpt,
     findPageMatches,
-} from '@electron/search/worker/search-match';
-import type { ICachedIndex } from '@electron/search/worker/search-index-cache';
-import { ensureSearchIndex } from '@electron/search/worker/search-index-cache';
+} from '@electron/search/worker/searchMatch';
+import type { ICachedIndex } from '@electron/search/worker/searchIndexCache';
+import { ensureSearchIndex } from '@electron/search/worker/searchIndexCache';
 
 interface ISearchRequestContext {
     requestId: string;

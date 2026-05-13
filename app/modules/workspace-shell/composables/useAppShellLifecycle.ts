@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
-import type { IWindowTabIncomingTransfer } from '@contracts/window-tabs';
-import { traceRendererStartup } from '@app/utils/startup-trace';
-import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
+import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
+import { traceRendererStartup } from '@app/utils/startupTrace';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 
 interface IUseAppShellLifecycleOptions {
     dirtyTabCloseDialogOpen: Ref<boolean>;

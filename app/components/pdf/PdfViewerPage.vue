@@ -61,7 +61,7 @@ import type {
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
-} from '@app/types/pdf-image-placement';
+} from '@app/types/pdfImagePlacement';
 
 interface IProps {
     page: number;

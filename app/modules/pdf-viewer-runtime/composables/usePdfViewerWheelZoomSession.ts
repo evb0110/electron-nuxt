@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import {
     WHEEL_DETAIL_LOG_THROTTLE_MS,

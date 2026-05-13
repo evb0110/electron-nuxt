@@ -3,13 +3,13 @@ import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotation
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
-import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
+} from '@contracts/platformApi';
+import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';
-import { waitUntilIdle } from '@app/utils/async-helpers';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { waitUntilIdle } from '@app/utils/asyncHelpers';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 const DJVU_PATH_REGEX = /\.djvu?$/i;
 const OPEN_SETTLE_DELAY_MS = 25;

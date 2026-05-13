@@ -9,7 +9,7 @@ import type { IPdfSerializationSavePayload } from '@app/composables/pdf/pdfSeria
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
-vi.mock('@app/platform/browser-api/browser-yield', () => ({ yieldToBrowser: yieldToBrowserMock }));
+vi.mock('@app/platform/browser-api/browserYield', () => ({ yieldToBrowser: yieldToBrowserMock }));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;

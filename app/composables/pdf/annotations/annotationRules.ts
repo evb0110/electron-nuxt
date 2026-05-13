@@ -4,7 +4,7 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import { compareAnnotationCommentSummaries } from '@app/utils/pdf-annotation-comments';
+import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 export function isNoteEligible(
     subtype: string | null | undefined,

@@ -38,15 +38,15 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
 
-vi.mock('@electron/features/djvu/main/ddjvu-conversion', () => ({convertDjvuPageToImage: mocks.convertDjvuPageToImage}));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageToImage: mocks.convertDjvuPageToImage}));
 
-vi.mock('@electron/features/djvu/main/pdf-worker-client', () => ({
+vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
     createDjvuPdfEstimateTask: mocks.createDjvuPdfEstimateTask,
     DjvuPdfWorkerStartupError: mocks.StartupError,
 }));
 
 vi.mock('@electron/djvu/metadata', () => ({getDjvuResolution: mocks.getDjvuResolution}));
-vi.mock('@electron/djvu/pdf-builder', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
+vi.mock('@electron/djvu/pdfBuilder', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
 vi.mock('@electron/i18n', () => ({te: mocks.te}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,

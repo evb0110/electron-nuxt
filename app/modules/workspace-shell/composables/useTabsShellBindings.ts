@@ -1,15 +1,15 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { getPlatformAPI } from '@app/utils/platform';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { traceRendererStartup } from '@app/utils/startup-trace';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { traceRendererStartup } from '@app/utils/startupTrace';
 import {
     type ITabsMenuBindingDeps,
     registerTabsMenuBindings,
-} from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
-import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
-import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortcuts';
+} from '@app/modules/workspace-shell/composables/tabsMenuBindings';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
+import { shouldHandleRendererMenuAccelerators } from '@app/utils/platformShortcuts';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
@@ -261,7 +261,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             traceRendererStartup('tabs shell dispatching app:rendererReady');
             getWindowTabsCapability().notifyRendererReady();
         })().catch((error) => {
-            BrowserLogger.warn('tabs-shell', 'Startup external-open preparation failed before renderer ready', error);
+            BrowserLogger.warn('tabs-shell', 'Startup externalOpen preparation failed before renderer ready', error);
             dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
             getWindowTabsCapability().notifyRendererReady();

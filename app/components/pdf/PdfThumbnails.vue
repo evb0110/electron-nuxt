@@ -52,25 +52,25 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
     RenderTask,
 } from 'pdfjs-dist';
-import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { formatPageIndicator } from '@app/utils/pdf-page-labels';
+import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { formatPageIndicator } from '@app/utils/pdfPageLabels';
 import {
     arePageNumberListsEqual,
     normalizeSelectedPageNumbers,
     shouldSelectPageFromThumbnailClick,
-} from '@app/utils/pdf-page-selection';
-import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
+} from '@app/utils/pdfPageSelection';
+import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRenderQueue';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;

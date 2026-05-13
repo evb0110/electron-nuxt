@@ -11,7 +11,7 @@ import {
     OCR_CHANNELS,
     OCR_EVENT_CHANNELS,
 } from '@electron/features/ocr/contract';
-import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/available-languages';
+import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/availableLanguages';
 import {
     buildOcrErrorEnvelope,
     mapStartFailureCode,
@@ -44,7 +44,7 @@ import {
     getSequentialProgressPage,
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
-import { resolveAllowedReadPath } from '@electron/utils/path-validator';
+import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');

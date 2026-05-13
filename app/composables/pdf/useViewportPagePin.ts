@@ -1,4 +1,4 @@
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IViewportPagePin {
     page: number;

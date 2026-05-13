@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 
 export type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';

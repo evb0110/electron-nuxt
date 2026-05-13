@@ -29,7 +29,7 @@ vi.mock('fs/promises', () => ({
 const {
     resolveSafeOcrIndexBasePath,
     writeOcrIndexV2,
-} = await import('@electron/ocr/worker/index-writer');
+} = await import('@electron/ocr/worker/indexWriter');
 
 describe('resolveSafeOcrIndexBasePath', () => {
     beforeEach(() => {

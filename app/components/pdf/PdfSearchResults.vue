@@ -100,7 +100,7 @@ import type { ComponentPublicInstance } from 'vue';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
-import { formatPageIndicator } from '@app/utils/pdf-page-labels';
+import { formatPageIndicator } from '@app/utils/pdfPageLabels';
 
 const { t } = useTypedI18n();
 

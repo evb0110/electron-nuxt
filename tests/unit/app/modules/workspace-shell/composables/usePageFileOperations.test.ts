@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const {
     mockHasElectronAPI,
@@ -20,7 +20,7 @@ const {
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
-vi.mock('@app/utils/platform-documents', () => ({getDocumentsCapability: () => ({
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
     openCombineDialog: mockOpenCombineDialog,
     readFileRange: mockReadFileRange,
 })}));

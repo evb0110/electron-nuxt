@@ -225,7 +225,7 @@ import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
-import { MOBILE_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
+import { MOBILE_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 
 const PdfViewer = defineAsyncComponent(() => import('@app/components/pdf/PdfViewer.vue'));
 

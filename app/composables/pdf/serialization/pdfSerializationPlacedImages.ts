@@ -6,7 +6,7 @@ import {
     degrees,
     drawImage,
 } from 'pdf-lib';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import {
     normalizePageRotation,
     toPdfRectFromMarkerRect,

@@ -8,9 +8,9 @@ import {
     recommendInstaller,
     type ILatestReleaseResponse,
     type IReleaseInstaller,
-} from '~~/shared/release-selection';
+} from '~~/shared/releaseInstallers';
 import { retry } from 'es-toolkit/function';
-import { isLegacyInstallerAsset } from '~~/shared/release-assets';
+import { isLegacyInstallerAsset } from '~~/shared/releaseAssets';
 
 interface IGithubReleaseAsset {
     id: number

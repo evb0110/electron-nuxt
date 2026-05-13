@@ -299,17 +299,17 @@
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 import { formatRelativeTime } from '@app/utils/formatters';
 import {
     displayProcessedCount,
     formatEtaDuration,
-} from '@app/utils/progress-formatting';
-import { isBrowserDocumentRef } from '@app/utils/document-ref';
+} from '@app/utils/progressFormatting';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
-import type { TStartSection } from '@app/types/start-page';
+import type { TStartSection } from '@app/types/startPage';
 
 interface IRecentFile {
     originalPath: TDocumentRef;

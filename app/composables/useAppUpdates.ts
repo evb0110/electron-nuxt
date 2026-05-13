@@ -2,12 +2,12 @@
 import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
-} from '@contracts/platform-api';
-import { BrowserLogger } from '@app/utils/browser-logger';
+} from '@contracts/platformApi';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getUpdatesCapability,
     isUpdatesCapabilitySupported,
-} from '@app/utils/platform-updates';
+} from '@app/utils/platformUpdates';
 
 type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
 

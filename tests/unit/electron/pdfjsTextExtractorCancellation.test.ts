@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     docDestroy: vi.fn(),
 }));
 
-vi.mock('@electron/search/dom-polyfill', () => ({}));
+vi.mock('@electron/search/domPolyfill', () => ({}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
@@ -35,7 +35,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('returns AbortError immediately when signal is already aborted', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/pdfjs-text-extractor');
+        const { extractTextWithPdfjs } = await import('@electron/search/pdfjsTextExtractor');
         const controller = new AbortController();
         controller.abort();
 
@@ -47,7 +47,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('aborts pending loading task and rejects with AbortError', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/pdfjs-text-extractor');
+        const { extractTextWithPdfjs } = await import('@electron/search/pdfjsTextExtractor');
         const controller = new AbortController();
 
         mocks.getDocument.mockReturnValue({
@@ -68,7 +68,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('emits each page as soon as pdfjs text extraction finishes it', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/pdfjs-text-extractor');
+        const { extractTextWithPdfjs } = await import('@electron/search/pdfjsTextExtractor');
         const pageOne = {getTextContent: vi.fn().mockResolvedValue({items: [{
             str: 'Hello',
             hasEOL: true,
@@ -116,7 +116,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     });
 
     it('collapses exact repeated hidden text streams before emitting page text', async () => {
-        const { extractTextWithPdfjs } = await import('@electron/search/pdfjs-text-extractor');
+        const { extractTextWithPdfjs } = await import('@electron/search/pdfjsTextExtractor');
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
         const pageOne = {getTextContent: vi.fn().mockResolvedValue({items: [
             {

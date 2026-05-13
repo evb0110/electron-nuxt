@@ -85,7 +85,7 @@ vi.mock('fs/promises', () => ({
     rm: (...args: unknown[]) => mocks.rm(...args),
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
-vi.mock('@electron/utils/path-validator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
+vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
 vi.mock('@electron/ipc/workingCopy', () => ({
     ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
     findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
@@ -101,7 +101,7 @@ vi.mock('@electron/features/page-ops/main/crop', () => ({
     removeCropFromPages: (...args: unknown[]) => mocks.removeCropFromPages(...args),
     getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args),
 }));
-vi.mock('@electron/image/pdf-conversion', () => ({
+vi.mock('@electron/image/pdfConversion', () => ({
     createPdfFromInputPaths: (...args: unknown[]) => mocks.createPdfFromInputPaths(...args),
     isPdfOrImagePath: (...args: unknown[]) => mocks.isPdfOrImagePath(...args),
     SUPPORTED_IMAGE_EXTENSIONS: [

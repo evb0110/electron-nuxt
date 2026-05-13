@@ -1,11 +1,11 @@
 import { spawn } from 'child_process';
-import { ensureTessdataLanguages } from '@electron/ocr/language-models';
+import { ensureTessdataLanguages } from '@electron/ocr/languageModels';
 import { getOcrPaths } from '@electron/ocr/paths';
-import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
+import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseractLanguageConfig';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
 import { parseIntegerEnv } from '@electron/utils/env';
-import { buildTesseractEnv } from '@electron/ocr/tesseract-env';
-import { createTesseractFinalize } from '@electron/ocr/tesseract-finalize';
+import { buildTesseractEnv } from '@electron/ocr/tesseractEnv';
+import { createTesseractFinalize } from '@electron/ocr/tesseractFinalize';
 
 interface ITesseractSpawnOptions {threads?: number;}
 

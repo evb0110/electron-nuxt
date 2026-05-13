@@ -8,18 +8,18 @@ import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/compo
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/composables/useWorkspaceInteractionControls';
-import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
-import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspace-sidebar-search-sync-controller';
+import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspaceFileLifecycleController';
+import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspaceSidebarSearchSyncController';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 import type { IRecentFile } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
-import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';

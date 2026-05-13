@@ -298,7 +298,7 @@ import {
     isReaderCommandInline,
     type TReaderCommandId,
     type IReaderCommandSurface,
-} from '@app/utils/reader-command-surface';
+} from '@app/utils/readerCommandSurface';
 
 const { t } = useTypedI18n();
 

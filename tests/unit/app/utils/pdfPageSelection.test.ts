@@ -8,7 +8,7 @@ import {
     expandPageRange,
     normalizeSelectedPageNumbers,
     shouldSelectPageFromThumbnailClick,
-} from '@app/utils/pdf-page-selection';
+} from '@app/utils/pdfPageSelection';
 
 describe('pdf page selection helpers', () => {
     it('normalizes selected pages by removing duplicates and invalid pages', () => {

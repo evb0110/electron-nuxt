@@ -2,23 +2,23 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { TSplitPayload } from '@contracts/window-tabs';
+import type { TSplitPayload } from '@contracts/windowTabs';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
 import type {
     IEditorGroupState,
     TGroupDirection,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
     ITabContextAvailability,
     TDirectionalCommandAvailability,
     TTabContextCommand,
-} from '@app/types/tab-context-menu';
+} from '@app/types/tabContextMenu';
 import { hasElectronAPI } from '@app/utils/platform';
-import { isWindowTabTransferSupported } from '@app/utils/platform-window-tabs';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { isWindowTabTransferSupported } from '@app/utils/platformWindowTabs';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER: TGroupDirection[] = [

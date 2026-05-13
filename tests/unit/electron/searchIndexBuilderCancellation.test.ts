@@ -21,9 +21,9 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 
-vi.mock('@electron/search/pdf-text-extractor', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
+vi.mock('@electron/search/pdfTextExtractor', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 
-vi.mock('@electron/search/pdfjs-text-extractor', () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs}));
+vi.mock('@electron/search/pdfjsTextExtractor', () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -52,7 +52,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('forwards signal to PDF text extractors', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const controller = new AbortController();
 
         mocks.extractTextWithPdfjs.mockResolvedValue([{
@@ -85,7 +85,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('aborts before extraction starts when signal is already aborted', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const controller = new AbortController();
         controller.abort();
 
@@ -100,7 +100,7 @@ describe('buildSearchIndex cancellation', () => {
     });
 
     it('rethrows AbortError from pdfjs extraction and skips fallback extraction', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const abortError = createAbortError();
         mocks.extractTextWithPdfjs.mockRejectedValue(abortError);
 
@@ -123,7 +123,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const cachedIndex = {
             schemaVersion: 4,
             pdfPath: '/tmp/file.pdf',
@@ -165,7 +165,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('pads missing pages up to expected pageCount with empty text', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
                 pageNumber: 1,
@@ -195,7 +195,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('prefers OCR pageData words over previously extracted text and raw OCR text', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
                 pageNumber: 1,
@@ -253,7 +253,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('uses OCR v2 words as text-layer-compatible search text and persists index best-effort', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockReturnValue(true);
         const manifest = {
             version: 2,
@@ -346,7 +346,7 @@ describe('buildSearchIndex assembly', () => {
     });
 
     it('ignores stale OCR v2 sidecar pages outside the current page count', async () => {
-        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         mocks.existsSync.mockImplementation((path: string) => (
             path.endsWith('manifest.json') || path.endsWith('page-3.json')
         ));

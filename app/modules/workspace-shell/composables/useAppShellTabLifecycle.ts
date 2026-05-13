@@ -1,11 +1,11 @@
 import type { Ref } from 'vue';
 import { uniq } from 'es-toolkit/array';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import type { IEditorGroupState } from '@app/types/editor-groups';
+import type { IEditorGroupState } from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
 interface IWorkspaceSplitCacheLike {
     has: (tabId: string) => boolean;

@@ -17,7 +17,7 @@ import {
 } from 'path';
 import { randomUUID } from 'crypto';
 import { pathToFileURL } from 'url';
-import { resolveAllowedReadPath } from '@electron/utils/path-validator';
+import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 import { extractPages } from '@electron/features/page-ops/public';

@@ -6,13 +6,13 @@ import {
 import type {
     IEditorGroupState,
     TEditorLayoutNode,
-} from '@app/types/editor-groups';
+} from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
 import {
     collectLayoutGroupOrder,
     collectMergeTabOrder,
     shouldCloseSourceWindowAfterTransfer,
-} from '@app/modules/workspace-shell/composables/window-tab-transfer-orchestration';
+} from '@app/modules/workspace-shell/composables/windowTabTransferOrchestration';
 
 function createTab(id: string): ITab {
     return {

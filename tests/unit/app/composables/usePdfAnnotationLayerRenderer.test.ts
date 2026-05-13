@@ -10,7 +10,7 @@ import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnota
 const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});
 
-vi.mock('@app/services/pdfjs/runtime-lib', () => ({
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     AnnotationLayer: class MockAnnotationLayer {
         constructor(options: unknown) {
             annotationLayerCtor(options);
@@ -29,7 +29,7 @@ vi.mock('@app/services/pdfjs/runtime-lib', () => ({
     },
 }));
 
-vi.mock('@app/utils/platform-shell', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
+vi.mock('@app/utils/platformShell', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
 
 describe('usePdfAnnotationLayerRenderer', () => {
     it('passes the shared annotation canvas map to PDF.js so stamp appearances can render after reload', async () => {

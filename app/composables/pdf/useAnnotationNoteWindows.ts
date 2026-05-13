@@ -15,8 +15,8 @@ import type {
 } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
 import { commentsShareStableIdentifier } from '@app/composables/pdf/annotations/useAnnotationIdentity';
-import { runGuardedTask } from '@app/utils/async-guard';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;

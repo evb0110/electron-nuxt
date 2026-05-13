@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { IPageGeometry } from '@contracts/shared';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import type { ICropSelectionResult } from '@app/types/crop';
 
 const mocks = vi.hoisted(() => ({
@@ -15,8 +15,8 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platform-documents', () => ({ getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }) }));
-vi.mock('@app/utils/browser-logger', () => ({ BrowserLogger: { warn: (...args: unknown[]) => mocks.warn(...args) } }));
+vi.mock('@app/utils/platformDocuments', () => ({ getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }) }));
+vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { warn: (...args: unknown[]) => mocks.warn(...args) } }));
 
 describe('useWorkspaceCrop', () => {
     beforeEach(() => {

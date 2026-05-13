@@ -8,7 +8,7 @@ import {
 import {
     createExternalOpenManager,
     createMacOpenFileRouter,
-} from '@electron/bootstrap/external-open';
+} from '@electron/bootstrap/externalOpen';
 
 function createLogger() {
     return {
@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe('createMacOpenFileRouter', () => {
-    it('buffers supported open-file paths before the external-open manager is attached', () => {
+    it('buffers supported open-file paths before the externalOpen manager is attached', () => {
         const logger = createLogger();
         const router = createMacOpenFileRouter({ logger });
         const externalOpenManager = {
@@ -62,7 +62,7 @@ describe('createMacOpenFileRouter', () => {
         );
     });
 
-    it('routes later open-file events directly once the external-open manager is attached', () => {
+    it('routes later open-file events directly once the externalOpen manager is attached', () => {
         const logger = createLogger();
         const router = createMacOpenFileRouter({ logger });
         const externalOpenManager = {
@@ -133,7 +133,7 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/Users/test/Documents/live.pdf']);
     });
 
-    it('grants open capabilities before dispatching later external-open paths', () => {
+    it('grants open capabilities before dispatching later externalOpen paths', () => {
         const grantOpenPaths = vi.fn();
         const dispatchOpenPaths = vi.fn(() => true);
         const harness = createManagerHarness({
@@ -187,7 +187,7 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/docs/retry.pdf']);
     });
 
-    it('lets the startup renderer claim queued paths before renderer-ready dispatch', () => {
+    it('lets the startup renderer claim queued paths before rendererReady dispatch', () => {
         const harness = createManagerHarness({ isRendererReady: false });
 
         harness.manager.markBootstrapReady();

@@ -1,8 +1,8 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { useIntervalFn } from '@vueuse/core';
-import { getDocumentPathForFile } from '@app/utils/platform-documents';
-import { isSupportedPdfInsertFilePath } from '@app/utils/supported-document-paths';
+import { getDocumentPathForFile } from '@app/utils/platformDocuments';
+import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;

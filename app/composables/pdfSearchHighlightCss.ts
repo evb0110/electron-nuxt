@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from '@app/constants/storage-keys';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import type { IPdfSearchHighlightMatchRange } from '@app/composables/pdfSearchHighlightRanges';
 import {
     getHighlightMatchBoundsInSpan,

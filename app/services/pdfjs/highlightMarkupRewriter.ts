@@ -9,7 +9,7 @@ import {
 } from '@app/services/pdfjs/highlightMarkupBoxGeometry';
 import { asPdfjsEditor } from '@app/services/pdfjs/annotationEditorAdapter';
 import type { getAnnotationEditorLayer } from '@app/services/pdfjs/annotationEditorAdapter';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IHighlightMarkupSubtypeResolver {
     setEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number, subtype: TMarkupSubtype) => void;

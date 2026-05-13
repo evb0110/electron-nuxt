@@ -10,7 +10,7 @@ import {
     resolve,
 } from 'path';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
-import { isAllowedDjvuTempPdfPath } from '@electron/djvu/temp-path';
+import { isAllowedDjvuTempPdfPath } from '@electron/djvu/tempPath';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';

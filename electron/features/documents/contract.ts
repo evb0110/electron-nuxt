@@ -32,9 +32,9 @@ export const DOCUMENTS_CHANNELS = {
     shellShowItemInFolder: 'shell:showItemInFolder',
     menuSetDocumentState: 'menu:setDocumentState',
     menuSetTabCount: 'menu:setTabCount',
-    recentFilesGet: 'recent-files:get',
-    recentFilesRemove: 'recent-files:remove',
-    recentFilesClear: 'recent-files:clear',
+    recentFilesGet: 'recentFiles:get',
+    recentFilesRemove: 'recentFiles:remove',
+    recentFilesClear: 'recentFiles:clear',
 } as const;
 
 export const DOCUMENTS_EVENT_CHANNELS = {
@@ -71,4 +71,4 @@ export const DOCUMENTS_EVENT_CHANNELS = {
 
 export type TDocumentsEventChannels = typeof DOCUMENTS_EVENT_CHANNELS;
 
-export type { TOpenFileResult } from '@contracts/electron-api-documents';
+export type { TOpenFileResult } from '@contracts/electronApiDocuments';

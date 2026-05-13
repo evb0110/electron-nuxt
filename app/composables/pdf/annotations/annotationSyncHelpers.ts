@@ -11,12 +11,12 @@ import {
     getAnnotationAuthor,
     getAnnotationCommentText,
     parsePdfDateTimestamp,
-} from '@app/services/pdf/annotation-metadata';
+} from '@app/services/pdf/annotationMetadata';
 import {
     isLinkSubtype,
     isPopupSubtype,
     isTextMarkupSubtype,
-} from '@app/services/pdf/annotation-subtype';
+} from '@app/services/pdf/annotationSubtype';
 import {
     normalizeMarkerRect,
     normalizePageRotation,
@@ -32,7 +32,7 @@ import {
     getOptionalNumberArray,
     getOptionalString,
 } from '@app/services/pdfjs/runtime';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export interface IPdfAnnotationRecord {
     id?: string;

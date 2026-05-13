@@ -102,7 +102,7 @@ vi.mock('electron', () => ({
     webContents: {fromId: vi.fn(() => null)},
 }));
 
-vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
 

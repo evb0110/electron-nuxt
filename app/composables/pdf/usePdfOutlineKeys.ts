@@ -6,7 +6,7 @@ import type {
 import type {
     TBookmarkDisplayMode,
     IBookmarkDropTarget,
-} from '@app/types/pdf-outline';
+} from '@app/types/pdfOutline';
 
 export interface IPdfOutlineTreeContext {
     expandedBookmarkIds: Ref<Set<string>>;

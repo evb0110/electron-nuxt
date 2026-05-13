@@ -1,5 +1,5 @@
-import type { IPlatformApi } from '@contracts/platform-api';
-import { browserPlatformApi } from '@app/platform/browser-api';
+import type { IPlatformApi } from '@contracts/platformApi';
+import { browserPlatformApi } from '@app/platform/browserApi';
 
 interface IWindowWithPlatformApi extends Window {electronAPI?: IPlatformApi;}
 

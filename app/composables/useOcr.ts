@@ -6,30 +6,30 @@ import type {
     IDocumentsCapability,
     IOcrCapability,
     TDocumentRef,
-} from '@contracts/platform-api';
+} from '@contracts/platformApi';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { waitForVisualFrames } from '@app/utils/async-helpers';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
     parsePageRange,
     type IOcrSettings,
     type IOcrProgress,
     type IOcrResults,
 } from '@app/utils/ocr/languages';
-import { hasRtlOcrLanguage } from '@app/utils/ocr/text-direction';
+import { hasRtlOcrLanguage } from '@app/utils/ocr/textDirection';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
-import { getOcrCapability } from '@app/utils/platform-ocr';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getOcrCapability } from '@app/utils/platformOcr';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {
     getDefaultBrowserOcrSettings,
     readBrowserOcrPreferences,
     saveBrowserOcrPreferences,
-} from '@app/platform/browser-api/browser-ocr-preferences';
+} from '@app/platform/browser-api/browserOcrPreferences';
 import { getErrorMessage } from '@app/utils/error';
-import { exportTextAsDocx } from '@app/utils/docx-export';
-import { configureBrowserOcrLanguageBaseUrl } from '@app/utils/browser-ocr-config';
+import { exportTextAsDocx } from '@app/utils/docxExport';
+import { configureBrowserOcrLanguageBaseUrl } from '@app/utils/browserOcrConfig';
 
 class OcrCanceledError extends Error {
     constructor() {

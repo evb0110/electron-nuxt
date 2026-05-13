@@ -1,5 +1,5 @@
 export type {
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from './composables/workspace-orchestration.types';
+} from './composables/workspaceOrchestration.types';
 export type { TWorkspaceUndoSource } from './composables/useWorkspaceUndoTimeline';

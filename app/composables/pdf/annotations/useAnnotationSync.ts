@@ -17,12 +17,12 @@ import {
     hasEditorCommentPayload,
     detectEditorSubtype,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
-import { parsePdfDateTimestamp } from '@app/services/pdf/annotation-metadata';
-import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotation-subtype';
+import { parsePdfDateTimestamp } from '@app/services/pdf/annotationMetadata';
+import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
 import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import {
     collectPagePdfSnapshotEntries,

@@ -1,9 +1,9 @@
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { getDocumentRefBaseName } from '@app/utils/document-ref';
-import { getDjvuCapability } from '@app/utils/platform-djvu';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import { getDjvuCapability } from '@app/utils/platformDjvu';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 interface IDjvuConversionState {
     isConverting: boolean;

@@ -9,7 +9,7 @@ import {
 const loggerError = vi.fn();
 const loggerDebug = vi.fn();
 
-vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     error: loggerError,
     warn: vi.fn(),
     warnThrottled: vi.fn(),
@@ -104,7 +104,7 @@ describe('usePdfDocument range loading', () => {
         }]);
         expect(documentState.isLoading.value).toBe(false);
 
-        const { getPdfjsAssetDir } = await import('@app/utils/viewer-assets');
+        const { getPdfjsAssetDir } = await import('@app/utils/viewerAssets');
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
             range: expect.any(MockPdfDataRangeTransport),

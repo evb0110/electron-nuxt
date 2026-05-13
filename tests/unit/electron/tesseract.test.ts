@@ -30,9 +30,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
-vi.mock('@electron/ocr/language-models', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
+vi.mock('@electron/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/ocr/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
-vi.mock('@electron/ocr/tesseract-language-config', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
+vi.mock('@electron/ocr/tesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
 
 describe('runOcr setup failure cleanup', () => {
     beforeEach(() => {
@@ -91,7 +91,7 @@ describe('runOcr setup failure cleanup', () => {
 
 describe('Tesseract TSV geometry parsing', () => {
     it('uses line-level vertical geometry for word boxes', async () => {
-        const { parseTsvOutput } = await import('@electron/ocr/worker/tesseract-runner');
+        const { parseTsvOutput } = await import('@electron/ocr/worker/tesseractRunner');
         const tsv = [
             'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
             '4\t1\t1\t1\t1\t0\t10\t40\t160\t50\t-1\t',

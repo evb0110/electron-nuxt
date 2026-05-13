@@ -6,7 +6,7 @@ export type {
 export type {
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
-} from './ipc-main';
+} from './ipcMain';
 
 export type {
     IAppUpdateStatus,
@@ -30,7 +30,7 @@ export type {
     TAppUpdateCheckOrigin,
     TAppUpdatePhase,
     TOpenFileResult,
-} from './platform-api';
+} from './platformApi';
 
 export type {
     IDesktopMenuCapability,
@@ -45,13 +45,13 @@ export type {
     IViewerSearchCapability,
     IViewerSettingsCapability,
     TViewerHostKind,
-} from './viewer-host';
+} from './viewerHost';
 
 export {
     READER_COMMAND_CATEGORIES,
     READER_COMMAND_DESCRIPTORS,
     READER_COMMANDS,
-} from './reader-commands';
+} from './readerCommands';
 export type {
     IReaderCommandDescriptor,
     IReaderCommandRequest,
@@ -62,7 +62,7 @@ export type {
     TReaderCommandId,
     TReaderCommandMap,
     TReaderCommandPlacement,
-} from './reader-commands';
+} from './readerCommands';
 
 export type { TDocumentRef } from './document';
 
@@ -74,7 +74,7 @@ export type {
     TEditorLayoutNode,
     TGroupDirection,
     TGroupOrientation,
-} from './editor-groups';
+} from './editorGroups';
 
 export {
     MAX_IPC_PATH_LENGTH,
@@ -82,7 +82,7 @@ export {
     assertNonEmptyString,
     assertOptionalAbsolutePath,
     isLikelyAbsolutePath,
-} from './ipc-assertions';
+} from './ipcAssertions';
 
 export {
     ALLOWED_EXTERNAL_PROTOCOLS,
@@ -90,7 +90,7 @@ export {
     normalizeAllowedExternalUrl,
     parseAllowedExternalUrl,
     sanitizeAllowedExternalUrl,
-} from './external-url';
+} from './externalUrl';
 
 export type {IPdfBookmarkEntry} from './pdf';
 
@@ -115,7 +115,7 @@ export type {
 export {
     AVAILABLE_OCR_LANGUAGES,
     AVAILABLE_OCR_LANGUAGE_CODES,
-} from './ocr-languages';
+} from './ocrLanguages';
 
 export {
     DEFAULT_SETTINGS,
@@ -124,7 +124,7 @@ export {
     sanitizeSettings,
 } from './settings';
 
-export { isTimeoutError } from './timeout-error';
+export { isTimeoutError } from './timeoutError';
 
 export { normalizeAnalyticsScalar } from './analytics';
 export type {
@@ -152,7 +152,7 @@ export {
     buildOcrTextLayerIndexText,
     buildOcrTextLayerItemText,
     isLastOcrWordInLine,
-} from './ocr-text';
+} from './ocrText';
 
 export type {
     IDjvuSplitPayload,
@@ -167,4 +167,4 @@ export type {
     TSplitPayload,
     TWindowTabsAction,
     TWindowTabTransferTarget,
-} from './window-tabs';
+} from './windowTabs';

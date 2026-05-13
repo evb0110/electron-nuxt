@@ -1,5 +1,5 @@
 import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
-import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { logPdfNav } from '@app/utils/pdfNavLog';
 import { delay } from 'es-toolkit/promise';
 import { getErrorMessage } from '@app/utils/error';
 

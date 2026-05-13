@@ -1,4 +1,4 @@
-import { normalizeSelectedPageNumbers } from '@app/utils/pdf-page-selection';
+import { normalizeSelectedPageNumbers } from '@app/utils/pdfPageSelection';
 
 type TPdfPageScope = 'all' | 'current' | 'selected' | 'range';
 

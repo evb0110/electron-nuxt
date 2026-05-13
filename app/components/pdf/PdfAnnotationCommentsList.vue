@@ -99,7 +99,7 @@ import {
     compareComments,
     matchesCommentQuery,
     splitByQueryMatches,
-} from '@app/utils/pdf-annotation-comments';
+} from '@app/utils/pdfAnnotationComments';
 
 interface IProps {
     comments: IAnnotationCommentSummary[];

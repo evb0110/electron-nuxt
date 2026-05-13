@@ -2,10 +2,10 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrPreparingJob } from '@electron/ocr/jobManager.types';
-import { ensureTessdataLanguages } from '@electron/ocr/language-models';
+import { ensureTessdataLanguages } from '@electron/ocr/languageModels';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
-import { createTimeoutError } from '@electron/ocr/jobManager.protocol';
+import { createTimeoutError } from '@electron/ocr/jobManagerProtocol';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('ocr-ipc');

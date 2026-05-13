@@ -51,7 +51,7 @@ import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
-} from '@app/types/pdf-image-placement';
+} from '@app/types/pdfImagePlacement';
 
 interface IProps {
     setViewerContainer: (element: HTMLElement | null) => void;

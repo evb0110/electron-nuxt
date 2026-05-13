@@ -33,7 +33,7 @@ const progressListeners = new Set<TBatchProgressListener>();
 const loggerError = vi.fn();
 const reportRuntimeError = vi.fn();
 
-vi.mock('@app/utils/platform-documents', () => ({
+vi.mock('@app/utils/platformDocuments', () => ({
     getPageOpsCapability: () => pageOpsApi,
     getDocumentsCapability: () => ({onOpenPdfDirectBatchProgress: (callback: TBatchProgressListener) => {
         progressListeners.add(callback);
@@ -43,7 +43,7 @@ vi.mock('@app/utils/platform-documents', () => ({
     }}),
 }));
 
-vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({ reportRuntimeError })}));
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({

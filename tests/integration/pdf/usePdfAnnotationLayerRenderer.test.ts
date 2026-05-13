@@ -22,7 +22,7 @@ function cast<T>(obj: unknown): T {
 const loggerWarn = vi.fn();
 const loggerDebug = vi.fn();
 
-vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warn: loggerWarn,
     warnThrottled: vi.fn(),
     debug: loggerDebug,

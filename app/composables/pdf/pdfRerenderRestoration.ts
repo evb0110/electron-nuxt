@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import { restoreScrollFromSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
 import { getMostVisiblePageFromDom } from '@app/composables/pdf/pdfScrollVisibility';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export interface IRoundedScrollPosition {
     scrollTop: number | null;

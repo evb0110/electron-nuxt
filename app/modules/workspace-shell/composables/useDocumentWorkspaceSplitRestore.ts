@@ -2,9 +2,9 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { TSplitPayload } from '@contracts/window-tabs';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
+import type { TSplitPayload } from '@contracts/windowTabs';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
 
 interface IWorkspaceSplitCacheLike {
     has(tabId: string): boolean;

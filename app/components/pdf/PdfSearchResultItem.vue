@@ -27,7 +27,7 @@
 
 <script setup lang="ts">
 import type { IPdfSearchMatch } from '@app/types/pdf';
-import { formatPageIndicator } from '@app/utils/pdf-page-labels';
+import { formatPageIndicator } from '@app/utils/pdfPageLabels';
 
 const { t } = useTypedI18n();
 

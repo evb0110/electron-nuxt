@@ -5,7 +5,7 @@ import type {
 import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { getPageContainerByNumber } from '@app/composables/pdf/pdfScrollVisibility';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 
 const PAGE_NUMBER_BASE = 10;

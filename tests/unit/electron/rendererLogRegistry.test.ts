@@ -36,13 +36,13 @@ vi.mock('electron', () => ({
     webContents: {fromId: vi.fn(() => null)},
 }));
 
-vi.mock('@contracts/external-url', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
-vi.mock('@electron/features/documents/ipc-adapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/djvu/ipc-adapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/image-export/ipc-adapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/ocr/ipc-adapter', () => ({registerOcrIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/page-ops/ipc-adapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/search/ipc-adapter', () => ({registerSearchIpcAdapter: vi.fn()}));
+vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
+vi.mock('@electron/features/documents/ipcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/djvu/ipcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/image-export/ipcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/ocr/ipcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/page-ops/ipcAdapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/search/ipcAdapter', () => ({registerSearchIpcAdapter: vi.fn()}));
 vi.mock('@electron/menu', () => ({
     showTabContextMenu: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
@@ -55,7 +55,7 @@ vi.mock('@electron/settings', () => ({
         return settings;
     }),
 }));
-vi.mock('@electron/window-tab-transfer', () => ({
+vi.mock('@electron/windowTabTransfer', () => ({
     acknowledgeWindowTabTransfer: vi.fn(),
     requestWindowTabTransfer: vi.fn(),
 }));

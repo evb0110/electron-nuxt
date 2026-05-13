@@ -7,7 +7,7 @@ import {
     isAllowedPackagedToolExitCode,
     isPackagedStartupReady,
     parseAllowedToolExitCodes,
-} from '../../../scripts/release-verification-helpers';
+} from '../../../scripts/releaseVerificationHelpers';
 
 describe('release verification helpers', () => {
     it('requires both a ready renderer and live process for packaged startup readiness', () => {

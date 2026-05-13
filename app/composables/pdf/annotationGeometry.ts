@@ -2,7 +2,7 @@ import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import {
     normalizeMarkerRectBounds,
     orderPdfRectBounds,
-} from '@app/utils/pdf-marker-rect';
+} from '@app/utils/pdfMarkerRect';
 import { clamp } from 'es-toolkit/math';
 
 export type TPageRotation = 0 | 90 | 180 | 270;

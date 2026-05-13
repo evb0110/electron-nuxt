@@ -13,14 +13,14 @@ import {
     tryOnScopeDispose,
     useDebounceFn,
 } from '@vueuse/core';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     bucketPageCount,
     bucketQueryLength,
 } from '@app/utils/analytics';
-import { getSearchCapability } from '@app/utils/platform-search';
+import { getSearchCapability } from '@app/utils/platformSearch';
 
 export type {
     IPdfPageMatches,

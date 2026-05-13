@@ -5,10 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { AnnotationMode } from '@app/services/pdfjs/runtime-lib';
+import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 
-vi.mock('@app/services/pdfjs/runtime-lib', () => ({ AnnotationMode: {
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     ENABLE: 1,
     ENABLE_FORMS: 2,
 } }));

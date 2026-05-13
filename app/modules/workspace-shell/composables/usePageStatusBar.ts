@@ -1,12 +1,12 @@
 import type { Ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import {
     getDocumentRefDisplayLabel,
     isBrowserDocumentRef,
-} from '@app/utils/document-ref';
+} from '@app/utils/documentRef';
 import { formatBytes } from '@app/utils/formatters';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
 

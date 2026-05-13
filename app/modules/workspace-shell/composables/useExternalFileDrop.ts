@@ -1,8 +1,8 @@
 import { useEventListener } from '@vueuse/core';
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
-import { getDocumentPathForFile } from '@app/utils/platform-documents';
-import { isSupportedWorkspaceDocumentPath } from '@app/utils/supported-document-paths';
+import type { TDocumentRef } from '@contracts/platformApi';
+import { getDocumentPathForFile } from '@app/utils/platformDocuments';
+import { isSupportedWorkspaceDocumentPath } from '@app/utils/supportedDocumentPaths';
 
 interface IUseExternalFileDropOptions {
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;

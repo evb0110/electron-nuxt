@@ -2,7 +2,7 @@ import {
     defineEventHandler,
     setHeader,
 } from 'h3';
-import { resolveSiteUrl } from '../utils/normalize-site-url';
+import { resolveSiteUrl } from '../utils/normalizeSiteUrl';
 
 const AI_CRAWLERS = [
     'GPTBot',

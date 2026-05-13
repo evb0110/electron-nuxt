@@ -39,7 +39,7 @@ const documentsCapabilityMock = vi.hoisted(() => ({
 }));
 const toastAddMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@app/utils/pdf-print', () => ({
+vi.mock('@app/utils/pdfPrint', () => ({
     buildBrowserPrintFrameMarkup: buildBrowserPrintFrameMarkupMock,
     buildPrintablePdfData: buildPrintablePdfDataMock,
     canPrintSourcePdfDirectly: (options: {
@@ -57,7 +57,7 @@ vi.mock('@app/utils/pdf-print', () => ({
     waitForPrintPaint: waitForPrintPaintMock,
 }));
 
-vi.mock('@app/utils/platform-documents', () => ({
+vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => documentsCapabilityMock,
     isNativePrintCapabilityUnavailable: (result: {
         success: boolean;

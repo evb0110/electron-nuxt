@@ -13,7 +13,7 @@ import {
     createSerializeCurrentPdfForEmbeddedFallback,
     hasAnnotationChanges,
     hasViewerShapeChanges,
-} from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
+} from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
 
 describe('hasViewerShapeChanges', () => {
     it('unwraps ref-backed viewer shape state', () => {

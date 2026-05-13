@@ -8,12 +8,12 @@ import {
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
-import { ZOOM } from '@app/constants/pdf-layout';
+import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     TPdfSource,
     TZoomMode,
 } from '@app/types/pdf';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import {
     WHEEL_DETAIL_LOG_THROTTLE_MS,

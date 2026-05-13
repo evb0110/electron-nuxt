@@ -4,18 +4,18 @@ import type {
     ITransferredTabState,
     TSplitPayload,
     TWindowTabTransferTarget,
-} from '@contracts/window-tabs';
-import type { TEditorLayoutNode } from '@app/types/editor-groups';
+} from '@contracts/windowTabs';
+import type { TEditorLayoutNode } from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     collectMergeTabOrder,
     shouldCloseSourceWindowAfterTransfer,
-} from '@app/modules/workspace-shell/composables/window-tab-transfer-orchestration';
+} from '@app/modules/workspace-shell/composables/windowTabTransferOrchestration';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
-import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
+import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IGroupLike {

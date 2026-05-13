@@ -1,7 +1,7 @@
 <template>
-    <div class="pdf-bookmarks-toolbar">
+    <div class="pdfBookmarks-toolbar">
         <div
-            class="pdf-bookmarks-view-modes"
+            class="pdfBookmarks-view-modes"
             role="group"
             :aria-label="t('bookmarks.controls')"
         >
@@ -13,7 +13,7 @@
             >
                 <button
                     type="button"
-                    class="pdf-bookmarks-view-mode-button"
+                    class="pdfBookmarks-view-mode-button"
                     :class="{ 'is-active': displayMode === option.id }"
                     :aria-label="option.title"
                     @click="setDisplayMode(option.id)"
@@ -30,7 +30,7 @@
             >
                 <button
                     type="button"
-                    class="pdf-bookmarks-view-mode-button"
+                    class="pdfBookmarks-view-mode-button"
                     :class="{ 'is-active': isEditMode }"
                     :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                     @click="toggleEditMode"
@@ -43,7 +43,7 @@
             </AppTooltip>
         </div>
 
-        <div class="pdf-bookmarks-toolbar-actions">
+        <div class="pdfBookmarks-toolbar-actions">
             <AppTooltip
                 v-if="isEditMode"
                 :text="t('bookmarks.addTopLevel')"
@@ -51,7 +51,7 @@
             >
                 <button
                     type="button"
-                    class="pdf-bookmarks-icon-button"
+                    class="pdfBookmarks-icon-button"
                     :aria-label="t('bookmarks.addTopLevel')"
                     @click="addRootBookmark"
                 >
@@ -66,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TBookmarkDisplayMode } from '@app/types/pdf-outline';
+import type { TBookmarkDisplayMode } from '@app/types/pdfOutline';
 
 interface IProps {
     displayMode: TBookmarkDisplayMode;

@@ -3,13 +3,13 @@ import {
     syncRef,
     useStorage,
 } from '@vueuse/core';
-import { STORAGE_KEYS } from '@app/constants/storage-keys';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import { useAnnotationContextMenu } from '@app/composables/pdf/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNoteWindows';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
-import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 
 interface IWorkspaceAnnotationSessionOptions {

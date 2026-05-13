@@ -1,10 +1,10 @@
-import type { TDocumentRef } from '@contracts/platform-api';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import type { TDocumentRef } from '@contracts/platformApi';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     readOptionalAdjacentJsonArtifact,
     readOptionalOcrArtifactJson,
-} from '@app/utils/platform-ocr-artifacts';
+} from '@app/utils/platformOcrArtifacts';
 
 interface IOcrManifestIndex {pages: Record<number, { path: string }>;}
 

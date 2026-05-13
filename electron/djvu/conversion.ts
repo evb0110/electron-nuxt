@@ -1,1 +1,1 @@
-export * from '@electron/features/djvu/main/pdf-export';
+export * from '@electron/features/djvu/main/pdfExport';

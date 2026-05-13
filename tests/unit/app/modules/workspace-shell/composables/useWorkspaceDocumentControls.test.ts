@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | { onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void; } }));
 

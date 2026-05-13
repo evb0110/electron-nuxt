@@ -5,10 +5,9 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platform-api';
-import { BrowserLogger } from '@app/utils/browser-logger';
-
-export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+import type { TDocumentRef } from '@contracts/platformApi';
+import type { TPdfSidebarTab } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;

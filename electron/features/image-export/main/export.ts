@@ -23,19 +23,19 @@ import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
     clampDpi,
-} from '@electron/ocr/worker/dpi-detection';
+} from '@electron/ocr/worker/dpiDetection';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { createLogger } from '@electron/utils/logger';
-import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
-import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiff-combine-local';
+import { measureElectronPerfAsync } from '@electron/utils/devPerf';
+import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiffCombineLocal';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
-} from '@electron/utils/worker-task';
+} from '@electron/utils/workerTask';
 import {
     atomicReplace,
     makeSiblingTempPath,
-} from '@electron/utils/atomic-replace';
+} from '@electron/utils/atomicReplace';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 
@@ -173,7 +173,7 @@ async function moveFile(sourcePath: string, targetPath: string) {
 }
 
 async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat): Promise<IRenderedPageFile[]> {
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-'));
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));
     const prefix = join(tempDir, 'page');
     const paths = getNativeToolPaths();
 
@@ -250,7 +250,7 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
         };
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-scope-'));
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-scope-'));
     const subsetPdfPath = join(tempDir, 'subset.pdf');
     const qpdf = getNativeToolPaths().qpdf;
 
@@ -377,7 +377,7 @@ function getTiffCombineFallbackDisabledError() {
 }
 
 async function runLocalTiffCombine(pagePaths: string[], outputPath: string) {
-    await measureElectronPerfAsync('image-export:tiff-combine-local', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath), {
+    await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath), {
         thresholdMs: 25,
         details: {
             pageCount: pagePaths.length,
@@ -400,7 +400,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
     }
 
     try {
-        await measureElectronPerfAsync('image-export:tiff-combine-worker', () => runResultWorkerTask<undefined>({
+        await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
             workerPath,
             workerData: {
                 pagePaths,

@@ -1,5 +1,5 @@
 import type { PageViewport } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type { IOcrWord } from '@app/types/pdf';
 import {
     isOcrDebugEnabled,
@@ -8,8 +8,8 @@ import {
     createWordBoxOverlays,
     type IOcrIndexV2Page,
 } from '@app/composables/pdfWordBoxGeometry';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { readOptionalOcrArtifactJson } from '@app/utils/platform-ocr-artifacts';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 
 export const usePdfWordBoxes = () => {
     function clearWordBoxes(container: HTMLElement) {

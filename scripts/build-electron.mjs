@@ -24,15 +24,15 @@ const builds = [
         external: ['electron'],
     },
     {
-        entryPoints: ['electron/image/pdf-combine-worker.ts'],
+        entryPoints: ['electron/image/pdfCombineWorker.ts'],
         format: 'esm',
-        outfile: 'dist-electron/pdf-combine-worker.js',
+        outfile: 'dist-electron/pdfCombineWorker.js',
         external: ['electron'],
     },
     {
-        entryPoints: ['electron/features/documents/main/pdf-conformance-worker.ts'],
+        entryPoints: ['electron/features/documents/main/pdfConformanceWorker.ts'],
         format: 'esm',
-        outfile: 'dist-electron/pdf-conformance-worker.js',
+        outfile: 'dist-electron/pdfConformanceWorker.js',
         external: ['electron'],
     },
     {
@@ -48,21 +48,21 @@ const builds = [
         external: ['electron'],
     },
     {
-        entryPoints: ['electron/features/page-ops/main/crop-worker.ts'],
+        entryPoints: ['electron/features/page-ops/main/cropWorker.ts'],
         format: 'esm',
-        outfile: 'dist-electron/page-ops-crop-worker.js',
+        outfile: 'dist-electron/page-ops-cropWorker.js',
         external: ['electron'],
     },
     {
-        entryPoints: ['electron/features/image-export/main/tiff-combine-worker.ts'],
+        entryPoints: ['electron/features/image-export/main/tiffCombineWorker.ts'],
         format: 'esm',
         outfile: 'dist-electron/image-export-tiff-worker.js',
         external: ['electron'],
     },
     {
-        entryPoints: ['electron/features/djvu/main/pdf-worker.ts'],
+        entryPoints: ['electron/features/djvu/main/pdfWorker.ts'],
         format: 'esm',
-        outfile: 'dist-electron/djvu-pdf-worker.js',
+        outfile: 'dist-electron/djvu-pdfWorker.js',
         external: ['electron'],
     },
 ];

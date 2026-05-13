@@ -11,7 +11,7 @@ import {
     shouldPrintPageMetricsDirectly,
     type TPrintOrientation,
     waitForPrintPaint,
-} from '@app/utils/pdf-print';
+} from '@app/utils/pdfPrint';
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
 const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;

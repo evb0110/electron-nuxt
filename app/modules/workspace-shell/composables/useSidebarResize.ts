@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
-import { SIDEBAR } from '@app/constants/pdf-layout';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { SIDEBAR } from '@app/constants/pdfLayout';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     const { showSidebar } = deps;

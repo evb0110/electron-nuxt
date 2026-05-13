@@ -49,7 +49,7 @@ vi.mock('@electron/djvu/metadata', () => ({
     getDjvuMetadata: mocks.getDjvuMetadata,
 }));
 vi.mock('@electron/djvu/bookmarks', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
-vi.mock('@electron/features/djvu/main/pdf-export', () => ({
+vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,
 }));

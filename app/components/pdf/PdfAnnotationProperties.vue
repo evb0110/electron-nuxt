@@ -92,7 +92,7 @@
 
 <script setup lang="ts">
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 
 const { t } = useTypedI18n();
 

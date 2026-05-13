@@ -158,10 +158,10 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
-vi.mock('@electron/features/djvu/main/ddjvu-conversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
+vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
 
 const { createPdfFromInputPaths } =
-    await import('@electron/image/pdf-conversion');
+    await import('@electron/image/pdfConversion');
 
 describe('createPdfFromInputPaths worker fallback', () => {
     beforeEach(() => {
@@ -194,7 +194,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
             eval?: boolean;
             workerData?: { inputPaths?: string[] };
         };
-        expect(workerScript).toContain('pdf-combine-worker');
+        expect(workerScript).toContain('pdfCombineWorker');
         expect(workerOptions.eval).toBeUndefined();
         expect(workerOptions.workerData?.inputPaths).toEqual(['/tmp/input.pdf']);
         expect(mocks.create).toHaveBeenCalledTimes(1);

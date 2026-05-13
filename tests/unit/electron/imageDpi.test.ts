@@ -7,7 +7,7 @@ import {
     pixelsToPdfPoints,
     readImageDpi,
     readTiffFrameDpi,
-} from '@electron/image/image-dpi';
+} from '@electron/image/imageDpi';
 
 function bytes(values: number[]) {
     return new Uint8Array(values);

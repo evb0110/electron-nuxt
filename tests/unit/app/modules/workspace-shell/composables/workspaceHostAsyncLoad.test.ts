@@ -7,7 +7,7 @@ import {
     getAsyncChunkLoadErrorMessage,
     isRecoverableAsyncChunkLoadError,
     shouldRetryAsyncChunkLoad,
-} from '@app/modules/workspace-shell/composables/workspace-host-async-load';
+} from '@app/modules/workspace-shell/composables/workspaceHostAsyncLoad';
 
 describe('workspace async chunk load helpers', () => {
     it('extracts error messages from unknown values', () => {

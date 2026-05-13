@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { waitForVisualFrames } from '@app/utils/async-helpers';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 
 describe('waitForVisualFrames', () => {
     beforeEach(() => {

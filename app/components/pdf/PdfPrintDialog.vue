@@ -162,8 +162,8 @@
 
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
-import type { TPrintOrientation } from '@app/utils/pdf-print';
-import { parsePrintPageRangeInput } from '@app/utils/pdf-print';
+import type { TPrintOrientation } from '@app/utils/pdfPrint';
+import { parsePrintPageRangeInput } from '@app/utils/pdfPrint';
 import { usePdfPageScopeDialogSetup } from '@app/composables/pdf/usePdfPageScopeDialogSetup';
 
 const open = defineModel<boolean>('open', { required: true });

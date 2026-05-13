@@ -11,8 +11,8 @@ import { fileURLToPath } from 'url';
 import {
     ensureRuntimeTessdataSeeded,
     getRuntimeTessdataDir,
-} from '@electron/ocr/language-models';
-import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
+} from '@electron/ocr/languageModels';
+import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 interface IOcrPaths {
     binary: string;

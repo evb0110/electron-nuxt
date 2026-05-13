@@ -1,8 +1,7 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type { IPdfSearchRequestOptions } from '@contracts/search';
-
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+import type { TPdfSidebarTab } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 
 interface IPageSearchDeps {
     showSidebar: Ref<boolean>;

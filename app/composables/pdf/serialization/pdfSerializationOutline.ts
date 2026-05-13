@@ -11,7 +11,7 @@ import type {
 import {
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
-} from '@app/utils/pdf-page-labels';
+} from '@app/utils/pdfPageLabels';
 import { normalizeBookmarkEntries } from '@app/composables/pdf/usePdfBookmarkSerialization';
 import { writeBookmarkOutlines } from '@app/composables/pdf/pdfBookmarkOutlineWriter';
 

@@ -46,7 +46,7 @@ vi.mock('electron', () => ({
     shell: { showItemInFolder: vi.fn() },
 }));
 
-vi.mock('@electron/image/pdf-conversion', () => ({
+vi.mock('@electron/image/pdfConversion', () => ({
     buildCombinedPdfOutputPath: vi.fn(),
     createPdfFromInputPaths: vi.fn(),
     isDjvuPath: vi.fn(() => false),
@@ -60,9 +60,9 @@ vi.mock('@electron/menu', () => ({
     updateRecentFilesMenu: (...args: unknown[]) => mocks.updateRecentFilesMenu(...args),
 }));
 
-vi.mock('@electron/recent-files', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
+vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/ipc/docxExportPaths', () => ({allowDocxWritePath: vi.fn()}));
-vi.mock('@electron/djvu/export-paths', () => ({allowDjvuWritePath: vi.fn()}));
+vi.mock('@electron/djvu/exportPaths', () => ({allowDjvuWritePath: vi.fn()}));
 vi.mock('@electron/ipc/workingCopy', () => ({
     createWorkingCopy: vi.fn(),
     createWorkingCopyFromData: vi.fn(),
@@ -78,7 +78,7 @@ vi.mock('@electron/ipc/openPathCapabilities', () => ({
     logRejectedOpenPath: vi.fn(),
     requireOpenPath: vi.fn((path: string) => path),
 }));
-vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: vi.fn(async () => null)}));
+vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: vi.fn(async () => null)}));
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
     debug: vi.fn(),
@@ -86,7 +86,7 @@ vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
 }) }));
-vi.mock('@electron/utils/atomic-replace', () => ({
+vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));

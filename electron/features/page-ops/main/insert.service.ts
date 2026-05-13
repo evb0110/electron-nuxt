@@ -12,7 +12,7 @@ import {
 import {
     createPdfFromInputPaths,
     isPdfOrImagePath,
-} from '@electron/image/pdf-conversion';
+} from '@electron/image/pdfConversion';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';

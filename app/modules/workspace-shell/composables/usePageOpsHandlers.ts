@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}

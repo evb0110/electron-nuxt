@@ -7,7 +7,7 @@ import {
 import {
     isWorkspaceExpose,
     REQUIRED_WORKSPACE_EXPOSE_METHODS,
-} from '@app/modules/workspace-shell/composables/workspace-expose-contract';
+} from '@app/modules/workspace-shell/composables/workspaceExposeContract';
 
 function createWorkspaceCandidate(overrides: Record<string, unknown> = {}) {
     const candidate: Record<string, unknown> = {hasPdf: false};

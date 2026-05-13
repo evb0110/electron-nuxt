@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
-vi.mock('@electron/search/index-builder', () => ({
+vi.mock('@electron/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 4,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,

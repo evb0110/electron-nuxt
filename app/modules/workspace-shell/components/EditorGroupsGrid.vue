@@ -148,18 +148,18 @@ import type {
 import type {
     ITabContextAvailability,
     TTabContextCommand,
-} from '@app/types/tab-context-menu';
+} from '@app/types/tabContextMenu';
 import type {
     IEditorGroupState,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
     TGroupOrientation,
-} from '@app/types/editor-groups';
-import type { TOpenFileResult } from '@contracts/platform-api';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+} from '@app/types/editorGroups';
+import type { TOpenFileResult } from '@contracts/platformApi';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
-import type { TStartSection } from '@app/types/start-page';
+import type { TStartSection } from '@app/types/startPage';
 
 defineOptions({name: 'EditorGroupsGrid'});
 

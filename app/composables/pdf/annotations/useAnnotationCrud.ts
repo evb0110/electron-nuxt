@@ -1,4 +1,4 @@
-import { AnnotationEditorType } from '@app/services/pdfjs/runtime-lib';
+import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
@@ -40,7 +40,7 @@ import {
 } from '@app/composables/pdf/annotationCommentCrudHelpers';
 import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
 import { getCommentCandidateIds } from '@app/composables/pdf/annotationCommentIdentity';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     getEditorById,
     getEditorsOnPage,
@@ -57,7 +57,7 @@ import {
     waitForAnnotationEditorsRendered,
     writeEditorCommentToAnnotationStorage,
 } from '@app/services/pdfjs/annotationEditorMutation';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 
 interface ICrudIdentity {

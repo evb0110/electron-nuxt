@@ -8,7 +8,7 @@ import { useDropdownManager } from '@app/modules/workspace-shell/composables/use
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+} from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 
 export const useWorkspaceViewerShellState = () => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);

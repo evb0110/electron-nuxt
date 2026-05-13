@@ -7,7 +7,7 @@ import type { BrowserWindow } from 'electron';
 import {
     resolveExternalOpenDispatchWindow,
     shouldResetRendererReadyOnNavigation,
-} from '@electron/bootstrap/renderer-ready';
+} from '@electron/bootstrap/rendererReady';
 
 describe('renderer ready helpers', () => {
     it('keeps the renderer marked ready during in-place navigation', () => {
@@ -31,7 +31,7 @@ describe('renderer ready helpers', () => {
         })).toBe(false);
     });
 
-    it('prefers the main window for external-open dispatch even when another window is focused', () => {
+    it('prefers the main window for externalOpen dispatch even when another window is focused', () => {
         const mainWindow = {} as BrowserWindow;
         const focusedWindow = {} as BrowserWindow;
 

@@ -24,7 +24,7 @@ const COMMENT_TARGET_SELECTOR = [
 ].join(', ');
 
 function isImagePlacementTarget(target: EventTarget | null) {
-    return target instanceof HTMLElement && Boolean(target.closest('.pdf-image-placement'));
+    return target instanceof HTMLElement && Boolean(target.closest('.pdfImagePlacement'));
 }
 
 function isCommentTarget(target: EventTarget | null) {

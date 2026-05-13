@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import { PDF_PAGE_STALL_RECOVERY_COOLDOWN_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TPdfSource } from '@app/types/pdf';
 import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRenderer';
 

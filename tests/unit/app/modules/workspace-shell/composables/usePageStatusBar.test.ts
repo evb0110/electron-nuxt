@@ -9,7 +9,7 @@ import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePa
 
 const showItemInFolderMock = vi.hoisted(() => vi.fn(async () => true));
 
-vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => ({ showItemInFolder: showItemInFolderMock }) }));
+vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => ({ showItemInFolder: showItemInFolderMock }) }));
 
 function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> = {}) {
     return {

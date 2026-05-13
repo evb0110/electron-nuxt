@@ -5,16 +5,16 @@ import {
     mkdtemp,
     rm,
 } from 'fs/promises';
-import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvu-conversion';
+import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
 import {
     createDjvuPdfEstimateTask,
     DjvuPdfWorkerStartupError,
-} from '@electron/features/djvu/main/pdf-worker-client';
+} from '@electron/features/djvu/main/pdfWorkerClient';
 import { getDjvuResolution } from '@electron/djvu/metadata';
-import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
+import { buildOptimizedPdf } from '@electron/djvu/pdfBuilder';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
-import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
+import { measureElectronPerfAsync } from '@electron/utils/devPerf';
 
 interface IDjvuSizeEstimate {
     subsample: number;

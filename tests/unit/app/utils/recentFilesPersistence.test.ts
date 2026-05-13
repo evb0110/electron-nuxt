@@ -10,8 +10,8 @@ import {
     readBrowserRecentFilesSnapshot,
     serializeRecentFilesCookiePayload,
     trimRecentFilesForCookie,
-} from '@app/utils/recent-files-persistence';
-import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browser-runtime-persistence';
+} from '@app/utils/recentFilesPersistence';
+import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 function stubBrowserStorage(options: {
     cookie?: string;
@@ -22,7 +22,7 @@ function stubBrowserStorage(options: {
     vi.stubGlobal('window', {localStorage: {getItem: (key: string) => storage[key] ?? null}});
 }
 
-describe('recent-files-persistence', () => {
+describe('recentFilesPersistence', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
     });

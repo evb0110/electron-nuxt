@@ -23,7 +23,7 @@ vi.mock('@vueuse/core', () => ({
     tryOnScopeDispose: mocks.tryOnScopeDispose,
     whenever: mocks.whenever,
 }));
-vi.mock('@app/utils/platform-shortcuts', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
+vi.mock('@app/utils/platformShortcuts', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
 
 function cast<T>(obj: unknown): T {
     return obj as T;

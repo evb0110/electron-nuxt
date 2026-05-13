@@ -4,7 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import {useEventListener} from '@vueuse/core';
-import { PixelsPerInch } from '@app/services/pdfjs/runtime-lib';
+import { PixelsPerInch } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,
@@ -22,7 +22,7 @@ import type {
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfViewerDocumentLifecycle } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerDocumentLifecycle';
 import {
     type ICurrentPageSyncOptions,

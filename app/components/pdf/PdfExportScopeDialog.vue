@@ -95,8 +95,8 @@
 
 <script setup lang="ts">
 
-import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
-import { expandPageRange } from '@app/utils/pdf-page-selection';
+import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
+import { expandPageRange } from '@app/utils/pdfPageSelection';
 import { usePdfPageScopeDialogSetup } from '@app/composables/pdf/usePdfPageScopeDialogSetup';
 
 type TExportMode = 'images' | 'multipage-tiff';

@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
-import { waitForVisualFrames } from '@app/utils/async-helpers';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type {
     ICurrentPageSyncOptions,

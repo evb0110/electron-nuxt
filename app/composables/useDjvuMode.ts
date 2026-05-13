@@ -1,5 +1,5 @@
 
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 
 type TDjvuDisabledFeature =
     | 'save'

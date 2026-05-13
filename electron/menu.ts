@@ -8,10 +8,10 @@ import {
     Menu,
 } from 'electron';
 import { basename } from 'path';
-import type { TWindowTabsAction } from '@contracts/window-tabs';
+import type { TWindowTabsAction } from '@contracts/windowTabs';
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
-import { getRecentFilesSync } from '@electron/recent-files';
+import { getRecentFilesSync } from '@electron/recentFiles';
 import { te } from '@electron/i18n';
 import {
     getAllAppWindows,

@@ -16,7 +16,7 @@ import {
     type ICreatePdfFromInputPathsProgress,
     isSupportedOpenPath,
     SUPPORTED_IMAGE_EXTENSIONS,
-} from '@electron/image/pdf-conversion';
+} from '@electron/image/pdfConversion';
 import { refreshMenu } from '@electron/menu';
 import {
     createWorkingCopyFromData,
@@ -29,7 +29,7 @@ import {
     requireOpenPath,
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
-import { resolveAllowedReadPath } from '@electron/utils/path-validator';
+import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
@@ -37,12 +37,12 @@ import { getErrorMessage } from '@electron/utils/error';
 import {
     openInputPaths,
     type IOpenFileResult,
-} from '@electron/features/documents/main/document-open.service';
+} from '@electron/features/documents/main/documentOpen.service';
 import {
     saveDocxAs,
     savePdfAs,
     savePdfDialog,
-} from '@electron/features/documents/main/document-save.service';
+} from '@electron/features/documents/main/documentSave.service';
 
 const logger = createLogger('documents-dialogs');
 function getOpenDialogParentWindow() {

@@ -2,13 +2,13 @@ import type { Ref } from 'vue';
 import type {
     TDocumentRef,
     TOpenFileResult,
-} from '@contracts/platform-api';
-import type { TSplitPayload } from '@contracts/window-tabs';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { readDocumentBytes } from '@app/utils/document-bytes';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+} from '@contracts/platformApi';
+import type { TSplitPayload } from '@contracts/windowTabs';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { readDocumentBytes } from '@app/utils/documentBytes';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;

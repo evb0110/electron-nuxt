@@ -16,11 +16,11 @@ import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
 import { createLogger } from '@electron/utils/logger';
-import { resolveAllowedReadPath } from '@electron/utils/path-validator';
+import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
     getSearchWorkerServiceConfig,
     SearchWorkerService,
-} from '@electron/features/search/main/search-worker-service';
+} from '@electron/features/search/main/searchWorkerService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

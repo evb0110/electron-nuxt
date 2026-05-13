@@ -191,9 +191,9 @@ describe('window runtime readiness', () => {
         delete process.env.EVB_CLEAR_RENDERER_CACHE;
     });
 
-    it('waits for the initial renderer-ready signal when requested', async () => {
+    it('waits for the initial rendererReady signal when requested', async () => {
         const { createAppWindow } = await import('@electron/window');
-        const { markWindowRendererReady } = await import('@electron/window/renderer-ready');
+        const { markWindowRendererReady } = await import('@electron/window/rendererReady');
 
         const createPromise = createAppWindow({ waitForInitialRendererReady: true });
         await vi.waitFor(() => {
@@ -205,10 +205,10 @@ describe('window runtime readiness', () => {
         await expect(createPromise).resolves.toBe(mocks.BrowserWindow.windows[0]);
     });
 
-    it('keeps strict startup hidden until renderer-ready', async () => {
+    it('keeps strict startup hidden until rendererReady', async () => {
         mocks.config.automation.hideWindow = false;
         const { createAppWindow } = await import('@electron/window');
-        const { markWindowRendererReady } = await import('@electron/window/renderer-ready');
+        const { markWindowRendererReady } = await import('@electron/window/rendererReady');
 
         const createPromise = createAppWindow({ waitForInitialRendererReady: true });
         await vi.waitFor(() => {

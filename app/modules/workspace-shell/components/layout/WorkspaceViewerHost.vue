@@ -1,5 +1,5 @@
 <template>
-    <div class="workspace-viewer-host">
+    <div class="workspace-viewerHost">
         <slot v-if="hasDocument" name="document" />
         <div v-else-if="suppressEmptyState" class="workspace-transition-placeholder" />
         <slot v-else name="empty" />

@@ -13,7 +13,7 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
-} from '@app/types/workspace-expose';
+} from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 
 function cast<T>(value: unknown): T {

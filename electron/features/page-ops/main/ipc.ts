@@ -13,7 +13,7 @@ import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
 import { te } from '@electron/i18n';
-import { SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdf-conversion';
+import { SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfConversion';
 import {
     cropPages,
     getPageGeometry,
@@ -26,7 +26,7 @@ import {
     rotatePages,
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
-import { resolveAllowedWritePath } from '@electron/utils/path-validator';
+import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import {
     ensureWorkingCopyDirectory,
     findWorkingCopyPathByOriginalPath,
@@ -40,12 +40,12 @@ import {
     formatPageRange,
     validatePageNumbers,
     validateReorderPermutation,
-} from '@electron/features/page-ops/domain/page-numbers';
+} from '@electron/features/page-ops/domain/pageNumbers';
 import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insert.service';
 import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
-} from '@electron/ipc/working-copy-mutation-queue';
+} from '@electron/ipc/workingCopyMutationQueue';
 
 async function validateWorkingCopyPath(path: unknown): Promise<string> {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';

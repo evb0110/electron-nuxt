@@ -9,7 +9,7 @@ import type {
     IPdfSearchMatch,
     IScrollSnapshot,
 } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
 import type {
     MaybeRefOrGetter,
@@ -21,7 +21,7 @@ import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
-import { CONCURRENT_RENDERS } from '@app/constants/pdf-layout';
+import { CONCURRENT_RENDERS } from '@app/constants/pdfLayout';
 import {
     PDF_PAGE_LOAD_TIMEOUT_MS,
     PDF_PAGE_RENDER_TIMEOUT_MS,
@@ -37,10 +37,10 @@ import {
     type IPageRange,
 } from '@app/composables/pdf/pdfPageBufferManager';
 import { normalizePageMetrics } from '@app/composables/pdf/pdfPageLayout';
-import { BrowserLogger } from '@app/utils/browser-logger';
-import { runGuardedTask } from '@app/utils/async-guard';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatchScroller';
-import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { logPdfNav } from '@app/utils/pdfNavLog';
 import {
     createPdfRerenderRestorationLogger,
     type IRerenderRestorationContext,

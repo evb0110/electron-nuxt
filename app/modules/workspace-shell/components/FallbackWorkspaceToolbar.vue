@@ -177,14 +177,14 @@
 
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspace-expose';
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
+import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 

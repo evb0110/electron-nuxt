@@ -112,24 +112,24 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type { TDocumentRef } from '@contracts/platformApi';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IDjvuPageSize } from '@app/platform/browser-api/djvujs-loader';
+import type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
-import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvuWorker';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import {
     getSpreadStartForPage,
     getViewColumnCount,
     isStandaloneSpreadPage,
     stepBySpread,
-} from '@app/utils/pdf-view-mode';
+} from '@app/utils/pdfViewMode';
 import {
     accumulateWheelForPageFlips,
     createWheelPageAccumulatorState,

@@ -9,12 +9,12 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import { SIDEBAR } from '@app/constants/pdf-layout';
+import { SIDEBAR } from '@app/constants/pdfLayout';
 
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
-vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {warn: vi.fn()}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
 function cast<T>(value: unknown): T {
     return value as T;

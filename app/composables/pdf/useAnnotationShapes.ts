@@ -25,7 +25,7 @@ import {
     cloneShapeStrokes,
     getAllShapePoints,
 } from '@app/composables/pdf/pdfShapeStrokes';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 function generateShapeId() {
     return `shape-${crypto.randomUUID()}`;

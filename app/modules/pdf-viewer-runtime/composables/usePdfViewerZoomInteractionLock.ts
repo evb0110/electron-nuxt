@@ -1,4 +1,4 @@
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     WHEEL_DETAIL_LOG_THROTTLE_MS,
     WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,

@@ -9,7 +9,7 @@ import {
 import {
     guardAsync,
     runGuardedTask,
-} from '@app/utils/async-guard';
+} from '@app/utils/asyncGuard';
 
 const loggerSpies = vi.hoisted(() => ({
     error: vi.fn(),
@@ -17,9 +17,9 @@ const loggerSpies = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/browser-logger', () => ({ BrowserLogger: loggerSpies }));
+vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: loggerSpies }));
 
-describe('async-guard', () => {
+describe('asyncGuard', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });

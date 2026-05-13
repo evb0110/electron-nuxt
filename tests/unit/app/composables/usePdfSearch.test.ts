@@ -14,7 +14,7 @@ const mockSearch = {
     cancel: vi.fn(),
     resetCache: vi.fn(),
 };
-vi.mock('@app/utils/platform-search', () => ({ getSearchCapability: () => mockSearch }));
+vi.mock('@app/utils/platformSearch', () => ({ getSearchCapability: () => mockSearch }));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
 describe('usePdfSearch', () => {
