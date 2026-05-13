@@ -73,6 +73,16 @@ const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set([
     '.djvu',
     '.djv',
 ]);
+const ALLOWED_SYSTEM_SYMLINK_TARGETS = new Map([
+    [
+        '/tmp',
+        '/private/tmp',
+    ],
+    [
+        '/var',
+        '/private/var',
+    ],
+]);
 
 function normalizeNonEmptyPath(filePath: unknown): string {
     if (typeof filePath !== 'string') {
@@ -238,6 +248,9 @@ function assertNoSymlinkPathSegments(resolvedPath: string) {
     for (const segment of segments) {
         try {
             if (lstatSync(segment).isSymbolicLink()) {
+                if (isAllowedSystemSymlinkPathSegment(segment)) {
+                    continue;
+                }
                 throw new Error(`Invalid file path: symlink path segment is not allowed (${segment})`);
             }
         } catch (error) {
@@ -247,6 +260,19 @@ function assertNoSymlinkPathSegments(resolvedPath: string) {
             }
             throw error;
         }
+    }
+}
+
+function isAllowedSystemSymlinkPathSegment(segment: string) {
+    const allowedTarget = ALLOWED_SYSTEM_SYMLINK_TARGETS.get(segment);
+    if (!allowedTarget) {
+        return false;
+    }
+
+    try {
+        return realpathSync(segment) === allowedTarget;
+    } catch {
+        return false;
     }
 }
 
