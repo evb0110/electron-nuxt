@@ -167,6 +167,38 @@ describe('fileOps path security', () => {
         );
     });
 
+    it('allows writes through standard macOS temp path aliases', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/var/folders/evb/safe.pdf');
+        mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === '/var'}));
+        mocks.realpathSync.mockImplementation((path: string) => (path === '/var' ? '/private/var' : path));
+
+        await handleFileWrite(
+            {} as never,
+            '/var/folders/evb/safe.pdf',
+            new Uint8Array([9]),
+        );
+
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/\/var\/folders\/evb\/\.safe\.pdf\.\d+\..+\.tmp$/u),
+            '/var/folders/evb/safe.pdf',
+        );
+    });
+
+    it('rejects writes through non-system symlink path segments', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/link/safe.pdf');
+        mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === '/tmp/electron-test/link'}));
+
+        await expect(
+            handleFileWrite(
+                {} as never,
+                '/tmp/electron-test/link/safe.pdf',
+                new Uint8Array([9]),
+            ),
+        ).rejects.toThrow('Invalid file path: symlink path segment is not allowed (/tmp/electron-test/link)');
+
+        expect(mocks.open).not.toHaveBeenCalled();
+    });
+
     it('does not write temp PDF bytes when managed working copy recovery fails', async () => {
         const error = new Error('Working copy directory was removed and the original file is unavailable');
         Object.assign(error, { code: 'WORKING_COPY_MISSING' });
