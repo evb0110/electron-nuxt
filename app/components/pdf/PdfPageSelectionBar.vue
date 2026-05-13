@@ -40,10 +40,7 @@
                     :disabled="isOperationInProgress"
                     @click="onExtractPages"
                 >
-                    <UIcon
-                        name="i-ph-export"
-                        class="page-selection-bar-icon page-selection-bar-icon-mirrored"
-                    />
+                    <UIcon name="i-ph-file-arrow-down" class="page-selection-bar-icon" />
                 </button>
             </AppTooltip>
 
@@ -55,7 +52,7 @@
                     :disabled="isOperationInProgress"
                     @click="onExportPages"
                 >
-                    <UIcon name="i-ph-export" class="page-selection-bar-icon" />
+                    <UIcon name="i-ph-images" class="page-selection-bar-icon" />
                 </button>
             </AppTooltip>
 
@@ -191,10 +188,6 @@ function onDeselect() {
 .page-selection-bar-icon {
     width: 1rem;
     height: 1rem;
-}
-
-.page-selection-bar-icon-mirrored {
-    transform: scaleX(-1);
 }
 
 .page-selection-bar-deselect {

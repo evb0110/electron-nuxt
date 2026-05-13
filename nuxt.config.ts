@@ -645,6 +645,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'circle-flags:pt',
             'circle-flags:nl',
             'ph:export',
+            'ph:file-arrow-down',
             'ph:file-plus',
             'ph:link-simple',
             'ph:arrow-clockwise',
