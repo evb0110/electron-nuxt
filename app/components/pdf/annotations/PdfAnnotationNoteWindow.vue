@@ -3,8 +3,8 @@
         ref="noteWindowRef"
         class="note-window"
         :style="windowStyle"
-        @mousedown="emit('focus')"
-        @focusin="emit('focus')"
+        @mousedown="focusNote"
+        @focusin="focusNote"
     >
         <header
             class="note-window__title"
@@ -20,7 +20,7 @@
                         type="button"
                         class="note-window__delete"
                         :aria-label="t('noteWindow.deleteNote')"
-                        @click="emit('delete')"
+                        @click="deleteNote"
                     >
                         <UIcon name="i-ph-trash" class="size-3.5" />
                     </button>
@@ -28,7 +28,7 @@
                         type="button"
                         class="note-window__close"
                         :aria-label="t('noteWindow.minimizeNote')"
-                        @click="emit('minimize')"
+                        @click="minimizeNote"
                     >
                         <UIcon name="i-ph-minus" class="size-3.5" />
                     </button>
@@ -43,8 +43,8 @@
             :value="text"
             rows="8"
             :placeholder="t('noteWindow.writeNote')"
-            @keydown.esc.stop.prevent="emit('minimize')"
-            @input="emit('update:text', ($event.target as HTMLTextAreaElement).value)"
+            @keydown.esc.stop.prevent="minimizeNote"
+            @input="updateText"
         ></textarea>
 
         <p v-if="saving" class="note-window__status" role="status" aria-live="polite">{{ t('noteWindow.saving') }}</p>
@@ -109,6 +109,22 @@ let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
 let focusGuardToken = 0;
 let dragMoveListener: ((event: MouseEvent) => void) | null = null;
 let dragUpListener: (() => void) | null = null;
+
+function focusNote() {
+    emit('focus');
+}
+
+function deleteNote() {
+    emit('delete');
+}
+
+function minimizeNote() {
+    emit('minimize');
+}
+
+function updateText(event: Event) {
+    emit('update:text', (event.target as HTMLTextAreaElement).value);
+}
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',

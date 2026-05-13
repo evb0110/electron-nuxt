@@ -7,7 +7,7 @@
             variant="outline"
             :loading="isCheckInProgress"
             :disabled="isCheckInProgress"
-            @click="emit('check')"
+            @click="check"
         />
     </fieldset>
 </template>
@@ -18,6 +18,10 @@ defineProps<{isCheckInProgress: boolean;}>();
 const emit = defineEmits<{check: [];}>();
 
 const { t } = useTypedI18n();
+
+function check() {
+    emit('check');
+}
 </script>
 
 <style lang="scss" scoped>

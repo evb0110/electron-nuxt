@@ -16,13 +16,13 @@
                 :start-section="startSection"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                @update-tab="(updates) => emit('update-tab', updates)"
-                @update:start-section="emit('update:start-section', $event)"
-                @open-in-new-tab="(result) => emit('open-in-new-tab', result)"
-                @request-close-tab="emit('request-close-tab')"
-                @open-settings="emit('open-settings')"
-                @open-combine="emit('open-combine')"
-                @toggle-fullscreen="emit('toggle-fullscreen')"
+                @update-tab="handleUpdateTab"
+                @update:start-section="handleStartSectionUpdate"
+                @open-in-new-tab="handleOpenInNewTab"
+                @request-close-tab="handleRequestCloseTab"
+                @open-settings="handleOpenSettings"
+                @open-combine="handleOpenCombine"
+                @toggle-fullscreen="handleToggleFullscreen"
             />
         </div>
 
@@ -34,14 +34,14 @@
                 :open-in-progress="isOpenUiBusy"
                 :start-section="startSection"
                 can-combine-files
-                @update:start-section="emit('update:start-section', $event)"
+                @update:start-section="handleStartSectionUpdate"
                 @open-file="handleOpenFileFromUi"
                 @open-recent="handleOpenRecentFromPlaceholder"
                 @remove-recent="handleRemoveRecentFromPlaceholder"
                 @reveal-recent="handleRevealRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
-                @open-settings="emit('open-settings')"
-                @combine-files="emit('open-combine')"
+                @open-settings="handleOpenSettings"
+                @combine-files="handleOpenCombine"
                 @open-combine-result="handleOpenCombineResultFromPlaceholder"
             />
         </div>
@@ -126,6 +126,34 @@ const emit = defineEmits<{
     'open-combine': [];
     'toggle-fullscreen': [];
 }>();
+
+function handleUpdateTab(updates: TTabUpdate) {
+    emit('update-tab', updates);
+}
+
+function handleStartSectionUpdate(section: TStartSection) {
+    emit('update:start-section', section);
+}
+
+function handleOpenInNewTab(result: string | TOpenFileResult) {
+    emit('open-in-new-tab', result);
+}
+
+function handleRequestCloseTab() {
+    emit('request-close-tab');
+}
+
+function handleOpenSettings() {
+    emit('open-settings');
+}
+
+function handleOpenCombine() {
+    emit('open-combine');
+}
+
+function handleToggleFullscreen() {
+    emit('toggle-fullscreen');
+}
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
 

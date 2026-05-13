@@ -4,9 +4,9 @@
         class="pdf-search-result flex flex-col gap-1"
         :class="{ 'is-active': isActive }"
         :aria-current="isActive ? 'true' : undefined"
-        @click="emit('activate')"
-        @keydown.enter.prevent="emit('activate')"
-        @keydown.space.prevent="emit('activate')"
+        @click="activate"
+        @keydown.enter.prevent="activate"
+        @keydown.space.prevent="activate"
     >
         <div class="pdf-search-result-meta">
             <span v-if="showPageLabel" class="pdf-search-result-page">{{ t('searchResults.page', { page: pageIndicator }) }}</span>
@@ -44,6 +44,10 @@ const emit = defineEmits<{(e: 'activate'): void;}>();
 const showPageLabel = computed(() => props.showPageLabel ?? true);
 const pageIndicator = computed(() => formatPageIndicator(props.result.pageIndex + 1, props.pageLabels ?? null));
 const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.result.matchIndex) + 1);
+
+function activate() {
+    emit('activate');
+}
 </script>
 
 <style lang="scss" scoped>

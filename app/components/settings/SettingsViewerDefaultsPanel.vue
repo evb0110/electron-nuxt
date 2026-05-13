@@ -9,7 +9,7 @@
                 :items="zoomPresetItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="emit('update:zoom-preset', $event as string | { value: string })"
+                @update:model-value="updateZoomPreset"
             />
         </div>
 
@@ -20,7 +20,7 @@
                 :items="viewModeItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="emit('update:view-mode', $event as string | { value: string })"
+                @update:model-value="updateViewMode"
             />
         </div>
 
@@ -31,7 +31,7 @@
                 :items="scrollModeItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="emit('update:scroll-mode', $event as boolean | { value: boolean })"
+                @update:model-value="updateScrollMode"
             />
         </div>
 
@@ -46,7 +46,7 @@
                     :class="{ 'is-active': settings.defaultAnnotationColor === swatch }"
                     :style="{ '--swatch-color': swatch }"
                     :aria-label="t('settings.annotationColorLabel', { color: swatch })"
-                    @click="emit('update:annotation-color', swatch)"
+                    @click="updateAnnotationColor(swatch)"
                 />
             </div>
         </div>
@@ -81,6 +81,22 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+function updateZoomPreset(value: string | { value: string }) {
+    emit('update:zoom-preset', value);
+}
+
+function updateViewMode(value: string | { value: string }) {
+    emit('update:view-mode', value);
+}
+
+function updateScrollMode(value: boolean | { value: boolean }) {
+    emit('update:scroll-mode', value);
+}
+
+function updateAnnotationColor(value: string) {
+    emit('update:annotation-color', value);
+}
 </script>
 
 <style lang="scss" scoped>

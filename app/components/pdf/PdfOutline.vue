@@ -50,7 +50,7 @@
                 :key="item.id || index"
                 :item="item"
                 :pdf-document="pdfDocument"
-                @go-to-page="$emit('goToPage', $event)"
+                @go-to-page="goToPage"
                 @activate="handleActivate"
                 @toggle-expand="toggleExpanded"
                 @open-actions="openBookmarkContextMenu"
@@ -134,6 +134,10 @@ const emit = defineEmits<{
     }): void;
     (e: 'update:isEditMode', value: boolean): void;
 }>();
+
+function goToPage(page: number) {
+    emit('goToPage', page);
+}
 
 const { t } = useTypedI18n();
 

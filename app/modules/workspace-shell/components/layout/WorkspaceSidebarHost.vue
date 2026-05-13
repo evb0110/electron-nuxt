@@ -12,7 +12,7 @@
                 role="separator"
                 aria-orientation="vertical"
                 :aria-label="resizeAriaLabel"
-                @pointerdown.prevent="emit('resize-start', $event)"
+                @pointerdown.prevent="handleResizeStart"
             />
         </div>
         <div class="workspace-main__viewer">
@@ -33,6 +33,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{(e: 'resize-start', event: PointerEvent): void;}>();
+
+function handleResizeStart(event: PointerEvent) {
+    emit('resize-start', event);
+}
 
 watch(
     () => [

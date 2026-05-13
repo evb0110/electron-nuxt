@@ -6,7 +6,7 @@
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
-        @pointercancel="emit('cancel')"
+        @pointercancel="cancelSelection"
         @contextmenu="handleContextMenu"
         @wheel="handleWheel"
     >
@@ -79,6 +79,10 @@ const badgeStyle = computed<CSSProperties>(() => {
         top: `${props.badgePosition.y}px`,
     };
 });
+
+function cancelSelection() {
+    emit('cancel');
+}
 </script>
 
 <style scoped>

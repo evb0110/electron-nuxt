@@ -11,28 +11,28 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('edit', bookmark.id)"
+                @click="editBookmark(bookmark.id)"
             >
                 {{ t('bookmarks.editBookmark') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('add-sibling-above', bookmark.id)"
+                @click="addSiblingAbove(bookmark.id)"
             >
                 {{ t('bookmarks.addSiblingAbove') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('add-sibling-below', bookmark.id)"
+                @click="addSiblingBelow(bookmark.id)"
             >
                 {{ t('bookmarks.addSiblingBelow') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('add-child', bookmark.id)"
+                @click="addChild(bookmark.id)"
             >
                 {{ t('bookmarks.addChild') }}
             </button>
@@ -45,7 +45,7 @@
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': bookmark.bold }"
                         :aria-label="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
-                        @click="emit('toggle-bold', bookmark.id)"
+                        @click="toggleBold(bookmark.id)"
                     >
                         <UIcon name="i-ph-text-b" class="bookmarks-style-toggle-icon" />
                     </button>
@@ -54,7 +54,7 @@
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': bookmark.italic }"
                         :aria-label="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
-                        @click="emit('toggle-italic', bookmark.id)"
+                        @click="toggleItalic(bookmark.id)"
                     >
                         <UIcon name="i-ph-text-italic" class="bookmarks-style-toggle-icon" />
                     </button>
@@ -63,7 +63,7 @@
                         class="bookmarks-style-toggle"
                         :class="{ 'is-active': !bookmark.color }"
                         :aria-label="t('bookmarks.defaultColor')"
-                        @click="emit('set-color', { id: bookmark.id, color: null })"
+                        @click="setColor(bookmark.id, null)"
                     >
                         <span class="bookmarks-style-toggle-letter">A</span>
                     </button>
@@ -77,7 +77,7 @@
                         :class="{ 'is-active': bookmark.color === preset }"
                         :style="{ background: preset }"
                         :aria-label="t('bookmarks.setColor', { color: preset })"
-                        @click="emit('set-color', { id: bookmark.id, color: preset })"
+                        @click="setColor(bookmark.id, preset)"
                     />
                 </div>
             </div>
@@ -86,7 +86,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('set-style-range-start', bookmark.id)"
+                @click="setStyleRangeStart(bookmark.id)"
             >
                 {{ bookmark.id === styleRangeStartId ? t('bookmarks.rangeStartSet') : t('bookmarks.setStyleStart') }}
             </button>
@@ -94,7 +94,7 @@
                 type="button"
                 class="pdf-context-menu__action"
                 :disabled="!canApplyStyleRange"
-                @click="emit('apply-style-to-range')"
+                @click="applyStyleToRange"
             >
                 {{ applyStyleRangeLabel }}
             </button>
@@ -103,7 +103,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
-                @click="emit('remove', bookmark.id)"
+                @click="removeBookmark(bookmark.id)"
             >
                 {{ t('bookmarks.removeBookmark') }}
             </button>
@@ -152,6 +152,49 @@ const menuStyle = computed(() => ({
     left: `${props.x}px`,
     top: `${props.y}px`,
 }));
+
+function editBookmark(id: string) {
+    emit('edit', id);
+}
+
+function addSiblingAbove(id: string) {
+    emit('add-sibling-above', id);
+}
+
+function addSiblingBelow(id: string) {
+    emit('add-sibling-below', id);
+}
+
+function addChild(id: string) {
+    emit('add-child', id);
+}
+
+function toggleBold(id: string) {
+    emit('toggle-bold', id);
+}
+
+function toggleItalic(id: string) {
+    emit('toggle-italic', id);
+}
+
+function setColor(id: string, color: string | null) {
+    emit('set-color', {
+        id,
+        color,
+    });
+}
+
+function setStyleRangeStart(id: string) {
+    emit('set-style-range-start', id);
+}
+
+function applyStyleToRange() {
+    emit('apply-style-to-range');
+}
+
+function removeBookmark(id: string) {
+    emit('remove', id);
+}
 </script>
 
 <style scoped>

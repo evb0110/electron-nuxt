@@ -13,7 +13,7 @@
         :disabled="disabled || !isUseful"
         :ignore-non-keyboard-focus="ignoreNonKeyboardFocus"
         :reference="referenceElement"
-        @update:open="emit('update:open', $event)"
+        @update:open="updateOpen"
     >
         <span
             ref="triggerRef"
@@ -73,6 +73,10 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
 const referenceElement = shallowRef<HTMLElement | undefined>();
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
+
+function updateOpen(value: boolean) {
+    emit('update:open', value);
+}
 
 function refreshReferenceElement() {
     const root = triggerRef.value;

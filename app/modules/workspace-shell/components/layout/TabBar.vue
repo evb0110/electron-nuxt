@@ -45,7 +45,7 @@
                 type="button"
                 class="tab-new"
                 :aria-label="t('tabs.newTab')"
-                @click="emit('new-tab')"
+                @click="handleNewTab"
             >
                 <Icon name="ph:plus" size="14" />
             </button>
@@ -134,6 +134,10 @@ const emit = defineEmits<{
     'move-direction': [tabId: string, direction: 'left' | 'right'];
     'tab-context-command': [tabId: string, command: TTabContextCommand];
 }>();
+
+function handleNewTab() {
+    emit('new-tab');
+}
 
 const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
 const contextMenuRef = ref<HTMLElement | null>(null);

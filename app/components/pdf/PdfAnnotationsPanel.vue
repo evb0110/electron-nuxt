@@ -2,15 +2,15 @@
     <div class="notes-panel">
         <PdfAnnotationToolbar
             :tool="tool"
-            @set-tool="emit('set-tool', $event)"
+            @set-tool="setTool"
         />
 
         <template v-if="showStyleEditor">
             <PdfAnnotationStyleEditor
                 :tool="tool"
                 :settings="settings"
-                @set-tool="emit('set-tool', $event)"
-                @update-setting="emit('update-setting', $event)"
+                @set-tool="setTool"
+                @update-setting="updateSetting"
             />
 
             <div class="notes-panel-divider" />
@@ -20,10 +20,10 @@
             :comments="comments"
             :active-comment-stable-key="activeCommentStableKey"
             :author-name="appSettings.authorName"
-            @focus-comment="emit('focus-comment', $event)"
-            @open-note="emit('open-note', $event)"
-            @delete-comment="emit('delete-comment', $event)"
-            @place-note="emit('place-note')"
+            @focus-comment="focusComment"
+            @open-note="openNote"
+            @delete-comment="deleteComment"
+            @place-note="placeNote"
         />
     </div>
 </template>
@@ -65,6 +65,33 @@ const emit = defineEmits<{
     (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
     (e: 'place-note'): void;
 }>();
+
+function setTool(tool: TAnnotationTool) {
+    emit('set-tool', tool);
+}
+
+function updateSetting(payload: {
+    key: keyof IAnnotationSettings;
+    value: IAnnotationSettings[keyof IAnnotationSettings];
+}) {
+    emit('update-setting', payload);
+}
+
+function focusComment(comment: IAnnotationCommentSummary) {
+    emit('focus-comment', comment);
+}
+
+function openNote(comment: IAnnotationCommentSummary) {
+    emit('open-note', comment);
+}
+
+function deleteComment(comment: IAnnotationCommentSummary) {
+    emit('delete-comment', comment);
+}
+
+function placeNote() {
+    emit('place-note');
+}
 </script>
 
 <style scoped>

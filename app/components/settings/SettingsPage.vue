@@ -6,7 +6,7 @@
         icon="i-ph-gear"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
-        @close="emit('close')"
+        @close="closeSettings"
     >
         <div class="settings-page-content">
             <SettingsContent />
@@ -19,6 +19,10 @@ import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import SettingsContent from '@app/components/settings/SettingsContent.vue';
 
 const emit = defineEmits<{ 'close': [] }>();
+
+function closeSettings() {
+    emit('close');
+}
 
 const {
     showBack = true,

@@ -47,13 +47,13 @@
                 :active-comment-stable-key="annotationActiveCommentStableKey"
                 :current-page="currentPage"
                 :keep-active="annotationKeepActive"
-                @set-tool="emit('update:annotation-tool', $event)"
-                @update:keep-active="emit('update:annotation-keep-active', $event)"
-                @update-setting="emit('annotation-setting', $event)"
-                @focus-comment="emit('annotation-focus-comment', $event)"
-                @open-note="emit('annotation-open-note', $event)"
-                @delete-comment="emit('annotation-delete-comment', $event)"
-                @place-note="emit('annotation-place-note')"
+                @set-tool="updateAnnotationTool"
+                @update:keep-active="updateAnnotationKeepActive"
+                @update-setting="updateAnnotationSetting"
+                @focus-comment="focusAnnotationComment"
+                @open-note="openAnnotationNote"
+                @delete-comment="deleteAnnotationComment"
+                @place-note="placeAnnotationNote"
             />
 
             <div
@@ -63,11 +63,11 @@
                 <PdfPageSelectionBar
                     :selected-count="selectedThumbnailPages.length"
                     :is-operation-in-progress="props.isPageOperationInProgress ?? false"
-                    @rotate-cw="emit('page-rotate-cw', selectedThumbnailPages)"
-                    @rotate-ccw="emit('page-rotate-ccw', selectedThumbnailPages)"
-                    @extract-pages="emit('page-extract', selectedThumbnailPages)"
-                    @export-pages="emit('page-export', selectedThumbnailPages)"
-                    @delete-pages="emit('page-delete', selectedThumbnailPages)"
+                    @rotate-cw="rotateSelectedPagesClockwise"
+                    @rotate-ccw="rotateSelectedPagesCounterClockwise"
+                    @extract-pages="extractSelectedPages"
+                    @export-pages="exportSelectedPages"
+                    @delete-pages="deleteSelectedPages"
                     @deselect="clearPageSelection"
                 />
                 <div class="pdf-sidebar-pages-thumbnails app-scrollbar">
@@ -79,11 +79,11 @@
                         :selected-pages="selectedThumbnailPages"
                         :invalidation-request="thumbnailInvalidationRequest"
                         :is-active="isOpen && activeTab === 'thumbnails'"
-                        @go-to-page="emit('goToPage', $event)"
+                        @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
-                        @page-context-menu="emit('page-context-menu', $event)"
-                        @reorder="emit('page-reorder', $event)"
-                        @file-drop="emit('page-file-drop', $event)"
+                        @page-context-menu="openPageContextMenu"
+                        @reorder="reorderPages"
+                        @file-drop="dropPageFiles"
                     />
                 </div>
 
@@ -93,7 +93,7 @@
                     :page-labels="pageLabels"
                     :page-label-ranges="pageLabelRanges"
                     @update:selected-pages="handleSelectedPagesUpdate"
-                    @update:page-label-ranges="emit('update:pageLabelRanges', $event)"
+                    @update:page-label-ranges="updatePageLabelRanges"
                     @clear="clearPageSelection"
                 />
             </div>
@@ -103,9 +103,9 @@
                 :pdf-document="pdfDocument"
                 :current-page="currentPage"
                 :is-edit-mode="bookmarkEditMode"
-                @go-to-page="$emit('goToPage', $event)"
-                @bookmarks-change="emit('bookmarks-change', $event)"
-                @update:is-edit-mode="emit('update:bookmark-edit-mode', $event)"
+                @go-to-page="goToPage"
+                @bookmarks-change="updateBookmarks"
+                @update:is-edit-mode="updateBookmarkEditMode"
             />
             <div
                 v-show="activeTab === 'search'"
@@ -118,9 +118,9 @@
                         :options="searchOptions"
                         :total-matches="totalMatches"
                         @update:options="handleSearchOptionsUpdate"
-                        @search="emit('search')"
-                        @next="emit('next')"
-                        @previous="emit('previous')"
+                        @search="search"
+                        @next="nextSearchResult"
+                        @previous="previousSearchResult"
                     />
                 </div>
                 <div class="flex min-h-0 flex-col">
@@ -135,7 +135,7 @@
                         :search-progress="props.searchProgress"
                         :is-truncated="props.isTruncated"
                         :min-query-length="props.minQueryLength"
-                        @go-to-result="$emit('goToResult', $event)"
+                        @go-to-result="goToResult"
                     />
                 </div>
             </div>
@@ -296,6 +296,111 @@ function handleSearchOptionsUpdate(value: Required<Pick<IPdfSearchRequestOptions
 
 function clearPageSelection() {
     emit('update:selectedThumbnailPages', []);
+}
+
+function updateAnnotationTool(tool: TAnnotationTool) {
+    emit('update:annotation-tool', tool);
+}
+
+function updateAnnotationKeepActive(value: boolean) {
+    emit('update:annotation-keep-active', value);
+}
+
+function updateAnnotationSetting(payload: {
+    key: keyof IAnnotationSettings;
+    value: IAnnotationSettings[keyof IAnnotationSettings]
+}) {
+    emit('annotation-setting', payload);
+}
+
+function focusAnnotationComment(comment: IAnnotationCommentSummary) {
+    emit('annotation-focus-comment', comment);
+}
+
+function openAnnotationNote(comment: IAnnotationCommentSummary) {
+    emit('annotation-open-note', comment);
+}
+
+function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    emit('annotation-delete-comment', comment);
+}
+
+function placeAnnotationNote() {
+    emit('annotation-place-note');
+}
+
+function rotateSelectedPagesClockwise() {
+    emit('page-rotate-cw', selectedThumbnailPages.value);
+}
+
+function rotateSelectedPagesCounterClockwise() {
+    emit('page-rotate-ccw', selectedThumbnailPages.value);
+}
+
+function extractSelectedPages() {
+    emit('page-extract', selectedThumbnailPages.value);
+}
+
+function exportSelectedPages() {
+    emit('page-export', selectedThumbnailPages.value);
+}
+
+function deleteSelectedPages() {
+    emit('page-delete', selectedThumbnailPages.value);
+}
+
+function goToPage(page: number) {
+    emit('goToPage', page);
+}
+
+function openPageContextMenu(payload: {
+    clientX: number;
+    clientY: number;
+    pages: number[];
+}) {
+    emit('page-context-menu', payload);
+}
+
+function reorderPages(newOrder: number[]) {
+    emit('page-reorder', newOrder);
+}
+
+function dropPageFiles(payload: {
+    afterPage: number;
+    filePaths: TDocumentRef[];
+}) {
+    emit('page-file-drop', payload);
+}
+
+function updatePageLabelRanges(ranges: IPdfPageLabelRange[]) {
+    emit('update:pageLabelRanges', ranges);
+}
+
+function updateBookmarks(payload: {
+    bookmarks: IPdfBookmarkEntry[];
+    dirty: boolean;
+}) {
+    emit('bookmarks-change', payload);
+}
+
+function updateBookmarkEditMode(value: boolean) {
+    emit('update:bookmark-edit-mode', value);
+}
+
+function search() {
+    emit('search');
+}
+
+function nextSearchResult() {
+    emit('next');
+}
+
+function previousSearchResult() {
+    emit('previous');
+}
+
+function goToResult(index: number) {
+    emit('goToResult', index);
 }
 
 watch(

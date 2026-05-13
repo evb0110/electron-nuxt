@@ -21,7 +21,7 @@
                     <div class="app-menu-section">
                         <button
                             class="app-menu-item"
-                            @click="emit('open-file'); close()"
+                            @click="handleMenuCommand('open-file')"
                         >
                             <UIcon name="i-ph-folder-open" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.openFile') }}</span>
@@ -30,7 +30,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="emit('save'); close()"
+                            @click="handleMenuCommand('save')"
                         >
                             <UIcon name="i-ph-floppy-disk" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.save') }}</span>
@@ -39,7 +39,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="emit('save-as'); close()"
+                            @click="handleMenuCommand('save-as')"
                         >
                             <UIcon name="i-ph-floppy-disk-back" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.saveAs') }}</span>
@@ -48,7 +48,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || isPreparingPrint"
-                            @click="emit('print'); close()"
+                            @click="handleMenuCommand('print')"
                         >
                             <UIcon
                                 :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-ph-circle-notch' : 'i-ph-printer'"
@@ -60,7 +60,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
-                            @click="emit('print-current-page'); close()"
+                            @click="handleMenuCommand('print-current-page')"
                         >
                             <UIcon
                                 v-if="isPreparingCurrentPagePrint"
@@ -73,7 +73,7 @@
                         <div class="app-menu-divider" />
                         <button
                             class="app-menu-item"
-                            @click="emit('combine-images'); close()"
+                            @click="handleMenuCommand('combine-images')"
                         >
                             <UIcon name="i-ph-stack-plus" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.combineFiles') }}</span>
@@ -82,7 +82,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || !canExportDocx || isExportingDocx"
-                            @click="emit('export-docx'); close()"
+                            @click="handleMenuCommand('export-docx')"
                         >
                             <UIcon name="i-ph-file-text" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.exportDocx') }}</span>
@@ -91,7 +91,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument"
-                            @click="emit('export-images'); close()"
+                            @click="handleMenuCommand('export-images')"
                         >
                             <UIcon name="i-ph-image" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.exportImages') }}</span>
@@ -99,7 +99,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument"
-                            @click="emit('export-multi-page-tiff'); close()"
+                            @click="handleMenuCommand('export-multi-page-tiff')"
                         >
                             <UIcon name="i-ph-images" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.exportMultiPageTiff') }}</span>
@@ -109,7 +109,7 @@
                             <button
                                 class="app-menu-item"
                                 :disabled="documentBusy"
-                                @click="emit('convert-to-pdf'); close()"
+                                @click="handleMenuCommand('convert-to-pdf')"
                             >
                                 <UIcon name="i-ph-arrows-clockwise" class="app-menu-icon" />
                                 <span class="app-menu-label">{{ t('menu.convertToPdf') }}</span>
@@ -123,7 +123,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            @click="emit('undo'); close()"
+                            @click="handleMenuCommand('undo')"
                         >
                             <UIcon name="i-ph-arrow-u-up-left" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.undo') }}</span>
@@ -132,7 +132,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            @click="emit('redo'); close()"
+                            @click="handleMenuCommand('redo')"
                         >
                             <UIcon name="i-ph-arrow-u-up-right" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.redo') }}</span>
@@ -142,7 +142,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('insert-image-from-file'); close()"
+                            @click="handleMenuCommand('insert-image-from-file')"
                         >
                             <UIcon name="i-ph-image" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.insertImageFromFile') }}</span>
@@ -150,7 +150,7 @@
                         <button
                             class="app-menu-item"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('paste-image-from-clipboard'); close()"
+                            @click="handleMenuCommand('paste-image-from-clipboard')"
                         >
                             <UIcon name="i-ph-clipboard-text" class="app-menu-icon" />
                             <span class="app-menu-label">{{ t('menu.pasteImageFromClipboard') }}</span>
@@ -207,6 +207,22 @@ const emit = defineEmits<{
     (e: 'paste-image-from-clipboard'): void
 }>();
 
+type TMenuCommand =
+    | 'open-file'
+    | 'save'
+    | 'save-as'
+    | 'print'
+    | 'print-current-page'
+    | 'combine-images'
+    | 'export-docx'
+    | 'export-images'
+    | 'export-multi-page-tiff'
+    | 'convert-to-pdf'
+    | 'undo'
+    | 'redo'
+    | 'insert-image-from-file'
+    | 'paste-image-from-clipboard';
+
 const shortcutLabels = getShortcutLabels();
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
 const menuContentOptions = {
@@ -221,6 +237,23 @@ const menuOpen = computed({
     set: (open: boolean) => emit('update:open', open),
 });
 
+const menuCommandHandlers = {
+    'open-file': () => emit('open-file'),
+    'save': () => emit('save'),
+    'save-as': () => emit('save-as'),
+    'print': () => emit('print'),
+    'print-current-page': () => emit('print-current-page'),
+    'combine-images': () => emit('combine-images'),
+    'export-docx': () => emit('export-docx'),
+    'export-images': () => emit('export-images'),
+    'export-multi-page-tiff': () => emit('export-multi-page-tiff'),
+    'convert-to-pdf': () => emit('convert-to-pdf'),
+    'undo': () => emit('undo'),
+    'redo': () => emit('redo'),
+    'insert-image-from-file': () => emit('insert-image-from-file'),
+    'paste-image-from-clipboard': () => emit('paste-image-from-clipboard'),
+} satisfies Record<TMenuCommand, () => void>;
+
 watch(() => props.open, (open) => {
     if (!open) {
         menuOpen.value = false;
@@ -229,6 +262,11 @@ watch(() => props.open, (open) => {
 
 function close() {
     emit('update:open', false);
+}
+
+function handleMenuCommand(command: TMenuCommand) {
+    menuCommandHandlers[command]();
+    close();
 }
 </script>
 

@@ -3,7 +3,7 @@
         :open="open"
         :title="title"
         :ui="{ footer: 'justify-end' }"
-        @update:open="emit('update:open', $event)"
+        @update:open="handleOpenUpdate"
     >
         <template #description>
             <span class="sr-only">
@@ -23,17 +23,17 @@
                     :label="t('updates.deferAction')"
                     color="neutral"
                     variant="outline"
-                    @click="emit('defer')"
+                    @click="handleDefer"
                 />
                 <UButton
                     :label="t('updates.skipAction')"
                     color="neutral"
                     variant="outline"
-                    @click="emit('skip')"
+                    @click="handleSkip"
                 />
                 <UButton
                     :label="t('updates.installAction')"
-                    @click="emit('install')"
+                    @click="handleInstall"
                 />
             </template>
             <template v-else>
@@ -64,4 +64,20 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+function handleOpenUpdate(open: boolean) {
+    emit('update:open', open);
+}
+
+function handleDefer() {
+    emit('defer');
+}
+
+function handleSkip() {
+    emit('skip');
+}
+
+function handleInstall() {
+    emit('install');
+}
 </script>

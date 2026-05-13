@@ -7,7 +7,7 @@
                 type="button"
                 class="notes-header-btn"
                 :aria-label="t('annotations.placeNoteOnPage')"
-                @click="emit('place-note')"
+                @click="placeNote"
             >
                 <UIcon name="i-ph-chat-circle-dots" />
             </button>
@@ -59,7 +59,7 @@
                         type="button"
                         class="note-item-delete"
                         :aria-label="t('annotations.delete')"
-                        @click.stop="emit('delete-comment', comment)"
+                        @click.stop="deleteComment(comment)"
                     >
                         <UIcon name="i-ph-trash" />
                     </button>
@@ -246,6 +246,14 @@ function focusComment(comment: IAnnotationCommentSummary) {
 function openComment(comment: IAnnotationCommentSummary) {
     emit('focus-comment', comment);
     emit('open-note', comment);
+}
+
+function deleteComment(comment: IAnnotationCommentSummary) {
+    emit('delete-comment', comment);
+}
+
+function placeNote() {
+    emit('place-note');
 }
 
 </script>

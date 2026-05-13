@@ -13,7 +13,7 @@
                     :class="{ 'is-active': tool === toolItem.id }"
                     :data-tool="toolItem.id"
                     :aria-pressed="tool === toolItem.id"
-                    @click="emit('set-tool', tool === toolItem.id ? 'none' : toolItem.id)"
+                    @click="setTool(toolItem.id)"
                 >
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
                 </button>
@@ -93,6 +93,10 @@ const toolItems = computed<IToolItem[]>(() => [
         icon: 'i-ph-arrow-up-right',
     },
 ]);
+
+function setTool(toolId: TAnnotationTool) {
+    emit('set-tool', tool.value === toolId ? 'none' : toolId);
+}
 
 </script>
 

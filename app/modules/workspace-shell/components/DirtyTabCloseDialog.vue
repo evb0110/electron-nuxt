@@ -3,7 +3,7 @@
         :open="open"
         :title="t('tabs.confirmCloseDirtyTitle')"
         :ui="{ footer: 'justify-end' }"
-        @update:open="emit('update:open', $event)"
+        @update:open="handleOpenUpdate"
     >
         <template #description>
             <span class="sr-only">
@@ -26,7 +26,7 @@
             />
             <UButton
                 :label="t('tabs.closeTab')"
-                @click="emit('confirm')"
+                @click="handleConfirm"
             />
         </template>
     </UModal>
@@ -44,4 +44,12 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+function handleOpenUpdate(open: boolean) {
+    emit('update:open', open);
+}
+
+function handleConfirm() {
+    emit('confirm');
+}
 </script>

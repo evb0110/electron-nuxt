@@ -11,7 +11,7 @@
                 :model-value="settings.authorName"
                 :placeholder="t('settings.authorPlaceholder')"
                 icon="i-ph-user"
-                @update:model-value="emit('update:author-name', $event as string)"
+                @update:model-value="updateAuthorName"
             />
             <p class="settings-hint">{{ t('settings.authorDescription') }}</p>
         </div>
@@ -23,7 +23,7 @@
                     type="button"
                     class="settings-seg-btn"
                     :class="{ 'is-active': settings.theme === 'light' }"
-                    @click="emit('update:theme', 'light')"
+                    @click="updateThemeLight"
                 >
                     <UIcon name="i-ph-sun" class="settings-seg-icon" />
                     {{ t('settings.themeLight') }}
@@ -32,7 +32,7 @@
                     type="button"
                     class="settings-seg-btn"
                     :class="{ 'is-active': settings.theme === 'dark' }"
-                    @click="emit('update:theme', 'dark')"
+                    @click="updateThemeDark"
                 >
                     <UIcon name="i-ph-moon" class="settings-seg-icon" />
                     {{ t('settings.themeDark') }}
@@ -48,7 +48,7 @@
                 value-key="value"
                 :icon="selectedFlagIcon"
                 :search-input="false"
-                @update:model-value="emit('update:locale', $event as string | { value: string })"
+                @update:model-value="updateLocale"
             />
         </div>
 
@@ -61,7 +61,7 @@
                     type="button"
                     class="settings-seg-btn"
                     :class="{ 'is-active': settings.uiScale === option.value }"
-                    @click="emit('update:ui-scale', option.value)"
+                    @click="updateUiScale(option.value)"
                 >
                     {{ option.label }}
                 </button>
@@ -124,6 +124,26 @@ const uiScaleOptions = computed<Array<{
         label: t('settings.uiScaleLarge'),
     },
 ]);
+
+function updateAuthorName(value: string | number) {
+    emit('update:author-name', String(value));
+}
+
+function updateThemeLight() {
+    emit('update:theme', 'light');
+}
+
+function updateThemeDark() {
+    emit('update:theme', 'dark');
+}
+
+function updateLocale(value: string | { value: string }) {
+    emit('update:locale', value);
+}
+
+function updateUiScale(value: TUiScalePreference) {
+    emit('update:ui-scale', value);
+}
 </script>
 
 <style lang="scss" scoped>

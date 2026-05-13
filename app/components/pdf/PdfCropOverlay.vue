@@ -5,7 +5,7 @@
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
-        @pointercancel="emit('cancel')"
+        @pointercancel="cancelSelection"
         @contextmenu="handleContextMenu"
         @wheel="handleWheel"
     >
@@ -41,6 +41,10 @@ const {
 } = useEmittedPdfRegionSelectionOverlay(props, emit);
 
 const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
+
+function cancelSelection() {
+    emit('cancel');
+}
 </script>
 
 <style scoped>

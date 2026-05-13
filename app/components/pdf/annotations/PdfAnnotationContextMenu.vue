@@ -19,7 +19,7 @@
                 v-if="!isImageComment"
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('open-note')"
+                @click="openNote"
             >
                 {{ t('contextMenu.openPopUpNote') }}
             </button>
@@ -28,14 +28,14 @@
                 type="button"
                 class="pdf-context-menu__action"
                 :disabled="!canCopy"
-                @click="emit('copy-text')"
+                @click="copyText"
             >
                 {{ t('contextMenu.copyTextToClipboard') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
-                @click="emit('delete')"
+                @click="deleteAnnotation"
             >
                 {{ deleteLabel }}
             </button>
@@ -50,28 +50,28 @@
                 type="button"
                 class="pdf-context-menu__action"
                 :disabled="!canCopySelection"
-                @click="emit('copy-selection-text')"
+                @click="copySelectionText"
             >
                 {{ t('contextMenu.copyTextToClipboard') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('markup', 'highlight')"
+                @click="markupHighlight"
             >
                 {{ t('contextMenu.highlight') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('markup', 'underline')"
+                @click="markupUnderline"
             >
                 {{ t('contextMenu.underline') }}
             </button>
             <button
                 type="button"
                 class="pdf-context-menu__action"
-                @click="emit('markup', 'strikethrough')"
+                @click="markupStrikethrough"
             >
                 {{ t('contextMenu.strikethrough') }}
             </button>
@@ -85,7 +85,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="!canCreateFree"
-            @click="emit('create-free-note')"
+            @click="createFreeNote"
         >
             {{ t('contextMenu.addNoteHere') }}
         </button>
@@ -93,7 +93,7 @@
             v-if="menu.hasSelection"
             type="button"
             class="pdf-context-menu__action"
-            @click="emit('create-selection-note')"
+            @click="createSelectionNote"
         >
             {{ t('contextMenu.addNoteToSelection') }}
         </button>
@@ -105,7 +105,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="!canInsertImage"
-            @click="emit('insert-image-from-file')"
+            @click="insertImageFromFile"
         >
             {{ t('contextMenu.insertImageFromFile') }}
         </button>
@@ -113,7 +113,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="!canInsertImage"
-            @click="emit('paste-image-from-clipboard')"
+            @click="pasteImageFromClipboard"
         >
             {{ t('contextMenu.pasteImageFromClipboard') }}
         </button>
@@ -164,6 +164,50 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+function openNote() {
+    emit('open-note');
+}
+
+function copyText() {
+    emit('copy-text');
+}
+
+function copySelectionText() {
+    emit('copy-selection-text');
+}
+
+function deleteAnnotation() {
+    emit('delete');
+}
+
+function markupHighlight() {
+    emit('markup', 'highlight');
+}
+
+function markupUnderline() {
+    emit('markup', 'underline');
+}
+
+function markupStrikethrough() {
+    emit('markup', 'strikethrough');
+}
+
+function createFreeNote() {
+    emit('create-free-note');
+}
+
+function createSelectionNote() {
+    emit('create-selection-note');
+}
+
+function insertImageFromFile() {
+    emit('insert-image-from-file');
+}
+
+function pasteImageFromClipboard() {
+    emit('paste-image-from-clipboard');
+}
 </script>
 
 <style scoped>

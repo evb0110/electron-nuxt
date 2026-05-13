@@ -13,9 +13,9 @@
             :label-text="marker.ariaLabel"
             :left-percent="marker.leftPercent"
             :top-percent="marker.topPercent"
-            @open-note="emit('openNote', $event)"
-            @context-menu="(comment, event) => emit('contextMenu', comment, event)"
-            @move-marker="(comment, rect) => emit('moveMarker', comment, rect)"
+            @open-note="openNote"
+            @context-menu="openContextMenu"
+            @move-marker="moveMarker"
         />
     </div>
 </template>
@@ -38,6 +38,18 @@ const emit = defineEmits<{
     contextMenu: [comment: IAnnotationCommentSummary, event: MouseEvent];
     moveMarker: [comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect];
 }>();
+
+function openNote(comment: IAnnotationCommentSummary) {
+    emit('openNote', comment);
+}
+
+function openContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent) {
+    emit('contextMenu', comment, event);
+}
+
+function moveMarker(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
+    emit('moveMarker', comment, markerRect);
+}
 </script>
 
 <style scoped>

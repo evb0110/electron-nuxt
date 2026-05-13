@@ -5,8 +5,8 @@
         :total-pages="totalPages"
         :current-page="currentPage"
         :selected-pages="exportScopeDialogSelectedPages"
-        @submit="emit('export-submit', $event)"
-        @update:open="emit('export-open-change', $event)"
+        @submit="handleExportSubmit"
+        @update:open="handleExportOpenChange"
     />
 
     <PdfPrintDialog
@@ -18,8 +18,8 @@
         :is-preparing="isPreparingPrint"
         :status="printStatus"
         :error="printError"
-        @submit="emit('print-submit', $event)"
-        @update:open="emit('print-open-change', $event)"
+        @submit="handlePrintSubmit"
+        @update:open="handlePrintOpenChange"
     />
 
     <PdfCropDialog
@@ -32,17 +32,17 @@
         :media-box="cropDialogMediaBox"
         :current-visible-box="cropDialogCurrentBox"
         :rotation="cropDialogRotation"
-        @apply="emit('crop-apply', $event)"
-        @remove="emit('crop-remove', $event)"
-        @update:open="emit('crop-open-change', $event)"
+        @apply="handleCropApply"
+        @remove="handleCropRemove"
+        @update:open="handleCropOpenChange"
     />
 
     <DjvuConvertDialog
         v-if="canUseDjvu && isDjvuMode"
         :open="showConvertDialog"
         :djvu-path="djvuPath"
-        @convert="(subsample, preserveBookmarks) => emit('djvu-convert', subsample, preserveBookmarks)"
-        @update:open="emit('convert-open-change', $event)"
+        @convert="handleDjvuConvert"
+        @update:open="handleConvertOpenChange"
     />
 </template>
 
@@ -96,4 +96,40 @@ const emit = defineEmits<{
     'djvu-convert': TRequiredHandler<TDjvuConvertDialogProps['onConvert']>;
     'convert-open-change': [value: boolean];
 }>();
+
+function handleExportSubmit(payload: TRequiredHandler<TPdfExportScopeDialogProps['onSubmit']>[0]) {
+    emit('export-submit', payload);
+}
+
+function handleExportOpenChange(value: boolean) {
+    emit('export-open-change', value);
+}
+
+function handlePrintSubmit(payload: TRequiredHandler<TPdfPrintDialogProps['onSubmit']>[0]) {
+    emit('print-submit', payload);
+}
+
+function handlePrintOpenChange(value: boolean) {
+    emit('print-open-change', value);
+}
+
+function handleCropApply(payload: TRequiredHandler<TPdfCropDialogProps['onApply']>[0]) {
+    emit('crop-apply', payload);
+}
+
+function handleCropRemove(payload: TRequiredHandler<TPdfCropDialogProps['onRemove']>[0]) {
+    emit('crop-remove', payload);
+}
+
+function handleCropOpenChange(value: boolean) {
+    emit('crop-open-change', value);
+}
+
+function handleDjvuConvert(...args: TRequiredHandler<TDjvuConvertDialogProps['onConvert']>) {
+    emit('djvu-convert', ...args);
+}
+
+function handleConvertOpenChange(value: boolean) {
+    emit('convert-open-change', value);
+}
 </script>

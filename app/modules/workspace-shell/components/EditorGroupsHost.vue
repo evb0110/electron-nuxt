@@ -14,22 +14,22 @@
             :zen-active-tab-id="zenActiveTabId"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
-            @activate-group="emit('activate-group', $event)"
-            @activate-tab="(groupId: string, tabId: string) => emit('activate-tab', groupId, tabId)"
-            @close-tab="(groupId: string, tabId: string) => emit('close-tab', groupId, tabId)"
-            @new-tab="emit('new-tab', $event)"
-            @reorder-tab="(groupId: string, fromIndex: number, toIndex: number) => emit('reorder-tab', groupId, fromIndex, toIndex)"
-            @move-tab-direction="(groupId: string, tabId: string, direction: 'left' | 'right') => emit('move-tab-direction', groupId, tabId, direction)"
-            @tab-context-command="(groupId: string, tabId: string, command: TTabContextCommand) => emit('tab-context-command', groupId, tabId, command)"
-            @set-workspace-ref="(tabId: string, el: unknown) => emit('set-workspace-ref', tabId, el)"
-            @update-tab="(tabId: string, updates: TTabUpdate) => emit('update-tab', tabId, updates)"
-            @update-tab-start-section="(tabId: string, section: TStartSection) => emit('update-tab-start-section', tabId, section)"
-            @open-in-new-tab="(result: string | TOpenFileResult, groupId?: string) => emit('open-in-new-tab', result, groupId)"
-            @request-close-tab="(groupId: string, tabId: string) => emit('request-close-tab', groupId, tabId)"
-            @open-settings="emit('open-settings')"
-            @open-combine="emit('open-combine')"
-            @toggle-fullscreen="emit('toggle-fullscreen')"
-            @update-split-ratio="(splitId: string, ratio: number) => emit('update-split-ratio', splitId, ratio)"
+            @activate-group="handleActivateGroup"
+            @activate-tab="handleActivateTab"
+            @close-tab="handleCloseTab"
+            @new-tab="handleNewTab"
+            @reorder-tab="handleReorderTab"
+            @move-tab-direction="handleMoveTabDirection"
+            @tab-context-command="handleTabContextCommand"
+            @set-workspace-ref="handleSetWorkspaceRef"
+            @update-tab="handleUpdateTab"
+            @update-tab-start-section="handleUpdateTabStartSection"
+            @open-in-new-tab="handleOpenInNewTab"
+            @request-close-tab="handleRequestCloseTab"
+            @open-settings="handleOpenSettings"
+            @open-combine="handleOpenCombine"
+            @toggle-fullscreen="handleToggleFullscreen"
+            @update-split-ratio="handleUpdateSplitRatio"
         />
     </div>
 </template>
@@ -86,4 +86,68 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
 }>();
+
+function handleActivateGroup(groupId: string) {
+    emit('activate-group', groupId);
+}
+
+function handleActivateTab(groupId: string, tabId: string) {
+    emit('activate-tab', groupId, tabId);
+}
+
+function handleCloseTab(groupId: string, tabId: string) {
+    emit('close-tab', groupId, tabId);
+}
+
+function handleNewTab(groupId: string) {
+    emit('new-tab', groupId);
+}
+
+function handleReorderTab(groupId: string, fromIndex: number, toIndex: number) {
+    emit('reorder-tab', groupId, fromIndex, toIndex);
+}
+
+function handleMoveTabDirection(groupId: string, tabId: string, direction: 'left' | 'right') {
+    emit('move-tab-direction', groupId, tabId, direction);
+}
+
+function handleTabContextCommand(groupId: string, tabId: string, command: TTabContextCommand) {
+    emit('tab-context-command', groupId, tabId, command);
+}
+
+function handleSetWorkspaceRef(tabId: string, el: unknown) {
+    emit('set-workspace-ref', tabId, el);
+}
+
+function handleUpdateTab(tabId: string, updates: TTabUpdate) {
+    emit('update-tab', tabId, updates);
+}
+
+function handleUpdateTabStartSection(tabId: string, section: TStartSection) {
+    emit('update-tab-start-section', tabId, section);
+}
+
+function handleOpenInNewTab(result: string | TOpenFileResult, groupId?: string) {
+    emit('open-in-new-tab', result, groupId);
+}
+
+function handleRequestCloseTab(groupId: string, tabId: string) {
+    emit('request-close-tab', groupId, tabId);
+}
+
+function handleOpenSettings() {
+    emit('open-settings');
+}
+
+function handleOpenCombine() {
+    emit('open-combine');
+}
+
+function handleToggleFullscreen() {
+    emit('toggle-fullscreen');
+}
+
+function handleUpdateSplitRatio(splitId: string, ratio: number) {
+    emit('update-split-ratio', splitId, ratio);
+}
 </script>
