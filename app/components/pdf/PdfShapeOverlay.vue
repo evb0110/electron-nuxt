@@ -41,10 +41,10 @@
             />
             <ellipse
                 v-if="shape.type === 'circle'"
-                :cx="shape.x + shape.width / 2"
-                :cy="shape.y + shape.height / 2"
-                :rx="shape.width / 2"
-                :ry="shape.height / 2"
+                :cx="shapeCenterX(shape)"
+                :cy="shapeCenterY(shape)"
+                :rx="shapeRadiusX(shape)"
+                :ry="shapeRadiusY(shape)"
                 class="shape-hit-target"
                 fill="transparent"
                 stroke="transparent"
@@ -54,10 +54,10 @@
             />
             <line
                 v-if="shape.type === 'line' || shape.type === 'arrow'"
-                :x1="lineVisibleSegment(shape).x1"
-                :y1="lineVisibleSegment(shape).y1"
-                :x2="lineVisibleSegment(shape).x2"
-                :y2="lineVisibleSegment(shape).y2"
+                :x1="lineVisibleX1(shape)"
+                :y1="lineVisibleY1(shape)"
+                :x2="lineVisibleX2(shape)"
+                :y2="lineVisibleY2(shape)"
                 class="shape-hit-target"
                 stroke="transparent"
                 :stroke-width="interactionStrokeWidth(shape)"
@@ -104,10 +104,10 @@
             />
             <ellipse
                 v-if="shape.type === 'circle'"
-                :cx="shape.x + shape.width / 2"
-                :cy="shape.y + shape.height / 2"
-                :rx="shape.width / 2"
-                :ry="shape.height / 2"
+                :cx="shapeCenterX(shape)"
+                :cy="shapeCenterY(shape)"
+                :rx="shapeRadiusX(shape)"
+                :ry="shapeRadiusY(shape)"
                 :stroke="shape.color"
                 :fill="shape.fillColor ?? 'none'"
                 :opacity="shape.opacity"
@@ -116,10 +116,10 @@
             />
             <line
                 v-if="shape.type === 'line' || shape.type === 'arrow'"
-                :x1="lineVisibleSegment(shape).x1"
-                :y1="lineVisibleSegment(shape).y1"
-                :x2="lineVisibleSegment(shape).x2"
-                :y2="lineVisibleSegment(shape).y2"
+                :x1="lineVisibleX1(shape)"
+                :y1="lineVisibleY1(shape)"
+                :x2="lineVisibleX2(shape)"
+                :y2="lineVisibleY2(shape)"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
@@ -197,10 +197,10 @@
             />
             <ellipse
                 v-if="drawingShape.type === 'circle'"
-                :cx="drawingShape.x + drawingShape.width / 2"
-                :cy="drawingShape.y + drawingShape.height / 2"
-                :rx="drawingShape.width / 2"
-                :ry="drawingShape.height / 2"
+                :cx="shapeCenterX(drawingShape)"
+                :cy="shapeCenterY(drawingShape)"
+                :rx="shapeRadiusX(drawingShape)"
+                :ry="shapeRadiusY(drawingShape)"
                 :stroke="drawingShape.color"
                 :fill="drawingShape.fillColor ?? 'none'"
                 :opacity="drawingShape.opacity"
@@ -210,10 +210,10 @@
             />
             <line
                 v-if="drawingShape.type === 'line' || drawingShape.type === 'arrow'"
-                :x1="lineVisibleSegment(drawingShape).x1"
-                :y1="lineVisibleSegment(drawingShape).y1"
-                :x2="lineVisibleSegment(drawingShape).x2"
-                :y2="lineVisibleSegment(drawingShape).y2"
+                :x1="lineVisibleX1(drawingShape)"
+                :y1="lineVisibleY1(drawingShape)"
+                :x2="lineVisibleX2(drawingShape)"
+                :y2="lineVisibleY2(drawingShape)"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
                 :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
@@ -285,23 +285,23 @@
             :key="`resize-${resizeHandle.handle}`"
             class="selection-resize-handle"
             :class="`selection-resize-handle--${resizeHandle.handle}`"
-            :x="resizeHandle.x - resizeHandleSize.width / 2"
-            :y="resizeHandle.y - resizeHandleSize.height / 2"
+            :x="resizeHandleX(resizeHandle)"
+            :y="resizeHandleY(resizeHandle)"
             :width="resizeHandleSize.width"
             :height="resizeHandleSize.height"
             rx="0.004"
             ry="0.004"
             vector-effect="non-scaling-stroke"
-            @pointerdown.stop.prevent="handleResizeHandlePointerDown(resizeHandle.handle, $event)"
+            @pointerdown.stop.prevent="handleResizeHandlePointerDownEvent(resizeHandle, $event)"
         />
 
         <rect
             v-if="selectedShapeId && selectedShapeBounds"
             class="selection-outline"
-            :x="selectedShapeBounds.x - 0.003"
-            :y="selectedShapeBounds.y - 0.003"
-            :width="selectedShapeBounds.width + 0.006"
-            :height="selectedShapeBounds.height + 0.006"
+            :x="selectedShapeOutline.x"
+            :y="selectedShapeOutline.y"
+            :width="selectedShapeOutline.width"
+            :height="selectedShapeOutline.height"
             fill="none"
             stroke-width="1"
             stroke-dasharray="4 2"
@@ -336,6 +336,12 @@ interface IProps {
 }
 
 const props = defineProps<IProps>();
+const {
+    isActive,
+    isAnnotationToolActive,
+    selectedShapeId,
+    shapes,
+} = toRefs(props);
 
 const emit = defineEmits<{
     (e: 'start-drawing', payload: {
@@ -379,6 +385,7 @@ const emit = defineEmits<{
 const svgRef = ref<SVGSVGElement | null>(null);
 const svgWidth = ref(1);
 const svgHeight = ref(1);
+const SELECTION_OUTLINE_PADDING = 0.003;
 const RESIZE_HANDLES: TShapeResizeHandle[] = [
     'nw',
     'ne',
@@ -509,6 +516,38 @@ function lineVisibleSegment(shape: IShapeAnnotation) {
     };
 }
 
+function lineVisibleX1(shape: IShapeAnnotation) {
+    return lineVisibleSegment(shape).x1;
+}
+
+function lineVisibleY1(shape: IShapeAnnotation) {
+    return lineVisibleSegment(shape).y1;
+}
+
+function lineVisibleX2(shape: IShapeAnnotation) {
+    return lineVisibleSegment(shape).x2;
+}
+
+function lineVisibleY2(shape: IShapeAnnotation) {
+    return lineVisibleSegment(shape).y2;
+}
+
+function shapeCenterX(shape: IShapeAnnotation) {
+    return shape.x + shape.width / 2;
+}
+
+function shapeCenterY(shape: IShapeAnnotation) {
+    return shape.y + shape.height / 2;
+}
+
+function shapeRadiusX(shape: IShapeAnnotation) {
+    return shape.width / 2;
+}
+
+function shapeRadiusY(shape: IShapeAnnotation) {
+    return shape.height / 2;
+}
+
 function shapePoints(shape: IShapeAnnotation) {
     return shape.points ? formatSvgPoints(shape.points) : '';
 }
@@ -518,10 +557,10 @@ function shapeStrokePointSets(shape: IShapeAnnotation) {
 }
 
 const selectedShapeBounds = computed(() => {
-    if (!props.selectedShapeId) {
+    if (!selectedShapeId.value) {
         return null;
     }
-    const shape = props.shapes.find(s => s.id === props.selectedShapeId);
+    const shape = shapes.value.find(s => s.id === selectedShapeId.value);
     if (!shape) {
         return null;
     }
@@ -529,8 +568,8 @@ const selectedShapeBounds = computed(() => {
 });
 
 const selectedShape = computed(() => (
-    props.selectedShapeId
-        ? props.shapes.find(shape => shape.id === props.selectedShapeId) ?? null
+    selectedShapeId.value
+        ? shapes.value.find(shape => shape.id === selectedShapeId.value) ?? null
         : null
 ));
 
@@ -538,10 +577,10 @@ const resizeHandleSize = computed(() => ({
     width: 10 / Math.max(svgWidth.value, 1),
     height: 10 / Math.max(svgHeight.value, 1),
 }));
-const isAnnotationToolBlocked = computed(() => props.isAnnotationToolActive && !props.isActive);
+const isAnnotationToolBlocked = computed(() => isAnnotationToolActive.value && !isActive.value);
 
 const resizeHandles = computed(() => {
-    if (!selectedShape.value || !selectedShapeBounds.value || props.isActive) {
+    if (!selectedShape.value || !selectedShapeBounds.value || isActive.value) {
         return [];
     }
 
@@ -576,11 +615,11 @@ const resizeHandles = computed(() => {
 });
 
 const selectedShapeContextBounds = computed(() => {
-    if (!props.selectedShapeId || !selectedShapeBounds.value) {
+    if (!selectedShapeId.value || !selectedShapeBounds.value) {
         return null;
     }
 
-    const selectedShape = props.shapes.find(shape => shape.id === props.selectedShapeId) ?? null;
+    const selectedShape = shapes.value.find(shape => shape.id === selectedShapeId.value) ?? null;
     if (!selectedShape) {
         return null;
     }
@@ -591,6 +630,40 @@ const selectedShapeContextBounds = computed(() => {
 
     return selectedShapeBounds.value;
 });
+
+const selectedShapeOutline = computed(() => {
+    const bounds = selectedShapeBounds.value;
+    if (!selectedShapeId.value || !bounds) {
+        return {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        };
+    }
+
+    return {
+        x: bounds.x - SELECTION_OUTLINE_PADDING,
+        y: bounds.y - SELECTION_OUTLINE_PADDING,
+        width: bounds.width + SELECTION_OUTLINE_PADDING * 2,
+        height: bounds.height + SELECTION_OUTLINE_PADDING * 2,
+    };
+});
+
+function resizeHandleX(resizeHandle: { x: number }) {
+    return resizeHandle.x - resizeHandleSize.value.width / 2;
+}
+
+function resizeHandleY(resizeHandle: { y: number }) {
+    return resizeHandle.y - resizeHandleSize.value.height / 2;
+}
+
+function handleResizeHandlePointerDownEvent(
+    resizeHandle: { handle: TShapeResizeHandle },
+    event: PointerEvent,
+) {
+    handleResizeHandlePointerDown(resizeHandle.handle, event);
+}
 
 const {
     handleContextMenu,

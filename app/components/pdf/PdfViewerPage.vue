@@ -27,17 +27,17 @@
             :selection-enabled="shapeContext.isSelectionToolActive.value"
             :tool="shapeContext.activeShapeTool.value"
             :settings="shapeContext.settings.value"
-            @start-drawing="shapeContext.handleStartDrawing(page - 1, $event)"
-            @continue-drawing="shapeContext.handleContinueDrawing($event)"
-            @finish-drawing="shapeContext.handleFinishDrawing()"
-            @start-drag-shape="shapeContext.handleStartDraggingShape($event.shapeId, $event)"
-            @continue-drag-shape="shapeContext.handleContinueDraggingShape($event)"
-            @finish-drag-shape="shapeContext.handleFinishDraggingShape()"
-            @start-resize-shape="shapeContext.handleStartResizingShape($event.shapeId, $event.handle, $event)"
-            @continue-resize-shape="shapeContext.handleContinueResizingShape($event)"
-            @finish-resize-shape="shapeContext.handleFinishResizingShape()"
-            @select-shape="shapeContext.handleSelectShape($event)"
-            @shape-contextmenu="shapeContext.handleShapeContextMenu($event)"
+            @start-drawing="startDrawingShape"
+            @continue-drawing="continueDrawingShape"
+            @finish-drawing="finishDrawingShape"
+            @start-drag-shape="startDraggingShape"
+            @continue-drag-shape="continueDraggingShape"
+            @finish-drag-shape="finishDraggingShape"
+            @start-resize-shape="startResizingShape"
+            @continue-resize-shape="continueResizingShape"
+            @finish-resize-shape="finishResizingShape"
+            @select-shape="selectShape"
+            @shape-contextmenu="openShapeContextMenu"
         />
         <PdfPageSkeleton
             v-if="showSkeleton"
@@ -54,6 +54,10 @@ import PdfImagePlacementOverlay from '@app/components/pdf/PdfImagePlacementOverl
 import PdfShapeOverlay from '@app/components/pdf/PdfShapeOverlay.vue';
 import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonInsets';
 import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
+import type {
+    IShapePoint,
+    TShapeResizeHandle,
+} from '@app/types/annotations';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -110,4 +114,55 @@ const pageDrawingShape = computed(() => {
     }
     return drawing;
 });
+
+function startDrawingShape(coords: IShapePoint) {
+    shapeContext?.handleStartDrawing(page - 1, coords);
+}
+
+function continueDrawingShape(coords: IShapePoint) {
+    shapeContext?.handleContinueDrawing(coords);
+}
+
+function finishDrawingShape() {
+    shapeContext?.handleFinishDrawing();
+}
+
+function startDraggingShape(payload: IShapePoint & { shapeId: string }) {
+    shapeContext?.handleStartDraggingShape(payload.shapeId, payload);
+}
+
+function continueDraggingShape(coords: IShapePoint) {
+    shapeContext?.handleContinueDraggingShape(coords);
+}
+
+function finishDraggingShape() {
+    shapeContext?.handleFinishDraggingShape();
+}
+
+function startResizingShape(payload: IShapePoint & {
+    shapeId: string;
+    handle: TShapeResizeHandle;
+}) {
+    shapeContext?.handleStartResizingShape(payload.shapeId, payload.handle, payload);
+}
+
+function continueResizingShape(coords: IShapePoint) {
+    shapeContext?.handleContinueResizingShape(coords);
+}
+
+function finishResizingShape() {
+    shapeContext?.handleFinishResizingShape();
+}
+
+function selectShape(id: string | null) {
+    shapeContext?.handleSelectShape(id);
+}
+
+function openShapeContextMenu(payload: {
+    shapeId: string;
+    clientX: number;
+    clientY: number;
+}) {
+    shapeContext?.handleShapeContextMenu(payload);
+}
 </script>

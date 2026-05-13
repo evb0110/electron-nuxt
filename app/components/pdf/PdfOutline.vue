@@ -4,8 +4,8 @@
             :display-mode="displayMode"
             :is-edit-mode="isEditMode"
             @set-display-mode="setDisplayMode"
-            @toggle-edit-mode="isEditMode = !isEditMode"
-            @add-root-bookmark="editing.addRootBookmark()"
+            @toggle-edit-mode="toggleEditMode"
+            @add-root-bookmark="addRootBookmark"
         />
 
         <div
@@ -30,7 +30,7 @@
                 type="button"
                 class="pdf-bookmarks-empty-action"
                 :aria-label="t('bookmarks.addFirst')"
-                @click="editing.addRootBookmark()"
+                @click="addRootBookmark"
             >
                 <UIcon
                     name="i-ph-plus"
@@ -54,18 +54,18 @@
                 @activate="handleActivate"
                 @toggle-expand="toggleExpanded"
                 @open-actions="openBookmarkContextMenu"
-                @save-edit="editing.renameBookmark($event)"
-                @cancel-edit="editing.cancelEditingBookmark()"
-                @drag-start="dragDrop.handleBookmarkDragStart($event)"
-                @drag-hover="dragDrop.handleBookmarkDragHover($event)"
+                @save-edit="renameBookmark"
+                @cancel-edit="cancelEditingBookmark"
+                @drag-start="handleBookmarkDragStart"
+                @drag-hover="handleBookmarkDragHover"
                 @drop-bookmark="handleBookmarkDrop"
-                @drag-end="dragDrop.handleBookmarkDragEnd()"
+                @drag-end="handleBookmarkDragEnd"
             />
             <div
                 v-if="isEditMode"
                 class="pdf-bookmarks-drop-end"
                 :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
-                @dragover.prevent="dragDrop.handleTreeEndDragOver()"
+                @dragover.prevent="handleTreeEndDragOver"
                 @drop.prevent="handleTreeEndDrop"
             />
         </div>
@@ -78,16 +78,16 @@
             :style-range-start-id="styleRangeStartId"
             :can-apply-style-range="canApplyStyleRange"
             :apply-style-range-label="applyStyleRangeLabel"
-            @edit="editing.startEditingBookmark($event)"
-            @add-sibling-above="editing.addSiblingAbove($event)"
-            @add-sibling-below="editing.addSiblingBelow($event)"
-            @add-child="editing.addChildBookmark($event)"
-            @toggle-bold="editing.toggleBookmarkBold($event)"
-            @toggle-italic="editing.toggleBookmarkItalic($event)"
-            @set-color="editing.setBookmarkColor($event.id, $event.color)"
+            @edit="startEditingBookmark"
+            @add-sibling-above="addSiblingAbove"
+            @add-sibling-below="addSiblingBelow"
+            @add-child="addChildBookmark"
+            @toggle-bold="toggleBookmarkBold"
+            @toggle-italic="toggleBookmarkItalic"
+            @set-color="setBookmarkColor"
             @set-style-range-start="setStyleRangeStart"
             @apply-style-to-range="applyContextStyleToRange"
-            @remove="editing.removeBookmark($event)"
+            @remove="removeBookmark"
         />
     </div>
 </template>
@@ -124,7 +124,11 @@ interface IProps {
     isEditMode: boolean;
 }
 
-const props = defineProps<IProps>();
+const {
+    currentPage,
+    isEditMode: isEditModeProp,
+    pdfDocument: pdfDocumentProp,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'goToPage', page: number): void;
@@ -139,6 +143,10 @@ function goToPage(page: number) {
     emit('goToPage', page);
 }
 
+function toggleEditMode() {
+    isEditMode.value = !isEditMode.value;
+}
+
 const { t } = useTypedI18n();
 
 const bookmarks = ref<IBookmarkItem[]>([]);
@@ -149,11 +157,11 @@ const expandedBookmarkIds = ref<Set<string>>(new Set());
 const styleRangeStartId = ref<string | null>(null);
 
 const isEditMode = computed({
-    get: () => props.isEditMode,
+    get: () => isEditModeProp,
     set: (value: boolean) => emit('update:isEditMode', value),
 });
 
-const currentPageRef = computed(() => props.currentPage);
+const currentPageRef = computed(() => currentPage);
 
 const parentBookmarkIdMap = computed(() => {
     const map = new Map<string, string | null>();
@@ -267,6 +275,72 @@ const editing = usePdfOutlineEditing(
     createBookmarkId,
 );
 
+function addRootBookmark() {
+    editing.addRootBookmark();
+}
+
+function renameBookmark(payload: {
+    id: string;
+    title: string;
+}) {
+    editing.renameBookmark(payload);
+}
+
+function cancelEditingBookmark() {
+    editing.cancelEditingBookmark();
+}
+
+function handleBookmarkDragStart(payload: { id: string }) {
+    dragDrop.handleBookmarkDragStart(payload);
+}
+
+function handleBookmarkDragHover(payload: IBookmarkDropPayload) {
+    dragDrop.handleBookmarkDragHover(payload);
+}
+
+function handleBookmarkDragEnd() {
+    dragDrop.handleBookmarkDragEnd();
+}
+
+function handleTreeEndDragOver() {
+    dragDrop.handleTreeEndDragOver();
+}
+
+function startEditingBookmark(id: string) {
+    editing.startEditingBookmark(id);
+}
+
+function addSiblingAbove(id: string) {
+    editing.addSiblingAbove(id);
+}
+
+function addSiblingBelow(id: string) {
+    editing.addSiblingBelow(id);
+}
+
+function addChildBookmark(id: string) {
+    editing.addChildBookmark(id);
+}
+
+function toggleBookmarkBold(id: string) {
+    editing.toggleBookmarkBold(id);
+}
+
+function toggleBookmarkItalic(id: string) {
+    editing.toggleBookmarkItalic(id);
+}
+
+function setBookmarkColor(payload: {
+    id: string;
+    color: string | null;
+}) {
+    editing.setBookmarkColor(payload.id, payload.color);
+}
+
+function removeBookmark(id: string) {
+    editing.removeBookmark(id);
+}
+
 provide(PDF_OUTLINE_TREE_KEY, {
     expandedBookmarkIds,
     activeItemId,
@@ -302,7 +376,7 @@ function setBookmarkBaseline() {
 }
 
 function updateActiveItemFromCurrentPage() {
-    const pageIndex = Math.max(0, (props.currentPage || 1) - 1);
+    const pageIndex = Math.max(0, (currentPage || 1) - 1);
     let active: IBookmarkItem | null = null;
 
     for (const item of flatBookmarks.value) {
@@ -341,7 +415,7 @@ function clearLoadedOutline() {
 function isStaleOutlineRun(runId: number, pdfDocument: PDFDocumentProxy) {
     return (
         runId !== outlineRunId ||
-        props.pdfDocument !== pdfDocument ||
+        pdfDocumentProp !== pdfDocument ||
         !isPdfDocumentUsable(pdfDocument)
     );
 }
@@ -408,7 +482,7 @@ async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
 }
 
 async function loadOutline() {
-    const pdfDocument = props.pdfDocument;
+    const pdfDocument = pdfDocumentProp;
     outlineRunId += 1;
     const runId = outlineRunId;
     resetOutlineInteractionState();
@@ -476,13 +550,13 @@ function handleTreeEndDrop() {
 }
 
 watch(
-    () => props.pdfDocument,
+    () => pdfDocumentProp,
     () => loadOutline(),
     { immediate: true },
 );
 
 watch(
-    () => props.currentPage,
+    () => currentPage,
     () => updateActiveItemFromCurrentPage(),
 );
 

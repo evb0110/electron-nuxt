@@ -97,7 +97,7 @@
             :class="splitNode!.orientation === 'horizontal' ? 'is-vertical-line' : 'is-horizontal-line'"
             role="separator"
             :aria-orientation="splitNode!.orientation === 'horizontal' ? 'vertical' : 'horizontal'"
-            @pointerdown.prevent="(event) => startResize(event, splitNode!.id, splitNode!.orientation)"
+            @pointerdown.prevent="handleSplitResizePointerDown"
         />
 
         <div
@@ -163,7 +163,13 @@ import type { TStartSection } from '@app/types/start-page';
 
 defineOptions({name: 'EditorGroupsGrid'});
 
-const props = defineProps<{
+const {
+    groups,
+    node,
+    tabs,
+    zenActiveTabId,
+    zenMode,
+} = defineProps<{
     node: TEditorLayoutNode;
     groups: IEditorGroupState[];
     tabs: ITab[];
@@ -199,19 +205,19 @@ const emit = defineEmits<{
 
 const splitContainerRef = ref<HTMLElement | null>(null);
 const workspaceRefHandlersByTabId = new Map<string, (el: unknown) => void>();
-const hasMultipleGroups = computed(() => props.groups.length > 1);
-const leafNode = computed(() => (props.node.type === 'leaf' ? props.node : null));
-const splitNode = computed<IEditorLayoutSplitNode | null>(() => (props.node.type === 'split' ? props.node : null));
+const hasMultipleGroups = computed(() => groups.length > 1);
+const leafNode = computed(() => (node.type === 'leaf' ? node : null));
+const splitNode = computed<IEditorLayoutSplitNode | null>(() => (node.type === 'split' ? node : null));
 const groupById = computed(() => {
     const map = new Map<string, IEditorGroupState>();
-    for (const group of props.groups) {
+    for (const group of groups) {
         map.set(group.id, group);
     }
     return map;
 });
 const tabById = computed(() => {
     const map = new Map<string, ITab>();
-    for (const tab of props.tabs) {
+    for (const tab of tabs) {
         map.set(tab.id, tab);
     }
     return map;
@@ -220,7 +226,7 @@ const tabsByGroupId = computed(() => {
     const map = new Map<string, ITab[]>();
     const tabLookup = tabById.value;
 
-    for (const group of props.groups) {
+    for (const group of groups) {
         const groupTabs: ITab[] = [];
         for (const tabId of group.tabIds) {
             const tab = tabLookup.get(tabId);
@@ -238,17 +244,17 @@ const firstPaneStyle = computed(() => {
         return undefined;
     }
 
-    if (props.zenMode) {
+    if (zenMode) {
         return {flexBasis: '100%'};
     }
 
     return {flexBasis: `${clamp(splitNode.value.ratio, 0.15, 0.85) * 100}%`};
 });
 const firstPaneHasZenActiveTab = computed(() => (
-    Boolean(splitNode.value && nodeContainsTab(splitNode.value.first, props.zenActiveTabId))
+    Boolean(splitNode.value && nodeContainsTab(splitNode.value.first, zenActiveTabId))
 ));
 const secondPaneHasZenActiveTab = computed(() => (
-    Boolean(splitNode.value && nodeContainsTab(splitNode.value.second, props.zenActiveTabId))
+    Boolean(splitNode.value && nodeContainsTab(splitNode.value.second, zenActiveTabId))
 ));
 
 const groupForLeaf = computed(() => {
@@ -262,11 +268,11 @@ const groupForLeaf = computed(() => {
 
 function tabsForGroup(groupId: string) {
     const groupTabs = tabsByGroupId.value.get(groupId) ?? [];
-    if (!props.zenMode || !props.zenActiveTabId) {
+    if (!zenMode || !zenActiveTabId) {
         return groupTabs;
     }
 
-    return groupTabs.filter(tab => tab.id === props.zenActiveTabId);
+    return groupTabs.filter(tab => tab.id === zenActiveTabId);
 }
 
 function nodeContainsTab(node: TEditorLayoutNode, tabId: string | null): boolean {
@@ -489,12 +495,20 @@ function startResize(event: PointerEvent, splitId: string, orientation: TGroupOr
     }
 }
 
+function handleSplitResizePointerDown(event: PointerEvent) {
+    const split = splitNode.value;
+    if (!split) {
+        return;
+    }
+    startResize(event, split.id, split.orientation);
+}
+
 onUnmounted(() => {
     clearResizeListeners();
     workspaceRefHandlersByTabId.clear();
 });
 
-watch(() => props.tabs, (tabs) => {
+watch(() => tabs, (tabs) => {
     const activeTabIds = new Set(tabs.map(tab => tab.id));
     for (const tabId of workspaceRefHandlersByTabId.keys()) {
         if (!activeTabIds.has(tabId)) {
