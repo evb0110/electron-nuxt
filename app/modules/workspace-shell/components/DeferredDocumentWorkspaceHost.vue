@@ -617,7 +617,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
             return;
         }
 
-        await openPath(file.originalPath, 'openRecentFromPlaceholder');
+        await withWorkspace('openRecentFromPlaceholder', workspace => workspace.openRecentFile(file));
     });
 }
 
@@ -726,6 +726,11 @@ const workspaceExpose: IWorkspaceExpose = {
     },
     handleCloseFileFromUi: async (options) => {
         await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options));
+    },
+    openRecentFile: async (file: IRecentFile) => {
+        await enqueueDocumentOpen(async () => {
+            await withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file));
+        });
     },
     handleExportDocx: async () => {
         await withLoadedWorkspace('handleExportDocx', workspace => workspace.handleExportDocx());

@@ -183,6 +183,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleOpenFileDirectBatchWithPersist: deps.handleOpenFileDirectBatchWithPersist,
         handleOpenFileWithResult: deps.handleOpenFileWithResult,
         handleCloseFileFromUi: deps.handleCloseFileFromUi,
+        openRecentFile: deps.openRecentFile,
         handleExportDocx: deps.handleExportDocx,
         handleExportImages: deps.handleExportImages,
         handleExportMultiPageTiff: deps.handleExportMultiPageTiff,

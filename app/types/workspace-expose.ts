@@ -4,6 +4,7 @@ import type {
 } from '@contracts/platform-api';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import type {
+    IRecentFile,
     TFitMode,
     TZoomMode,
     TPdfViewMode,
@@ -88,6 +89,7 @@ export interface IWorkspaceFilePort {
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
+    openRecentFile: (file: IRecentFile) => Promise<void>;
 }
 
 export interface IWorkspaceExportPort {
