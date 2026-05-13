@@ -11,11 +11,11 @@ import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { allowDjvuWritePath } from '@electron/djvu/exportPaths';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import {
-    ensureWorkingCopyDirectory,
     getWorkingCopyOriginalPath,
-    workingCopyMap,
-} from '@electron/ipc/workingCopy';
+    setWorkingCopyOriginalPath,
+} from '@electron/ipc/workingCopyStore';
 import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 import { te } from '@electron/i18n';
 import {
@@ -80,7 +80,7 @@ export async function savePdfAs(
         }
     }
 
-    workingCopyMap.set(normalizedWorkingPath, targetPath);
+    setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath);
     allowOpenPath(targetPath, event.sender);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();

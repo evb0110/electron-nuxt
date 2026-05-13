@@ -1,0 +1,3 @@
+const EXPORT_RENDER_SCALE = 2;
+
+export { EXPORT_RENDER_SCALE };

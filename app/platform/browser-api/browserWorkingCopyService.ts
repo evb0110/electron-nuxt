@@ -12,7 +12,7 @@ import {
     ensurePdfExtension,
     isDjvuFileName,
     isPdfFileName,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     createCombinedPdfFromPaths,

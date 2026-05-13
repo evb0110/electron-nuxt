@@ -1,7 +1,7 @@
 import {
     createPdfjsDocumentInitFromBrowserDocument,
     getPdfjsLib,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageText } from '@app/platform/browser-api/browserSearchText';

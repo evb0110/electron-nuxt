@@ -4,7 +4,7 @@ import type {
     IHostZenModeState,
     THostPlatform,
 } from '@contracts/electronApiHost';
-import { noopUnsubscribe } from '@app/platform/browser-api/common';
+import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 function detectBrowserPlatform(): THostPlatform {
     if (typeof navigator === 'undefined') {

@@ -72,7 +72,7 @@ describe('documents show item in folder', () => {
         writeFileSync(filePath, new Uint8Array([1]));
 
         const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
-        const { handleShowItemInFolder } = await import('@electron/features/documents/main/dialogs');
+        const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
 
         allowOpenPath(filePath);
 
@@ -85,7 +85,7 @@ describe('documents show item in folder', () => {
         const filePath = join(tempRoot, 'untrusted.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const { handleShowItemInFolder } = await import('@electron/features/documents/main/dialogs');
+        const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
 
         await expect(handleShowItemInFolder({ sender: {} } as never, filePath)).resolves.toBe(false);
 

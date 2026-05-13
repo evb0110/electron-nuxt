@@ -8,11 +8,13 @@ import {
     COMMAND_EXECUTION_TIMEOUT_MS,
     OPEN_PDF_READY_TIMEOUT_MS,
     OPEN_PDF_TRIGGER_TIMEOUT_MS,
-    screenshotDirPath,
-    type ISessionState,
-    type TDevtoolsEvent,
-    type TElectronRunCommand,
-} from './shared';
+} from './electronRunTimeouts';
+import { screenshotDirPath } from './electronRunSessionPaths';
+import type {
+    ISessionState,
+    TDevtoolsEvent,
+} from './electronRunSessionTypes';
+import type { TElectronRunCommand } from './electronRunProtocol';
 
 const DEFAULT_CONSOLE_LIMIT = 50;
 const DEFAULT_DEVTOOLS_LIMIT = 120;

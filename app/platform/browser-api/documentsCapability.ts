@@ -2,7 +2,7 @@ import type { IDocumentsCapability } from '@contracts/platformApi';
 import {
     OPEN_PDF_IMAGE_ACCEPT,
     buildOpenPdfImagePickerTypes,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserFileAccepts';
 import {
     createBrowserDocumentsFileCapability,
     createCombinedPdfFromPaths,

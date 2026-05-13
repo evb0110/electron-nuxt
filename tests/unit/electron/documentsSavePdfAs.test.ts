@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
+    setWorkingCopyOriginalPath: vi.fn<(workingPath: string, originalPath: string) => void>(),
     workingCopyMap: new Map<string, string>(),
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
@@ -63,14 +64,16 @@ vi.mock('@electron/menu', () => ({
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/ipc/docxExportPaths', () => ({allowDocxWritePath: vi.fn()}));
 vi.mock('@electron/djvu/exportPaths', () => ({allowDjvuWritePath: vi.fn()}));
-vi.mock('@electron/ipc/workingCopy', () => ({
+vi.mock('@electron/ipc/workingCopyCreation', () => ({
     createWorkingCopy: vi.fn(),
     createWorkingCopyFromData: vi.fn(),
     createWorkingCopyFromPath: vi.fn(),
     ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
+}));
+vi.mock('@electron/ipc/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     isKnownWorkingCopyOriginalPath: vi.fn(() => false),
-    workingCopyMap: mocks.workingCopyMap,
+    setWorkingCopyOriginalPath: (...args: [string, string]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
 vi.mock('@electron/ipc/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
@@ -99,6 +102,9 @@ describe('handleSavePdfAs', () => {
         mocks.workingCopyMap.clear();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-save-pdf-as-test-'));
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.setWorkingCopyOriginalPath.mockImplementation((workingPath, originalPath) => {
+            mocks.workingCopyMap.set(workingPath, originalPath);
+        });
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);
@@ -125,7 +131,7 @@ describe('handleSavePdfAs', () => {
             filePath: targetPath,
         });
 
-        const { handleSavePdfAs } = await import('@electron/features/documents/main/dialogs');
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
         await expect(handleSavePdfAs({sender: {}} as never, workingPath)).resolves.toBe(targetPath);
 
@@ -156,7 +162,7 @@ describe('handleSavePdfAs', () => {
         });
         mocks.atomicReplace.mockRejectedValue(new Error('replace failed'));
 
-        const { handleSavePdfAs } = await import('@electron/features/documents/main/dialogs');
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
         await expect(handleSavePdfAs({sender: {}} as never, workingPath))
             .rejects

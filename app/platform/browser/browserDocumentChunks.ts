@@ -1,9 +1,9 @@
-import {
-    DOCUMENT_CHUNKS_STORE,
-    type IBrowserDocumentChunkRecord,
-    type IChunkKeyRecord,
-    isRecord,
-    normalizePersistedBytes,
+import { DOCUMENT_CHUNKS_STORE } from './browserDocumentConstants';
+import { normalizePersistedBytes } from './browserDocumentBytes';
+import { isRecord } from './browserDocumentRecords';
+import type {
+    IBrowserDocumentChunkRecord,
+    IChunkKeyRecord,
 } from './browserDocumentTypes';
 import { withObjectStore } from './browserDocumentIdb';
 

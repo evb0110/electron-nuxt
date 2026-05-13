@@ -1,4 +1,4 @@
-import type { ILocalRect } from '@app/composables/pdf/usePdfRegionSnip';
+import type { ILocalRect } from '@app/composables/pdf/pdfRegionGeometry';
 import type { ICropMargins } from '@contracts/shared';
 
 export type {

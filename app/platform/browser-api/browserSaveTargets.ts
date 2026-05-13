@@ -3,10 +3,8 @@ import {
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
-import {
-    buildPdfSaveTypes,
-    ensurePdfExtension,
-} from '@app/platform/browser-api/common';
+import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
+import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     saveBytesToPickerOrDownload,

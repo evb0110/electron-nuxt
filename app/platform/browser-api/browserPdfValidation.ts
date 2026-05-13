@@ -7,7 +7,7 @@ import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
     createPdfjsDocumentInit,
     getPdfjsLib,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     buildPdfSaveRestrictions,

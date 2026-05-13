@@ -1,0 +1,225 @@
+import { dialog } from 'electron';
+import { readdir } from 'fs/promises';
+import {
+    basename,
+    join,
+} from 'path';
+import {
+    type ICreatePdfFromInputPathsProgress,
+    isSupportedOpenPath,
+    SUPPORTED_IMAGE_EXTENSIONS,
+} from '@electron/image/pdfConversion';
+import {
+    allowOpenPath,
+    logRejectedOpenPath,
+    requireOpenPath,
+    type TOpenPath,
+} from '@electron/ipc/openPathCapabilities';
+import { te } from '@electron/i18n';
+import { createLogger } from '@electron/utils/logger';
+import { normalizeNonEmptyStringPaths } from '@contracts/shared';
+import { getErrorMessage } from '@electron/utils/error';
+import {
+    openInputPaths,
+    type IOpenFileResult,
+} from '@electron/features/documents/main/documentOpen.service';
+import {
+    errorWithDetails,
+    getOpenDialogParentWindow,
+    showOpenDocumentDialog,
+} from '@electron/features/documents/main/documentDialogCommon';
+
+const logger = createLogger('documents-dialogs');
+
+type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
+const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
+
+function sendOpenBatchProgress(
+    event: Electron.IpcMainInvokeEvent,
+    payload: TOpenBatchProgressPayload,
+) {
+    try {
+        event.sender.send(OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL, payload);
+    } catch (error) {
+        logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
+    }
+}
+
+export async function handleOpenPdfDirect(
+    event: Electron.IpcMainInvokeEvent,
+    filePath: unknown,
+): Promise<IOpenFileResult | null> {
+    if (typeof filePath !== 'string' || filePath.trim() === '') {
+        logger.warn('openPdfDirect received empty path');
+        return null;
+    }
+
+    let normalizedPath: TOpenPath;
+    try {
+        normalizedPath = requireOpenPath(filePath, event.sender);
+    } catch {
+        logRejectedOpenPath(filePath);
+        throw new Error(te('errors.file.invalid'));
+    }
+
+    logger.info(`openPdfDirect request: ${normalizedPath}`);
+    try {
+        const result = await openInputPaths([normalizedPath], {}, event.sender);
+        logger.info(`openPdfDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
+        return result;
+    } catch (err) {
+        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
+export async function handleOpenPdfDirectBatch(
+    event: Electron.IpcMainInvokeEvent,
+    filePaths: unknown,
+    requestId?: string,
+): Promise<IOpenFileResult | null> {
+    if (!Array.isArray(filePaths) || filePaths.length === 0) {
+        return null;
+    }
+
+    try {
+        const normalizedPaths = normalizeNonEmptyStringPaths(filePaths)
+            .map(path => requireOpenPath(path, event.sender));
+
+        const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
+        return await openInputPaths(normalizedPaths, {onCombineProgress: normalizedRequestId
+            ? (progress) => {
+                sendOpenBatchProgress(event, {
+                    requestId: normalizedRequestId,
+                    ...progress,
+                });
+            }
+            : undefined}, event.sender);
+    } catch (err) {
+        logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
+export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
+    const result = await showOpenDocumentDialog({
+        title: te('dialogs.openDocument'),
+        extensions: [
+            'pdf',
+            'djvu',
+            'djv',
+            ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+        ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    try {
+        return await openInputPaths(result.filePaths, {}, event.sender);
+    } catch (err) {
+        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
+export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
+    const parentWindow = getOpenDialogParentWindow();
+    const dialogOptions = {
+        title: te('dialogs.openFolder'),
+        properties: ['openDirectory'],
+    } satisfies Electron.OpenDialogOptions;
+
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    const folderPath = result.filePaths[0]!;
+
+    let entries: string[];
+    try {
+        entries = await readdir(folderPath);
+    } catch (err) {
+        logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+
+    const supportedPaths = entries
+        .map(entry => join(folderPath, entry))
+        .filter(path => isSupportedOpenPath(path))
+        .sort((a, b) => basename(a).localeCompare(basename(b)));
+
+    if (supportedPaths.length === 0) {
+        throw new Error(te('errors.file.folderEmpty'));
+    }
+
+    try {
+        return await openInputPaths(supportedPaths, {}, event.sender);
+    } catch (err) {
+        logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
+export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
+    const result = await showOpenDocumentDialog({
+        title: te('dialogs.combineFiles'),
+        extensions: [
+            'pdf',
+            ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+        ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    try {
+        return await openInputPaths(result.filePaths, {}, event.sender);
+    } catch (err) {
+        logger.error(`Failed to combine files: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
+export async function handleOpenImageDialog(event: Electron.IpcMainInvokeEvent): Promise<string | null> {
+    const parentWindow = getOpenDialogParentWindow();
+    const dialogOptions = {
+        title: te('dialogs.openImage'),
+        filters: [{
+            name: te('dialogs.imagesFilter'),
+            extensions: [
+                'apng',
+                'avif',
+                'bmp',
+                'gif',
+                'jpeg',
+                'jpg',
+                'png',
+                'svg',
+                'svgz',
+                'webp',
+                'ico',
+            ],
+        }],
+        properties: ['openFile'],
+    } satisfies Electron.OpenDialogOptions;
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    const imagePath = result.filePaths[0] ?? null;
+    if (imagePath) {
+        allowOpenPath(imagePath, event.sender);
+    }
+    return imagePath;
+}

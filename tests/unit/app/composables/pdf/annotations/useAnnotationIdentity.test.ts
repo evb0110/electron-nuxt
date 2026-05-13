@@ -14,7 +14,7 @@ vi.stubGlobal('DOMMatrix', class {
     d = 1;
 });
 
-const { likelyEditorPdfMirror } = await import('@app/composables/pdf/annotations/useAnnotationIdentity');
+const { likelyEditorPdfMirror } = await import('@app/composables/pdf/annotations/annotationIdentityMatching');
 
 function makeRect(
     left: number,

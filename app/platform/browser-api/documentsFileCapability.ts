@@ -13,10 +13,12 @@ import {
     buildImagePickerTypes,
     buildOpenPdfPickerTypes,
     buildPdfSaveTypes,
+} from '@app/platform/browser-api/browserFileAccepts';
+import {
     ensureDocxExtension,
     ensurePdfExtension,
     isPdfFileName,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserFileName';
 import {
     analyzeBrowserPdfConformance,
     validateBrowserPdfData,

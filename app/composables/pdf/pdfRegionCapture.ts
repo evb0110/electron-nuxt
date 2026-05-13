@@ -1,0 +1,197 @@
+import { clamp } from 'es-toolkit/math';
+import type { IClientRect } from '@app/composables/pdf/pdfRegionGeometry';
+import {
+    getRectHeight,
+    getRectWidth,
+    intersectClientRects,
+    toClientRect,
+    unionClientRects,
+} from '@app/composables/pdf/pdfRegionGeometry';
+
+export interface ICanvasSource {
+    canvas: HTMLCanvasElement;
+    rect: IClientRect;
+}
+
+export interface ICaptureFragment {
+    canvas: HTMLCanvasElement;
+    intersection: IClientRect;
+    sourceX: number;
+    sourceY: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    scaleX: number;
+    scaleY: number;
+}
+
+export interface ICapturePlan {
+    outputRect: IClientRect | null;
+    fragments: ICaptureFragment[];
+}
+
+export interface IPdfRegionCaptureResult {
+    blob: Blob;
+    outputRect: IClientRect;
+}
+
+function collectCanvasSources(viewerContainer: HTMLElement): ICanvasSource[] {
+    const renderedCanvases = Array.from(
+        viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas'),
+    );
+    const fallbackCanvases = renderedCanvases.length > 0
+        ? renderedCanvases
+        : Array.from(viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
+
+    return fallbackCanvases
+        .map((canvas) => {
+            const rect = toClientRect(canvas.getBoundingClientRect());
+            return {
+                canvas,
+                rect,
+            };
+        })
+        .filter((source) =>
+            source.canvas.width > 0
+            && source.canvas.height > 0
+            && getRectWidth(source.rect) > 0
+            && getRectHeight(source.rect) > 0);
+}
+
+export function buildCanvasCapturePlan(selectionRect: IClientRect, sources: readonly ICanvasSource[]): ICapturePlan {
+    let outputRect: IClientRect | null = null;
+    const fragments: ICaptureFragment[] = [];
+
+    for (const source of sources) {
+        const intersection = intersectClientRects(selectionRect, source.rect);
+        if (!intersection) {
+            continue;
+        }
+
+        const canvasCssWidth = getRectWidth(source.rect);
+        const canvasCssHeight = getRectHeight(source.rect);
+        if (canvasCssWidth <= 0 || canvasCssHeight <= 0) {
+            continue;
+        }
+
+        const scaleX = source.canvas.width / canvasCssWidth;
+        const scaleY = source.canvas.height / canvasCssHeight;
+        if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+            continue;
+        }
+
+        const sourceX = clamp((intersection.left - source.rect.left) * scaleX, 0, source.canvas.width);
+        const sourceY = clamp((intersection.top - source.rect.top) * scaleY, 0, source.canvas.height);
+        const sourceWidth = clamp(getRectWidth(intersection) * scaleX, 0, source.canvas.width - sourceX);
+        const sourceHeight = clamp(getRectHeight(intersection) * scaleY, 0, source.canvas.height - sourceY);
+        if (sourceWidth <= 0 || sourceHeight <= 0) {
+            continue;
+        }
+
+        fragments.push({
+            canvas: source.canvas,
+            intersection,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            scaleX,
+            scaleY,
+        });
+        outputRect = outputRect
+            ? unionClientRects(outputRect, intersection)
+            : intersection;
+    }
+
+    return {
+        outputRect,
+        fragments,
+    };
+}
+
+function resolveOutputScale(fragments: readonly ICaptureFragment[]) {
+    if (fragments.length === 0) {
+        return 1;
+    }
+
+    return Math.max(
+        1,
+        ...fragments.map(fragment => Math.min(fragment.scaleX, fragment.scaleY)),
+    );
+}
+
+function renderCapturePlan(plan: ICapturePlan): HTMLCanvasElement | null {
+    if (!plan.outputRect || plan.fragments.length === 0) {
+        return null;
+    }
+
+    const outputScale = resolveOutputScale(plan.fragments);
+    const outputWidth = Math.max(1, Math.round(getRectWidth(plan.outputRect) * outputScale));
+    const outputHeight = Math.max(1, Math.round(getRectHeight(plan.outputRect) * outputScale));
+
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = outputWidth;
+    outputCanvas.height = outputHeight;
+    const context = outputCanvas.getContext('2d');
+    if (!context) {
+        return null;
+    }
+
+    for (const fragment of plan.fragments) {
+        const destinationX = (fragment.intersection.left - plan.outputRect.left) * outputScale;
+        const destinationY = (fragment.intersection.top - plan.outputRect.top) * outputScale;
+        const destinationWidth = getRectWidth(fragment.intersection) * outputScale;
+        const destinationHeight = getRectHeight(fragment.intersection) * outputScale;
+
+        context.drawImage(
+            fragment.canvas,
+            fragment.sourceX,
+            fragment.sourceY,
+            fragment.sourceWidth,
+            fragment.sourceHeight,
+            destinationX,
+            destinationY,
+            destinationWidth,
+            destinationHeight,
+        );
+    }
+
+    return outputCanvas;
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement) {
+    return new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((blob) => {
+            resolve(blob);
+        }, 'image/png');
+    });
+}
+
+export async function capturePdfRegionAsPngBlob(
+    viewerContainer: HTMLElement,
+    selectionRect: IClientRect,
+): Promise<IPdfRegionCaptureResult | null> {
+    const sources = collectCanvasSources(viewerContainer);
+    const capturePlan = buildCanvasCapturePlan(selectionRect, sources);
+    const outputRect = capturePlan.outputRect;
+    if (!outputRect || capturePlan.fragments.length === 0) {
+        return null;
+    }
+
+    const outputCanvas = renderCapturePlan(capturePlan);
+    if (!outputCanvas) {
+        throw new Error('Failed to render capture image');
+    }
+
+    const blob = await canvasToPngBlob(outputCanvas);
+    outputCanvas.width = 0;
+    outputCanvas.height = 0;
+
+    if (!blob) {
+        throw new Error('Failed to serialize capture image');
+    }
+
+    return {
+        blob,
+        outputRect,
+    };
+}

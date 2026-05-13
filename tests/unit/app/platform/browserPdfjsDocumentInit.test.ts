@@ -14,7 +14,7 @@ const pdfjsModule = vi.hoisted(() => ({
 
 vi.mock('pdfjs-dist', () => pdfjsModule);
 
-describe('browser api common', () => {
+describe('browserPdfjsDocumentInit', () => {
     beforeEach(() => {
         vi.resetModules();
         pdfjsModule.getDocument.mockReset();
@@ -25,7 +25,7 @@ describe('browser api common', () => {
         const {
             createPdfjsDocumentInit,
             getPdfjsLib,
-        } = await import('@app/platform/browser-api/common');
+        } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
         const {
             getPdfjsAssetDir,
             getPdfjsWorkerUrl,

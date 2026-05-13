@@ -5,16 +5,18 @@ import type {
     IClientRect,
     ILocalRect,
     IOverlayRect,
-    ISnipPointerPayload,
-} from '@app/composables/pdf/usePdfRegionSnip';
+} from '@app/composables/pdf/pdfRegionGeometry';
 import {
-    createSelectionRectFromPointerDrag,
-    createSelectionPointerDragHandlers,
     getRectHeight,
     getRectWidth,
     toClientRect,
     toLocalRect,
-} from '@app/composables/pdf/usePdfRegionSnip';
+} from '@app/composables/pdf/pdfRegionGeometry';
+import type { ISnipPointerPayload } from '@app/composables/pdf/pdfRegionDrag';
+import {
+    createSelectionRectFromPointerDrag,
+    createSelectionPointerDragHandlers,
+} from '@app/composables/pdf/pdfRegionDrag';
 
 type TCropSelectionState = 'idle' | 'selecting';
 

@@ -20,23 +20,6 @@ import {
     toCanonicalStableKey,
 } from '@app/composables/pdf/annotations/annotationIdentityMatching';
 
-export {
-    areTextMarkupCommentsLikelySame,
-    commentMergePriority,
-    commentsAreSameLogicalAnnotation,
-    commentsMatchForEditorLookup,
-    commentsShareStableIdentifier,
-    compareAnnotationComments,
-    computeSummaryStableKey,
-    dedupeAnnotationCommentSummaries,
-    getSummaryMemoryKeys,
-    likelyEditorPdfMirror,
-    mergeCommentSummaries,
-    mergeDuplicateCommentSummary,
-    normalizeSummaryStableKey,
-    toCanonicalStableKey,
-} from '@app/composables/pdf/annotations/annotationIdentityMatching';
-
 interface ISummaryMemoryEntry {
     text: string;
     modifiedAt: number | null;

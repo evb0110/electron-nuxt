@@ -21,7 +21,7 @@ import {
     rgb,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { getCurrentSessionName } from '../../../../scripts/electron-run/shared';
+import { getCurrentSessionName } from '../../../../scripts/electron-run/electronRunSessionPaths';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');

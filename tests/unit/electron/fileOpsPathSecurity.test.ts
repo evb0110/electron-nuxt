@@ -56,10 +56,8 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
     validatePdfData: vi.fn(),
 }));
 vi.mock('@electron/ipc/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
-vi.mock('@electron/ipc/workingCopy', () => ({
-    ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory,
-    findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
-}));
+vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
+vi.mock('@electron/ipc/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
@@ -70,13 +68,15 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
 })}));
 
 const {
-    handleAnalyzePdfConformance,
     handleFileRead,
     handleFileReadRange,
     handleFileStat,
+} = await import('@electron/features/documents/main/documentFileReadHandlers');
+const {
     handleFileWrite,
     handleFileWriteDocx,
-} = await import('@electron/features/documents/main/fileOps');
+} = await import('@electron/features/documents/main/documentFileWriteHandlers');
+const { handleAnalyzePdfConformance } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 
 describe('fileOps path security', () => {
     beforeEach(() => {

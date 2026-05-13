@@ -11,7 +11,7 @@ import {
 import {
     createWorkingCopy,
     createWorkingCopyFromData,
-} from '@electron/ipc/workingCopy';
+} from '@electron/ipc/workingCopyCreation';
 import {
     allowOpenPaths,
     requireOpenPath,

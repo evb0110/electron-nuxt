@@ -14,8 +14,8 @@ import {
     shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
-    isReusableNuxtResponse,
-} from '../../../scripts/electron-run/sessionManager';
+} from '../../../scripts/electron-run/electronRunLaunchConfig';
+import { isReusableNuxtResponse } from '../../../scripts/electron-run/electronRunNuxtServerResponse';
 import { shouldWaitForExternalDevServer } from '../../../electron/server';
 
 describe('sessionManager automation launch args', () => {

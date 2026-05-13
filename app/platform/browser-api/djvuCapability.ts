@@ -19,7 +19,7 @@ import type {
     IDjvuWorker,
 } from '@app/platform/browser-api/djvujsLoader';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvuWorker';
-import { noopUnsubscribe } from '@app/platform/browser-api/common';
+import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { decodeBrowserImageBlob } from '@app/platform/browser-api/browserImageDecode';
 import {
     type IStreamingPdfSink,

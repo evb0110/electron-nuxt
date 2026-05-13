@@ -2,7 +2,7 @@ import type {
     IAppUpdateStatus,
     IUpdatesCapability,
 } from '@contracts/platformApi';
-import { noopUnsubscribe } from '@app/platform/browser-api/common';
+import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 type TUpdateStatusListener = (status: IAppUpdateStatus) => void;
 

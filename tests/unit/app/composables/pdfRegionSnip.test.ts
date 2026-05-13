@@ -5,12 +5,12 @@ import {
     it,
     vi,
 } from 'vitest';
+import { buildCanvasCapturePlan } from '@app/composables/pdf/pdfRegionCapture';
 import {
-    buildCanvasCapturePlan,
     intersectClientRects,
     normalizeClientRect,
-    writePngBlobToClipboard,
-} from '@app/composables/pdf/usePdfRegionSnip';
+} from '@app/composables/pdf/pdfRegionGeometry';
+import { writePngBlobToClipboard } from '@app/composables/pdf/pdfRegionClipboard';
 
 describe('pdfRegionSnip geometry', () => {
     it('normalizes rectangle regardless of drag direction', () => {
