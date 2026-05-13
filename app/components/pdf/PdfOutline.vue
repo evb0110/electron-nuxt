@@ -1,5 +1,5 @@
 <template>
-    <div class="pdfBookmarks flex flex-col gap-3">
+    <div class="pdf-bookmarks flex flex-col gap-3">
         <PdfOutlineToolbar
             :display-mode="displayMode"
             :is-edit-mode="isEditMode"
@@ -10,7 +10,7 @@
 
         <div
             v-if="isLoading"
-            class="pdfBookmarks-loading"
+            class="pdf-bookmarks-loading"
         >
             <UIcon
                 name="i-ph-circle-notch"
@@ -21,14 +21,14 @@
 
         <div
             v-else-if="bookmarks.length === 0"
-            class="pdfBookmarks-empty"
+            class="pdf-bookmarks-empty"
         >
             <UIcon name="i-ph-book-open" />
             <span>{{ t('bookmarks.noBookmarks') }}</span>
             <button
                 v-if="isEditMode"
                 type="button"
-                class="pdfBookmarks-empty-action"
+                class="pdf-bookmarks-empty-action"
                 :aria-label="t('bookmarks.addFirst')"
                 @click="addRootBookmark"
             >
@@ -42,7 +42,7 @@
 
         <div
             v-else
-            class="pdfBookmarks-tree flex flex-col"
+            class="pdf-bookmarks-tree flex flex-col"
             @click="closeBookmarkContextMenu"
         >
             <PdfOutlineItem
@@ -63,7 +63,7 @@
             />
             <div
                 v-if="isEditMode"
-                class="pdfBookmarks-drop-end"
+                class="pdf-bookmarks-drop-end"
                 :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
                 @dragover.prevent="handleTreeEndDragOver"
                 @drop.prevent="handleTreeEndDrop"

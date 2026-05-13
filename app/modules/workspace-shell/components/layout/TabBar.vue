@@ -56,19 +56,19 @@
         <div
             v-if="contextMenu.visible"
             ref="contextMenuRef"
-            class="tabContextMenu"
+            class="tab-context-menu"
             :style="contextMenuStyle"
             @click.stop
             @contextmenu.prevent
         >
             <template v-for="(section, sectionIndex) in menuSections" :key="section.key">
-                <div v-if="sectionIndex > 0" class="tabContextMenu-divider" />
-                <p v-if="section.title" class="tabContextMenu-section">{{ section.title }}</p>
+                <div v-if="sectionIndex > 0" class="tab-context-menu-divider" />
+                <p v-if="section.title" class="tab-context-menu-section">{{ section.title }}</p>
                 <button
                     v-for="action in section.actions"
                     :key="action.key"
                     type="button"
-                    class="tabContextMenu-action"
+                    class="tab-context-menu-action"
                     @click="runContextCommand(action.command)"
                 >
                     {{ action.label }}

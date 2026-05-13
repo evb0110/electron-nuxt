@@ -2,7 +2,7 @@
     <div
         v-if="placement"
         ref="frameRef"
-        class="pdfImagePlacement"
+        class="pdf-image-placement"
         :style="frameStyle"
         @mousedown.stop.prevent
         @mouseup.stop
@@ -10,28 +10,28 @@
         @dblclick.stop
         @contextmenu.prevent.stop
     >
-        <div class="pdfImagePlacement__transform" :style="transformStyle">
+        <div class="pdf-image-placement__transform" :style="transformStyle">
             <img
-                class="pdfImagePlacement__preview"
+                class="pdf-image-placement__preview"
                 :src="placement.previewUrl"
                 :alt="placement.fileName"
                 draggable="false"
             >
             <button
                 type="button"
-                class="pdfImagePlacement__surface"
+                class="pdf-image-placement__surface"
                 :disabled="busy"
                 :aria-label="t('annotations.imageLabel')"
                 @mousedown.stop.prevent
                 @pointerdown.stop.prevent="handleMovePointerDown"
             />
-            <div class="pdfImagePlacement__resizers">
+            <div class="pdf-image-placement__resizers">
                 <button
                     v-for="handle in resizeHandles"
                     :key="handle"
                     type="button"
-                    class="pdfImagePlacement__resizer"
-                    :class="`pdfImagePlacement__resizer--${handle}`"
+                    class="pdf-image-placement__resizer"
+                    :class="`pdf-image-placement__resizer--${handle}`"
                     :style="getResizeHandleStyle(handle)"
                     :disabled="busy"
                     :aria-label="t('annotations.imageLabel')"
@@ -40,7 +40,7 @@
                 />
                 <button
                     type="button"
-                    class="pdfImagePlacement__rotate-handle"
+                    class="pdf-image-placement__rotate-handle"
                     :disabled="busy"
                     :aria-label="t('annotations.imageLabel')"
                     @mousedown.stop.prevent
@@ -48,10 +48,10 @@
                 />
             </div>
         </div>
-        <div class="pdfImagePlacement__controls">
+        <div class="pdf-image-placement__controls">
             <button
                 type="button"
-                class="pdfImagePlacement__action pdfImagePlacement__action--secondary"
+                class="pdf-image-placement__action pdf-image-placement__action--secondary"
                 :disabled="busy"
                 @mousedown.stop.prevent
                 @click.stop="cancelPlacement"
@@ -60,7 +60,7 @@
             </button>
             <button
                 type="button"
-                class="pdfImagePlacement__action pdfImagePlacement__action--primary"
+                class="pdf-image-placement__action pdf-image-placement__action--primary"
                 :disabled="busy"
                 @mousedown.stop.prevent
                 @click.stop="finalizePlacement"
@@ -106,7 +106,7 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 const frameRef = ref<HTMLElement | null>(null);
-const GLOBAL_CURSOR_ATTRIBUTE = 'data-pdfImagePlacement-cursor';
+const GLOBAL_CURSOR_ATTRIBUTE = 'data-pdf-image-placement-cursor';
 const resizeHandles: TImagePlacementResizeHandle[] = [
     'nw',
     'n',
@@ -131,7 +131,7 @@ const frameStyle = computed((): Record<string, string> => {
     };
 });
 
-const transformStyle = computed((): Record<string, string> => ({ '--pdfImagePlacement-rotation': `${placement?.rotationDegrees ?? 0}deg` }));
+const transformStyle = computed((): Record<string, string> => ({ '--pdf-image-placement-rotation': `${placement?.rotationDegrees ?? 0}deg` }));
 
 function getResizeHandleStyle(handle: TImagePlacementResizeHandle) {
     return { cursor: getImagePlacementResizeCursorStyle(handle, placement?.rotationDegrees ?? 0) };
@@ -154,13 +154,13 @@ let activeInteraction: IActiveInteraction | null = null;
 
 function setGlobalInteractionCursor(cursor: string) {
     const root = document.documentElement;
-    root.style.setProperty('--pdfImagePlacement-active-cursor', cursor);
+    root.style.setProperty('--pdf-image-placement-active-cursor', cursor);
     root.setAttribute(GLOBAL_CURSOR_ATTRIBUTE, '');
 }
 
 function clearGlobalInteractionCursor() {
     const root = document.documentElement;
-    root.style.removeProperty('--pdfImagePlacement-active-cursor');
+    root.style.removeProperty('--pdf-image-placement-active-cursor');
     root.removeAttribute(GLOBAL_CURSOR_ATTRIBUTE);
 }
 
@@ -169,7 +169,7 @@ let virtualCursorElement: HTMLElement | null = null;
 function createVirtualCursor(cursorSvgDataUri: string) {
     removeVirtualCursor();
     const element = document.createElement('div');
-    element.className = 'pdfImagePlacement-virtual-cursor';
+    element.className = 'pdf-image-placement-virtual-cursor';
     element.innerHTML = cursorSvgDataUri;
     document.body.appendChild(element);
     virtualCursorElement = element;

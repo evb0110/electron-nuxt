@@ -1,7 +1,7 @@
 <template>
-    <div class="pdfBookmarks-toolbar">
+    <div class="pdf-bookmarks-toolbar">
         <div
-            class="pdfBookmarks-view-modes"
+            class="pdf-bookmarks-view-modes"
             role="group"
             :aria-label="t('bookmarks.controls')"
         >
@@ -13,7 +13,7 @@
             >
                 <button
                     type="button"
-                    class="pdfBookmarks-view-mode-button"
+                    class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': displayMode === option.id }"
                     :aria-label="option.title"
                     @click="setDisplayMode(option.id)"
@@ -30,7 +30,7 @@
             >
                 <button
                     type="button"
-                    class="pdfBookmarks-view-mode-button"
+                    class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': isEditMode }"
                     :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
                     @click="toggleEditMode"
@@ -43,7 +43,7 @@
             </AppTooltip>
         </div>
 
-        <div class="pdfBookmarks-toolbar-actions">
+        <div class="pdf-bookmarks-toolbar-actions">
             <AppTooltip
                 v-if="isEditMode"
                 :text="t('bookmarks.addTopLevel')"
@@ -51,7 +51,7 @@
             >
                 <button
                     type="button"
-                    class="pdfBookmarks-icon-button"
+                    class="pdf-bookmarks-icon-button"
                     :aria-label="t('bookmarks.addTopLevel')"
                     @click="addRootBookmark"
                 >
