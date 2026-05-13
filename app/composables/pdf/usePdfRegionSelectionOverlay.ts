@@ -1,8 +1,6 @@
 import type { CSSProperties } from 'vue';
-import type {
-    ILocalRect,
-    ISnipPointerPayload,
-} from '@app/composables/pdf/usePdfRegionSnip';
+import type { ILocalRect } from '@app/composables/pdf/pdfRegionGeometry';
+import type { ISnipPointerPayload } from '@app/composables/pdf/pdfRegionDrag';
 
 interface IRegionSelectionOverlayOptions {
     isActive: () => boolean;

@@ -12,7 +12,7 @@ import {
     listInstalledBrowserOcrLanguages,
     markBrowserOcrLanguageInstalled,
 } from '@app/platform/browser-api/browserOcrLanguageStore';
-import { noopUnsubscribe } from '@app/platform/browser-api/common';
+import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { getBrowserOcrLanguageBaseUrl } from '@app/utils/browserOcrConfig';
 import { getErrorMessage } from '@app/utils/error';
 

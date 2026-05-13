@@ -4,7 +4,7 @@ import {
     ensurePdfExtension,
     isDjvuFileName,
     isPdfFileName,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserFileName';
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
     buildBrowserByteLimitError,

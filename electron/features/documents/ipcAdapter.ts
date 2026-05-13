@@ -11,7 +11,7 @@ import {
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
-import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopy';
+import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
 
 const rendererFileOpenTokens = new Map<number, Set<string>>();
 

@@ -7,20 +7,22 @@ import { join } from 'node:path';
 import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from './client';
+import { COMMAND_EXECUTION_TIMEOUT_MS } from './electronRunTimeouts';
 import {
-    COMMAND_EXECUTION_TIMEOUT_MS,
     cleanupStaleSessionArtifacts,
     clearSessionStarting,
-    getCurrentSessionName,
     getSessionInfo,
     getSessionStartingInfo,
-    isProcessAlive,
     isSessionRunning,
     listAllSessionNames,
-    projectRoot,
+} from './electronRunSessionArtifacts';
+import {
+    getCurrentSessionName,
     sessionFilePath,
     setCurrentSessionName,
-} from './shared';
+} from './electronRunSessionPaths';
+import { isProcessAlive } from './electronRunProcessTree';
+import { projectRoot } from './electronRunProjectPaths';
 import {
     startSession,
     startSessionDetached,

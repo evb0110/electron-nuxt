@@ -14,9 +14,9 @@ import {
 import {
     BROWSER_MAX_RECENT_FILES,
     BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
-    buildRecentFilesFromPersistedRecords,
-    type IBrowserPersistedDocumentRecord,
-} from './browserDocumentTypes';
+} from './browserDocumentConstants';
+import { buildRecentFilesFromPersistedRecords } from './browserDocumentRecentFiles';
+import type { IBrowserPersistedDocumentRecord } from './browserDocumentTypes';
 
 export function readRecentFilesFromStorage() {
     const raw = safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);

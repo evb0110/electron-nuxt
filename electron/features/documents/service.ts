@@ -1,41 +1,49 @@
 import { BrowserWindow } from 'electron';
 import {
-    handleCreateWorkingCopyFromData,
     handleOpenCombineDialog,
     handleOpenFolderDialog,
     handleOpenImageDialog,
-    handleCreateWorkingCopyFromPath,
     handleOpenPdfDialog,
     handleOpenPdfDirect,
     handleOpenPdfDirectBatch,
+} from '@electron/features/documents/main/documentOpenHandlers';
+import {
     handleSaveDocxAs,
     handleSavePdfAs,
     handleSavePdfDialog,
+} from '@electron/features/documents/main/documentSaveDialogHandlers';
+import {
     handleSetWindowTitle,
     handleShowItemInFolder,
-} from '@electron/features/documents/main/dialogs';
+} from '@electron/features/documents/main/documentWindowHandlers';
 import {
-    handleAnalyzePdfConformance,
-    handleCleanupOcrTemp,
+    handleCreateWorkingCopyFromData,
+    handleCreateWorkingCopyFromPath,
+} from '@electron/features/documents/main/documentWorkingCopyHandlers';
+import {
     handleFileExists,
     handleFileRead,
     handleFileReadRange,
     handleFileReadText,
     handleFileStat,
-    handleValidatePdfData,
+} from '@electron/features/documents/main/documentFileReadHandlers';
+import {
     handleFileWrite,
     handleFileWriteDocx,
-} from '@electron/features/documents/main/fileOps';
+} from '@electron/features/documents/main/documentFileWriteHandlers';
+import {
+    handleAnalyzePdfConformance,
+    handleValidatePdfData,
+} from '@electron/features/documents/main/documentPdfValidationHandlers';
+import { handleCleanupOcrTemp } from '@electron/features/documents/main/documentOcrTempCleanupHandler';
 import {
     handleOpenPdfInDefaultAppData,
     handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
-import {
-    cleanupWorkingCopy,
-    handleFileSave,
-} from '@electron/ipc/workingCopy';
+import { cleanupWorkingCopy } from '@electron/ipc/workingCopyCleanup';
+import { handleFileSave } from '@electron/ipc/workingCopySave';
 import {
     clearRecentFiles,
     getRecentFiles,

@@ -1,5 +1,5 @@
 import type { IDocumentsMenuCapability } from '@contracts/platformApi';
-import { noopUnsubscribe } from '@app/platform/browser-api/common';
+import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 interface IOpenPdfDirectBatchProgressPayload {
     requestId: string;

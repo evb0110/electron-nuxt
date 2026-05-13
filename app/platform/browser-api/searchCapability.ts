@@ -12,7 +12,7 @@ import type { ISearchCapability } from '@contracts/platformApi';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserSearchLimits';
 import {
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,

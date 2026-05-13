@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue';
-import type { ILocalRect } from '@app/composables/pdf/usePdfRegionSnip';
+import type { ILocalRect } from '@app/composables/pdf/pdfRegionGeometry';
 import {
     type IRegionSelectionOverlayBaseProps,
     type IRegionSelectionOverlayEmits,

@@ -5,13 +5,13 @@ import puppeteer, {
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from '../../../../scripts/electron-run/client';
+import { DEFAULT_NUXT_PORT } from '../../../../scripts/electron-run/electronRunPortConfig';
+import { getSessionInfo } from '../../../../scripts/electron-run/electronRunSessionArtifacts';
 import {
-    DEFAULT_NUXT_PORT,
-    getSessionInfo,
     sessionDir,
     setCurrentSessionName,
-    type TElectronRunCommand,
-} from '../../../../scripts/electron-run/shared';
+} from '../../../../scripts/electron-run/electronRunSessionPaths';
+import type { TElectronRunCommand } from '../../../../scripts/electron-run/electronRunProtocol';
 import {
     startSessionDetached,
     stopSingleSession,

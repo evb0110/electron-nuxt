@@ -6,12 +6,12 @@ import {
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
 import {
-    EXPORT_RENDER_SCALE,
     createPdfjsDocumentInitFromBrowserDocument,
-    ensurePdfExtension,
     getPdfjsLib,
-    toUint8Array,
-} from '@app/platform/browser-api/common';
+} from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
+import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
+import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     pickSaveTarget,

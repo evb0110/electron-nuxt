@@ -2,33 +2,39 @@ import {
     BROWSER_CHUNK_WRITE_YIELD_EVERY,
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
-    BROWSER_REF_PREFIX,
-    buildBrowserDocumentFullReadError,
-    buildRecentFilesFromPersistedRecords,
+} from './browserDocumentConstants';
+import {
     cloneBytes,
+    normalizePersistedWriteBytes,
+    normalizeReadRange,
+    toUint8Array,
+} from './browserDocumentBytes';
+import { buildRecentFilesFromPersistedRecords } from './browserDocumentRecentFiles';
+import {
     collectChunkIndicesByRef,
     countNonWorkingDependents,
     createBrowserDocumentEntry,
-    createBrowserDocumentRef,
     createEntryFromPersistedRecord,
-    defaultRetentionForKind,
-    getDocumentFileName,
     isChunkedRecordMissingChunks,
-    normalizePersistedWriteBytes,
-    normalizeReadRange,
+    shouldRemovePersistedRecord,
+    toPersistedDocumentRecord,
+} from './browserDocumentRecords';
+import { createBrowserDocumentRef } from './browserDocumentRefs';
+import {
+    buildBrowserDocumentFullReadError,
+    defaultRetentionForKind,
     resolveByteBackedStorageMode,
     resolveStoredDocumentStorageMode,
     shouldInlineFileBytes,
-    shouldRemovePersistedRecord,
-    toPersistedDocumentRecord,
-    toUint8Array,
-    type IBrowserDocumentEntry,
-    type IBrowserPersistedDocumentRecord,
-    type IChunkKeyRecord,
-    type ICreateStoredDocumentOptions,
-    type IRegisterFileOptions,
-    type IWriteDocumentOptions,
-} from '@app/platform/browser/browserDocumentTypes';
+} from './browserDocumentStoragePolicy';
+import type {
+    IBrowserDocumentEntry,
+    IBrowserPersistedDocumentRecord,
+    IChunkKeyRecord,
+    ICreateStoredDocumentOptions,
+    IRegisterFileOptions,
+    IWriteDocumentOptions,
+} from './browserDocumentTypes';
 import {
     deleteRecord,
     loadAllRecords,
@@ -56,11 +62,6 @@ import {
     writeRecentFilesToStorage,
 } from '@app/platform/browser/browserRecentFilesStore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-
-export {
-    BROWSER_DOCUMENT_CHUNK_SIZE,
-    BROWSER_MAX_FULL_READ_BYTES,
-};
 
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
@@ -625,10 +626,6 @@ export class BrowserDocumentStore {
         await this.recentFilesStore.clearRecentFiles();
     }
 
-    public static getFileNameFromRef(ref: string) {
-        return getDocumentFileName(ref);
-    }
-
     private isRecentFileRef(ref: string) {
         return readRecentFilesFromStorage().some(
             (candidate) => candidate.originalPath === ref,
@@ -1034,9 +1031,3 @@ export class BrowserDocumentStore {
 }
 
 export const browserDocumentStore = new BrowserDocumentStore();
-export function isBrowserDocumentRef(path: string) {
-    return path.startsWith(BROWSER_REF_PREFIX);
-}
-export function getBrowserDocumentFileName(path: string) {
-    return BrowserDocumentStore.getFileNameFromRef(path);
-}

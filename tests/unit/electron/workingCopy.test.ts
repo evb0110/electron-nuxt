@@ -43,8 +43,8 @@ describe('workingCopy', () => {
         const {
             createWorkingCopyFromPath,
             ensureWorkingCopyDirectory,
-            clearAllWorkingCopies,
-        } = await import('@electron/ipc/workingCopy');
+        } = await import('@electron/ipc/workingCopyCreation');
+        const { clearAllWorkingCopies } = await import('@electron/ipc/workingCopyCleanup');
         const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
         const originalPath = join(tempRoot, 'original.pdf');
         writeFileSync(originalPath, new Uint8Array([
@@ -76,11 +76,12 @@ describe('workingCopy', () => {
         const {
             createWorkingCopyFromPath,
             ensureWorkingCopyDirectory,
-            getWorkingCopyOriginalPath,
+        } = await import('@electron/ipc/workingCopyCreation');
+        const { getWorkingCopyOriginalPath } = await import('@electron/ipc/workingCopyStore');
+        const {
             cleanupWorkingCopy,
             clearAllWorkingCopies,
-            workingCopyMap,
-        } = await import('@electron/ipc/workingCopy');
+        } = await import('@electron/ipc/workingCopyCleanup');
         const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
         const originalPath = join(tempRoot, 'original.pdf');
         writeFileSync(originalPath, new Uint8Array([
@@ -98,14 +99,12 @@ describe('workingCopy', () => {
             expect(existsSync(dirname(workingPath))).toBe(false);
         });
 
-        expect(workingCopyMap.has(workingPath)).toBe(false);
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
             originalPath: canonicalOriginalPath,
             retired: true,
         });
         await expect(ensureWorkingCopyDirectory(workingPath)).resolves.toBe(true);
 
-        expect(workingCopyMap.get(workingPath)).toBe(canonicalOriginalPath);
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
             originalPath: canonicalOriginalPath,
             retired: false,
@@ -120,16 +119,14 @@ describe('workingCopy', () => {
     });
 
     it('preserves WORKING_COPY_MISSING when both working copy and original are gone', async () => {
-        const {
-            WorkingCopyMissingError,
-            handleFileSave,
-            workingCopyMap,
-            clearAllWorkingCopies,
-        } = await import('@electron/ipc/workingCopy');
+        const { WorkingCopyMissingError } = await import('@electron/ipc/workingCopyMissingError');
+        const { handleFileSave } = await import('@electron/ipc/workingCopySave');
+        const { setWorkingCopyOriginalPath } = await import('@electron/ipc/workingCopyStore');
+        const { clearAllWorkingCopies } = await import('@electron/ipc/workingCopyCleanup');
         const originalPath = join(tempRoot, 'missing-original.pdf');
         const workingDir = join(tempRoot, 'pdf-work-missing');
         const workingPath = join(workingDir, 'missing-original.pdf');
-        workingCopyMap.set(workingPath, originalPath);
+        setWorkingCopyOriginalPath(workingPath, originalPath);
 
         await expect(handleFileSave({} as never, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
         await expect(handleFileSave({} as never, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
@@ -138,10 +135,8 @@ describe('workingCopy', () => {
     });
 
     it('rejects unmanaged existing paths as managed working-copy sources', async () => {
-        const {
-            requireManagedWorkingCopyPath,
-            clearAllWorkingCopies,
-        } = await import('@electron/ipc/workingCopy');
+        const { requireManagedWorkingCopyPath } = await import('@electron/ipc/workingCopyCreation');
+        const { clearAllWorkingCopies } = await import('@electron/ipc/workingCopyCleanup');
         const unmanagedPath = join(tempRoot, 'unmanaged.pdf');
         writeFileSync(unmanagedPath, new Uint8Array([
             7,
@@ -159,12 +154,12 @@ describe('workingCopy', () => {
         const {
             findWorkingCopyPathByOriginalPath,
             isKnownWorkingCopyOriginalPath,
-            workingCopyMap,
-            clearAllWorkingCopies,
-        } = await import('@electron/ipc/workingCopy');
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/ipc/workingCopyStore');
+        const { clearAllWorkingCopies } = await import('@electron/ipc/workingCopyCleanup');
         const workingPath = 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\Book.pdf';
         const originalPath = 'C:\\Users\\Alice\\Documents\\Book.pdf';
-        workingCopyMap.set(workingPath, originalPath);
+        setWorkingCopyOriginalPath(workingPath, originalPath);
 
         expect(findWorkingCopyPathByOriginalPath('c:/users/alice/documents/book.pdf')).toBe(workingPath);
         expect(isKnownWorkingCopyOriginalPath('\\\\?\\C:\\Users\\Alice\\Documents\\Book.pdf')).toBe(true);

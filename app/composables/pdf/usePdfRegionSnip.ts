@@ -2,370 +2,32 @@ import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
+import type {
+    IClientPoint,
+    IClientRect,
+    ILocalRect,
+    IOverlayRect,
+} from '@app/composables/pdf/pdfRegionGeometry';
+import {
+    getRectHeight,
+    getRectWidth,
+    toLocalRect,
+} from '@app/composables/pdf/pdfRegionGeometry';
+import type { ISnipPointerPayload } from '@app/composables/pdf/pdfRegionDrag';
+import {
+    createSelectionPointerDragHandlers,
+    createSelectionRectFromPointerDrag,
+} from '@app/composables/pdf/pdfRegionDrag';
+import { capturePdfRegionAsPngBlob } from '@app/composables/pdf/pdfRegionCapture';
+import { writePngBlobToClipboard } from '@app/composables/pdf/pdfRegionClipboard';
 
-export type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';
-
-export interface IClientRect {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-}
-
-export interface IClientPoint {
-    clientX: number;
-    clientY: number;
-}
-
-export interface ILocalRect {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-export interface IOverlayRect {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-}
-
-export interface ISnipPointerPayload {
-    clientX: number;
-    clientY: number;
-    overlayRect: IOverlayRect;
-}
-
-interface ISelectionPointerDragHandlersOptions {
-    getState: () => string;
-    getStartPoint: () => IClientPoint | null;
-    setStartPoint: (point: IClientPoint) => void;
-    updateSelection: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
-    onStart?: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
-    onEnd: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
-}
-
-interface ICanvasSource {
-    canvas: HTMLCanvasElement;
-    rect: IClientRect;
-}
-
-interface ICaptureFragment {
-    canvas: HTMLCanvasElement;
-    intersection: IClientRect;
-    sourceX: number;
-    sourceY: number;
-    sourceWidth: number;
-    sourceHeight: number;
-    scaleX: number;
-    scaleY: number;
-}
-
-interface ICapturePlan {
-    outputRect: IClientRect | null;
-    fragments: ICaptureFragment[];
-}
+type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';
 
 interface IUsePdfRegionSnipOptions {viewerContainer: Ref<HTMLElement | null>;}
 
 interface IBadgePosition {
     x: number;
     y: number;
-}
-
-export function getRectWidth(rect: IClientRect) {
-    return Math.max(0, rect.right - rect.left);
-}
-
-export function getRectHeight(rect: IClientRect) {
-    return Math.max(0, rect.bottom - rect.top);
-}
-
-export function normalizeClientRect(
-    startX: number,
-    startY: number,
-    endX: number,
-    endY: number,
-): IClientRect {
-    return {
-        left: Math.min(startX, endX),
-        top: Math.min(startY, endY),
-        right: Math.max(startX, endX),
-        bottom: Math.max(startY, endY),
-    };
-}
-
-export function intersectClientRects(a: IClientRect, b: IClientRect): IClientRect | null {
-    const intersection: IClientRect = {
-        left: Math.max(a.left, b.left),
-        top: Math.max(a.top, b.top),
-        right: Math.min(a.right, b.right),
-        bottom: Math.min(a.bottom, b.bottom),
-    };
-
-    return getRectWidth(intersection) > 0 && getRectHeight(intersection) > 0
-        ? intersection
-        : null;
-}
-
-export function clampClientPointToRect(
-    point: IClientPoint,
-    rect: IClientRect,
-): IClientPoint {
-    return {
-        clientX: clamp(point.clientX, rect.left, rect.right),
-        clientY: clamp(point.clientY, rect.top, rect.bottom),
-    };
-}
-
-export function toClientPoint(payload: IClientPoint): IClientPoint {
-    return {
-        clientX: payload.clientX,
-        clientY: payload.clientY,
-    };
-}
-
-export function hasActiveSelectionDrag(
-    state: string,
-    startPoint: IClientPoint | null,
-): startPoint is IClientPoint {
-    return state === 'selecting' && startPoint !== null;
-}
-
-export function createSelectionPointerDragHandlers(
-    options: ISelectionPointerDragHandlersOptions,
-) {
-    function getActiveStartPoint() {
-        const startPoint = options.getStartPoint();
-        return hasActiveSelectionDrag(options.getState(), startPoint)
-            ? startPoint
-            : null;
-    }
-
-    return {
-        onPointerStart(payload: ISnipPointerPayload) {
-            if (options.getState() !== 'selecting') {
-                return;
-            }
-
-            const startPoint = toClientPoint(payload);
-            options.setStartPoint(startPoint);
-            options.onStart?.(payload, startPoint);
-            options.updateSelection(payload, startPoint);
-        },
-        onPointerMove(payload: ISnipPointerPayload) {
-            const startPoint = getActiveStartPoint();
-            if (!startPoint) {
-                return;
-            }
-
-            options.updateSelection(payload, startPoint);
-        },
-        onPointerEnd(payload: ISnipPointerPayload) {
-            const startPoint = getActiveStartPoint();
-            if (!startPoint) {
-                return;
-            }
-
-            options.onEnd(payload, startPoint);
-        },
-    };
-}
-
-function unionClientRects(a: IClientRect, b: IClientRect): IClientRect {
-    return {
-        left: Math.min(a.left, b.left),
-        top: Math.min(a.top, b.top),
-        right: Math.max(a.right, b.right),
-        bottom: Math.max(a.bottom, b.bottom),
-    };
-}
-
-export function toLocalRect(rect: IClientRect, overlayRect: IOverlayRect): ILocalRect {
-    return {
-        x: rect.left - overlayRect.left,
-        y: rect.top - overlayRect.top,
-        width: getRectWidth(rect),
-        height: getRectHeight(rect),
-    };
-}
-
-export function toClientRect(rect: DOMRect): IClientRect {
-    return {
-        left: rect.left,
-        top: rect.top,
-        right: rect.right,
-        bottom: rect.bottom,
-    };
-}
-
-export function createSelectionRectFromPointerDrag(
-    payload: ISnipPointerPayload,
-    startPoint: IClientPoint,
-    clampRect?: IClientRect,
-) {
-    const start = clampRect
-        ? clampClientPointToRect(startPoint, clampRect)
-        : startPoint;
-    const end = clampRect
-        ? clampClientPointToRect(payload, clampRect)
-        : payload;
-    const clientRect = normalizeClientRect(
-        start.clientX,
-        start.clientY,
-        end.clientX,
-        end.clientY,
-    );
-
-    return {
-        clientRect,
-        localRect: toLocalRect(clientRect, payload.overlayRect),
-    };
-}
-
-function collectCanvasSources(viewerContainer: HTMLElement): ICanvasSource[] {
-    const renderedCanvases = Array.from(
-        viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas'),
-    );
-    const fallbackCanvases = renderedCanvases.length > 0
-        ? renderedCanvases
-        : Array.from(viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas'));
-
-    return fallbackCanvases
-        .map((canvas) => {
-            const rect = toClientRect(canvas.getBoundingClientRect());
-            return {
-                canvas,
-                rect,
-            };
-        })
-        .filter((source) =>
-            source.canvas.width > 0
-            && source.canvas.height > 0
-            && getRectWidth(source.rect) > 0
-            && getRectHeight(source.rect) > 0);
-}
-
-export function buildCanvasCapturePlan(selectionRect: IClientRect, sources: readonly ICanvasSource[]): ICapturePlan {
-    let outputRect: IClientRect | null = null;
-    const fragments: ICaptureFragment[] = [];
-
-    for (const source of sources) {
-        const intersection = intersectClientRects(selectionRect, source.rect);
-        if (!intersection) {
-            continue;
-        }
-
-        const canvasCssWidth = getRectWidth(source.rect);
-        const canvasCssHeight = getRectHeight(source.rect);
-        if (canvasCssWidth <= 0 || canvasCssHeight <= 0) {
-            continue;
-        }
-
-        const scaleX = source.canvas.width / canvasCssWidth;
-        const scaleY = source.canvas.height / canvasCssHeight;
-        if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
-            continue;
-        }
-
-        const sourceX = clamp((intersection.left - source.rect.left) * scaleX, 0, source.canvas.width);
-        const sourceY = clamp((intersection.top - source.rect.top) * scaleY, 0, source.canvas.height);
-        const sourceWidth = clamp(getRectWidth(intersection) * scaleX, 0, source.canvas.width - sourceX);
-        const sourceHeight = clamp(getRectHeight(intersection) * scaleY, 0, source.canvas.height - sourceY);
-        if (sourceWidth <= 0 || sourceHeight <= 0) {
-            continue;
-        }
-
-        fragments.push({
-            canvas: source.canvas,
-            intersection,
-            sourceX,
-            sourceY,
-            sourceWidth,
-            sourceHeight,
-            scaleX,
-            scaleY,
-        });
-        outputRect = outputRect
-            ? unionClientRects(outputRect, intersection)
-            : intersection;
-    }
-
-    return {
-        outputRect,
-        fragments,
-    };
-}
-
-function resolveOutputScale(fragments: readonly ICaptureFragment[]) {
-    if (fragments.length === 0) {
-        return 1;
-    }
-
-    return Math.max(
-        1,
-        ...fragments.map(fragment => Math.min(fragment.scaleX, fragment.scaleY)),
-    );
-}
-
-function renderCapturePlan(plan: ICapturePlan): HTMLCanvasElement | null {
-    if (!plan.outputRect || plan.fragments.length === 0) {
-        return null;
-    }
-
-    const outputScale = resolveOutputScale(plan.fragments);
-    const outputWidth = Math.max(1, Math.round(getRectWidth(plan.outputRect) * outputScale));
-    const outputHeight = Math.max(1, Math.round(getRectHeight(plan.outputRect) * outputScale));
-
-    const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = outputWidth;
-    outputCanvas.height = outputHeight;
-    const context = outputCanvas.getContext('2d');
-    if (!context) {
-        return null;
-    }
-
-    for (const fragment of plan.fragments) {
-        const destinationX = (fragment.intersection.left - plan.outputRect.left) * outputScale;
-        const destinationY = (fragment.intersection.top - plan.outputRect.top) * outputScale;
-        const destinationWidth = getRectWidth(fragment.intersection) * outputScale;
-        const destinationHeight = getRectHeight(fragment.intersection) * outputScale;
-
-        context.drawImage(
-            fragment.canvas,
-            fragment.sourceX,
-            fragment.sourceY,
-            fragment.sourceWidth,
-            fragment.sourceHeight,
-            destinationX,
-            destinationY,
-            destinationWidth,
-            destinationHeight,
-        );
-    }
-
-    return outputCanvas;
-}
-
-function canvasToPngBlob(canvas: HTMLCanvasElement) {
-    return new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((blob) => {
-            resolve(blob);
-        }, 'image/png');
-    });
-}
-
-export async function writePngBlobToClipboard(blob: Blob) {
-    if (typeof ClipboardItem !== 'function') {
-        throw new Error('ClipboardItem API is unavailable');
-    }
-    if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.write !== 'function') {
-        throw new Error('Clipboard write API is unavailable');
-    }
-
-    const clipboardItem = new ClipboardItem({ 'image/png': blob });
-    await globalThis.navigator.clipboard.write([clipboardItem]);
 }
 
 export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
@@ -487,32 +149,17 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
 
         state.value = 'copying';
         try {
-            const sources = collectCanvasSources(viewerContainer);
-            const capturePlan = buildCanvasCapturePlan(selection, sources);
-            const outputRect = capturePlan.outputRect;
-            if (!outputRect || capturePlan.fragments.length === 0) {
+            const capture = await capturePdfRegionAsPngBlob(viewerContainer, selection);
+            if (!capture) {
                 cancelCapture();
                 return;
             }
 
-            const outputCanvas = renderCapturePlan(capturePlan);
-            if (!outputCanvas) {
-                throw new Error('Failed to render capture image');
-            }
-
-            const blob = await canvasToPngBlob(outputCanvas);
-            outputCanvas.width = 0;
-            outputCanvas.height = 0;
-
-            if (!blob) {
-                throw new Error('Failed to serialize capture image');
-            }
-
-            await writePngBlobToClipboard(blob);
+            await writePngBlobToClipboard(capture.blob);
 
             selectionRect.value = null;
             state.value = 'success';
-            setSuccessVisuals(outputRect, payload.overlayRect);
+            setSuccessVisuals(capture.outputRect, payload.overlayRect);
 
             clearSuccessTimer();
             startSuccessTimer();

@@ -2,12 +2,14 @@ import { delay } from 'es-toolkit/promise';
 import {
     COMMAND_REQUEST_TIMEOUT_MS,
     SESSION_WAIT_TIMEOUT_MS,
-    getCurrentSessionName,
-    getSessionInfo,
+} from './electronRunTimeouts';
+import { getCurrentSessionName } from './electronRunSessionPaths';
+import { getSessionInfo } from './electronRunSessionArtifacts';
+import {
     parseElectronRunCommandResponse,
-    type ISessionInfo,
     type TElectronRunCommand,
-} from './shared';
+} from './electronRunProtocol';
+import type { ISessionInfo } from './electronRunSessionTypes';
 
 async function postCommand(
     info: ISessionInfo,

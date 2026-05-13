@@ -6,7 +6,7 @@ import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
-import { OCR_SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/common';
+import { OCR_SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 
 const DEFAULT_BROWSER_OCR_SETTINGS: IOcrSettings = {
     pageRange: 'current',

@@ -24,10 +24,8 @@ import {
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
-import {
-    SETTINGS_STORAGE_KEY,
-    noopUnsubscribe,
-} from '@app/platform/browser-api/common';
+import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
+import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 const settingsState = ref<ISettingsData>({ ...DEFAULT_SETTINGS });
 let browserSettingsLoaded = false;

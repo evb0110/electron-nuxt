@@ -44,8 +44,9 @@ vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
     saveBytesToPickerOrDownload: (...args: unknown[]) => saveBytesToPickerOrDownloadMock(...args),
 }));
 
-vi.mock('@app/platform/browser-api/common', () => ({
-    EXPORT_RENDER_SCALE: 1,
+vi.mock('@app/platform/browser-api/browserImageExportConfig', () => ({ EXPORT_RENDER_SCALE: 1 }));
+
+vi.mock('@app/platform/browser-api/browserPdfjsDocumentInit', () => ({
     createPdfjsDocumentInitFromBrowserDocument: vi.fn(async () => {
         const data = new Uint8Array([
             1,
@@ -54,17 +55,12 @@ vi.mock('@app/platform/browser-api/common', () => ({
         ]);
         return {data};
     }),
-    ensurePdfExtension: (fileName: string) => (
-        fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`
-    ),
     getPdfjsLib: vi.fn(async () => ({getDocument: getDocumentMock})),
-    getWindowWithPickers: () => ({showSaveFilePicker: undefined}),
-    toUint8Array: (value: Uint8Array | ArrayBuffer) => (
-        value instanceof Uint8Array
-            ? value
-            : new Uint8Array(value)
-    ),
 }));
+
+vi.mock('@app/platform/browser-api/browserFileName', () => ({ ensurePdfExtension: (fileName: string) => fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf` }));
+
+vi.mock('@app/platform/browser-api/browserBytes', () => ({ toUint8Array: (value: Uint8Array | ArrayBuffer) => value instanceof Uint8Array ? value : new Uint8Array(value) }));
 
 const UTIF = utifModule as IUtifModule;
 

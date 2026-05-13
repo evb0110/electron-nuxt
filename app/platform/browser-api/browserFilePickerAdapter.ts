@@ -4,10 +4,8 @@ import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
-import {
-    getWindowWithPickers,
-    type IFilePickerAcceptType,
-} from '@app/platform/browser-api/common';
+import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
+import { getWindowWithPickers } from '@app/platform/browser-api/browserWindowFilePickers';
 import {
     buildBrowserByteLimitError,
     toBrowserOwnedArrayBuffer,
