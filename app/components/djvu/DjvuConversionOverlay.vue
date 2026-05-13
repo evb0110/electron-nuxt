@@ -27,7 +27,7 @@
                 variant="ghost"
                 color="neutral"
                 size="sm"
-                @click="$emit('cancel')"
+                @click="cancel"
             />
         </div>
     </div>
@@ -42,7 +42,11 @@ defineProps<{
     percent: number;
 }>();
 
-defineEmits<{cancel: [];}>();
+const emit = defineEmits<{cancel: [];}>();
+
+function cancel() {
+    emit('cancel');
+}
 </script>
 
 <style scoped>

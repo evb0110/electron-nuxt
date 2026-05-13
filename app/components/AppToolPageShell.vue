@@ -7,7 +7,7 @@
                 variant="ghost"
                 icon="i-ph-arrow-left"
                 :aria-label="t('common.back')"
-                @click="emit('close')"
+                @click="close"
             />
             <div class="tool-page-heading">
                 <div v-if="showEyebrow" class="tool-page-kicker">
@@ -50,6 +50,10 @@ const emit = defineEmits<{ 'close': [] }>();
 
 const { t } = useTypedI18n();
 const titleId = useId();
+
+function close() {
+    emit('close');
+}
 </script>
 
 <style scoped>

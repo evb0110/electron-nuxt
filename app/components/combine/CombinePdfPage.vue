@@ -5,7 +5,7 @@
         icon="i-ph-stack-plus"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
-        @close="emit('close')"
+        @close="closePage"
     >
         <div
             class="combine-page"
@@ -220,6 +220,10 @@ const emit = defineEmits<{
     'close': [];
     'open-result': [result: TOpenFileResult];
 }>();
+
+function closePage() {
+    emit('close');
+}
 
 const {
     showBack = true,

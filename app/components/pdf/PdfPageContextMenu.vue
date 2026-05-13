@@ -14,7 +14,7 @@
             type="button"
             class="pdf-context-menu__action pdf-context-menu__action--danger"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('delete-pages')"
+            @click="onDeletePages"
         >
             <UIcon name="i-ph-trash" class="pdf-context-menu__icon" />
             {{ t('pageOps.deletePages') }}
@@ -24,7 +24,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('extract-pages')"
+            @click="onExtractPages"
         >
             <UIcon name="i-ph-export" class="pdf-context-menu__icon" style="transform: scaleX(-1)" />
             {{ t('pageOps.extractPages') }}
@@ -34,7 +34,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('export-pages')"
+            @click="onExportPages"
         >
             <UIcon name="i-ph-export" class="pdf-context-menu__icon" />
             {{ t('pageOps.exportPages') }}
@@ -46,7 +46,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('rotate-cw')"
+            @click="onRotateCw"
         >
             <UIcon name="i-ph-arrow-clockwise" class="pdf-context-menu__icon" />
             {{ t('pageOps.rotateCw') }}
@@ -56,7 +56,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('rotate-ccw')"
+            @click="onRotateCcw"
         >
             <UIcon name="i-ph-arrow-counter-clockwise" class="pdf-context-menu__icon" />
             {{ t('pageOps.rotateCcw') }}
@@ -68,7 +68,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('insert-before')"
+            @click="onInsertBefore"
         >
             <UIcon name="i-ph-file-plus" class="pdf-context-menu__icon" />
             {{ t('pageOps.insertBefore') }}
@@ -78,7 +78,7 @@
             type="button"
             class="pdf-context-menu__action"
             :disabled="isOperationInProgress || isDjvuMode"
-            @click="emit('insert-after')"
+            @click="onInsertAfter"
         >
             <UIcon name="i-ph-file-plus" class="pdf-context-menu__icon" />
             {{ t('pageOps.insertAfter') }}
@@ -89,7 +89,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
-            @click="emit('select-all')"
+            @click="onSelectAll"
         >
             {{ t('pageOps.selectAll') }}
         </button>
@@ -97,7 +97,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
-            @click="emit('invert-selection')"
+            @click="onInvertSelection"
         >
             {{ t('pageOps.invertSelection') }}
         </button>
@@ -132,4 +132,40 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+function onDeletePages() {
+    emit('delete-pages');
+}
+
+function onExtractPages() {
+    emit('extract-pages');
+}
+
+function onExportPages() {
+    emit('export-pages');
+}
+
+function onRotateCw() {
+    emit('rotate-cw');
+}
+
+function onRotateCcw() {
+    emit('rotate-ccw');
+}
+
+function onInsertBefore() {
+    emit('insert-before');
+}
+
+function onInsertAfter() {
+    emit('insert-after');
+}
+
+function onSelectAll() {
+    emit('select-all');
+}
+
+function onInvertSelection() {
+    emit('invert-selection');
+}
 </script>

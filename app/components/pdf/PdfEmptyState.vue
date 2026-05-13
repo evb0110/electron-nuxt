@@ -82,7 +82,7 @@
                             class="open-panel-cta"
                             :aria-label="t('toolbar.openPdf')"
                             :disabled="openInProgress"
-                            @click="emit('open-file')"
+                            @click="openFile"
                         >
                             <UIcon
                                 :name="openInProgress ? 'i-ph-circle-notch' : 'i-ph-folder-open'"
@@ -171,7 +171,7 @@
                                 role="row"
                                 :class="{ 'is-disabled': openInProgress }"
                                 :disabled="openInProgress"
-                                @click="emit('open-recent', file)"
+                                @click="openRecent(file)"
                             >
                                 <span class="recent-col recent-col--name" role="cell">
                                     <span class="recent-file-icon" aria-hidden="true">
@@ -199,9 +199,9 @@
                                             role="button"
                                             tabindex="0"
                                             :aria-label="t('status.showInFolder')"
-                                            @click.stop="emit('reveal-recent', file)"
-                                            @keydown.enter.stop="emit('reveal-recent', file)"
-                                            @keydown.space.stop.prevent="emit('reveal-recent', file)"
+                                            @click.stop="revealRecent(file)"
+                                            @keydown.enter.stop="revealRecent(file)"
+                                            @keydown.space.stop.prevent="revealRecent(file)"
                                         >
                                             <UIcon name="i-ph-folder-open" />
                                         </span>
@@ -212,9 +212,9 @@
                                             role="button"
                                             tabindex="0"
                                             :aria-label="t('emptyState.removeFromRecent')"
-                                            @click.stop="emit('remove-recent', file)"
-                                            @keydown.enter.stop="emit('remove-recent', file)"
-                                            @keydown.space.stop.prevent="emit('remove-recent', file)"
+                                            @click.stop="removeRecent(file)"
+                                            @keydown.enter.stop="removeRecent(file)"
+                                            @keydown.space.stop.prevent="removeRecent(file)"
                                         >
                                             <UIcon name="i-ph-x" />
                                         </span>
@@ -438,6 +438,22 @@ function showCombinePage() {
 
 function showSettingsPage() {
     setActiveSection('settings');
+}
+
+function openFile() {
+    emit('open-file');
+}
+
+function openRecent(file: IRecentFile) {
+    emit('open-recent', file);
+}
+
+function revealRecent(file: IRecentFile) {
+    emit('reveal-recent', file);
+}
+
+function removeRecent(file: IRecentFile) {
+    emit('remove-recent', file);
 }
 
 function handleCombineOpenResult(result: TOpenFileResult) {

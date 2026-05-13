@@ -109,7 +109,7 @@
                 type="button"
                 class="installer-item"
                 :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
-                @click="trackDownload(installer); triggerIframeDownload(installer.downloadUrl)"
+                @click="downloadInstaller(installer)"
               >
                 <div class="installer-item-info">
                   <div class="installer-item-header">
@@ -392,6 +392,11 @@ function trackDownload(installer: IReleaseInstaller) {
             fileName: installer.name,
         }),
     }).catch(() => {});
+}
+
+function downloadInstaller(installer: IReleaseInstaller) {
+    trackDownload(installer);
+    triggerIframeDownload(installer.downloadUrl);
 }
 
 function isRecommendedInstaller(installer: IReleaseInstaller) {

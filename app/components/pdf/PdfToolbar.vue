@@ -20,7 +20,7 @@
                 :shortcut="shortcutLabels.openFile"
                 :disabled="isOpeningDocument"
                 :loading="isOpeningDocument"
-                @click="emit('open-file')"
+                @click="handleToolbarCommand('open-file')"
             />
             <div class="toolbar-separator" />
             <ToolbarButton
@@ -30,7 +30,7 @@
                 :tooltip="t('toolbar.toggleSidebar')"
                 :shortcut="shortcutLabels.toggleSidebar"
                 :disabled="!hasInteractiveDocument || canToggleSidebar === false"
-                @click="emit('toggle-sidebar')"
+                @click="handleToolbarCommand('toggle-sidebar')"
             />
 
             <div class="toolbar-separator" />
@@ -44,7 +44,7 @@
                         :shortcut="shortcutLabels.save"
                         :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                         :loading="isSaving"
-                        @click="emit('save')"
+                        @click="handleToolbarCommand('save')"
                     />
                 </div>
                 <div class="toolbar-action toolbar-action--save-as">
@@ -55,7 +55,7 @@
                         :shortcut="shortcutLabels.saveAs"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                         :loading="isSavingAs"
-                        @click="emit('save-as')"
+                        @click="handleToolbarCommand('save-as')"
                     />
                 </div>
                 <div class="toolbar-action toolbar-action--print">
@@ -66,7 +66,7 @@
                         :shortcut="shortcutLabels.print"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                         :loading="isPreparingPrint && !isPreparingCurrentPagePrint"
-                        @click="emit('print')"
+                        @click="handleToolbarCommand('print')"
                     />
                 </div>
                 <div class="toolbar-action toolbar-action--print-current-page">
@@ -76,7 +76,7 @@
                         :tooltip="t('toolbar.printCurrentPage')"
                         :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                         :loading="isPreparingCurrentPagePrint"
-                        @click="emit('print-current-page')"
+                        @click="handleToolbarCommand('print-current-page')"
                     >
                         <PrintCurrentPageIcon class="size-full" />
                     </ToolbarButton>
@@ -93,7 +93,7 @@
                         :tooltip="t('toolbar.undo')"
                         :shortcut="shortcutLabels.undo"
                         :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                        @click="emit('undo')"
+                        @click="handleToolbarCommand('undo')"
                     />
                 </div>
                 <div class="toolbar-action toolbar-action--redo">
@@ -103,7 +103,7 @@
                         :tooltip="t('toolbar.redo')"
                         :shortcut="shortcutLabels.redo"
                         :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                        @click="emit('redo')"
+                        @click="handleToolbarCommand('redo')"
                     />
                 </div>
             </template>
@@ -146,7 +146,7 @@
                         :shortcut="shortcutLabels.actualSize"
                         :disabled="!hasInteractiveDocument"
                         grouped
-                        @click="emit('actual-size')"
+                        @click="handleToolbarCommand('actual-size')"
                     />
                 </div>
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
@@ -157,7 +157,7 @@
                         :shortcut="shortcutLabels.fitWidth"
                         :disabled="!hasInteractiveDocument"
                         grouped
-                        @click="emit('fit-width')"
+                        @click="handleToolbarCommand('fit-width')"
                     />
                 </div>
                 <div v-if="isCommandInline('fit-height')" class="toolbar-group-item">
@@ -168,7 +168,7 @@
                         :shortcut="shortcutLabels.fitHeight"
                         :disabled="!hasInteractiveDocument"
                         grouped
-                        @click="emit('fit-height')"
+                        @click="handleToolbarCommand('fit-height')"
                     />
                 </div>
                 <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(2)" class="toolbar-group-item toolbar-group-item--continuous-scroll">
@@ -178,7 +178,7 @@
                         :tooltip="t('zoom.continuousScroll')"
                         :disabled="!hasInteractiveDocument"
                         grouped
-                        @click="emit('toggle-continuous-scroll')"
+                        @click="handleToolbarCommand('toggle-continuous-scroll')"
                     />
                 </div>
             </div>
@@ -193,7 +193,7 @@
                         :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
                         :disabled="!hasInteractiveDocument || isDjvuMode"
                         grouped
-                        @click="emit('quick-note')"
+                        @click="handleToolbarCommand('quick-note')"
                     />
                 </div>
                 <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item toolbar-group-item--drag-mode">
@@ -203,7 +203,7 @@
                         :tooltip="t('zoom.handTool')"
                         :disabled="!hasInteractiveDocument"
                         grouped
-                        @click="emit('enable-drag')"
+                        @click="handleToolbarCommand('enable-drag')"
                     />
                 </div>
                 <div v-if="isCommandInline('text-select')" class="toolbar-group-item toolbar-group-item--text-select">
@@ -213,7 +213,7 @@
                         :tooltip="t('zoom.textSelect')"
                         :disabled="!hasInteractiveDocument"
                         grouped
-                        @click="emit('disable-drag')"
+                        @click="handleToolbarCommand('disable-drag')"
                     />
                 </div>
             </div>
@@ -229,7 +229,7 @@
                     :active="isCapturingRegion"
                     :tooltip="t('toolbar.captureRegion')"
                     :disabled="!hasInteractiveDocument || isDjvuMode"
-                    @click="emit('capture-region')"
+                    @click="handleToolbarCommand('capture-region')"
                 />
             </div>
             <div class="toolbar-action toolbar-action--crop">
@@ -239,7 +239,7 @@
                     :active="isCropSelecting"
                     :tooltip="t('toolbar.crop')"
                     :disabled="!hasInteractiveDocument || isDjvuMode"
-                    @click="emit('crop')"
+                    @click="handleToolbarCommand('crop')"
                 />
             </div>
 
@@ -261,7 +261,7 @@
                     :shortcut="shortcutLabels.exportDocx"
                     :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
                     :loading="isExportingDocx"
-                    @click="emit('export-docx')"
+                    @click="handleToolbarCommand('export-docx')"
                 />
             </div>
 
@@ -280,13 +280,13 @@
                 :tooltip="t('toolbar.fullscreen')"
                 :active="isFullscreen"
                 :disabled="!hasInteractiveDocument || !fullscreenSupported"
-                @click="emit('toggle-fullscreen')"
+                @click="handleToolbarCommand('toggle-fullscreen')"
             />
             <ToolbarButton
                 v-if="isCommandInline('settings')"
                 icon="ph:gear"
                 :tooltip="t('toolbar.settings')"
-                @click="emit('open-settings')"
+                @click="handleToolbarCommand('open-settings')"
             />
         </div>
     </header>
@@ -364,6 +364,28 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 
+type TToolbarCommand =
+    | 'open-file'
+    | 'open-settings'
+    | 'save'
+    | 'save-as'
+    | 'print'
+    | 'print-current-page'
+    | 'export-docx'
+    | 'undo'
+    | 'redo'
+    | 'toggle-sidebar'
+    | 'actual-size'
+    | 'fit-width'
+    | 'fit-height'
+    | 'toggle-continuous-scroll'
+    | 'enable-drag'
+    | 'disable-drag'
+    | 'capture-region'
+    | 'crop'
+    | 'quick-note'
+    | 'toggle-fullscreen';
+
 const { t } = useTypedI18n();
 
 const shortcutLabels = getShortcutLabels();
@@ -379,8 +401,35 @@ const overflowMenuCollapseTier = 5;
 const pageCompactLevel = 0;
 const zoomCompactLevel = 0;
 
+const toolbarCommandHandlers = {
+    'open-file': () => emit('open-file'),
+    'open-settings': () => emit('open-settings'),
+    'save': () => emit('save'),
+    'save-as': () => emit('save-as'),
+    'print': () => emit('print'),
+    'print-current-page': () => emit('print-current-page'),
+    'export-docx': () => emit('export-docx'),
+    'undo': () => emit('undo'),
+    'redo': () => emit('redo'),
+    'toggle-sidebar': () => emit('toggle-sidebar'),
+    'actual-size': () => emit('actual-size'),
+    'fit-width': () => emit('fit-width'),
+    'fit-height': () => emit('fit-height'),
+    'toggle-continuous-scroll': () => emit('toggle-continuous-scroll'),
+    'enable-drag': () => emit('enable-drag'),
+    'disable-drag': () => emit('disable-drag'),
+    'capture-region': () => emit('capture-region'),
+    'crop': () => emit('crop'),
+    'quick-note': () => emit('quick-note'),
+    'toggle-fullscreen': () => emit('toggle-fullscreen'),
+} satisfies Record<TToolbarCommand, () => void>;
+
 function isCommandInline(command: TReaderCommandId) {
     return isReaderCommandInline(surface, command);
+}
+
+function handleToolbarCommand(command: TToolbarCommand) {
+    toolbarCommandHandlers[command]();
 }
 
 </script>

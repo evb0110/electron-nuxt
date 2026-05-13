@@ -8,11 +8,11 @@
         :error="note.error"
         :position="annotationNotePositions[note.comment.stableKey] ?? null"
         :z-index="90 + note.order"
-        @update:text="$emit('update-note-text', note.comment.stableKey, $event)"
-        @update:position="$emit('update-note-position', note.comment.stableKey, $event)"
-        @minimize="$emit('minimize-note', note.comment.stableKey)"
-        @delete="$emit('delete-comment', note.comment)"
-        @focus="$emit('focus-note', note.comment.stableKey)"
+        @update:text="handleNoteTextUpdate(note.comment.stableKey, $event)"
+        @update:position="handleNotePositionUpdate(note.comment.stableKey, $event)"
+        @minimize="handleMinimizeNote(note.comment.stableKey)"
+        @delete="handleDeleteComment(note.comment)"
+        @focus="handleFocusNote(note.comment.stableKey)"
     />
     <template
         v-for="note in anchoredAnnotationNoteWindows"
@@ -85,38 +85,38 @@
         :annotation-label="contextMenuAnnotationLabel"
         :delete-label="contextMenuDeleteActionLabel"
         :is-image-comment="annotationContextMenuIsImage"
-        @open-note="$emit('context-open-note')"
-        @copy-text="$emit('context-copy-text')"
-        @copy-selection-text="$emit('context-copy-selection-text')"
-        @delete="$emit('context-delete')"
+        @open-note="handleContextOpenNote"
+        @copy-text="handleContextCopyText"
+        @copy-selection-text="handleContextCopySelectionText"
+        @delete="handleContextDelete"
         @markup="handleContextMarkup"
-        @create-free-note="$emit('context-create-free-note')"
-        @create-selection-note="$emit('context-create-selection-note')"
-        @insert-image-from-file="$emit('context-insert-image-from-file')"
-        @paste-image-from-clipboard="$emit('context-paste-image-from-clipboard')"
+        @create-free-note="handleContextCreateFreeNote"
+        @create-selection-note="handleContextCreateSelectionNote"
+        @insert-image-from-file="handleContextInsertImageFromFile"
+        @paste-image-from-clipboard="handleContextPasteImageFromClipboard"
     />
     <PdfPageContextMenu
         :menu="pageContextMenu"
         :style="pageContextMenuStyle"
         :is-operation-in-progress="isPageOperationInProgress"
         :is-djvu-mode="isDjvuMode"
-        @delete-pages="$emit('page-delete')"
-        @extract-pages="$emit('page-extract')"
-        @export-pages="$emit('page-export')"
-        @rotate-cw="$emit('page-rotate-cw')"
-        @rotate-ccw="$emit('page-rotate-ccw')"
-        @insert-before="$emit('page-insert-before')"
-        @insert-after="$emit('page-insert-after')"
-        @select-all="$emit('page-select-all')"
-        @invert-selection="$emit('page-invert-selection')"
+        @delete-pages="handlePageDelete"
+        @extract-pages="handlePageExtract"
+        @export-pages="handlePageExport"
+        @rotate-cw="handlePageRotateCw"
+        @rotate-ccw="handlePageRotateCcw"
+        @insert-before="handlePageInsertBefore"
+        @insert-after="handlePageInsertAfter"
+        @select-all="handlePageSelectAll"
+        @invert-selection="handlePageInvertSelection"
     />
     <PdfAnnotationProperties
         :shape="selectedShapeForProperties"
         :x="shapePropertiesX"
         :y="shapePropertiesY"
         @update="handleShapeUpdate"
-        @close="$emit('shape-close')"
-        @delete="$emit('shape-delete')"
+        @close="handleShapeClose"
+        @delete="handleShapeDelete"
     />
 </template>
 
@@ -748,12 +748,108 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     emit('restore-note', note.comment.stableKey);
 }
 
+function handleNoteTextUpdate(stableKey: string, text: string) {
+    emit('update-note-text', stableKey, text);
+}
+
+function handleNotePositionUpdate(stableKey: string, position: IAnnotationNotePosition) {
+    emit('update-note-position', stableKey, position);
+}
+
+function handleMinimizeNote(stableKey: string) {
+    emit('minimize-note', stableKey);
+}
+
+function handleDeleteComment(comment: IAnnotationCommentSummary) {
+    emit('delete-comment', comment);
+}
+
+function handleFocusNote(stableKey: string) {
+    emit('focus-note', stableKey);
+}
+
+function handleContextOpenNote() {
+    emit('context-open-note');
+}
+
+function handleContextCopyText() {
+    emit('context-copy-text');
+}
+
+function handleContextCopySelectionText() {
+    emit('context-copy-selection-text');
+}
+
+function handleContextDelete() {
+    emit('context-delete');
+}
+
 function handleContextMarkup(tool: TAnnotationTool) {
     emit('context-markup', tool);
 }
 
+function handleContextCreateFreeNote() {
+    emit('context-create-free-note');
+}
+
+function handleContextCreateSelectionNote() {
+    emit('context-create-selection-note');
+}
+
+function handleContextInsertImageFromFile() {
+    emit('context-insert-image-from-file');
+}
+
+function handleContextPasteImageFromClipboard() {
+    emit('context-paste-image-from-clipboard');
+}
+
+function handlePageDelete() {
+    emit('page-delete');
+}
+
+function handlePageExtract() {
+    emit('page-extract');
+}
+
+function handlePageExport() {
+    emit('page-export');
+}
+
+function handlePageRotateCw() {
+    emit('page-rotate-cw');
+}
+
+function handlePageRotateCcw() {
+    emit('page-rotate-ccw');
+}
+
+function handlePageInsertBefore() {
+    emit('page-insert-before');
+}
+
+function handlePageInsertAfter() {
+    emit('page-insert-after');
+}
+
+function handlePageSelectAll() {
+    emit('page-select-all');
+}
+
+function handlePageInvertSelection() {
+    emit('page-invert-selection');
+}
+
 function handleShapeUpdate(updates: Partial<IShapeAnnotation>) {
     emit('shape-update', updates);
+}
+
+function handleShapeClose() {
+    emit('shape-close');
+}
+
+function handleShapeDelete() {
+    emit('shape-delete');
 }
 
 const overlayRefreshScheduler = createRafBurstScheduler(() => {

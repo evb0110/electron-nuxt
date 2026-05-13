@@ -12,9 +12,9 @@
         <PdfImagePlacementOverlay
             :placement="placedImage"
             :busy="placedImageBusy"
-            @update-rect="$emit('update-placed-image-rect', $event)"
-            @finalize="$emit('finalize-placed-image')"
-            @cancel="$emit('cancel-placed-image')"
+            @update-rect="updatePlacedImageRect"
+            @finalize="finalizePlacedImage"
+            @cancel="cancelPlacedImage"
         />
         <PdfShapeOverlay
             v-if="shapeContext"
@@ -76,11 +76,23 @@ const {
     placedImage = null,
     placedImageBusy = false,
 } = defineProps<IProps>();
-defineEmits<{
+const emit = defineEmits<{
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
 }>();
+
+function updatePlacedImageRect(payload: IPdfImagePlacementRectUpdate) {
+    emit('update-placed-image-rect', payload);
+}
+
+function finalizePlacedImage() {
+    emit('finalize-placed-image');
+}
+
+function cancelPlacedImage() {
+    emit('cancel-placed-image');
+}
 
 const {
     scaledSkeletonPadding,

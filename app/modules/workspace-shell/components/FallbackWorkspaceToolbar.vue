@@ -25,25 +25,25 @@
         :surface="toolbarSurface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
-        @open-file="emit('open-file')"
-        @open-settings="emit('open-settings')"
-        @save="emit('save')"
-        @save-as="emit('save-as')"
-        @print="emit('print')"
-        @export-docx="emit('export-docx')"
-        @undo="emit('undo')"
-        @redo="emit('redo')"
-        @toggle-sidebar="emit('toggle-sidebar')"
-        @actual-size="emit('actual-size')"
-        @fit-width="emit('fit-width')"
-        @fit-height="emit('fit-height')"
-        @toggle-continuous-scroll="emit('toggle-continuous-scroll')"
-        @enable-drag="emit('enable-drag')"
-        @disable-drag="emit('disable-drag')"
-        @capture-region="emit('capture-region')"
-        @crop="emit('crop')"
-        @quick-note="emit('quick-note')"
-        @toggle-fullscreen="emit('toggle-fullscreen')"
+        @open-file="handleOpenFile"
+        @open-settings="handleOpenSettings"
+        @save="handleSave"
+        @save-as="handleSaveAs"
+        @print="handlePrint"
+        @export-docx="handleExportDocx"
+        @undo="handleUndo"
+        @redo="handleRedo"
+        @toggle-sidebar="handleToggleSidebar"
+        @actual-size="handleActualSize"
+        @fit-width="handleFitWidth"
+        @fit-height="handleFitHeight"
+        @toggle-continuous-scroll="handleToggleContinuousScroll"
+        @enable-drag="handleEnableDrag"
+        @disable-drag="handleDisableDrag"
+        @capture-region="handleCaptureRegion"
+        @crop="handleCrop"
+        @quick-note="handleQuickNote"
+        @toggle-fullscreen="handleToggleFullscreen"
     >
         <template #app-menu>
             <ToolbarAppMenu
@@ -59,26 +59,26 @@
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-djvu-mode="snapshot.isDjvuMode"
                 :can-use-djvu="canUseDjvu"
-                @update:open="emit('update:appMenuOpen', $event)"
-                @open-file="emit('open-file')"
-                @save="emit('save')"
-                @save-as="emit('save-as')"
-                @print="emit('print')"
-                @print-current-page="emit('print-current-page')"
-                @combine-images="emit('combine-images')"
-                @export-docx="emit('export-docx')"
-                @export-images="emit('export-images')"
-                @export-multi-page-tiff="emit('export-multi-page-tiff')"
-                @convert-to-pdf="emit('convert-to-pdf')"
-                @undo="emit('undo')"
-                @redo="emit('redo')"
-                @insert-image-from-file="emit('insert-image-from-file')"
-                @paste-image-from-clipboard="emit('paste-image-from-clipboard')"
-                @delete-pages="emit('delete-pages')"
-                @extract-pages="emit('extract-pages')"
-                @rotate-cw="emit('rotate-cw')"
-                @rotate-ccw="emit('rotate-ccw')"
-                @insert-pages="emit('insert-pages')"
+                @update:open="handleAppMenuOpenUpdate"
+                @open-file="handleOpenFile"
+                @save="handleSave"
+                @save-as="handleSaveAs"
+                @print="handlePrint"
+                @print-current-page="handlePrintCurrentPage"
+                @combine-images="handleCombineImages"
+                @export-docx="handleExportDocx"
+                @export-images="handleExportImages"
+                @export-multi-page-tiff="handleExportMultiPageTiff"
+                @convert-to-pdf="handleConvertToPdf"
+                @undo="handleUndo"
+                @redo="handleRedo"
+                @insert-image-from-file="handleInsertImageFromFile"
+                @paste-image-from-clipboard="handlePasteImageFromClipboard"
+                @delete-pages="handleDeletePages"
+                @extract-pages="handleExtractPages"
+                @rotate-cw="handleRotateCw"
+                @rotate-ccw="handleRotateCcw"
+                @insert-pages="handleInsertPages"
             />
         </template>
         <template v-if="canUseOcr" #ocr="{ isCollapsed }">
@@ -91,9 +91,9 @@
                 :open="ocrPopupOpen"
                 :disabled="snapshot.isDjvuMode || !hasPdf"
                 :hide-trigger="isCollapsed(3)"
-                @update:open="emit('update:ocrPopupOpen', $event)"
-                @export-docx="emit('export-docx')"
-                @ocr-complete="emit('ocr-complete')"
+                @update:open="handleOcrPopupOpenUpdate"
+                @export-docx="handleExportDocx"
+                @ocr-complete="handleOcrComplete"
             />
         </template>
         <template #zoom-dropdown="{ compactLevel }">
@@ -106,8 +106,8 @@
                 :open="zoomDropdownOpen"
                 :disabled="!hasPdf"
                 :compact-level="compactLevel"
-                @update:effective-zoom="emit('update:effectiveZoom', $event)"
-                @update:open="emit('update:zoomDropdownOpen', $event)"
+                @update:effective-zoom="handleEffectiveZoomUpdate"
+                @update:open="handleZoomDropdownOpenUpdate"
             />
         </template>
         <template #page-dropdown="{ compactLevel }">
@@ -119,8 +119,8 @@
                 :page-labels="null"
                 :disabled="!hasPdf"
                 :compact-level="compactLevel"
-                @go-to-page="emit('go-to-page')"
-                @update:open="emit('update:pageDropdownOpen', $event)"
+                @go-to-page="handleGoToPage"
+                @update:open="handlePageDropdownOpenUpdate"
             />
         </template>
         <template #overflow-menu="{ collapseTier, hasOverflowItems }">
@@ -153,23 +153,23 @@
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 trigger-icon="i-ph-dots-three"
-                @update:open="emit('update:overflowMenuOpen', $event)"
-                @capture-region="emit('capture-region')"
-                @crop="emit('crop')"
-                @toggle-sidebar="emit('toggle-sidebar')"
-                @actual-size="emit('actual-size')"
-                @fit-width="emit('fit-width')"
-                @fit-height="emit('fit-height')"
-                @enable-drag="emit('enable-drag')"
-                @disable-drag="emit('disable-drag')"
-                @set-view-mode="emit('set-view-mode', $event)"
-                @toggle-continuous-scroll="emit('toggle-continuous-scroll')"
-                @quick-note="emit('quick-note')"
-                @open-settings="emit('open-settings')"
-                @combine-images="emit('combine-images')"
-                @print-current-page="emit('print-current-page')"
-                @convert-to-pdf="emit('convert-to-pdf')"
-                @toggle-fullscreen="emit('toggle-fullscreen')"
+                @update:open="handleOverflowMenuOpenUpdate"
+                @capture-region="handleCaptureRegion"
+                @crop="handleCrop"
+                @toggle-sidebar="handleToggleSidebar"
+                @actual-size="handleActualSize"
+                @fit-width="handleFitWidth"
+                @fit-height="handleFitHeight"
+                @enable-drag="handleEnableDrag"
+                @disable-drag="handleDisableDrag"
+                @set-view-mode="handleSetViewMode"
+                @toggle-continuous-scroll="handleToggleContinuousScroll"
+                @quick-note="handleQuickNote"
+                @open-settings="handleOpenSettings"
+                @combine-images="handleCombineImages"
+                @print-current-page="handlePrintCurrentPage"
+                @convert-to-pdf="handleConvertToPdf"
+                @toggle-fullscreen="handleToggleFullscreen"
             />
         </template>
     </PdfToolbar>
@@ -252,6 +252,166 @@ const emit = defineEmits<{
     'go-to-page': [];
     'ocr-complete': [];
 }>();
+
+function handleOcrPopupOpenUpdate(open: boolean) {
+    emit('update:ocrPopupOpen', open);
+}
+
+function handleZoomDropdownOpenUpdate(open: boolean) {
+    emit('update:zoomDropdownOpen', open);
+}
+
+function handlePageDropdownOpenUpdate(open: boolean) {
+    emit('update:pageDropdownOpen', open);
+}
+
+function handleOverflowMenuOpenUpdate(open: boolean) {
+    emit('update:overflowMenuOpen', open);
+}
+
+function handleAppMenuOpenUpdate(open: boolean) {
+    emit('update:appMenuOpen', open);
+}
+
+function handleEffectiveZoomUpdate(zoom: number) {
+    emit('update:effectiveZoom', zoom);
+}
+
+function handleOpenFile() {
+    emit('open-file');
+}
+
+function handleOpenSettings() {
+    emit('open-settings');
+}
+
+function handleSave() {
+    emit('save');
+}
+
+function handleSaveAs() {
+    emit('save-as');
+}
+
+function handlePrint() {
+    emit('print');
+}
+
+function handlePrintCurrentPage() {
+    emit('print-current-page');
+}
+
+function handleCombineImages() {
+    emit('combine-images');
+}
+
+function handleExportDocx() {
+    emit('export-docx');
+}
+
+function handleExportImages() {
+    emit('export-images');
+}
+
+function handleExportMultiPageTiff() {
+    emit('export-multi-page-tiff');
+}
+
+function handleConvertToPdf() {
+    emit('convert-to-pdf');
+}
+
+function handleUndo() {
+    emit('undo');
+}
+
+function handleRedo() {
+    emit('redo');
+}
+
+function handleInsertImageFromFile() {
+    emit('insert-image-from-file');
+}
+
+function handlePasteImageFromClipboard() {
+    emit('paste-image-from-clipboard');
+}
+
+function handleDeletePages() {
+    emit('delete-pages');
+}
+
+function handleExtractPages() {
+    emit('extract-pages');
+}
+
+function handleRotateCw() {
+    emit('rotate-cw');
+}
+
+function handleRotateCcw() {
+    emit('rotate-ccw');
+}
+
+function handleInsertPages() {
+    emit('insert-pages');
+}
+
+function handleToggleSidebar() {
+    emit('toggle-sidebar');
+}
+
+function handleActualSize() {
+    emit('actual-size');
+}
+
+function handleFitWidth() {
+    emit('fit-width');
+}
+
+function handleFitHeight() {
+    emit('fit-height');
+}
+
+function handleToggleContinuousScroll() {
+    emit('toggle-continuous-scroll');
+}
+
+function handleEnableDrag() {
+    emit('enable-drag');
+}
+
+function handleDisableDrag() {
+    emit('disable-drag');
+}
+
+function handleCaptureRegion() {
+    emit('capture-region');
+}
+
+function handleCrop() {
+    emit('crop');
+}
+
+function handleQuickNote() {
+    emit('quick-note');
+}
+
+function handleToggleFullscreen() {
+    emit('toggle-fullscreen');
+}
+
+function handleSetViewMode(mode: TPdfViewMode) {
+    emit('set-view-mode', mode);
+}
+
+function handleGoToPage() {
+    emit('go-to-page');
+}
+
+function handleOcrComplete() {
+    emit('ocr-complete');
+}
 
 const zoom = computed({
     get: () => props.snapshot.zoom,

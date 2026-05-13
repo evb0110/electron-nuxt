@@ -86,7 +86,7 @@
                             :is-active="match.matchIndex === activeMatchIndex"
                             :page-labels="pageLabels"
                             :show-page-label="false"
-                            @activate="$emit('goToResult', resultIndexByMatchIndex.get(match.matchIndex) ?? -1)"
+                            @activate="goToResult(match.matchIndex)"
                         />
                     </div>
                 </section>
@@ -126,7 +126,7 @@ interface IProps {
 
 const props = defineProps<IProps>();
 
-defineEmits<{(e: 'goToResult', index: number): void;}>();
+const emit = defineEmits<{(e: 'goToResult', index: number): void;}>();
 
 const trimmedQuery = computed(() => props.searchQuery.trim());
 const minQueryLength = computed(() => props.minQueryLength ?? 0);
@@ -160,6 +160,10 @@ const resultIndexByMatchIndex = computed(() => new Map(
         index,
     ]),
 ));
+
+function goToResult(matchIndex: number) {
+    emit('goToResult', resultIndexByMatchIndex.value.get(matchIndex) ?? -1);
+}
 
 const isQueryTooShort = computed(() => {
     const min = minQueryLength.value;

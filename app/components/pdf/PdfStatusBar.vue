@@ -8,7 +8,7 @@
                     :class="{ 'is-actionable': canShowInFolder }"
                     :disabled="!canShowInFolder"
                     :aria-label="showInFolderAriaLabel"
-                    @click="emit('showInFolder')"
+                    @click="onShowInFolder"
                 >
                     <UIcon name="i-ph-folder-open" class="status-folder-icon" />
                 </button>
@@ -29,7 +29,7 @@
                     :class="[saveDotClass, { 'is-actionable': canSave }]"
                     :disabled="!canSave"
                     :aria-label="saveDotAriaLabel"
-                    @click="emit('save')"
+                    @click="onSave"
                 >
                     <span class="status-save-dot" />
                 </button>
@@ -56,6 +56,14 @@ const emit = defineEmits<{
     showInFolder: [];
     save: [];
 }>();
+
+function onShowInFolder() {
+    emit('showInFolder');
+}
+
+function onSave() {
+    emit('save');
+}
 </script>
 
 <style scoped>

@@ -14,7 +14,7 @@
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.rotateCcw')"
                     :disabled="isOperationInProgress"
-                    @click="emit('rotate-ccw')"
+                    @click="onRotateCcw"
                 >
                     <UIcon name="i-ph-arrow-counter-clockwise" class="page-selection-bar-icon" />
                 </button>
@@ -26,7 +26,7 @@
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.rotateCw')"
                     :disabled="isOperationInProgress"
-                    @click="emit('rotate-cw')"
+                    @click="onRotateCw"
                 >
                     <UIcon name="i-ph-arrow-clockwise" class="page-selection-bar-icon" />
                 </button>
@@ -38,7 +38,7 @@
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.extractPages')"
                     :disabled="isOperationInProgress"
-                    @click="emit('extract-pages')"
+                    @click="onExtractPages"
                 >
                     <UIcon
                         name="i-ph-export"
@@ -53,7 +53,7 @@
                     class="page-selection-bar-button"
                     :aria-label="t('pageOps.exportPages')"
                     :disabled="isOperationInProgress"
-                    @click="emit('export-pages')"
+                    @click="onExportPages"
                 >
                     <UIcon name="i-ph-export" class="page-selection-bar-icon" />
                 </button>
@@ -65,7 +65,7 @@
                     class="page-selection-bar-button page-selection-bar-button-danger"
                     :aria-label="t('pageOps.deletePages')"
                     :disabled="isOperationInProgress"
-                    @click="emit('delete-pages')"
+                    @click="onDeletePages"
                 >
                     <UIcon name="i-ph-trash" class="page-selection-bar-icon" />
                 </button>
@@ -75,7 +75,7 @@
         <button
             type="button"
             class="page-selection-bar-deselect"
-            @click="emit('deselect')"
+            @click="onDeselect"
         >
             {{ t('pageOps.deselect') }}
         </button>
@@ -98,6 +98,30 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+function onRotateCw() {
+    emit('rotate-cw');
+}
+
+function onRotateCcw() {
+    emit('rotate-ccw');
+}
+
+function onExtractPages() {
+    emit('extract-pages');
+}
+
+function onExportPages() {
+    emit('export-pages');
+}
+
+function onDeletePages() {
+    emit('delete-pages');
+}
+
+function onDeselect() {
+    emit('deselect');
+}
 </script>
 
 <style scoped>

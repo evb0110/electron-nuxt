@@ -25,7 +25,7 @@
             variant="soft"
             color="primary"
             size="xs"
-            @click="$emit('convert')"
+            @click="convert"
         />
         <UButton
             icon="i-ph-x"
@@ -33,7 +33,7 @@
             color="neutral"
             size="xs"
             class="djvu-banner-close"
-            @click="$emit('dismiss')"
+            @click="dismiss"
         />
     </div>
 </template>
@@ -53,10 +53,18 @@ const {
     loadingTotal?: number;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
     convert: [];
     dismiss: [];
 }>();
+
+function convert() {
+    emit('convert');
+}
+
+function dismiss() {
+    emit('dismiss');
+}
 </script>
 
 <style scoped>

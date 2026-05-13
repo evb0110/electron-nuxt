@@ -7,8 +7,8 @@
                 class="min-w-0 flex-1"
                 :placeholder="t('search.placeholder')"
                 autofocus
-                @keydown.enter.exact.prevent="emit('search')"
-                @keydown.shift.enter="emit('previous')"
+                @keydown.enter.exact.prevent="onSearch"
+                @keydown.shift.enter="onPrevious"
             >
                 <template #leading>
                     <UIcon name="i-ph-magnifying-glass" class="size-4" />
@@ -35,7 +35,7 @@
                         size="xs"
                         :disabled="totalMatches === 0"
                         :aria-label="t('search.previousMatchLabel')"
-                        @click="emit('previous')"
+                        @click="onPrevious"
                     />
                 </AppTooltip>
                 <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
@@ -46,7 +46,7 @@
                         size="xs"
                         :disabled="totalMatches === 0"
                         :aria-label="t('search.nextMatchLabel')"
-                        @click="emit('next')"
+                        @click="onNext"
                     />
                 </AppTooltip>
             </div>
@@ -131,6 +131,18 @@ function clearQuery() {
     searchQuery.value = '';
     emit('search');
     focus();
+}
+
+function onSearch() {
+    emit('search');
+}
+
+function onNext() {
+    emit('next');
+}
+
+function onPrevious() {
+    emit('previous');
 }
 
 function toggleOption(key: keyof IProps['options']) {

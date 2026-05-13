@@ -11,7 +11,7 @@
             :disabled="disabled || loading"
             :aria-label="tooltip"
             :aria-pressed="active"
-            @click="emit('click')"
+            @click="handleClick"
         >
             <span v-if="!loading" :class="iconClass">
                 <slot>
@@ -58,6 +58,10 @@ const {
 const emit = defineEmits<{ click: [] }>();
 
 const shortcutLabel = computed(() => shortcut.trim());
+
+function handleClick() {
+    emit('click');
+}
 </script>
 
 <style scoped>

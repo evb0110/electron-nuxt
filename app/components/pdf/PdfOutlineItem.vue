@@ -43,7 +43,7 @@
                     type="button"
                     class="pdf-bookmark-item-toggle"
                     :aria-label="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
-                    @click.stop="emit('toggle-expand', item.id)"
+                    @click.stop="toggleExpand"
                 >
                     <UIcon
                         :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'"
@@ -108,16 +108,16 @@
                 :key="child.id || index"
                 :item="child"
                 :pdf-document="pdfDocument"
-                @go-to-page="emit('go-to-page', $event)"
-                @activate="emit('activate', $event)"
-                @toggle-expand="emit('toggle-expand', $event)"
-                @open-actions="emit('open-actions', $event)"
-                @save-edit="emit('save-edit', $event)"
-                @cancel-edit="emit('cancel-edit')"
-                @drag-start="emit('drag-start', $event)"
-                @drag-hover="emit('drag-hover', $event)"
-                @drop-bookmark="emit('drop-bookmark', $event)"
-                @drag-end="emit('drag-end')"
+                @go-to-page="goToPage"
+                @activate="activate"
+                @toggle-expand="toggleExpandById"
+                @open-actions="openActions"
+                @save-edit="saveEdit"
+                @cancel-edit="cancelChildEdit"
+                @drag-start="startDrag"
+                @drag-hover="hoverDrag"
+                @drop-bookmark="dropBookmark"
+                @drag-end="endDrag"
             />
         </div>
     </div>
@@ -218,6 +218,55 @@ watch(
 
 function openActions(payload: IBookmarkMenuPayload) {
     emit('open-actions', payload);
+}
+
+function toggleExpand() {
+    emit('toggle-expand', props.item.id);
+}
+
+function toggleExpandById(id: string) {
+    emit('toggle-expand', id);
+}
+
+function goToPage(page: number) {
+    emit('go-to-page', page);
+}
+
+function activate(payload: {
+    id: string;
+    hasChildren: boolean;
+    wasActive: boolean;
+    multiSelect: boolean;
+    rangeSelect: boolean;
+}) {
+    emit('activate', payload);
+}
+
+function saveEdit(payload: {
+    id: string;
+    title: string;
+}) {
+    emit('save-edit', payload);
+}
+
+function cancelChildEdit() {
+    emit('cancel-edit');
+}
+
+function startDrag(payload: { id: string }) {
+    emit('drag-start', payload);
+}
+
+function hoverDrag(payload: IDragHoverPayload) {
+    emit('drag-hover', payload);
+}
+
+function dropBookmark(payload: IDragHoverPayload) {
+    emit('drop-bookmark', payload);
+}
+
+function endDrag() {
+    emit('drag-end');
 }
 
 function openActionsFromPointer(event: MouseEvent) {

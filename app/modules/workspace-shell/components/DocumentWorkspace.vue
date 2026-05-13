@@ -31,7 +31,7 @@
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 @open-file="handleOpenFileFromUi"
-                @open-settings="emit('open-settings')"
+                @open-settings="handleOpenSettings"
                 @save="handleToolbarSave"
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
@@ -49,7 +49,7 @@
                 @capture-region="handleToolbarCaptureRegion"
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
-                @toggle-fullscreen="emit('toggle-fullscreen')"
+                @toggle-fullscreen="handleToggleFullscreen"
             >
                 <template #app-menu>
                     <ToolbarAppMenu
@@ -73,7 +73,7 @@
                         @save-as="handleToolbarSaveAs"
                         @print="handlePrint"
                         @print-current-page="handlePrintCurrentPage"
-                        @combine-images="emit('open-combine')"
+                        @combine-images="handleOpenCombine"
                         @export-docx="handleToolbarExportDocx"
                         @export-images="handleExportImages()"
                         @export-multi-page-tiff="handleExportMultiPageTiff()"
@@ -179,10 +179,10 @@
                         @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
                         @quick-note="handleToolbarQuickNote"
                         @open-settings="handleOverflowOpenSettings"
-                        @combine-images="emit('open-combine')"
+                        @combine-images="handleOpenCombine"
                         @print-current-page="handlePrintCurrentPage"
                         @convert-to-pdf="openConvertDialog"
-                        @toggle-fullscreen="emit('toggle-fullscreen')"
+                        @toggle-fullscreen="handleToggleFullscreen"
                     />
                 </template>
             </PdfToolbar>
@@ -357,15 +357,15 @@
                         :open-in-progress="pendingDocumentOpen"
                         :start-section="startSection"
                         can-combine-files
-                        @update:start-section="emit('update:start-section', $event)"
+                        @update:start-section="handleStartSectionUpdate"
                         @open-file="handleOpenFileFromUi"
                         @open-folder="handleOpenFolderFromUi"
                         @open-recent="openRecentFile"
                         @remove-recent="removeRecentFile"
                         @reveal-recent="revealRecentFile"
                         @clear-recent="clearRecentFiles"
-                        @open-settings="emit('open-settings')"
-                        @combine-files="emit('open-combine')"
+                        @open-settings="handleOpenSettings"
+                        @combine-files="handleOpenCombine"
                         @open-combine-result="handleOpenFileWithResult"
                     />
                 </template>
@@ -573,6 +573,22 @@ const emit = defineEmits<{
     'open-combine': [];
     'toggle-fullscreen': [];
 }>();
+
+function handleStartSectionUpdate(section: TStartSection) {
+    emit('update:start-section', section);
+}
+
+function handleOpenSettings() {
+    emit('open-settings');
+}
+
+function handleOpenCombine() {
+    emit('open-combine');
+}
+
+function handleToggleFullscreen() {
+    emit('toggle-fullscreen');
+}
 
 const { t } = useTypedI18n();
 const analytics = useAnalytics();

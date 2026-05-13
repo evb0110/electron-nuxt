@@ -16,7 +16,7 @@
                     class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': displayMode === option.id }"
                     :aria-label="option.title"
-                    @click="emit('set-display-mode', option.id)"
+                    @click="setDisplayMode(option.id)"
                 >
                     <UIcon
                         :name="option.icon"
@@ -33,7 +33,7 @@
                     class="pdf-bookmarks-view-mode-button"
                     :class="{ 'is-active': isEditMode }"
                     :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
-                    @click="emit('toggle-edit-mode')"
+                    @click="toggleEditMode"
                 >
                     <UIcon
                         :name="isEditMode ? 'i-ph-pencil-simple-line' : 'i-ph-pencil'"
@@ -53,7 +53,7 @@
                     type="button"
                     class="pdf-bookmarks-icon-button"
                     :aria-label="t('bookmarks.addTopLevel')"
-                    @click="emit('add-root-bookmark')"
+                    @click="addRootBookmark"
                 >
                     <UIcon
                         name="i-ph-plus"
@@ -104,6 +104,18 @@ const displayModeOptions = computed<Array<{
         icon: 'i-ph-eye',
     },
 ]);
+
+function setDisplayMode(mode: TBookmarkDisplayMode) {
+    emit('set-display-mode', mode);
+}
+
+function toggleEditMode() {
+    emit('toggle-edit-mode');
+}
+
+function addRootBookmark() {
+    emit('add-root-bookmark');
+}
 </script>
 
 <style scoped>

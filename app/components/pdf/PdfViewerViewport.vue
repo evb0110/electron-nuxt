@@ -5,16 +5,16 @@
         class="pdfViewer app-scrollbar"
         :class="viewerClass"
         :style="containerStyle"
-        @scroll.passive="$emit('scroll', $event)"
-        @wheel="$emit('wheel', $event)"
-        @mousedown="$emit('mousedown', $event)"
-        @mousemove="$emit('mousemove', $event)"
-        @mouseup="$emit('mouseup', $event)"
-        @mouseleave="$emit('mouseleave')"
-        @click="$emit('click', $event)"
-        @dblclick="$emit('dblclick', $event)"
-        @contextmenu="$emit('contextmenu', $event)"
-        @selectstart="$emit('selectstart', $event)"
+        @scroll.passive="handleScroll"
+        @wheel="handleWheelEvent"
+        @mousedown="handleMouseDown"
+        @mousemove="handleMouseMove"
+        @mouseup="handleMouseUp"
+        @mouseleave="handleMouseLeave"
+        @click="handleClick"
+        @dblclick="handleDoubleClick"
+        @contextmenu="handleContextMenuEvent"
+        @selectstart="handleSelectStart"
     >
         <div
             v-if="topVirtualSpacerStyle"
@@ -30,9 +30,9 @@
             :placeholder-style="getPagePlaceholderStyle(page)"
             :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
             :placed-image-busy="isPendingImagePlacementFinalizing"
-            @update-placed-image-rect="$emit('update-placed-image-rect', $event)"
-            @finalize-placed-image="$emit('finalize-placed-image')"
-            @cancel-placed-image="$emit('cancel-placed-image')"
+            @update-placed-image-rect="updatePlacedImageRect"
+            @finalize-placed-image="finalizePlacedImage"
+            @cancel-placed-image="cancelPlacedImage"
         />
         <div
             v-if="bottomVirtualSpacerStyle"
@@ -81,7 +81,7 @@ const {
     isPendingImagePlacementFinalizing = false,
 } = defineProps<IProps>();
 
-defineEmits<{
+const emit = defineEmits<{
     scroll: [event: Event];
     wheel: [event: WheelEvent];
     mousedown: [event: MouseEvent];
@@ -96,6 +96,58 @@ defineEmits<{
     'finalize-placed-image': [];
     'cancel-placed-image': [];
 }>();
+
+function handleScroll(event: Event) {
+    emit('scroll', event);
+}
+
+function handleWheelEvent(event: WheelEvent) {
+    emit('wheel', event);
+}
+
+function handleMouseDown(event: MouseEvent) {
+    emit('mousedown', event);
+}
+
+function handleMouseMove(event: MouseEvent) {
+    emit('mousemove', event);
+}
+
+function handleMouseUp(event: MouseEvent) {
+    emit('mouseup', event);
+}
+
+function handleMouseLeave() {
+    emit('mouseleave');
+}
+
+function handleClick(event: MouseEvent) {
+    emit('click', event);
+}
+
+function handleDoubleClick(event: MouseEvent) {
+    emit('dblclick', event);
+}
+
+function handleContextMenuEvent(event: MouseEvent) {
+    emit('contextmenu', event);
+}
+
+function handleSelectStart(event: Event) {
+    emit('selectstart', event);
+}
+
+function updatePlacedImageRect(payload: IPdfImagePlacementRectUpdate) {
+    emit('update-placed-image-rect', payload);
+}
+
+function finalizePlacedImage() {
+    emit('finalize-placed-image');
+}
+
+function cancelPlacedImage() {
+    emit('cancel-placed-image');
+}
 
 function setViewerContainerElement(element: Element | ComponentPublicInstance | null) {
     setViewerContainer(element instanceof HTMLElement ? element : null);

@@ -54,7 +54,7 @@
                 class="pdf-image-placement__action pdf-image-placement__action--secondary"
                 :disabled="busy"
                 @mousedown.stop.prevent
-                @click.stop="emit('cancel')"
+                @click.stop="cancelPlacement"
             >
                 {{ t('annotations.cancelImagePlacement') }}
             </button>
@@ -63,7 +63,7 @@
                 class="pdf-image-placement__action pdf-image-placement__action--primary"
                 :disabled="busy"
                 @mousedown.stop.prevent
-                @click.stop="emit('finalize')"
+                @click.stop="finalizePlacement"
             >
                 {{ t('annotations.embedImageToPage') }}
             </button>
@@ -501,6 +501,14 @@ useEventListener('keydown', (event: KeyboardEvent) => {
         emit('finalize');
     }
 });
+
+function cancelPlacement() {
+    emit('cancel');
+}
+
+function finalizePlacement() {
+    emit('finalize');
+}
 
 onBeforeUnmount(() => {
     stopInteraction();

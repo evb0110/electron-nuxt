@@ -14,7 +14,7 @@
                 color="neutral"
                 size="xs"
                 :aria-label="t('annotationProperties.close')"
-                @click="emit('close')"
+                @click="close"
             />
         </div>
 
@@ -81,7 +81,7 @@
             <button
                 type="button"
                 class="annotation-properties-delete"
-                @click="emit('delete')"
+                @click="deleteAnnotation"
             >
                 <UIcon name="i-ph-trash" class="annotation-properties-delete-icon" />
                 <span>{{ t('annotationProperties.delete') }}</span>
@@ -149,6 +149,14 @@ const positionStyle = computed(() => ({
 
 function updateProperty<K extends keyof IShapeAnnotation>(key: K, value: IShapeAnnotation[K]) {
     emit('update', { [key]: value });
+}
+
+function close() {
+    emit('close');
+}
+
+function deleteAnnotation() {
+    emit('delete');
 }
 
 function toggleFill() {
