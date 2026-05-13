@@ -415,6 +415,9 @@ export const usePdfDocument = () => {
                         return;
                     }
                     const chunk = await readDocumentRange(src.path, begin, end - begin);
+                    if (version !== renderVersion) {
+                        return;
+                    }
                     transport.onDataRange(begin, chunk);
                 } catch (error) {
                     if (version !== renderVersion) {

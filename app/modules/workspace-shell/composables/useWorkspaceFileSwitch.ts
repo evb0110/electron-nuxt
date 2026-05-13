@@ -9,6 +9,7 @@ interface IWorkspaceFileSwitchDeps {
     isDjvuMode: Ref<boolean>;
     cleanupDjvuTemp: () => Promise<void>;
     exitDjvuMode: () => void;
+    invalidatePendingDjvuOpen: () => void;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<void>;
     openFileDirect: (path: TDocumentRef) => Promise<void>;
@@ -22,6 +23,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         isDjvuMode,
         cleanupDjvuTemp,
         exitDjvuMode,
+        invalidatePendingDjvuOpen,
         pickFileToOpen,
         openFile,
         openFileDirect,
@@ -35,6 +37,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
 
     async function openFileWithDjvuCleanup(preSelected?: TOpenFileResult) {
         const oldPath = workingCopyPath.value;
+        invalidatePendingDjvuOpen();
         await openFile(preSelected);
         if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
             await cleanupDjvuTemp();
@@ -44,6 +47,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
 
     async function openFileDirectWithDjvuCleanup(path: TDocumentRef) {
         const oldPath = workingCopyPath.value;
+        invalidatePendingDjvuOpen();
         await openFileDirect(path);
         if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
             await cleanupDjvuTemp();
@@ -53,6 +57,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
 
     async function openFileDirectBatchWithDjvuCleanup(paths: TDocumentRef[]) {
         const oldPath = workingCopyPath.value;
+        invalidatePendingDjvuOpen();
         await openFileDirectBatch(paths);
         if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
             await cleanupDjvuTemp();
@@ -61,6 +66,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
     }
 
     async function closeFileWithDjvuCleanup() {
+        invalidatePendingDjvuOpen();
         if (isDjvuMode.value) {
             await cleanupDjvuTemp();
             exitDjvuMode();

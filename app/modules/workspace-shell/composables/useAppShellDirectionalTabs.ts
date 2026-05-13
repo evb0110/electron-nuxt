@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
 import type {
     IEditorGroupState,
     TGroupDirection,
@@ -17,6 +18,7 @@ import type {
 } from '@app/types/tab-context-menu';
 import { hasElectronAPI } from '@app/utils/platform';
 import { isWindowTabTransferSupported } from '@app/utils/platform-window-tabs';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER: TGroupDirection[] = [
@@ -27,8 +29,8 @@ const DIRECTION_ORDER: TGroupDirection[] = [
 ];
 
 interface IWorkspaceSplitCacheLike {
-    set: (tabId: string, payload: TSplitPayload | null | undefined) => void;
-    clear: (tabId: string) => void;
+    set: (tabId: string, payload: TSplitPayload | null | undefined) => string | null;
+    clear: (tabId: string, entryId?: string | null) => void;
 }
 
 interface IUseAppShellDirectionalTabsOptions {
@@ -168,7 +170,11 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    function scheduleSplitCacheCleanup(tabId: string) {
+    function scheduleSplitCacheCleanup(tabId: string, entryId: string | null) {
+        if (!entryId) {
+            return;
+        }
+
         const previousTimer = splitCacheCleanupTimers.get(tabId);
         if (previousTimer) {
             clearTimeout(previousTimer);
@@ -179,7 +185,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const workspace = workspaceRefs.value.get(tabId);
             // DjVu mode has hasPdf=false; without this check the cache entry would never be cleared
             if (workspace && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode)) {
-                workspaceSplitCache.clear(tabId);
+                workspaceSplitCache.clear(tabId, entryId);
             }
         }, TAB_TRANSITION_CACHE_GRACE_MS);
         timer.unref?.();
@@ -207,6 +213,21 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
+    async function createIndependentSplitRestorePayload(payload: TSplitPayload): Promise<TSplitPayload> {
+        if (payload.kind !== 'pdfSnapshot') {
+            return payload;
+        }
+
+        const snapshotPath = await getDocumentsCapability().createWorkingCopyFromPath(
+            payload.snapshotPath,
+            payload.originalPath ?? undefined,
+        );
+        return {
+            ...payload,
+            snapshotPath,
+        };
+    }
+
     const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailability>>(() => {
         const result: Record<string, ITabContextAvailability> = {};
         const transitionsBusy = isTabTransitionBusy.value;
@@ -231,8 +252,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 sourceTabId,
             } = activeTabPayload;
 
-            workspaceSplitCache.set(sourceTabId, payload);
-            scheduleSplitCacheCleanup(sourceTabId);
+            const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
+            scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
 
             const newGroupId = splitGroup(sourceGroup.id, direction);
             if (!newGroupId) {
@@ -250,8 +271,14 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 },
             });
 
-            const restored = await restoreWorkspacePayload(newTab.id, payload);
+            const targetPayload = await createIndependentSplitRestorePayload(payload);
+            const restored = await restoreWorkspacePayload(newTab.id, targetPayload);
             if (!restored) {
+                await cleanupSplitPayloadSnapshot(targetPayload, {
+                    logSection: 'split-cache',
+                    context: 'split-editor-restore-failed',
+                    metadata: { tabId: newTab.id },
+                });
                 removeTabFromState(newTab.id);
                 activateTab(sourceGroup.id, sourceTabId);
                 return;
@@ -274,8 +301,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             if (sourceTabId) {
                 const payload = await captureWorkspacePayload(sourceTabId);
                 if (payload) {
-                    workspaceSplitCache.set(sourceTabId, payload);
-                    scheduleSplitCacheCleanup(sourceTabId);
+                    const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
+                    scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
                 }
             }
 
@@ -336,8 +363,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             }
 
             if ((payload as { kind?: string }).kind !== 'empty') {
-                workspaceSplitCache.set(sourceTabId, payload);
-                scheduleSplitCacheCleanup(sourceTabId);
+                const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
+                scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
             }
 
             const moved = moveTabToGroup(sourceTabId, route.targetGroupId, true);

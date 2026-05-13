@@ -8,8 +8,12 @@ import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/compos
 
 interface IWorkspaceSplitCacheLike {
     has(tabId: string): boolean;
-    consume(tabId: string): TSplitPayload | null;
-    set(tabId: string, payload: TSplitPayload): void;
+    peek(tabId: string): {
+        id: string;
+        payload: TSplitPayload;
+    } | null;
+    consume(tabId: string, entryId?: string | null): TSplitPayload | null;
+    set(tabId: string, payload: TSplitPayload): string | null;
 }
 
 interface IWorkspaceRestoreTrackerLike {has(tabId: string): boolean;}
@@ -59,6 +63,7 @@ function normalizeRestoredPage(page: number | undefined) {
 }
 
 export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceSplitRestoreOptions) => {
+    let splitPayloadCaptureGeneration = 0;
     const hasQueuedSplitRestore = computed(() => options.workspaceSplitCache.has(options.tabId));
     const isExternallyRestoring = computed(() => options.workspaceRestoreTracker.has(options.tabId));
     const suppressEmptyState = computed(() => (
@@ -99,10 +104,11 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             return;
         }
 
-        const payload = options.workspaceSplitCache.consume(options.tabId);
-        if (!payload) {
+        const cached = options.workspaceSplitCache.peek(options.tabId);
+        if (!cached) {
             return;
         }
+        const { payload } = cached;
 
         options.isRestoringSplitPayload.value = true;
         try {
@@ -118,16 +124,12 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             });
 
             await options.restoreSplitPayload(payload);
+            options.workspaceSplitCache.consume(options.tabId, cached.id);
         } catch (error) {
             BrowserLogger.warn('workspace', 'Failed to restore cached split payload', {
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 error,
-            });
-            await cleanupSplitPayloadSnapshot(payload, {
-                logSection: 'split-cache',
-                context: 'restore-cached-split-payload',
-                metadata: { tabId: options.tabId },
             });
         } finally {
             options.isRestoringSplitPayload.value = false;
@@ -135,6 +137,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
     }
 
     async function cacheSplitPayloadForRemount() {
+        const captureGeneration = ++splitPayloadCaptureGeneration;
         if (!canCacheSplitPayloadForRemount.value) {
             BrowserLogger.debug('split-cache', 'Skipping split payload cache on unmount', {
                 tabId: options.tabId,
@@ -157,6 +160,26 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
 
         try {
             const payload = await options.captureSplitPayload();
+            if (
+                captureGeneration !== splitPayloadCaptureGeneration
+                || !canCacheSplitPayloadForRemount.value
+                || options.workspaceSplitCache.has(options.tabId)
+            ) {
+                BrowserLogger.debug('split-cache', 'Skipping split payload cache on unmount', {
+                    tabId: options.tabId,
+                    reason: 'post-capture-guard-blocked',
+                    isTabTransitionBusy: options.isTabTransitionBusy.value,
+                    isRestoringSplitPayload: options.isRestoringSplitPayload.value,
+                    isExternallyRestoring: isExternallyRestoring.value,
+                    pendingDocumentOpen: options.pendingDocumentOpen.value,
+                });
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'split-cache',
+                    context: 'post-capture-guard-blocked',
+                    metadata: { tabId: options.tabId },
+                });
+                return;
+            }
             if (payload.kind === 'empty') {
                 BrowserLogger.debug('split-cache', 'Skipping split payload cache on unmount', {
                     tabId: options.tabId,

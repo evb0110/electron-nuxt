@@ -64,6 +64,7 @@ export const useDjvu = () => {
         pdfPath: TDocumentRef;
         isPartial: boolean 
     }) => void) | null = null;
+    let openDjvuGeneration = 0;
 
     function logSuppressedError(action: string, error: unknown) {
         BrowserLogger.warn('djvu', action, error);
@@ -77,6 +78,12 @@ export const useDjvu = () => {
             total: 0,
         };
         swapHandler = null;
+    }
+
+    function invalidatePendingDjvuOpen() {
+        openDjvuGeneration += 1;
+        openingPath.value = null;
+        resetViewingProgressState();
     }
 
     function clearViewingError() {
@@ -245,6 +252,7 @@ export const useDjvu = () => {
         setOriginalPath?: (path: TDocumentRef | null) => void,
         closeActivePdf?: () => void | Promise<void>,
     ) {
+        const generation = ++openDjvuGeneration;
         const djvu = getDjvuCapability();
         const previousDjvuPath = djvuSourcePath.value;
         showBanner.value = true;
@@ -260,9 +268,18 @@ export const useDjvu = () => {
                 throw new Error(result.error ?? t('errors.djvu.open'));
             }
 
+            if (generation !== openDjvuGeneration || openingPath.value !== djvuPath) {
+                await releaseViewingPath(djvuPath);
+                return;
+            }
+
             BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });
             resetViewingProgressState();
             await closeActivePdf?.();
+            if (generation !== openDjvuGeneration || openingPath.value !== djvuPath) {
+                await releaseViewingPath(djvuPath);
+                return;
+            }
             if (previousDjvuPath && previousDjvuPath !== djvuPath) {
                 await releaseViewingPath(previousDjvuPath);
             }
@@ -460,6 +477,7 @@ export const useDjvu = () => {
         openingPath,
         isDjvuFeatureDisabled,
         openDjvuFile,
+        invalidatePendingDjvuOpen,
         convertToPdf,
         cancelActiveJobs,
         cleanupDjvuTemp,
