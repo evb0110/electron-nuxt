@@ -15,6 +15,7 @@ import {
     requireOpenPath,
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
+import { getRecentFiles } from '@electron/recentFiles';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
@@ -45,6 +46,16 @@ function sendOpenBatchProgress(
     }
 }
 
+async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebContents) {
+    const normalizedPath = filePath.trim();
+    const recentFiles = await getRecentFiles();
+    if (!recentFiles.some(file => file.originalPath === normalizedPath)) {
+        return null;
+    }
+
+    return allowOpenPath(normalizedPath, owner);
+}
+
 export async function handleOpenPdfDirect(
     event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
@@ -58,8 +69,12 @@ export async function handleOpenPdfDirect(
     try {
         normalizedPath = requireOpenPath(filePath, event.sender);
     } catch {
-        logRejectedOpenPath(filePath);
-        throw new Error(te('errors.file.invalid'));
+        const recentOpenPath = await allowRecentFileOpenPath(filePath, event.sender);
+        if (!recentOpenPath) {
+            logRejectedOpenPath(filePath);
+            throw new Error(te('errors.file.invalid'));
+        }
+        normalizedPath = recentOpenPath;
     }
 
     logger.info(`openPdfDirect request: ${normalizedPath}`);

@@ -10,6 +10,7 @@ import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 
 const DJVU_PATH_REGEX = /\.djvu?$/i;
 const OPEN_SETTLE_DELAY_MS = 25;
@@ -333,7 +334,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     async function openRecentFile(file: IRecentFile) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
 
-        if (!await recentFilePathExists(file.originalPath)) {
+        if (isBrowserDocumentRef(file.originalPath) && !await recentFilePathExists(file.originalPath)) {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
             await removeRecentFile(file);
             notifyMissingRecentFile(file);

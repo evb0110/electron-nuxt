@@ -227,13 +227,13 @@ describe('usePageFileOperations', () => {
         expect(depsNoDoc.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
-    it('removes a missing recent file and notifies instead of opening it', async () => {
+    it('removes a missing browser recent file and notifies instead of opening it', async () => {
         const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
-        mockReadFileRange.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'));
+        mockReadFileRange.mockRejectedValueOnce(new Error('Browser document chunk missing'));
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
         const file = {
-            originalPath: '/tmp/missing.pdf',
+            originalPath: 'browser://documents/uuid/missing.pdf',
             fileName: 'missing.pdf',
             timestamp: 0,
             fileSize: 0,
@@ -247,7 +247,7 @@ describe('usePageFileOperations', () => {
         expect(warnSpy).toHaveBeenCalledWith(
             'recent-open',
             'Recent file no longer exists; removing from recents',
-            {path: '/tmp/missing.pdf'},
+            {path: 'browser://documents/uuid/missing.pdf'},
         );
     });
 
@@ -269,8 +269,27 @@ describe('usePageFileOperations', () => {
         expect(deps.notifyMissingRecentFile).toHaveBeenCalledWith(file);
     });
 
-    it('opens a present recent file without removing or notifying', async () => {
+    it('opens a present browser recent file without removing or notifying', async () => {
         mockReadFileRange.mockResolvedValueOnce(new Uint8Array([37]));
+        const deps = createDeps();
+        const { openRecentFile } = usePageFileOperations(deps);
+        const file = {
+            originalPath: 'browser://documents/uuid/present.pdf',
+            fileName: 'present.pdf',
+            timestamp: 0,
+            fileSize: 4096,
+        };
+
+        await openRecentFile(file);
+
+        expect(mockReadFileRange).toHaveBeenCalledWith('browser://documents/uuid/present.pdf', 0, 1);
+        expect(deps.openFileDirect).toHaveBeenCalledWith('browser://documents/uuid/present.pdf');
+        expect(deps.removeRecentFile).not.toHaveBeenCalled();
+        expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
+    });
+
+    it('does not probe native recent paths before direct-open', async () => {
+        mockReadFileRange.mockRejectedValueOnce(new Error('Invalid file path: reads only allowed within temp directory'));
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
         const file = {
@@ -282,7 +301,7 @@ describe('usePageFileOperations', () => {
 
         await openRecentFile(file);
 
-        expect(mockReadFileRange).toHaveBeenCalledWith('/tmp/present.pdf', 0, 1);
+        expect(mockReadFileRange).not.toHaveBeenCalled();
         expect(deps.openFileDirect).toHaveBeenCalledWith('/tmp/present.pdf');
         expect(deps.removeRecentFile).not.toHaveBeenCalled();
         expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
