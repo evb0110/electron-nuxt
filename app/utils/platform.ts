@@ -1,5 +1,5 @@
 import type { IPlatformApi } from '@contracts/platformApi';
-import { browserPlatformApi } from '@app/platform/browserApi';
+import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserApi';
 
 interface IWindowWithPlatformApi extends Window {electronAPI?: IPlatformApi;}
 
@@ -69,7 +69,7 @@ export async function waitForDesktopPlatformBridge({
 
 export function getPlatformAPI(): IPlatformApi {
     const electronApi = getElectronWindow()?.electronAPI;
-    return electronApi ?? browserPlatformApi;
+    return electronApi ?? lazyBrowserPlatformApi;
 }
 
 /** @deprecated Prefer getPlatformAPI() in shared code. */
