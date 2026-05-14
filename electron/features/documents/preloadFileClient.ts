@@ -111,7 +111,7 @@ async function streamPdfBytesToPersistencePort(
             type: 'chunk',
             seq,
             bytes,
-        }, [bytes]);
+        });
         seq += 1;
         await new Promise<void>(resolve => setTimeout(resolve, 0));
     }

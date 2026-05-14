@@ -4,6 +4,7 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -17,6 +18,10 @@ import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { assembleSearchablePdf } from '@electron/ocr/worker/pdfAssembler';
 
+const QPDF_BINARY = process.platform === 'win32'
+    ? join(process.cwd(), 'resources/qpdf/win32-x64/bin/qpdf.exe')
+    : join(process.cwd(), `resources/qpdf/${process.platform}-${process.arch}/bin/qpdf`);
+const HAS_QPDF = existsSync(QPDF_BINARY);
 const ONE_PIXEL_PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/atXxKAAAAAASUVORK5CYII=',
     'base64',
@@ -34,6 +39,33 @@ async function createPdfWithText(filePath: string, text: string) {
         size: 18,
     });
     await writeFile(filePath, await pdf.save());
+}
+
+async function createPdfWithPages(filePath: string, pages: Array<{
+    text: string;
+    size: [number, number];
+}>) {
+    const pdf = await PDFDocument.create();
+    for (const pageSpec of pages) {
+        const page = pdf.addPage(pageSpec.size);
+        page.drawText(pageSpec.text, {
+            x: 20,
+            y: Math.max(40, pageSpec.size[1] / 2),
+            size: 18,
+        });
+    }
+    await writeFile(filePath, await pdf.save());
+}
+
+async function getPdfPageSizes(filePath: string) {
+    const pdf = await PDFDocument.load(await readFile(filePath));
+    return pdf.getPages().map((page) => {
+        const size = page.getSize();
+        return [
+            size.width,
+            size.height,
+        ] as const;
+    });
 }
 
 async function extractPdfText(filePath: string) {
@@ -58,7 +90,7 @@ async function extractPdfText(filePath: string) {
     }
 }
 
-describe('assembleSearchablePdf', () => {
+describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
     let tempDir: string | null = null;
 
     afterEach(async () => {
@@ -85,6 +117,7 @@ describe('assembleSearchablePdf', () => {
         pageImages.set(1, imagePath);
 
         const outputPath = await assembleSearchablePdf(
+            QPDF_BINARY,
             originalPath,
             ocrPages,
             pageImages,
@@ -119,6 +152,7 @@ describe('assembleSearchablePdf', () => {
         const secondOcrPages = new Map<number, string>();
         secondOcrPages.set(1, secondOcrPath);
         const firstOutputPath = await assembleSearchablePdf(
+            QPDF_BINARY,
             originalPath,
             firstOcrPages,
             pageImages,
@@ -129,6 +163,7 @@ describe('assembleSearchablePdf', () => {
             path => path,
         );
         const secondOutputPath = await assembleSearchablePdf(
+            QPDF_BINARY,
             firstOutputPath,
             secondOcrPages,
             pageImages,
@@ -144,5 +179,82 @@ describe('assembleSearchablePdf', () => {
         expect(extractedText).toContain('SECOND OCR');
         expect(extractedText).not.toContain('FIRST OCR');
         expect(extractedText).not.toContain('ORIGINAL TEXT');
+    });
+
+    it('keeps untouched original page ranges around replacement pages', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'original.pdf');
+        const ocrPath = join(tempDir, 'ocr-page-2.pdf');
+        const imagePath = join(tempDir, 'page-2.png');
+        await createPdfWithPages(originalPath, [
+            {
+                text: 'ONE ORIGINAL',
+                size: [
+                    180,
+                    240,
+                ],
+            },
+            {
+                text: 'TWO OLD',
+                size: [
+                    220,
+                    180,
+                ],
+            },
+            {
+                text: 'THREE ORIGINAL',
+                size: [
+                    260,
+                    260,
+                ],
+            },
+        ]);
+        await createPdfWithPages(ocrPath, [{
+            text: 'TWO OCR',
+            size: [
+                220,
+                180,
+            ],
+        }]);
+        await writeFile(imagePath, ONE_PIXEL_PNG);
+
+        const ocrPages = new Map<number, string>();
+        ocrPages.set(2, ocrPath);
+        const pageImages = new Map<number, string>();
+        pageImages.set(2, imagePath);
+
+        const outputPath = await assembleSearchablePdf(
+            QPDF_BINARY,
+            originalPath,
+            ocrPages,
+            pageImages,
+            3,
+            tempDir,
+            'range-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const extractedText = await extractPdfText(outputPath);
+        const pageSizes = await getPdfPageSizes(outputPath);
+
+        expect(extractedText).toContain('ONE ORIGINAL');
+        expect(extractedText).toContain('TWO OCR');
+        expect(extractedText).toContain('THREE ORIGINAL');
+        expect(extractedText).not.toContain('TWO OLD');
+        expect(pageSizes).toEqual([
+            [
+                180,
+                240,
+            ],
+            [
+                220,
+                180,
+            ],
+            [
+                260,
+                260,
+            ],
+        ]);
     });
 });
