@@ -594,6 +594,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 activeCommentStableKey.value = null;
                 emit('annotation-comments', []);
             }
+            if (!isActive.value) {
+                return;
+            }
             scheduleLoadFromSource(isReload);
         }
     });

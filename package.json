@@ -50,6 +50,7 @@
     "test:e2e:electron:smoke:no-build": "vitest run --config vitest.electron-e2e.smoke.config.ts",
     "test:e2e:electron:watch": "vitest --config vitest.electron-e2e.smoke.config.ts",
     "electron:run": "tsx scripts/electronRun.ts",
+    "diag:pdf-tabs": "pnpm exec tsx scripts/diagnostics/pdfTabPressure.ts",
     "dist": "pnpm run build:desktop && electron-builder",
     "dist:mac": "pnpm run build:desktop && electron-builder --mac",
     "dist:win": "pnpm run build:desktop && electron-builder --win",

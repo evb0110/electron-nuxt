@@ -146,6 +146,7 @@ interface IProps {
     viewMode?: TPdfViewMode;
     continuousScroll?: boolean;
     dragMode?: boolean;
+    isActive?: boolean;
 }
 
 interface IDjvuPageState {
@@ -158,6 +159,7 @@ const {
     continuousScroll: continuousScrollProp,
     dragMode: dragModeProp,
     fitMode = undefined,
+    isActive: isActiveProp = true,
     src,
     viewMode: viewModeProp = undefined,
     zoom = undefined,
@@ -198,6 +200,7 @@ const isInitialPreviewPending = computed(() => (
 const containerWidth = ref(0);
 const containerHeight = ref(0);
 const dragMode = computed(() => dragModeProp ?? false);
+const isActive = computed(() => isActiveProp);
 const isContinuousScroll = computed(() => continuousScrollProp ?? true);
 const viewMode = computed<TPdfViewMode>(() => viewModeProp ?? 'single');
 const zoomMode = computed(() => zoomModeProp ?? (
@@ -713,6 +716,22 @@ function cleanupViewerState() {
     emit('update:currentPage', 1);
 }
 
+function releaseRenderedPagePreviews() {
+    for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
+        const state = pageStates.value[pageNumber - 1];
+        if (!state) {
+            continue;
+        }
+
+        state.token += 1;
+        revokePageUrl(pageNumber);
+        state.status = 'idle';
+    }
+
+    queuedPageNumbers = [];
+    lastRenderedPageSet = new Set<number>();
+}
+
 function stopWorker() {
     if (!activeWorker) {
         return;
@@ -748,7 +767,7 @@ function commitLoadedPagePreview(
     objectUrl: string,
 ) {
     const currentState = pageStates.value[pageNumber - 1];
-    if (!currentState || currentState.token !== token || worker !== activeWorker) {
+    if (!isActive.value || !currentState || currentState.token !== token || worker !== activeWorker) {
         discardStalePageObjectUrl(worker, objectUrl);
         return false;
     }
@@ -779,6 +798,9 @@ function markPagePreviewLoadFailed(
 }
 
 function finishInitialPreviewLoadIfSettled() {
+    if (!isActive.value) {
+        return;
+    }
     if (!isLoading.value) {
         return;
     }
@@ -805,7 +827,7 @@ function finishInitialPreviewLoadIfSettled() {
 async function ensurePageLoaded(pageNumber: number) {
     const state = pageStates.value[pageNumber - 1];
     const worker = activeWorker;
-    if (!worker || !canLoadPagePreview(state)) {
+    if (!isActive.value || !worker || !canLoadPagePreview(state)) {
         return;
     }
 
@@ -855,7 +877,7 @@ function queueDesiredPages(pageNumbers: number[]) {
 }
 
 async function processRenderQueue() {
-    if (activeRenderPromise || !activeWorker) {
+    if (!isActive.value || activeRenderPromise || !activeWorker) {
         return;
     }
 
@@ -884,7 +906,7 @@ async function processRenderQueue() {
 }
 
 function syncLoadedPages() {
-    if (!activeWorker || totalPages.value <= 0) {
+    if (!isActive.value || !activeWorker || totalPages.value <= 0) {
         return;
     }
 
@@ -938,7 +960,7 @@ function scheduleViewportSync() {
 }
 
 function handleViewerScroll() {
-    if (!import.meta.client) {
+    if (!import.meta.client || !isActive.value) {
         return;
     }
 
@@ -1039,6 +1061,9 @@ function resolvePageFlipWheelContext(event: WheelEvent) {
 }
 
 function handleViewerWheel(event: WheelEvent) {
+    if (!isActive.value) {
+        return;
+    }
     const context = resolvePageFlipWheelContext(event);
     if (!context) {
         return;
@@ -1063,6 +1088,9 @@ function handleViewerWheel(event: WheelEvent) {
 }
 
 function retryPage(pageNumber: number) {
+    if (!isActive.value) {
+        return;
+    }
     resetPageState(pageNumber);
     void ensurePageLoaded(pageNumber);
 }
@@ -1089,7 +1117,7 @@ function syncHorizontalScrollForZoomMode() {
 
 function scrollActiveSpreadIntoView() {
     const container = viewerContainer.value;
-    if (!container || isContinuousScroll.value) {
+    if (!isActive.value || !container || isContinuousScroll.value) {
         return;
     }
 
@@ -1107,7 +1135,7 @@ watch(zoomMode, () => {
 });
 
 watch(renderedPageNumbers, async () => {
-    if (!import.meta.client || totalPages.value <= 0) {
+    if (!import.meta.client || !isActive.value || totalPages.value <= 0) {
         return;
     }
 
@@ -1119,7 +1147,7 @@ watch([
     currentPage,
     viewMode,
 ], async () => {
-    if (!import.meta.client || totalPages.value <= 0 || isContinuousScroll.value) {
+    if (!import.meta.client || !isActive.value || totalPages.value <= 0 || isContinuousScroll.value) {
         return;
     }
 
@@ -1137,6 +1165,11 @@ watch(
         cleanupViewerState();
 
         if (!src || !import.meta.client) {
+            emitLoading(false);
+            return;
+        }
+
+        if (!isActive.value) {
             emitLoading(false);
             return;
         }
@@ -1198,13 +1231,71 @@ watch(
     { immediate: true },
 );
 
+watch(isActive, async (active) => {
+    if (!active) {
+        releaseRenderedPagePreviews();
+        clearWheelAccumulator();
+        if (import.meta.client && scrollRafId !== 0) {
+            window.cancelAnimationFrame(scrollRafId);
+            scrollRafId = 0;
+        }
+        return;
+    }
+
+    if (src && import.meta.client && !activeWorker && pageSizes.value.length === 0) {
+        loadGeneration += 1;
+        const generation = loadGeneration;
+        emitLoading(true, { force: true });
+
+        try {
+            const worker = await createDjvuWorkerFromPath(src);
+            if (generation !== loadGeneration) {
+                worker.terminate();
+                return;
+            }
+
+            activeWorker = worker;
+            const sizes = await worker.doc.getPagesSizes().run();
+            if (generation !== loadGeneration) {
+                return;
+            }
+
+            pageSizes.value = sizes;
+            pageStates.value = sizes.map(() => ({
+                objectUrl: null,
+                status: 'idle',
+                token: 0,
+            }));
+            invalidateContinuousScrollWindowCache();
+            viewerError.value = null;
+            emit('update:totalPages', sizes.length);
+            await nextTick();
+            measureContainer();
+            syncLoadedPages();
+        } catch (error) {
+            viewerError.value = error instanceof Error ? error.message : t('errors.djvu.open');
+            BrowserLogger.error('djvu-viewer', 'Failed to resume native DjVu viewer', {
+                src,
+                error,
+            });
+            emitLoading(false);
+        }
+        return;
+    }
+
+    await nextTick();
+    measureContainer();
+    syncLoadedPages();
+    scheduleViewportSync();
+});
+
 watch(
     [
         effectiveZoom,
         totalPages,
     ],
     async () => {
-        if (!import.meta.client || totalPages.value <= 0) {
+        if (!import.meta.client || !isActive.value || totalPages.value <= 0) {
             return;
         }
 
@@ -1219,6 +1310,9 @@ onMounted(() => {
     measureContainer();
 
     resizeObserver = new ResizeObserver(() => {
+        if (!isActive.value) {
+            return;
+        }
         measureContainer();
         scheduleViewportSync();
     });
