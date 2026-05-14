@@ -292,7 +292,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDirty,
         hasPendingUnsavedChanges,
         readWorkingCopyBytes,
-        validatePdfData: (data, fileName) => getDocumentsCapability().validatePdfData(data, fileName),
+        validatePdfPath: path => getDocumentsCapability().validatePdfPath(path),
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,

@@ -149,6 +149,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'savePdfAs',
     ]),
+    savePdfDataAs: lazyAsync<IDocumentsCapability['savePdfDataAs']>([
+        'documents',
+        'savePdfDataAs',
+    ]),
     savePdfDialog: lazyAsync<IDocumentsCapability['savePdfDialog']>([
         'documents',
         'savePdfDialog',
@@ -185,6 +189,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'validatePdfData',
     ]),
+    validatePdfPath: lazyAsync<IDocumentsCapability['validatePdfPath']>([
+        'documents',
+        'validatePdfPath',
+    ]),
     openPdfInDefaultAppData: lazyAsync<IDocumentsCapability['openPdfInDefaultAppData']>([
         'documents',
         'openPdfInDefaultAppData',
@@ -220,6 +228,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
     saveFile: lazyAsync<IDocumentsCapability['saveFile']>([
         'documents',
         'saveFile',
+    ]),
+    savePdfData: lazyAsync<IDocumentsCapability['savePdfData']>([
+        'documents',
+        'savePdfData',
     ]),
     cleanupFile: lazyAsync<IDocumentsCapability['cleanupFile']>([
         'documents',

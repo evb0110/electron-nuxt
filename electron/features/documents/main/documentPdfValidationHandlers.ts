@@ -5,6 +5,7 @@ import type {
 import {
     analyzePdfConformanceFile,
     validatePdfData as validatePdfBytes,
+    validatePdfFile,
 } from '@electron/features/documents/main/pdfConformance';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 
@@ -29,4 +30,12 @@ export async function handleValidatePdfData(
     }
 
     return validatePdfBytes(data, fileName);
+}
+
+export async function handleValidatePdfPath(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: unknown,
+): Promise<IPdfValidationResult> {
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
+    return validatePdfFile(resolvedPath);
 }

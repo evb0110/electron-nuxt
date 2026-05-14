@@ -91,6 +91,16 @@ export function registerDocumentsIpcAdapter(
     registrar.handle(DOCUMENTS_CHANNELS.savePdfAs, (event: IpcMainInvokeEvent, workingPath: string) =>
         service.savePdfAs(event, workingPath),
     );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.savePdfDataAs,
+        (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) =>
+            service.savePdfDataAs(event, workingPath, data),
+    );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.savePdfDataAsBegin,
+        (event: IpcMainInvokeEvent, workingPath: string, totalBytes: number) =>
+            service.beginSavePdfDataAs(event, workingPath, totalBytes),
+    );
     registrar.handle(DOCUMENTS_CHANNELS.savePdfDialog, (event: IpcMainInvokeEvent, suggestedName: string) =>
         service.savePdfDialog(event, suggestedName),
     );
@@ -122,6 +132,9 @@ export function registerDocumentsIpcAdapter(
         (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
             service.validatePdfData(event, data, fileName),
     );
+    registrar.handle(DOCUMENTS_CHANNELS.pdfValidatePath, (event: IpcMainInvokeEvent, filePath: string) =>
+        service.validatePdfPath(event, filePath),
+    );
     registrar.handle(
         DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData,
         (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
@@ -152,6 +165,16 @@ export function registerDocumentsIpcAdapter(
     );
     registrar.handle(DOCUMENTS_CHANNELS.fileSave, (event: IpcMainInvokeEvent, workingPath: string) =>
         service.saveFile(event, workingPath),
+    );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.fileSavePdfData,
+        (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) =>
+            service.savePdfData(event, workingPath, data),
+    );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
+        (event: IpcMainInvokeEvent, workingPath: string, totalBytes: number) =>
+            service.beginSavePdfData(event, workingPath, totalBytes),
     );
     registrar.handle(DOCUMENTS_CHANNELS.fileCleanup, (event: IpcMainInvokeEvent, workingPath: string) => {
         service.cleanupFile(event, workingPath);

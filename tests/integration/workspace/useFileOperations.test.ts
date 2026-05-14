@@ -50,7 +50,7 @@ function createDeps() {
             2,
             3,
         ])),
-        validatePdfData: vi.fn(async () => ({
+        validatePdfPath: vi.fn(async () => ({
             isValid: true,
             tool: 'qpdf' as const,
             errors: [],
@@ -119,7 +119,7 @@ describe('useFileOperations', () => {
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
         expect(deps.isSaving.value).toBe(false);
-        expect(deps.validatePdfData).toHaveBeenCalledOnce();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
     });
 
     it('uses working-copy save path when no serialized changes exist', async () => {
@@ -131,7 +131,8 @@ describe('useFileOperations', () => {
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.saveFile).not.toHaveBeenCalled();
-        expect(deps.readWorkingCopyBytes).toHaveBeenCalledOnce();
+        expect(deps.readWorkingCopyBytes).not.toHaveBeenCalled();
+        expect(deps.validatePdfPath).toHaveBeenCalledOnce();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
     });
 
@@ -151,7 +152,7 @@ describe('useFileOperations', () => {
         expect(annotationReset).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
         expect(deps.isSavingAs.value).toBe(false);
-        expect(deps.validatePdfData).toHaveBeenCalledOnce();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
     });
 
     it('aborts save when note persistence fails', async () => {
@@ -253,8 +254,7 @@ describe('useFileOperations', () => {
 
     it('stops before persisting when validation fails', async () => {
         const { deps } = createDeps();
-        deps.annotationDirty.value = true;
-        deps.validatePdfData = vi.fn(async () => ({
+        deps.validatePdfPath = vi.fn(async () => ({
             isValid: false,
             tool: 'qpdf' as const,
             errors: ['invalid'],
@@ -264,7 +264,7 @@ describe('useFileOperations', () => {
         const { handleSave } = useFileOperations(deps);
         await handleSave();
 
-        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     });
 });

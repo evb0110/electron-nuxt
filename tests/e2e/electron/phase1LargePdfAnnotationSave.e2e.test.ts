@@ -257,10 +257,24 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 }
 
 async function waitForCleanSaveState(page: Page) {
-    await page.waitForFunction(() => {
-        const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
-        return saveDot?.getAttribute('aria-label') === 'All changes saved';
-    }, { timeout: LARGE_PDF_TIMEOUT_MS });
+    const deadline = Date.now() + LARGE_PDF_TIMEOUT_MS;
+    let lastError: unknown = null;
+    while (Date.now() < deadline) {
+        try {
+            const isClean = await page.evaluate(() => {
+                const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
+                return saveDot?.getAttribute('aria-label') === 'All changes saved';
+            });
+            if (isClean) {
+                return;
+            }
+        } catch (error) {
+            lastError = error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    throw new Error(`Save state did not become clean within ${LARGE_PDF_TIMEOUT_MS}ms: ${String(lastError ?? 'timed out')}`);
 }
 
 describe('Electron E2E - Large PDF Annotation Save', () => {

@@ -2,7 +2,9 @@ import { existsSync } from 'fs';
 import {
     copyFile,
     rm,
+    writeFile,
 } from 'fs/promises';
+import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import {
     basename,
     extname,
@@ -22,6 +24,8 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
+import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 
 export type TShowSaveDialogWithExtension = (
     event: Electron.IpcMainInvokeEvent,
@@ -86,6 +90,74 @@ export async function savePdfAs(
     updateRecentFilesMenu();
 
     return targetPath;
+}
+
+export async function savePdfDataAs(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+    data: unknown,
+    showSaveDialogWithExtension: TShowSaveDialogWithExtension,
+): Promise<{
+    path: string | null;
+    validation: IPdfValidationResult | null;
+}> {
+    const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+    if (!normalizedWorkingPath) {
+        return {
+            path: null,
+            validation: null,
+        };
+    }
+
+    const payload = normalizeIpcWritePayload(data);
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath;
+    const suggestedName = originalPath
+        ? basename(originalPath)
+        : basename(normalizedWorkingPath);
+
+    const targetPath = await showSaveDialogWithExtension(event, {
+        title: te('dialogs.savePdfAs'),
+        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
+        filterName: te('dialogs.pdfFiles'),
+        extension: 'pdf',
+    });
+    if (!targetPath) {
+        return {
+            path: null,
+            validation: null,
+        };
+    }
+
+    const tempPath = makeSiblingTempPath(targetPath);
+    let replaced = false;
+    try {
+        await writeFile(tempPath, payload);
+        const validation = await validatePdfFile(tempPath);
+        if (!validation.isValid) {
+            return {
+                path: null,
+                validation,
+            };
+        }
+
+        await atomicReplace(tempPath, targetPath);
+        replaced = true;
+        await ensureWorkingCopyDirectory(normalizedWorkingPath);
+        await copyFile(targetPath, normalizedWorkingPath);
+        setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath);
+        allowOpenPath(targetPath, event.sender);
+        await addRecentFile(targetPath);
+        updateRecentFilesMenu();
+
+        return {
+            path: targetPath,
+            validation,
+        };
+    } finally {
+        if (!replaced) {
+            await rm(tempPath, { force: true }).catch(() => undefined);
+        }
+    }
 }
 
 export async function savePdfDialog(

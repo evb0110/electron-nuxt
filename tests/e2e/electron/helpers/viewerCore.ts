@@ -1186,12 +1186,12 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 }
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const saved = await page.evaluate(async () => {
+    const saved = await page.evaluate(() => {
         const save = (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
         if (typeof save !== 'function') {
             return false;
         }
-        await save();
+        void save();
         return true;
     });
 

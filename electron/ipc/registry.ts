@@ -22,6 +22,8 @@ import {
 } from '@electron/windowTabTransfer';
 import { getAllAppWindows } from '@electron/window';
 import {registerDocumentsIpcAdapter} from '@electron/features/documents/ipcAdapter';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import { attachSerializedPdfPersistencePort } from '@electron/features/documents/main/serializedPdfPersistence';
 import {registerImageExportIpcAdapter} from '@electron/features/image-export/ipcAdapter';
 import {registerOcrIpcAdapter} from '@electron/features/ocr/ipcAdapter';
 import {registerSearchIpcAdapter} from '@electron/features/search/ipcAdapter';
@@ -40,6 +42,7 @@ import {
 } from '@electron/updates';
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 import { registerRendererLogBridge } from '@electron/ipc/rendererLogBridge';
 import {
     setHostZenModeForWindow,
@@ -193,6 +196,17 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     const registrar = createValidatedIpcMainRegistrar(ipcMain);
     registerRendererLogBridge({isTrustedSender: isTrustedWebContentsSender});
+    ipcMain.on(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event, sessionId: unknown) => {
+        if (!isTrustedWebContentsSender(event.sender, event.senderFrame, DOCUMENTS_CHANNELS.fileSavePdfDataPort)) {
+            return;
+        }
+
+        try {
+            attachSerializedPdfPersistencePort(event, sessionId);
+        } catch (error) {
+            logger.warn(`[ipc] rejected ${DOCUMENTS_CHANNELS.fileSavePdfDataPort}: ${getErrorMessage(error)}`);
+        }
+    });
     ipcMain.on(CORE_APP_CHANNELS.rendererReady, (event) => {
         if (!isTrustedWebContentsSender(event.sender, event.senderFrame, CORE_APP_CHANNELS.rendererReady)) {
             return;
