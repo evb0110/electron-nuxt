@@ -398,6 +398,7 @@
         </Teleport>
         <WorkspaceAnnotationOverlays
             :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
+            :annotation-comments="annotationComments"
             :annotation-note-positions="annotationNotePositions"
             :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
             :annotation-zoom="effectiveZoom"
