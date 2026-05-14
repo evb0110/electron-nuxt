@@ -121,6 +121,7 @@ async function connectToSessionPage(sessionName: string) {
     const browser = await puppeteer.connect({
         browserWSEndpoint: browserWsUrl,
         defaultViewport: null,
+        protocolTimeout: 420_000,
     });
 
     const nuxtPort = info.nuxtPort || DEFAULT_NUXT_PORT;

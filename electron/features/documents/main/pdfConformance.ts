@@ -205,31 +205,21 @@ export async function analyzePdfConformanceFile(filePath: string): Promise<IPdfC
     }
 }
 
-export async function validatePdfData(
-    data: Uint8Array,
-    fileName?: string,
-): Promise<IPdfValidationResult> {
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
-        return {
-            isValid: false,
-            tool: 'qpdf',
-            errors: ['PDF validation failed: empty document data'],
-            warnings: [],
-        };
-    }
+function createEmptyPdfValidationResult(): IPdfValidationResult {
+    return {
+        isValid: false,
+        tool: 'qpdf',
+        errors: ['PDF validation failed: empty document data'],
+        warnings: [],
+    };
+}
 
-    const tempPath = join(
-        app.getPath('temp'),
-        `pdf-validate-${randomUUID()}-${sanitizeValidationFileName(fileName)}`,
-    );
-
-    await writeFile(tempPath, data);
-
+export async function validatePdfFile(filePath: string): Promise<IPdfValidationResult> {
     try {
         const qpdf = getNativeToolPaths().qpdf;
         const result = await runNativeToolCommand(qpdf, [
             '--check',
-            tempPath,
+            filePath,
         ], {
             timeoutMs: QPDF_VALIDATE_TIMEOUT_MS,
             commandLabel: 'qpdf(validate-pdf)',
@@ -251,6 +241,26 @@ export async function validatePdfData(
             errors: [error instanceof Error ? error.message : 'PDF validation failed'],
             warnings: [],
         };
+    }
+}
+
+export async function validatePdfData(
+    data: Uint8Array,
+    fileName?: string,
+): Promise<IPdfValidationResult> {
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+        return createEmptyPdfValidationResult();
+    }
+
+    const tempPath = join(
+        app.getPath('temp'),
+        `pdf-validate-${randomUUID()}-${sanitizeValidationFileName(fileName)}`,
+    );
+
+    await writeFile(tempPath, data);
+
+    try {
+        return await validatePdfFile(tempPath);
     } finally {
         await unlink(tempPath).catch(() => undefined);
     }

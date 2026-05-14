@@ -50,7 +50,7 @@ export interface IFileOperationsDeps {
     saveDocument: () => Promise<Uint8Array | null>;
     getSourcePdfData: () => Promise<Uint8Array | null>;
     readWorkingCopyBytes: () => Promise<Uint8Array | null>;
-    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfSaveResult['validation']>;
+    validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
     saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     saveWorkingCopy: (opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     saveWorkingCopyAs: (data?: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
@@ -101,8 +101,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         pdfDocument,
         saveDocument,
         getSourcePdfData,
-        readWorkingCopyBytes,
-        validatePdfData,
+        validatePdfPath,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
@@ -126,10 +125,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         adoptPersistedShapeStateForNextReload,
         clearPendingPersistedShapeStateForNextReload,
     } = deps;
-
-    function getValidationFileName() {
-        return workingCopyPath.value?.split(/[\\/]/u).pop() ?? undefined;
-    }
 
     function nowMs() {
         return typeof performance !== 'undefined'
@@ -207,37 +202,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         );
     }
 
-    async function validatePdfSaveData(
-        data: Uint8Array,
-        saveMode: TPdfSaveMode,
-    ): Promise<IPdfSaveResult | null> {
-        const validation = await timedSavePhase(
-            'validate-pdf-data',
-            () => validatePdfData(data, getValidationFileName()),
-            result => ({
-                bytes: data.byteLength,
-                saveMode,
-                isValid: result.isValid,
-                warningCount: result.warnings.length,
-                errorCount: result.errors.length,
-            }),
-        );
-        if (!validation.isValid) {
-            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
-                errors: validation.errors,
-                warnings: validation.warnings,
-            });
-            return null;
-        }
-
-        return {
-            finalBytes: data,
-            saveMode,
-            warnings: validation.warnings,
-            validation,
-        };
-    }
-
     async function buildSerializedSaveResult(
         rawData: Uint8Array,
         pendingTexts: Map<string, string> | null,
@@ -266,23 +230,49 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }),
         );
 
-        return validatePdfSaveData(data, opts?.saveMode ?? 'rewrite');
+        return {
+            finalBytes: data,
+            saveMode: opts?.saveMode ?? 'rewrite',
+            warnings: [],
+            validation: {
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            },
+        };
     }
 
     async function validateWorkingCopySnapshot(saveMode: TPdfSaveMode) {
-        const data = await timedSavePhase(
-            'read-working-copy-bytes',
-            readWorkingCopyBytes,
-            result => ({
-                bytes: result?.byteLength ?? null,
-                saveMode,
-            }),
-        );
-        if (!data) {
+        const path = workingCopyPath.value;
+        if (!path) {
             return null;
         }
 
-        return validatePdfSaveData(data, saveMode);
+        const validation = await timedSavePhase(
+            'validate-pdf-path',
+            () => validatePdfPath(path),
+            result => ({
+                saveMode,
+                isValid: result.isValid,
+                warningCount: result.warnings.length,
+                errorCount: result.errors.length,
+            }),
+        );
+        if (!validation.isValid) {
+            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
+                errors: validation.errors,
+                warnings: validation.warnings,
+            });
+            return null;
+        }
+
+        return {
+            finalBytes: new Uint8Array(),
+            saveMode,
+            warnings: validation.warnings,
+            validation,
+        };
     }
 
     function finalizeSuccessfulSave(result: IPdfPersistResult, opts?: {

@@ -65,7 +65,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             saveDocument: vi.fn(async () => new Uint8Array([1])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
             readWorkingCopyBytes: vi.fn(async () => new Uint8Array([1])),
-            validatePdfData: vi.fn(async () => ({
+            validatePdfPath: vi.fn(async () => ({
                 isValid: true,
                 tool: 'qpdf' as const,
                 errors: [],
@@ -146,7 +146,7 @@ describe('useFileOperations', () => {
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
         expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
         expect(deps.isSaving.value).toBe(false);
-        expect(deps.validatePdfData).toHaveBeenCalledOnce();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
     });
 
     it('saves working copy directly when no serialization work is required', async () => {
@@ -156,8 +156,8 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(deps.saveDocument).not.toHaveBeenCalled();
-        expect(deps.readWorkingCopyBytes).toHaveBeenCalledOnce();
-        expect(deps.validatePdfData).toHaveBeenCalledOnce();
+        expect(deps.readWorkingCopyBytes).not.toHaveBeenCalled();
+        expect(deps.validatePdfPath).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
@@ -192,7 +192,7 @@ describe('useFileOperations', () => {
         expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
         expect(deps.isSavingAs.value).toBe(false);
-        expect(deps.validatePdfData).toHaveBeenCalledOnce();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
     });
 
     it('aborts save early when note windows cannot be persisted', async () => {
@@ -211,15 +211,13 @@ describe('useFileOperations', () => {
     });
 
     it('aborts save when validation fails', async () => {
-        const { deps } = createDeps({
-            annotationDirty: ref(true),
-            validatePdfData: vi.fn(async () => ({
-                isValid: false,
-                tool: 'qpdf' as const,
-                errors: ['broken pdf'],
-                warnings: [],
-            })),
-        });
+        const validatePdfPath = vi.fn(async () => ({
+            isValid: false,
+            tool: 'qpdf' as const,
+            errors: ['broken pdf'],
+            warnings: [],
+        }));
+        const { deps } = createDeps({ validatePdfPath });
         const { handleSave } = useFileOperations(deps);
 
         await handleSave();

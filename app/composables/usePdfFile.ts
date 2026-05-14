@@ -968,10 +968,11 @@ export const usePdfFile = () => {
                 return saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
             }
 
-            // First update the working copy with latest data
-            await getDocumentsCapability().writeFile(workingPath, data);
-            // Then save working copy back to original location
-            await getDocumentsCapability().saveFile(workingPath);
+            const validation = await getDocumentsCapability().savePdfData(workingPath, data);
+            if (!validation.isValid) {
+                error.value = validation.errors.join('\n') || t('errors.file.save');
+                return createFailedPersistResult(requestedSaveMode, false);
+            }
             await commitPersistedPdfState(data);
             lastSaveMode.value = requestedSaveMode;
             return createPersistResult(true, requestedSaveMode, false);
@@ -1001,10 +1002,17 @@ export const usePdfFile = () => {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
             const previousWorkingPath = workingPath;
-            if (data) {
-                await getDocumentsCapability().writeFile(workingPath, data);
+            const saveAsResult = data
+                ? await getDocumentsCapability().savePdfDataAs(workingPath, data)
+                : {
+                    path: await getDocumentsCapability().savePdfAs(workingPath),
+                    validation: null,
+                };
+            if (saveAsResult.validation && !saveAsResult.validation.isValid) {
+                error.value = saveAsResult.validation.errors.join('\n') || t('errors.file.save');
+                return createFailedPersistResult(requestedSaveMode, true);
             }
-            const savedPath = await getDocumentsCapability().savePdfAs(workingPath);
+            const savedPath = saveAsResult.path;
             if (savedPath) {
                 if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
                     const nextWorkingPath =

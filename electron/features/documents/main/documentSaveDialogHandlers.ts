@@ -1,15 +1,51 @@
 import {
     saveDocxAs,
     savePdfAs,
+    savePdfDataAs,
     savePdfDialog,
 } from '@electron/features/documents/main/documentSave.service';
+import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
+import {
+    beginSerializedPdfSaveAs,
+    type IBeginSerializedPdfSaveAsResult,
+} from '@electron/features/documents/main/serializedPdfPersistence';
+import { te } from '@electron/i18n';
 
 export async function handleSavePdfAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
 ): Promise<string | null> {
     return savePdfAs(event, workingPath, showSaveDialogWithExtension);
+}
+
+export async function handleSavePdfDataAs(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+    data: unknown,
+): Promise<{
+    path: string | null;
+    validation: IPdfValidationResult | null;
+}> {
+    return savePdfDataAs(event, workingPath, data, showSaveDialogWithExtension);
+}
+
+export async function handleBeginSavePdfDataAs(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: string,
+    totalBytes: number,
+): Promise<IBeginSerializedPdfSaveAsResult> {
+    const suggestedName = typeof workingPath === 'string' && workingPath.trim()
+        ? workingPath.trim().split(/[\\/]/u).pop() ?? 'document.pdf'
+        : 'document.pdf';
+    const targetPath = await showSaveDialogWithExtension(event, {
+        title: te('dialogs.savePdfAs'),
+        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
+        filterName: te('dialogs.pdfFiles'),
+        extension: 'pdf',
+    });
+
+    return beginSerializedPdfSaveAs(event, workingPath, totalBytes, targetPath);
 }
 
 export async function handleSavePdfDialog(

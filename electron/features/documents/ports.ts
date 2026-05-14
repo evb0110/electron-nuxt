@@ -6,6 +6,10 @@ import type {
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import type {
+    IBeginSerializedPdfPersistenceResult,
+    IBeginSerializedPdfSaveAsResult,
+} from '@electron/features/documents/main/serializedPdfPersistence';
 
 export interface IDocumentsService {
     openPdfDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
@@ -26,6 +30,15 @@ export interface IDocumentsService {
         originalPath?: string,
     ) => Promise<string>;
     savePdfAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;
+    savePdfDataAs: (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) => Promise<{
+        path: string | null;
+        validation: IPdfValidationResult | null;
+    }>;
+    beginSavePdfDataAs: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        totalBytes: number,
+    ) => Promise<IBeginSerializedPdfSaveAsResult>;
     savePdfDialog: (event: IpcMainInvokeEvent, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;
     readFile: (event: IpcMainInvokeEvent, filePath: string) => Promise<Uint8Array>;
@@ -35,6 +48,7 @@ export interface IDocumentsService {
     fileExists: (event: IpcMainInvokeEvent, filePath: string) => boolean;
     analyzePdfConformance: (event: IpcMainInvokeEvent, filePath: string) => Promise<IPdfConformanceProfile>;
     validatePdfData: (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
+    validatePdfPath: (event: IpcMainInvokeEvent, filePath: string) => Promise<IPdfValidationResult>;
     openPdfInDefaultAppData: (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) => Promise<{
         success: boolean;
         error?: string;
@@ -56,6 +70,12 @@ export interface IDocumentsService {
     writeFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;
+    savePdfData: (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) => Promise<IPdfValidationResult>;
+    beginSavePdfData: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        totalBytes: number,
+    ) => Promise<IBeginSerializedPdfPersistenceResult>;
     cleanupFile: (_event: IpcMainInvokeEvent, workingPath: string) => void;
     cleanupOcrTemp: (event: IpcMainInvokeEvent, filePath: string) => Promise<void>;
     setWindowTitle: (event: IpcMainInvokeEvent, title: string) => void;

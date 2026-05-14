@@ -121,6 +121,12 @@ export interface IDocumentsFileCapability {
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFile: (path: TDocumentRef) => Promise<boolean>;
+    savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
+    savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array) => Promise<{
+        path: TDocumentRef | null;
+        validation: IPdfValidationResult | null;
+    }>;
+    validatePdfPath: (path: TDocumentRef) => Promise<IPdfValidationResult>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
     cleanupOcrTemp: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;

@@ -8,8 +8,10 @@ import {
     handleOpenPdfDirectBatch,
 } from '@electron/features/documents/main/documentOpenHandlers';
 import {
+    handleBeginSavePdfDataAs,
     handleSaveDocxAs,
     handleSavePdfAs,
+    handleSavePdfDataAs,
     handleSavePdfDialog,
 } from '@electron/features/documents/main/documentSaveDialogHandlers';
 import {
@@ -34,6 +36,7 @@ import {
 import {
     handleAnalyzePdfConformance,
     handleValidatePdfData,
+    handleValidatePdfPath,
 } from '@electron/features/documents/main/documentPdfValidationHandlers';
 import { handleCleanupOcrTemp } from '@electron/features/documents/main/documentOcrTempCleanupHandler';
 import {
@@ -43,7 +46,11 @@ import {
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
 import { cleanupWorkingCopy } from '@electron/ipc/workingCopyCleanup';
-import { handleFileSave } from '@electron/ipc/workingCopySave';
+import {
+    handleFileSave,
+    handleSerializedPdfSave,
+} from '@electron/ipc/workingCopySave';
+import { beginSerializedPdfSaveToOriginal } from '@electron/features/documents/main/serializedPdfPersistence';
 import {
     clearRecentFiles,
     getRecentFiles,
@@ -77,6 +84,9 @@ export function createDocumentsService(): IDocumentsService {
         createWorkingCopyFromPath: (event, sourcePath, originalPath) =>
             handleCreateWorkingCopyFromPath(event, sourcePath, originalPath),
         savePdfAs: (event, workingPath) => handleSavePdfAs(event, workingPath),
+        savePdfDataAs: (event, workingPath, data) => handleSavePdfDataAs(event, workingPath, data),
+        beginSavePdfDataAs: (event, workingPath, totalBytes) =>
+            handleBeginSavePdfDataAs(event, workingPath, totalBytes),
         savePdfDialog: (event, suggestedName) => handleSavePdfDialog(event, suggestedName),
         saveDocxAs: (event, workingPath) => handleSaveDocxAs(event, workingPath),
         readFile: (event, filePath) => handleFileRead(event, filePath),
@@ -86,6 +96,7 @@ export function createDocumentsService(): IDocumentsService {
         fileExists: (event, filePath) => handleFileExists(event, filePath),
         analyzePdfConformance: (event, filePath) => handleAnalyzePdfConformance(event, filePath),
         validatePdfData: (event, data, fileName) => handleValidatePdfData(event, data, fileName),
+        validatePdfPath: (event, filePath) => handleValidatePdfPath(event, filePath),
         openPdfInDefaultAppData: (event, data, fileName) => handleOpenPdfInDefaultAppData(event, data, fileName),
         openPdfInDefaultAppPath: (event, filePath, fileName) => handleOpenPdfInDefaultAppPath(event, filePath, fileName),
         printPdfData: (event, data, fileName) => handlePrintPdfData(event, data, fileName),
@@ -93,6 +104,9 @@ export function createDocumentsService(): IDocumentsService {
         writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
         writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
         saveFile: (event, workingPath) => handleFileSave(event, workingPath),
+        savePdfData: (event, workingPath, data) => handleSerializedPdfSave(event, workingPath, data),
+        beginSavePdfData: (event, workingPath, totalBytes) =>
+            beginSerializedPdfSaveToOriginal(event, workingPath, totalBytes),
         cleanupFile: (_event, workingPath) => {
             cleanupWorkingCopy(workingPath);
         },

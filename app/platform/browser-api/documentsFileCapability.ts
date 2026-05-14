@@ -243,6 +243,22 @@ export function createBrowserDocumentsFileCapability(
             browserDocumentStore.unload(sourceRef);
             return sourceRef;
         },
+        async savePdfDataAs(workingCopyPath, data) {
+            const validation = await validateBrowserPdfData(data);
+            if (!validation.isValid) {
+                return {
+                    path: null,
+                    validation,
+                };
+            }
+
+            await browserDocumentStore.write(workingCopyPath, data);
+            const path = await this.savePdfAs(workingCopyPath);
+            return {
+                path,
+                validation,
+            };
+        },
         async savePdfDialog(suggestedName) {
             const nextName = ensurePdfExtension(suggestedName);
             const saveResult = await pickSaveTarget({
@@ -311,6 +327,10 @@ export function createBrowserDocumentsFileCapability(
         async validatePdfData(data) {
             return validateBrowserPdfData(data);
         },
+        async validatePdfPath(path) {
+            const data = await browserDocumentStore.read(path);
+            return validateBrowserPdfData(data);
+        },
         openPdfInDefaultAppData() {
             return Promise.resolve({
                 success: false,
@@ -338,6 +358,17 @@ export function createBrowserDocumentsFileCapability(
         async writeFile(path, data) {
             clearSearchCaches();
             return browserDocumentStore.write(path, data);
+        },
+        async savePdfData(path, data) {
+            const validation = await validateBrowserPdfData(data);
+            if (!validation.isValid) {
+                return validation;
+            }
+
+            await browserDocumentStore.write(path, data);
+            await saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint);
+            clearSearchCaches();
+            return validation;
         },
         async writeDocxFile(path, data) {
             const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
