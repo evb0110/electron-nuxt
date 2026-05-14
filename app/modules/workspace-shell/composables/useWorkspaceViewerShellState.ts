@@ -4,13 +4,14 @@ import type {
     TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
 } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 
-export const useWorkspaceViewerShellState = () => {
+export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
     const zoomDropdownOpen = ref(false);
     const pageDropdownOpen = ref(false);
@@ -54,12 +55,12 @@ export const useWorkspaceViewerShellState = () => {
         appMenuOpen,
     });
 
-    const zoom = ref(1);
-    const effectiveZoom = ref(1);
-    const zoomMode = ref<TZoomMode>('fit-width');
-    const fitMode = ref<TFitMode>('width');
-    const viewMode = ref<TPdfViewMode>('single');
-    const currentPage = ref(1);
+    const zoom = ref(initialState?.zoom ?? 1);
+    const effectiveZoom = ref(initialState?.effectiveZoom ?? 1);
+    const zoomMode = ref<TZoomMode>(initialState?.zoomMode ?? 'fit-width');
+    const fitMode = ref<TFitMode>(initialState?.fitMode ?? 'width');
+    const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
+    const currentPage = ref(initialState?.currentPage ?? 1);
     const totalPages = ref(0);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 
@@ -67,8 +68,8 @@ export const useWorkspaceViewerShellState = () => {
     // Default to text selection so reopened annotations remain immediately
     // discoverable and interactable without an extra mode switch.
     const dragMode = ref(false);
-    const continuousScroll = ref(true);
-    const showSidebar = ref(false);
+    const continuousScroll = ref(initialState?.continuousScroll ?? true);
+    const showSidebar = ref(initialState?.showSidebar ?? false);
     const showSettings = ref(false);
     const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
 

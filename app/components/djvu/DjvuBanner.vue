@@ -3,10 +3,16 @@
         v-if="visible"
         class="djvu-banner"
     >
+        <AppSpinner
+            v-if="isLoadingPages"
+            size="sm"
+            tone="primary"
+            class="shrink-0"
+        />
         <UIcon
-            :name="isLoadingPages ? 'i-ph-circle-notch' : 'i-ph-info'"
+            v-else
+            name="i-ph-info"
             class="djvu-banner-icon"
-            :class="{ 'is-spinning': isLoadingPages }"
         />
         <span class="djvu-banner-text">
             <template v-if="isLoadingPages">
@@ -39,6 +45,8 @@
 </template>
 
 <script setup lang="ts">
+import AppSpinner from '@app/components/AppSpinner.vue';
+
 const { t } = useTypedI18n();
 
 const {
@@ -83,15 +91,6 @@ function dismiss() {
     height: 16px;
     color: var(--ui-primary);
     flex-shrink: 0;
-}
-
-.djvu-banner-icon.is-spinning {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
 }
 
 .djvu-banner-text {

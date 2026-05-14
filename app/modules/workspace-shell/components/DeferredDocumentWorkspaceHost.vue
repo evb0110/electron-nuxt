@@ -11,7 +11,9 @@
                 ref="workspaceRef"
                 :tab-id="tabId"
                 :is-active="isActive && !isPlaceholderVisible"
+                :is-render-active="isRenderActive && !isPlaceholderVisible"
                 :is-tab-transition-busy="isTabTransitionBusy"
+                :initial-view-state="initialViewState"
                 :pending-document-open="isDocumentOpenInFlight"
                 :start-section="startSection"
                 :is-fullscreen="isFullscreen"
@@ -75,7 +77,7 @@
             aria-live="polite"
         >
             <div class="workspace-host__loading-chip">
-                <UIcon name="i-ph-circle-notch" class="workspace-host__spinner" />
+                <AppSpinner size="md" tone="muted" />
                 <span class="workspace-host__loading-label">{{ t('common.loading') }}</span>
             </div>
         </div>
@@ -83,7 +85,10 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platformApi';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@contracts/windowTabs';
@@ -100,6 +105,7 @@ import {
 } from '@app/modules/workspace-shell/composables/workspaceHostAsyncLoad';
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspaceExposeContract';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
+import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import {
@@ -112,22 +118,32 @@ import {
     isEmptyTabDocumentUpdate,
 } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import type { TStartSection } from '@app/types/startPage';
+import {
+    createTabViewSessionState,
+    type ITabViewSessionState,
+} from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
 const {
     hasDocumentHint,
+    documentPath = null,
     isActive,
     isFullscreen,
+    isRenderActive = isActive,
     isStartupOpenClaimPending,
     isTabTransitionBusy,
     fullscreenSupported,
+    initialViewState = null,
     startSection = undefined,
     tabId,
 } = defineProps<{
     tabId: string;
     isActive: boolean;
+    isRenderActive?: boolean;
     isTabTransitionBusy: boolean;
     isStartupOpenClaimPending?: boolean;
     hasDocumentHint?: boolean;
+    documentPath?: TDocumentRef | null;
+    initialViewState?: ITabViewSessionState | null;
     startSection?: TStartSection;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
@@ -136,6 +152,7 @@ const { t } = useTypedI18n();
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
+    'update-session-state': [state: ITabViewSessionState];
     'update:start-section': [section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult];
     'request-close-tab': [];
@@ -245,6 +262,7 @@ const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
+const restoredDocumentPaths = new Set<string>();
 
 const {
     recentFiles,
@@ -387,16 +405,18 @@ watch(
         hasQueuedSplitRestore,
         () => hasDocumentHint === true,
         () => isActive,
+        () => isRenderActive,
     ],
     ([
         hasQueued,
         hasDocumentHint,
         isActive,
+        isRenderActive,
     ]) => {
         workspaceRequested.value = resolveWorkspaceRequestedState(workspaceRequested.value, {
             hasQueuedSplitRestore: hasQueued,
             hasDocumentHint,
-            isActive,
+            isActive: isActive || isRenderActive,
         });
     },
     { immediate: true },
@@ -423,6 +443,62 @@ watch(hasMountedWorkspace, (mounted) => {
     if (mounted) {
         workspaceChunkLoadError.value = null;
     }
+});
+
+watch(
+    [
+        () => isActive,
+        () => isRenderActive,
+        () => documentPath,
+        workspaceVisibleDocument,
+        isDocumentOpenInFlight,
+    ],
+    ([
+        active,
+        renderActive,
+        path,
+        hasVisibleDocument,
+        opening,
+    ]) => {
+        if (
+            !(active || renderActive)
+            || !path
+            || hasDocumentHint !== true
+            || hasVisibleDocument
+            || opening
+            || restoredDocumentPaths.has(path)
+        ) {
+            return;
+        }
+
+        restoredDocumentPaths.add(path);
+        void enqueueDocumentOpen({
+            action: 'restoreTabDocument',
+            target: null,
+        }, async () => openPath(path, 'restoreTabDocument'));
+    },
+    { immediate: true },
+);
+
+watch(hasMountedWorkspace, (mounted) => {
+    if (
+        !mounted
+        || !(isActive || isRenderActive)
+        || !initialViewState
+        || !documentPath
+        || activeDocumentOpenTransaction.value
+        || workspaceHasOpenedDocument()
+    ) {
+        return;
+    }
+
+    void enqueueDocumentOpen({
+        action: 'restoreColdDocument',
+        target: buildPendingTabDocumentHint(documentPath),
+    }, async () => withWorkspace(
+        'restoreColdDocument',
+        workspace => workspace.handleOpenFileDirectWithPersist(documentPath),
+    ));
 });
 
 function handleRetryWorkspaceMount() {
@@ -785,7 +861,7 @@ async function withWorkspace(
     }
 }
 
-async function openPath(path: string, action: string) {
+async function openPath(path: TDocumentRef, action: string) {
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
         tabId: tabId,
         action,
@@ -865,7 +941,7 @@ onMounted(() => {
     if (shouldPreloadWorkspaceOnHostMount({
         hasQueuedSplitRestore: hasQueuedSplitRestore.value,
         hasDocumentHint: hasDocumentHint === true,
-        isActive,
+        isActive: isActive || isRenderActive,
         isDev: import.meta.dev,
     })) {
         void preloadWorkspaceComponent('workspace-host-mounted');
@@ -881,6 +957,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    emit('update-session-state', createTabViewSessionState(readWorkspaceToolbarSnapshot()));
     isHostUnmounted = true;
     workspaceLoadPromise = null;
     workspacePreloadPromise = null;
@@ -1127,22 +1204,5 @@ defineExpose(workspaceExpose);
     color: var(--ui-text-muted);
     font-size: 0.875rem;
     line-height: 1.25rem;
-}
-
-.workspace-host__spinner {
-    width: 1.25rem;
-    height: 1.25rem;
-    color: var(--ui-text-muted);
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
 }
 </style>

@@ -4,12 +4,10 @@
         class="relative h-full w-full"
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
-        <div v-if="isLocalViewerLoadingOverlayVisible" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
-            <div class="flex flex-col items-center gap-2">
-                <UIcon name="i-ph-circle-notch" class="size-5 animate-spin text-[var(--ui-text-muted)]" />
-                <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
-            </div>
-        </div>
+        <AppLoaderOverlay
+            :visible="isLocalViewerLoadingOverlayVisible"
+            :label="t('common.loading')"
+        />
         <PdfViewerViewport
             :set-viewer-container="handleViewerContainerRef"
             :viewer-class="viewerClass"
@@ -72,6 +70,7 @@
 
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
+import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import PdfViewerPortalLayers from '@app/components/pdf/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/components/pdf/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
@@ -809,6 +808,7 @@ const {
     renderVisiblePages,
     reRenderAllVisiblePages,
     cancelInFlightPageRenders: cancelInFlightRenders,
+    cancelPendingSearchScroll,
     cleanupRenderedPages,
     invalidateRenderedPages,
     applySearchHighlights,

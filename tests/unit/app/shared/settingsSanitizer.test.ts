@@ -55,6 +55,11 @@ describe('settings-sanitizer', () => {
         });
     });
 
+    it('normalizes tab memory policy', () => {
+        expect(sanitizeSettings({tabMemoryPolicy: 'aggressive'}).tabMemoryPolicy).toBe('aggressive');
+        expect(sanitizeSettings({tabMemoryPolicy: 'unsupported' as never}).tabMemoryPolicy).toBe(DEFAULT_SETTINGS.tabMemoryPolicy);
+    });
+
     it('exposes locale/theme normalizers for shared callers', () => {
         expect(normalizeTheme('dark')).toBe('dark');
         expect(normalizeTheme('contrast')).toBe('light');

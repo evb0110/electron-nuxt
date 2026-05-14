@@ -71,6 +71,7 @@ describe('useSettings', () => {
             defaultContinuousScroll: true,
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
+            tabMemoryPolicy: 'conservative',
         });
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -95,6 +96,7 @@ describe('useSettings', () => {
             defaultContinuousScroll: true,
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
+            tabMemoryPolicy: 'conservative',
             suppressDefaultViewerPrompt: false,
             skippedUpdateVersion: undefined,
         });

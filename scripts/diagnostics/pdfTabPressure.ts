@@ -11,12 +11,20 @@ import { setCurrentSessionName } from '../electron-run/electronRunSessionPaths';
 
 interface IOptions {
     fixture: string;
+    fixtures: string[];
     tabs: number;
     cycles: number;
     out: string | null;
     session: string;
     idleMs: number;
     collectGc: boolean;
+    failOnWarning: boolean;
+    maxInactiveCanvases: number;
+    maxInactiveRenderedPages: number;
+    maxInactiveDjvuImages: number;
+    maxInactiveCanvasPixels: number;
+    maxHeapGrowthMb: number | null;
+    sampleHeap: boolean;
 }
 
 interface IPageMetricsPayload {
@@ -57,26 +65,56 @@ interface IDiagnosticSnapshot {
     label: string;
     at: string;
     metrics: Record<string, number>;
+    heap: IHeapSample | null;
     dom: IDomPressureSnapshot;
     warnings: string[];
+    failures: string[];
 }
 
 const DEFAULT_FIXTURE = 'tests/fixtures/electron/generated-text.pdf';
+const DEFAULT_MAX_INACTIVE_CANVASES = 0;
+const DEFAULT_MAX_INACTIVE_RENDERED_PAGES = 0;
+const DEFAULT_MAX_INACTIVE_DJVU_IMAGES = 0;
+const DEFAULT_MAX_INACTIVE_CANVAS_PIXELS = 0;
+
+interface IHeapSample {
+    usedJSHeapSize: number | null;
+    totalJSHeapSize: number | null;
+    jsHeapSizeLimit: number | null;
+}
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
     const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseNonNegativeInt(value: string | undefined, fallback: number) {
+    const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parsePositiveNumber(value: string | undefined, fallback: number | null) {
+    const parsed = value ? Number.parseFloat(value) : Number.NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function readOptions(argv = process.argv.slice(2)): IOptions {
     const options: IOptions = {
         fixture: DEFAULT_FIXTURE,
+        fixtures: [],
         tabs: 4,
         cycles: 2,
         out: '.tmp/pdf-tab-pressure.json',
         session: 'default',
         idleMs: 750,
         collectGc: false,
+        failOnWarning: false,
+        maxInactiveCanvases: DEFAULT_MAX_INACTIVE_CANVASES,
+        maxInactiveRenderedPages: DEFAULT_MAX_INACTIVE_RENDERED_PAGES,
+        maxInactiveDjvuImages: DEFAULT_MAX_INACTIVE_DJVU_IMAGES,
+        maxInactiveCanvasPixels: DEFAULT_MAX_INACTIVE_CANVAS_PIXELS,
+        maxHeapGrowthMb: null,
+        sampleHeap: false,
     };
 
     for (let index = 0; index < argv.length; index += 1) {
@@ -84,6 +122,9 @@ function readOptions(argv = process.argv.slice(2)): IOptions {
         const next = argv[index + 1];
         if (arg === '--fixture' && next) {
             options.fixture = next;
+            index += 1;
+        } else if (arg === '--fixtures' && next) {
+            options.fixtures = next.split(',').map(item => item.trim()).filter(Boolean);
             index += 1;
         } else if (arg === '--tabs' && next) {
             options.tabs = parsePositiveInt(next, options.tabs);
@@ -102,6 +143,26 @@ function readOptions(argv = process.argv.slice(2)): IOptions {
             index += 1;
         } else if (arg === '--gc') {
             options.collectGc = true;
+        } else if (arg === '--fail-on-warning') {
+            options.failOnWarning = true;
+        } else if (arg === '--max-inactive-canvases' && next) {
+            options.maxInactiveCanvases = parseNonNegativeInt(next, options.maxInactiveCanvases);
+            index += 1;
+        } else if (arg === '--max-inactive-rendered-pages' && next) {
+            options.maxInactiveRenderedPages = parseNonNegativeInt(next, options.maxInactiveRenderedPages);
+            index += 1;
+        } else if (arg === '--max-inactive-djvu-images' && next) {
+            options.maxInactiveDjvuImages = parseNonNegativeInt(next, options.maxInactiveDjvuImages);
+            index += 1;
+        } else if (arg === '--max-inactive-canvas-pixels' && next) {
+            options.maxInactiveCanvasPixels = parseNonNegativeInt(next, options.maxInactiveCanvasPixels);
+            index += 1;
+        } else if (arg === '--max-heap-growth-mb' && next) {
+            options.maxHeapGrowthMb = parsePositiveNumber(next, options.maxHeapGrowthMb);
+            options.sampleHeap = true;
+            index += 1;
+        } else if (arg === '--sample-heap') {
+            options.sampleHeap = true;
         }
     }
 
@@ -162,6 +223,10 @@ async function createTabAndOpenFixture(fixture: string) {
     await openFixtureInActiveTab(fixture);
 }
 
+function resolveFixtureForTab(fixtures: string[], index: number) {
+    return fixtures[index % fixtures.length] ?? resolve(DEFAULT_FIXTURE);
+}
+
 async function activateTabByIndex(index: number) {
     await sendCommand('run', [`
         const tabs = await page.$$('.tab-bar [role="tab"], [data-tab-id], .tab-bar__tab');
@@ -190,7 +255,7 @@ async function collectDomPressure(): Promise<IDomPressureSnapshot> {
                 const visible = isVisible(host);
                 return {
                     index,
-                    active: visible && Boolean(host.closest('.editor-group-pane.is-active')),
+                    active: visible,
                     visible,
                     pdfViewers: host.querySelectorAll('#pdf-viewer, .pdfViewer').length,
                     renderedPages: host.querySelectorAll('.page_container--rendered').length,
@@ -235,37 +300,129 @@ function buildSnapshotWarnings(dom: IDomPressureSnapshot) {
     return warnings;
 }
 
-async function collectSnapshot(label: string, options: Pick<IOptions, 'collectGc'>): Promise<IDiagnosticSnapshot> {
+function buildSnapshotFailures(
+    dom: IDomPressureSnapshot,
+    options: Pick<IOptions, 'maxInactiveCanvases' | 'maxInactiveRenderedPages' | 'maxInactiveDjvuImages' | 'maxInactiveCanvasPixels'>,
+) {
+    const failures: string[] = [];
+    const inactiveHosts = dom.hosts.filter(host => !host.active);
+    const inactiveCanvases = inactiveHosts.reduce((total, host) => total + host.canvases, 0);
+    const inactiveRenderedPages = inactiveHosts.reduce((total, host) => total + host.renderedPages, 0);
+    const inactiveDjvuImages = inactiveHosts.reduce((total, host) => total + host.djvuImages, 0);
+    const inactiveCanvasPixels = inactiveHosts.reduce((total, host) => total + host.canvasPixels, 0);
+
+    if (inactiveCanvases > options.maxInactiveCanvases) {
+        failures.push(`Inactive canvas count ${inactiveCanvases} exceeded threshold ${options.maxInactiveCanvases}.`);
+    }
+    if (inactiveRenderedPages > options.maxInactiveRenderedPages) {
+        failures.push(`Inactive rendered page count ${inactiveRenderedPages} exceeded threshold ${options.maxInactiveRenderedPages}.`);
+    }
+    if (inactiveDjvuImages > options.maxInactiveDjvuImages) {
+        failures.push(`Inactive DjVu image count ${inactiveDjvuImages} exceeded threshold ${options.maxInactiveDjvuImages}.`);
+    }
+    if (inactiveCanvasPixels > options.maxInactiveCanvasPixels) {
+        failures.push(`Inactive canvas pixels ${inactiveCanvasPixels} exceeded threshold ${options.maxInactiveCanvasPixels}.`);
+    }
+
+    return failures;
+}
+
+async function collectHeapSample(sampleHeap: boolean): Promise<IHeapSample | null> {
+    if (!sampleHeap) {
+        return null;
+    }
+
+    return await sendCommand('eval', [`
+        (() => {
+            const memory = performance.memory;
+            if (!memory) {
+                return {
+                    usedJSHeapSize: null,
+                    totalJSHeapSize: null,
+                    jsHeapSizeLimit: null,
+                };
+            }
+            return {
+                usedJSHeapSize: Number.isFinite(memory.usedJSHeapSize) ? memory.usedJSHeapSize : null,
+                totalJSHeapSize: Number.isFinite(memory.totalJSHeapSize) ? memory.totalJSHeapSize : null,
+                jsHeapSizeLimit: Number.isFinite(memory.jsHeapSizeLimit) ? memory.jsHeapSizeLimit : null,
+            };
+        })()
+    `]) as IHeapSample;
+}
+
+async function collectSnapshot(
+    label: string,
+    options: Pick<IOptions,
+        | 'collectGc'
+        | 'sampleHeap'
+        | 'maxInactiveCanvases'
+        | 'maxInactiveRenderedPages'
+        | 'maxInactiveDjvuImages'
+        | 'maxInactiveCanvasPixels'
+    >,
+): Promise<IDiagnosticSnapshot> {
     await collectGarbageIfRequested(options.collectGc);
     const [
         metricsPayload,
         dom,
+        heap,
     ] = await Promise.all([
         sendCommand('devtools', ['metrics']) as Promise<IPageMetricsPayload>,
         collectDomPressure(),
+        collectHeapSample(options.sampleHeap),
     ]);
 
     return {
         label,
         at: new Date().toISOString(),
         metrics: metricsPayload.metrics ?? {},
+        heap,
         dom,
         warnings: buildSnapshotWarnings(dom),
+        failures: buildSnapshotFailures(dom, options),
     };
+}
+
+function buildHeapFailures(snapshots: IDiagnosticSnapshot[], maxHeapGrowthMb: number | null) {
+    if (!maxHeapGrowthMb) {
+        return [];
+    }
+
+    const samples = snapshots
+        .map(snapshot => ({
+            label: snapshot.label,
+            used: snapshot.heap?.usedJSHeapSize,
+        }))
+        .filter((sample): sample is {
+            label: string;
+            used: number;
+        } => typeof sample.used === 'number');
+    const baseline = samples[0];
+    const last = samples.at(-1);
+
+    if (!baseline || !last) {
+        return ['JS heap sampling was requested but performance.memory was not exposed by the renderer.'];
+    }
+
+    const growthMb = (last.used - baseline.used) / 1024 / 1024;
+    return growthMb > maxHeapGrowthMb
+        ? [`JS heap grew ${growthMb.toFixed(1)}MB from ${baseline.label} to ${last.label}, exceeding ${maxHeapGrowthMb}MB.`]
+        : [];
 }
 
 async function runDiagnostics(options: IOptions) {
     setCurrentSessionName(options.session);
-    const fixture = resolve(options.fixture);
+    const fixtures = (options.fixtures.length > 0 ? options.fixtures : [options.fixture]).map(fixture => resolve(fixture));
     const snapshots: IDiagnosticSnapshot[] = [];
 
     snapshots.push(await collectSnapshot('baseline', options));
-    await openFixtureInActiveTab(fixture);
+    await openFixtureInActiveTab(resolveFixtureForTab(fixtures, 0));
     await waitForIdle(options.idleMs);
     snapshots.push(await collectSnapshot('tab-1-opened', options));
 
     for (let index = 1; index < options.tabs; index += 1) {
-        await createTabAndOpenFixture(fixture);
+        await createTabAndOpenFixture(resolveFixtureForTab(fixtures, index));
         await waitForIdle(options.idleMs);
         snapshots.push(await collectSnapshot(`tab-${index + 1}-opened`, options));
     }
@@ -279,15 +436,30 @@ async function runDiagnostics(options: IOptions) {
     }
 
     const warnings = snapshots.flatMap(snapshot => snapshot.warnings.map(warning => `${snapshot.label}: ${warning}`));
+    const thresholdFailures = snapshots.flatMap(snapshot => snapshot.failures.map(failure => `${snapshot.label}: ${failure}`));
+    const heapFailures = buildHeapFailures(snapshots, options.maxHeapGrowthMb);
+    const failures = [
+        ...thresholdFailures,
+        ...heapFailures,
+        ...(options.failOnWarning ? warnings : []),
+    ];
 
     return {
-        fixture,
+        fixtures,
         tabs: options.tabs,
         cycles: options.cycles,
         idleMs: options.idleMs,
         collectGc: options.collectGc,
+        thresholds: {
+            maxInactiveCanvases: options.maxInactiveCanvases,
+            maxInactiveRenderedPages: options.maxInactiveRenderedPages,
+            maxInactiveDjvuImages: options.maxInactiveDjvuImages,
+            maxInactiveCanvasPixels: options.maxInactiveCanvasPixels,
+            maxHeapGrowthMb: options.maxHeapGrowthMb,
+        },
         generatedAt: new Date().toISOString(),
         warnings,
+        failures,
         snapshots,
     };
 }
@@ -306,4 +478,11 @@ if (options.out) {
     }
 } else {
     console.log(output);
+}
+
+if (result.failures.length > 0) {
+    for (const failure of result.failures) {
+        console.error(failure);
+    }
+    process.exitCode = 1;
 }

@@ -36,6 +36,7 @@ export type TDefaultZoomPreset = 'fit-width' | 'fit-height' | '100' | '125' | '1
 export type TAppTheme = 'light' | 'dark';
 export type TAppLocale = TLocale;
 export type TUiScalePreference = 'auto' | 'compact' | 'default' | 'comfortable' | 'large';
+export type TTabMemoryPolicy = 'conservative' | 'aggressive';
 
 export interface ISettingsData {
     version: number;
@@ -47,6 +48,7 @@ export interface ISettingsData {
     defaultContinuousScroll: boolean;
     defaultAnnotationColor: string;
     uiScale: TUiScalePreference;
+    tabMemoryPolicy: TTabMemoryPolicy;
     suppressDefaultViewerPrompt?: boolean;
     skippedUpdateVersion?: string;
 }

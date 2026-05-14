@@ -17,20 +17,10 @@
             </div>
         </div>
 
-        <div
-            v-if="isInitialPreviewPending"
-            class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]"
-            role="status"
-            aria-live="polite"
-        >
-            <div class="flex flex-col items-center gap-2">
-                <UIcon
-                    name="i-ph-circle-notch"
-                    class="size-5 animate-spin text-[var(--ui-text-muted)]"
-                />
-                <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
-            </div>
-        </div>
+        <AppLoaderOverlay
+            :visible="isInitialPreviewPending"
+            :label="t('common.loading')"
+        />
 
         <div
             ref="viewerContainer"
@@ -121,6 +111,7 @@ import type {
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
+import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvuWorker';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';

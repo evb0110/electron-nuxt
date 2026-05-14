@@ -3,15 +3,19 @@ import type { TDocumentRef } from '@contracts/platformApi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
-interface IWorkspaceSidebarSearchSyncControllerDeps {workingCopyPath: Ref<TDocumentRef | null>;}
+interface IWorkspaceSidebarSearchSyncControllerDeps {
+    workingCopyPath: Ref<TDocumentRef | null>;
+    initialViewState?: ITabViewSessionState | null;
+}
 
 export const useWorkspaceSidebarSearchSyncController = (
     deps: IWorkspaceSidebarSearchSyncControllerDeps,
 ) => {
     const {workingCopyPath} = deps;
 
-    const viewerShellState = useWorkspaceViewerShellState();
+    const viewerShellState = useWorkspaceViewerShellState(deps.initialViewState);
     const {
         currentPage,
         totalPages,

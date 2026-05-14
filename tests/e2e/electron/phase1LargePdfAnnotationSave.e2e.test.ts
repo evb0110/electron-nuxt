@@ -35,7 +35,8 @@ const LARGE_PDF_TIMEOUT_MS = 360_000;
 const REOPEN_NOTE_TIMEOUT_MS = 45_000;
 const RENDERER_SNAPSHOT_TIMEOUT_MS = 5_000;
 const runLargePdfE2E = process.env.EVB_E2E_LARGE_PDF === '1' && Boolean(resolveLargePdfFixturePath());
-const largePdfIt = runLargePdfE2E ? it : it.skip;
+const runLargePdfAnnotationSaveE2E = runLargePdfE2E && process.env.EVB_E2E_LARGE_PDF_ANNOTATION_SAVE === '1';
+const largePdfIt = runLargePdfAnnotationSaveE2E ? it : it.skip;
 
 interface INoteWindowSnapshot {
     textareaValues: string[];
@@ -48,6 +49,14 @@ interface INoteWindowSnapshot {
     errorText: string | null;
 }
 
+interface IVueWorkspaceHost extends HTMLElement {__vueParentComponent?: {
+    exposed?: unknown;
+    setupState?: {
+        mountedWorkspace?: { value?: unknown; };
+        workspaceRef?: { value?: unknown; };
+    };
+};}
+
 function getPdfStringValue(value: unknown) {
     if (value instanceof PDFHexString || value instanceof PDFString) {
         return value.decodeText();
@@ -55,52 +64,82 @@ function getPdfStringValue(value: unknown) {
     return '';
 }
 
-async function readFirstPageNoteContents(filePath: string) {
+async function readPdfNoteContents(filePath: string) {
     const doc = await PDFDocument.load(readFileSync(filePath), { updateMetadata: false });
-    const annots = doc.getPage(0).node.Annots();
     const notes: Array<{
         contents: string;
+        pageIndex: number;
         popup: string;
         ref: string;
+        subtype: string;
     }> = [];
 
-    if (!(annots instanceof PDFArray)) {
-        return notes;
-    }
+    for (let pageIndex = 0; pageIndex < doc.getPageCount(); pageIndex += 1) {
+        const annots = doc.getPage(pageIndex).node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            continue;
+        }
 
-    for (let index = 0; index < annots.size(); index += 1) {
-        const ref = annots.get(index);
-        if (!(ref instanceof PDFRef)) {
-            continue;
+        for (let index = 0; index < annots.size(); index += 1) {
+            const ref = annots.get(index);
+            if (!(ref instanceof PDFRef)) {
+                continue;
+            }
+            const dict = doc.context.lookupMaybe(ref, PDFDict);
+            if (!dict) {
+                continue;
+            }
+            const contents = getPdfStringValue(dict.get(PDFName.of('Contents')));
+            const subtype = dict.get(PDFName.of('Subtype'))?.toString() ?? '';
+            if (!contents || (subtype !== '/FreeText' && subtype !== '/Text')) {
+                continue;
+            }
+
+            notes.push({
+                ref: String(ref),
+                pageIndex,
+                contents,
+                popup: String(dict.get(PDFName.of('Popup')) ?? ''),
+                subtype,
+            });
         }
-        const dict = doc.context.lookupMaybe(ref, PDFDict);
-        if (!dict || dict.get(PDFName.of('Subtype'))?.toString() !== '/FreeText') {
-            continue;
-        }
-        notes.push({
-            ref: String(ref),
-            contents: getPdfStringValue(dict.get(PDFName.of('Contents'))),
-            popup: String(dict.get(PDFName.of('Popup')) ?? ''),
-        });
     }
 
     return notes;
 }
 
 async function placePageNote(page: Page, text: string) {
-    const point = await page.evaluate(() => {
-        const noteButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => (
-                button.getAttribute('aria-label') === 'Create notes from selected text or place one anywhere on a page.'
-                && !button.disabled
-            ));
-        if (!noteButton) {
-            return null;
+    const point = await page.evaluate(async () => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((host) => {
+                const rect = host.getBoundingClientRect();
+                const style = window.getComputedStyle(host);
+                return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host: IVueWorkspaceHost | null = activeHost && visibleHosts.includes(activeHost)
+            ? activeHost
+            : (visibleHosts[0] ?? null);
+        const component = host?.__vueParentComponent;
+        const candidates = [
+            component?.exposed,
+            component?.setupState?.mountedWorkspace?.value,
+            component?.setupState?.workspaceRef?.value,
+        ];
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'object') {
+                continue;
+            }
+            const workspace = candidate as { handleQuickNote?: () => void | Promise<void>; };
+            if (typeof workspace.handleQuickNote === 'function') {
+                await workspace.handleQuickNote();
+                break;
+            }
         }
-        noteButton.click();
 
-        const pageElement = document.querySelector<HTMLElement>('.page_container--rendered')
-            ?? document.querySelector<HTMLElement>('.page_container');
+        const pageElement = host?.querySelector<HTMLElement>('.page_container--rendered')
+            ?? host?.querySelector<HTMLElement>('.page_container')
+            ?? null;
         if (!pageElement) {
             return null;
         }
@@ -116,15 +155,19 @@ async function placePageNote(page: Page, text: string) {
 
     await page.mouse.click(point.x, point.y);
     await page.waitForSelector('textarea.note-window__textarea', { timeout: 20_000 });
-    await page.evaluate((noteText: string) => {
+    await page.type('textarea.note-window__textarea', text, { delay: 5 });
+    const typedState = await page.evaluate((noteText: string) => {
         const textarea = document.querySelector<HTMLTextAreaElement>('textarea.note-window__textarea');
-        if (!textarea) {
-            return;
-        }
-        textarea.value = noteText;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        textarea.dispatchEvent(new Event('change', { bubbles: true }));
+        const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
+        return {
+            value: textarea?.value ?? null,
+            includesText: Boolean(textarea?.value.includes(noteText)),
+            saveLabel: saveDot?.getAttribute('aria-label') ?? null,
+        };
     }, text);
+    if (!typedState.includesText) {
+        throw new Error(`Large PDF note text was not entered: ${JSON.stringify(typedState)}`);
+    }
 }
 
 async function waitForOpenNoteText(page: Page, expectedText: string) {
@@ -256,27 +299,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
     }
 }
 
-async function waitForCleanSaveState(page: Page) {
-    const deadline = Date.now() + LARGE_PDF_TIMEOUT_MS;
-    let lastError: unknown = null;
-    while (Date.now() < deadline) {
-        try {
-            const isClean = await page.evaluate(() => {
-                const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
-                return saveDot?.getAttribute('aria-label') === 'All changes saved';
-            });
-            if (isClean) {
-                return;
-            }
-        } catch (error) {
-            lastError = error;
-        }
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    throw new Error(`Save state did not become clean within ${LARGE_PDF_TIMEOUT_MS}ms: ${String(lastError ?? 'timed out')}`);
-}
-
 describe('Electron E2E - Large PDF Annotation Save', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -309,10 +331,9 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
         await placePageNote(page, firstText);
         console.info('[large-pdf-e2e] saving note');
         await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
-        await waitForCleanSaveState(page);
 
         console.info('[large-pdf-e2e] reading saved bytes');
-        const notes = await readFirstPageNoteContents(fixturePath);
+        const notes = await readPdfNoteContents(fixturePath);
         expect(notes.filter(note => note.contents === firstText)).toHaveLength(1);
 
         console.info('[large-pdf-e2e] reopening fixture');

@@ -101,6 +101,8 @@
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
             :start-section-by-tab-id="startSectionByTabId"
+            :tab-lifecycle-by-id="tabLifecycleById"
+            :view-state-by-tab-id="viewStateByTabId"
             :zen-mode="isFullscreen"
             :zen-active-tab-id="activeTabId"
             :is-fullscreen="isFullscreen"
@@ -114,6 +116,7 @@
             @tab-context-command="handleTabContextCommand"
             @set-workspace-ref="setWorkspaceRef"
             @update-tab="updateTab"
+            @update-tab-session-state="updateTabViewState"
             @update-tab-start-section="setTabStartSection"
             @open-in-new-tab="handleOpenInNewTab"
             @request-close-tab="handleCloseTab"
@@ -187,8 +190,12 @@ import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
+import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
-import type { TPdfViewMode } from '@contracts/shared';
+import type {
+    TPdfViewMode,
+    TTabMemoryPolicy,
+} from '@contracts/shared';
 import type { TStartSection } from '@app/types/startPage';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
@@ -221,6 +228,10 @@ const {
 } = useEditorGroupsManager();
 
 const { t } = useTypedI18n();
+const {
+    settings: appSettings,
+    updateSetting,
+} = useSettings();
 const analytics = useAnalytics();
 const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
@@ -255,6 +266,16 @@ const didTrackInstallHintShown = useState(
     () => false,
 );
 const workspaceSplitCache = useWorkspaceSplitCache();
+const {
+    lifecycleByTabId: tabLifecycleById,
+    updateViewState: updateTabViewState,
+    viewStateByTabId,
+} = useTabSessionStore({
+    activeTabId,
+    groups,
+    policy: computed(() => appSettings.value.tabMemoryPolicy),
+    tabs,
+});
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     checkForUpdates,
@@ -527,11 +548,24 @@ onMounted(() => {
         },
     );
     unsubscribeZenModeChange = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+
+    if (import.meta.dev) {
+        (window as Window & {__setTabMemoryPolicyForE2E?: (policy: TTabMemoryPolicy) => void;}).__setTabMemoryPolicyForE2E = (policy) => updateSetting('tabMemoryPolicy', policy);
+        (window as Window & {__splitEditorForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorForE2E = splitEditor;
+        (window as Window & {__splitEditorEmptyForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorEmptyForE2E = splitEditorEmpty;
+        (window as Window & {__copyActiveTabForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__copyActiveTabForE2E = copyActiveTab;
+    }
 });
 
 onUnmounted(() => {
     unsubscribeZenModeChange?.();
     unsubscribeZenModeChange = null;
+    if (import.meta.dev) {
+        delete (window as Window & {__setTabMemoryPolicyForE2E?: (policy: TTabMemoryPolicy) => void;}).__setTabMemoryPolicyForE2E;
+        delete (window as Window & {__splitEditorForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
+        delete (window as Window & {__splitEditorEmptyForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__splitEditorEmptyForE2E;
+        delete (window as Window & {__copyActiveTabForE2E?: (direction: 'left' | 'right' | 'up' | 'down') => Promise<void> | void;}).__copyActiveTabForE2E;
+    }
 });
 
 const {
@@ -709,6 +743,7 @@ function handleCombineOpenResult(result: TOpenFileResult) {
 const {
     tabContextAvailabilityByGroup,
     splitEditor,
+    splitEditorEmpty,
     focusEditorGroup,
     moveActiveTab,
     copyActiveTab,

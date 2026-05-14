@@ -50,6 +50,17 @@
                 />
             </div>
         </div>
+
+        <div class="settings-field flex flex-col gap-1">
+            <label class="settings-label">{{ t('settings.tabMemoryPolicy') }}</label>
+            <USelectMenu
+                :model-value="settings.tabMemoryPolicy"
+                :items="tabMemoryPolicyItems"
+                value-key="value"
+                :search-input="false"
+                @update:model-value="updateTabMemoryPolicy"
+            />
+        </div>
     </fieldset>
 </template>
 
@@ -57,6 +68,7 @@
 import type {
     ISettingsData,
     TDefaultZoomPreset,
+    TTabMemoryPolicy,
     TPdfViewMode,
 } from '@contracts/shared';
 
@@ -70,6 +82,7 @@ defineProps<{
     zoomPresetItems: Array<ISelectItem<TDefaultZoomPreset>>;
     viewModeItems: Array<ISelectItem<TPdfViewMode>>;
     scrollModeItems: Array<ISelectItem<boolean>>;
+    tabMemoryPolicyItems: Array<ISelectItem<TTabMemoryPolicy>>;
     annotationColorSwatches: readonly string[];
 }>();
 
@@ -77,6 +90,7 @@ const emit = defineEmits<{
     'update:zoom-preset': [value: string | { value: string }];
     'update:view-mode': [value: string | { value: string }];
     'update:scroll-mode': [value: boolean | { value: boolean }];
+    'update:tab-memory-policy': [value: string | { value: string }];
     'update:annotation-color': [value: string];
 }>();
 
@@ -92,6 +106,10 @@ function updateViewMode(value: string | { value: string }) {
 
 function updateScrollMode(value: boolean | { value: boolean }) {
     emit('update:scroll-mode', value);
+}
+
+function updateTabMemoryPolicy(value: string | { value: string }) {
+    emit('update:tab-memory-policy', value);
 }
 
 function updateAnnotationColor(value: string) {
