@@ -4,6 +4,10 @@ import type { TTabUpdate } from '@app/types/tabs';
 import type { TDocumentRef } from '@contracts/platformApi';
 import { clamp } from 'es-toolkit/math';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {
+    hasDocumentHintUpdate,
+    isEmptyTabDocumentUpdate,
+} from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 
 interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
@@ -82,6 +86,7 @@ export function resolveWorkspaceTabUpdate(state: IWorkspaceTabState): TTabUpdate
 
 export const useWorkspaceUiSyncWatchers = (deps: IWorkspaceUiSyncDeps) => {
     const { t } = useTypedI18n();
+    let hasEmittedDocumentBearingTabState = false;
 
     function resolvePendingOpenDisplayName(progress: IOpenBatchProgressState | null) {
         if (!progress || progress.total <= 0) {
@@ -127,14 +132,24 @@ export const useWorkspaceUiSyncWatchers = (deps: IWorkspaceUiSyncDeps) => {
             deps.openBatchProgress,
         ],
         () => {
-            deps.emitUpdateTab(resolveWorkspaceTabUpdate({
+            const update = resolveWorkspaceTabUpdate({
                 fileName: deps.fileName.value,
                 pendingOpenDisplayName: resolvePendingOpenDisplayName(deps.openBatchProgress.value),
                 originalPath: deps.originalPath.value,
                 isDirty: deps.isDirty.value,
                 isDjvuMode: deps.isDjvuMode.value,
                 djvuSourcePath: deps.djvuSourcePath.value,
-            }));
+            });
+
+            if (isEmptyTabDocumentUpdate(update) && !hasEmittedDocumentBearingTabState) {
+                return;
+            }
+
+            if (hasDocumentHintUpdate(update)) {
+                hasEmittedDocumentBearingTabState = true;
+            }
+
+            deps.emitUpdateTab(update);
         },
         { immediate: true },
     );
