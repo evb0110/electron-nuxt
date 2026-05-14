@@ -7,7 +7,9 @@ import {
 } from 'vitest';
 import {
     createSSRApp,
+    createRenderer,
     defineComponent,
+    nextTick,
     ref,
 } from 'vue';
 import { renderToString } from '@vue/server-renderer';
@@ -17,11 +19,19 @@ const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
     shouldHandleRendererMenuAccelerators: vi.fn(),
     registerTabsMenuBindings: vi.fn(() => []),
+    getPlatformAPI: vi.fn(() => ({})),
+    claimPendingExternalOpenPaths: vi.fn(async () => []),
+    notifyRendererReady: vi.fn(),
 }));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
 vi.mock('@app/utils/platformShortcuts', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
 vi.mock('@app/modules/workspace-shell/composables/tabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: mocks.getPlatformAPI}));
+vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
+    claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
+    notifyRendererReady: mocks.notifyRendererReady,
+})}));
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -75,18 +85,68 @@ async function mountBindings(options: ReturnType<typeof createOptions>) {
     return () => {};
 }
 
+async function mountBindingsClient(options: ReturnType<typeof createOptions>) {
+    const { useTabsShellBindings } = await import('@app/modules/workspace-shell/composables/useTabsShellBindings');
+    const renderer = createRenderer<Record<string, unknown>, Record<string, unknown>>({
+        createElement: type => ({type}),
+        createText: text => ({text}),
+        createComment: text => ({text}),
+        setText: () => {},
+        setElementText: () => {},
+        patchProp: () => {},
+        insert: () => {},
+        remove: () => {},
+        parentNode: () => null,
+        nextSibling: () => null,
+    });
+    const app = renderer.createApp(defineComponent({setup() {
+        useTabsShellBindings(options);
+        return () => null;
+    }}));
+    const root = {};
+    app.mount(root);
+    await nextTick();
+
+    return () => app.unmount();
+}
+
+async function flushMountedStartupClaim() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+}
+
 describe('useTabsShellBindings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         capturedKeydown = undefined;
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        mocks.claimPendingExternalOpenPaths.mockResolvedValue([]);
         mocks.useEventListener.mockImplementation((_target, event, listener) => {
             if (event === 'keydown') {
                 capturedKeydown = listener;
             }
             return vi.fn();
         });
+    });
+
+    it('marks startup open claim pending before creating the initial tab', async () => {
+        const options = createOptions();
+        const statesWhenEnsuringTabs: boolean[] = [];
+        options.isStartupOpenClaimPending.value = false;
+        options.ensureAtLeastOneTab = vi.fn(() => {
+            statesWhenEnsuringTabs.push(options.isStartupOpenClaimPending.value);
+        });
+
+        const unmount = await mountBindingsClient(options);
+
+        expect(statesWhenEnsuringTabs).toEqual([true]);
+
+        await flushMountedStartupClaim();
+        expect(options.isStartupOpenClaimPending.value).toBe(false);
+        expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        unmount();
     });
 
     it('routes web renderer menu shortcuts that have no native browser menu', async () => {
