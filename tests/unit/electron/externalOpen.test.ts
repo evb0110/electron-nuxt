@@ -187,13 +187,30 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/docs/retry.pdf']);
     });
 
-    it('lets the startup renderer claim queued paths before rendererReady dispatch', () => {
+    it('lets the startup renderer claim queued paths before rendererReady dispatch', async () => {
         const harness = createManagerHarness({ isRendererReady: false });
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/startup.pdf']);
 
-        expect(harness.manager.claimPendingOpenPaths()).toEqual(['/docs/startup.pdf']);
+        await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual(['/docs/startup.pdf']);
+
+        harness.setRendererReady(true);
+        harness.manager.scheduleFlushPendingFiles();
+
+        expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
+    });
+
+    it('briefly waits for a startup open-file event before returning an empty initial claim', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({ isRendererReady: false });
+
+        harness.manager.markBootstrapReady();
+        const claimPromise = harness.manager.claimPendingOpenPaths();
+        await vi.advanceTimersByTimeAsync(100);
+        harness.manager.queueOpenRequest(['/docs/late-startup.pdf']);
+
+        await expect(claimPromise).resolves.toEqual(['/docs/late-startup.pdf']);
 
         harness.setRendererReady(true);
         harness.manager.scheduleFlushPendingFiles();

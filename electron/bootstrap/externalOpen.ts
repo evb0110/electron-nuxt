@@ -20,6 +20,7 @@ const SUPPORTED_EXTENSIONS = new Set([
 const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
+const EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS = 300;
 const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
     const parsed = Number.parseInt(process.env.EVB_EXTERNAL_OPEN_PENDING_MAX_PATHS ?? '256', 10);
     if (!Number.isFinite(parsed) || parsed < 8) {
@@ -117,6 +118,9 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
     let pendingFlushRequested = false;
+    let startupEmptyClaimGraceTimer: ReturnType<typeof setTimeout> | null = null;
+    let startupEmptyClaimGraceResolve: (() => void) | null = null;
+    let startupEmptyClaimGracePromise: Promise<void> | null = null;
 
     function isSupportedFile(filePath: string) {
         return isSupportedExternalOpenPath(filePath);
@@ -256,6 +260,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             );
         }
 
+        finishStartupEmptyClaimGrace();
         if (externalOpenBootstrapReady && options.hasWindows()) {
             scheduleFlushPendingFiles();
         }
@@ -275,7 +280,43 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
     }
 
-    function claimPendingOpenPaths() {
+    function finishStartupEmptyClaimGrace() {
+        if (startupEmptyClaimGraceTimer) {
+            clearTimeout(startupEmptyClaimGraceTimer);
+            startupEmptyClaimGraceTimer = null;
+        }
+
+        const resolve = startupEmptyClaimGraceResolve;
+        startupEmptyClaimGraceResolve = null;
+        startupEmptyClaimGracePromise = null;
+        resolve?.();
+    }
+
+    function waitForStartupExternalOpenGraceIfEmpty() {
+        if (
+            pendingExternalOpenPaths.length > 0
+            || hasHandledInitialExternalOpenDispatch
+        ) {
+            return Promise.resolve();
+        }
+
+        if (startupEmptyClaimGracePromise) {
+            return startupEmptyClaimGracePromise;
+        }
+
+        startupEmptyClaimGracePromise = new Promise<void>((resolve) => {
+            startupEmptyClaimGraceResolve = resolve;
+            startupEmptyClaimGraceTimer = setTimeout(
+                finishStartupEmptyClaimGrace,
+                EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS,
+            );
+            startupEmptyClaimGraceTimer.unref?.();
+        });
+        return startupEmptyClaimGracePromise;
+    }
+
+    async function claimPendingOpenPaths() {
+        await waitForStartupExternalOpenGraceIfEmpty();
         const paths = getPendingPathsSnapshot();
         if (paths.length === 0) {
             pendingFlushRequested = false;
@@ -460,6 +501,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             flushPendingFilesTimer = null;
         }
         clearRetryPendingFilesTimer();
+        finishStartupEmptyClaimGrace();
         batchWindowStartTime = null;
     }
 

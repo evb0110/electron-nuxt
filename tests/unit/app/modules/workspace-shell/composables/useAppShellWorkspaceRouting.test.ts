@@ -1,5 +1,6 @@
 import {
     computed,
+    nextTick,
     ref,
     type Ref,
 } from 'vue';
@@ -10,6 +11,7 @@ import {
     vi,
 } from 'vitest';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 
@@ -210,6 +212,47 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(routingOptions.updateTab.mock.invocationCallOrder[0]).toBeLessThan(
             initialWorkspace.openPath.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
         );
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold-start.pdf');
+    });
+
+    it('does not let a pending document hint make the first placeholder open look occupied', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        const activeTab = createTabStub('tab-1');
+        initialWorkspace.workspace.getToolbarSnapshot = () => ({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            isOpeningDocument: Boolean(activeTab.fileName),
+        });
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        const routingOptions = createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should not create a new tab after reserving the active placeholder');
+            },
+        });
+        routingOptions.getTabById = vi.fn((tabId: string | null | undefined) => (
+            tabId === 'tab-1' ? activeTab : null
+        ));
+        routingOptions.updateTab = vi.fn((tabId: string, updates: Partial<ITab>) => {
+            if (tabId === 'tab-1') {
+                Object.assign(activeTab, updates);
+            }
+        });
+
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await routing.openPathInAppropriateTab('/docs/cold-start.pdf');
+
+        expect(routingOptions.createTab).not.toHaveBeenCalled();
+        expect(routingOptions.updateTab).toHaveBeenCalledWith('tab-1', expect.objectContaining({
+            fileName: 'cold-start.pdf',
+            originalPath: '/docs/cold-start.pdf',
+        }));
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold-start.pdf');
     });
 
@@ -499,5 +542,43 @@ describe('useAppShellWorkspaceRouting', () => {
             }) }),
         );
         expect(createdWorkspaces.get('tab-2')?.openResult).toHaveBeenCalledWith(result);
+    });
+
+    it('keeps startup path opening pending until the active placeholder open settles', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        let resolveOpen: (() => void) | undefined;
+        initialWorkspace.openPath.mockImplementation(async (_path: string) => new Promise<boolean>((resolve) => {
+            resolveOpen = () => resolve(true);
+        }));
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should reuse placeholder tab');
+            },
+        }));
+
+        let beginSettled = false;
+        const beginPromise = routing
+            .beginOpenPathsInAppropriateTab(['/docs/startup.pdf'])
+            .then(() => {
+                beginSettled = true;
+            });
+        await Promise.resolve();
+        await nextTick();
+
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/startup.pdf');
+        expect(beginSettled).toBe(false);
+
+        resolveOpen?.();
+        await beginPromise;
+
+        expect(beginSettled).toBe(true);
     });
 });

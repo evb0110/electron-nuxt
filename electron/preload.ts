@@ -24,6 +24,7 @@ const STARTUP_OVERLAY_TEXT_FONT_SIZE_PX = 13;
 const STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX = 13;
 const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
 const STARTUP_OPEN_CLAIM_GRACE_MS = 300;
+const STARTUP_OPEN_CLAIM_FALLBACK_MS = 5_000;
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 const STARTUP_TRACE_ENABLED_KEY = '__EVB_STARTUP_TRACE__';
 
@@ -179,10 +180,12 @@ function installStartupOverlayLifecycle() {
     const MAX_WAIT_MS = 30_000;
     let waitingForStartupOpenVisual = false;
     let appReadySeen = false;
+    let startupOpenClaimSeen = false;
     let overlayRemoved = false;
     let checkInterval: number | null = null;
     let appReadyRemovalTimer: number | null = null;
     let devRemovalTimer: number | null = null;
+    let startupOpenClaimFallbackTimer: number | null = null;
 
     function clearAppReadyRemovalTimer() {
         if (appReadyRemovalTimer === null) {
@@ -202,6 +205,15 @@ function installStartupOverlayLifecycle() {
         devRemovalTimer = null;
     }
 
+    function clearStartupOpenClaimFallbackTimer() {
+        if (startupOpenClaimFallbackTimer === null) {
+            return;
+        }
+
+        window.clearTimeout(startupOpenClaimFallbackTimer);
+        startupOpenClaimFallbackTimer = null;
+    }
+
     function clearCheckInterval() {
         if (checkInterval === null) {
             return;
@@ -215,6 +227,7 @@ function installStartupOverlayLifecycle() {
         clearCheckInterval();
         clearAppReadyRemovalTimer();
         clearDevRemovalTimer();
+        clearStartupOpenClaimFallbackTimer();
         window.removeEventListener(APP_READY_EVENT_NAME, handleAppReady);
         window.removeEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed);
         window.removeEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady);
@@ -260,6 +273,26 @@ function installStartupOverlayLifecycle() {
         removeWithDelay();
     }
 
+    function scheduleStartupOpenClaimFallbackRemoval(reason: string) {
+        if (startupOpenClaimFallbackTimer !== null || overlayRemoved) {
+            return;
+        }
+
+        startupOpenClaimFallbackTimer = window.setTimeout(() => {
+            startupOpenClaimFallbackTimer = null;
+            if (startupOpenClaimSeen || waitingForStartupOpenVisual) {
+                return;
+            }
+
+            forwardPreloadLogToMain('warn', 'loader', 'Startup overlay timed out waiting for startup open claim', {
+                variant: 'startup-overlay',
+                reason,
+                timeoutMs: STARTUP_OPEN_CLAIM_FALLBACK_MS,
+            });
+            requestOverlayUnmount('startup-open-claim-timeout');
+        }, STARTUP_OPEN_CLAIM_FALLBACK_MS);
+    }
+
     function scheduleAppReadyRemoval(reason: string) {
         appReadySeen = true;
         clearCheckInterval();
@@ -272,6 +305,15 @@ function installStartupOverlayLifecycle() {
                     variant: 'startup-overlay',
                     reason,
                 });
+                return;
+            }
+
+            if (!startupOpenClaimSeen) {
+                forwardPreloadLogToMain('info', 'loader', 'Startup overlay retained until startup open claim is observed', {
+                    variant: 'startup-overlay',
+                    reason,
+                });
+                scheduleStartupOpenClaimFallbackRemoval(reason);
                 return;
             }
 
@@ -294,6 +336,8 @@ function installStartupOverlayLifecycle() {
     }
 
     function handleStartupOpenClaimed(event: Event) {
+        startupOpenClaimSeen = true;
+        clearStartupOpenClaimFallbackTimer();
         const pathCount = getStartupOpenPathCount(event);
         if (pathCount > 0) {
             waitingForStartupOpenVisual = true;

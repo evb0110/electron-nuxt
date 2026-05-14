@@ -56,7 +56,7 @@ const CORE_APP_CHANNELS = {
 
 interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent) => string[];
+    claimPendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent) => Promise<string[]>;
 }
 
 const logger = createLogger('ipc');
