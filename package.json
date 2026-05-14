@@ -46,7 +46,7 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e:electron": "pnpm run build:electron && pnpm run test:e2e:electron:smoke:no-build",
-    "test:e2e:electron:large": "EVB_E2E_LARGE_PDF=1 pnpm run build:electron && EVB_E2E_LARGE_PDF=1 pnpm exec vitest run --config vitest.electron-e2e.smoke.config.ts tests/e2e/electron/phase1LargePdfAnnotationSave.e2e.test.ts tests/e2e/electron/phase1LargePdfTabPressure.e2e.test.ts",
+    "test:e2e:electron:large": "EVB_E2E_LARGE_PDF=1 EVB_E2E_LARGE_PDF_ANNOTATION_SAVE=1 pnpm run build:electron && EVB_E2E_LARGE_PDF=1 EVB_E2E_LARGE_PDF_ANNOTATION_SAVE=1 pnpm exec vitest run --config vitest.electron-e2e.smoke.config.ts tests/e2e/electron/phase1LargePdfAnnotationSave.e2e.test.ts tests/e2e/electron/phase1LargePdfTabPressure.e2e.test.ts",
     "test:e2e:electron:smoke:no-build": "vitest run --config vitest.electron-e2e.smoke.config.ts",
     "test:e2e:electron:watch": "vitest --config vitest.electron-e2e.smoke.config.ts",
     "electron:run": "tsx scripts/electronRun.ts",

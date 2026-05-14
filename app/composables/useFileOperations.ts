@@ -484,7 +484,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
     }
 
-    async function finalizeSaveReload(
+    function finalizeSaveReload(
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         saveSucceeded: boolean,
         opts?: { markShapeStateSavedOnSuccess?: boolean },
@@ -500,13 +500,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
             return;
         }
-        await reloadWaiter.promise.then(() => true).catch((error) => {
+        void reloadWaiter.promise.then(() => true).catch((error) => {
             BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
             return false;
+        }).finally(() => {
+            if (opts?.markShapeStateSavedOnSuccess) {
+                markShapeStateSaved?.();
+            }
         });
-        if (opts?.markShapeStateSavedOnSuccess) {
-            markShapeStateSaved?.();
-        }
     }
 
     function armPersistedShapeStateAdoption(shapeStateDirty: boolean) {
@@ -733,7 +734,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode,
             persist,
         );
-        await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+        finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
         return saveSucceeded;
     }
 
@@ -806,7 +807,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     'save',
                     saveWorkingCopy,
                 );
-                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+                finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                 finalizedReloadWaiter = true;
                 saveSucceededForTelemetry = saveSucceeded;
                 return saveSucceeded;
@@ -908,7 +909,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     opts => saveWorkingCopyAs(undefined, opts),
                 );
             }
-            await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+            finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
             if (!saveSucceeded) {
                 restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);

@@ -1244,7 +1244,7 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 }
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const saved = await page.evaluate(() => {
+    const saved = await page.evaluate(async () => {
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -1272,7 +1272,7 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
             }
             const workspace = candidate as { handleSave?: () => Promise<void>; };
             if (typeof workspace.handleSave === 'function') {
-                void workspace.handleSave();
+                await workspace.handleSave();
                 return true;
             }
         }
@@ -1281,7 +1281,7 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
         if (typeof save !== 'function') {
             return false;
         }
-        void save();
+        await save();
         return true;
     });
 

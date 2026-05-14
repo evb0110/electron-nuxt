@@ -16,4 +16,5 @@ export interface IAnnotationNoteWindowState {
     order: number;
     saveMode: 'auto' | 'embedded';
     isMinimized: boolean;
+    createdAtMs: number;
 }

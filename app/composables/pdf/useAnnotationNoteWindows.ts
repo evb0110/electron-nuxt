@@ -18,6 +18,8 @@ import { commentsShareStableIdentifier } from '@app/composables/pdf/annotations/
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
+const FRESH_NOTE_SYNC_GRACE_MS = 5_000;
+
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationDirty: () => void;
@@ -263,6 +265,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 order: annotationNoteOrderCounter,
                 saveMode: 'auto',
                 isMinimized: false,
+                createdAtMs: Date.now(),
             },
         ];
         ensureAnnotationNoteDefaultPosition(key);
@@ -431,6 +434,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         note.comment = localUpdated;
         note.text = nextText;
         note.lastSavedText = nextText;
+        upsertAnnotationCommentCache(localUpdated);
 
         const latest = findMatchingAnnotationComment(targetComment);
         if (latest && latest.text === nextText) {
@@ -438,6 +442,28 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             note.text = latest.text || '';
             note.lastSavedText = latest.text || '';
         }
+    }
+
+    function upsertAnnotationCommentCache(comment: IAnnotationCommentSummary) {
+        const index = annotationComments.value.findIndex(candidate =>
+            commentsLikelyReferToSameNote(candidate, comment),
+        );
+        if (index === -1) {
+            annotationComments.value = [
+                ...annotationComments.value,
+                comment,
+            ];
+            return;
+        }
+
+        const next = [...annotationComments.value];
+        next[index] = {
+            ...selectPreferredAnnotationComment(next[index]!, comment),
+            text: comment.text,
+            hasNote: true,
+            modifiedAt: comment.modifiedAt,
+        };
+        annotationComments.value = next;
     }
 
     function shouldMirrorAnnotationNoteToEmbeddedSerialization(
@@ -545,16 +571,58 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await -- return type must remain Promise<boolean> for callers
     async function persistAllAnnotationNotes(force = false) {
         const notes = [...annotationNoteWindows.value];
+        if (force) {
+            notes.forEach((note) => {
+                if (note.text.trim().length > 0) {
+                    deferEmbeddedAnnotationNoteUpdate(note.comment.stableKey, note.comment, note.text);
+                    upsertAnnotationCommentCache({
+                        ...note.comment,
+                        text: note.text,
+                        hasNote: true,
+                        modifiedAt: Date.now(),
+                    });
+                }
+            });
+        }
         for (const note of notes) {
             const saved = persistAnnotationNote(note.comment.stableKey, force);
             if (!saved) {
                 return false;
             }
         }
+        if (force) {
+            await waitForForcedAnnotationNoteSync(notes);
+        }
         return true;
+    }
+
+    async function waitForForcedAnnotationNoteSync(notes: IAnnotationNoteWindowState[]) {
+        const expected = notes
+            .filter(note => note.text.trim().length > 0)
+            .map(note => ({
+                comment: note.comment,
+                text: note.text,
+            }));
+        if (expected.length === 0) {
+            return;
+        }
+
+        try {
+            await until(() => expected.every(({
+                comment,
+                text,
+            }) => {
+                const matched = findMatchingAnnotationComment(comment);
+                return matched?.text === text;
+            })).toBe(true, { timeout: 1_000 });
+        } catch (error) {
+            BrowserLogger.debug('annotations', 'Timed out waiting for forced note text sync before save', {
+                expectedCount: expected.length,
+                error,
+            });
+        }
     }
 
     async function closeAnnotationNote(
@@ -789,6 +857,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         );
     }
 
+    function shouldKeepUnmatchedAnnotationNoteWindow(note: IAnnotationNoteWindowState) {
+        if (note.text !== note.lastSavedText || note.saving) {
+            return true;
+        }
+
+        return Date.now() - note.createdAtMs < FRESH_NOTE_SYNC_GRACE_MS;
+    }
+
     function preferUpdatedAnnotationNoteComment(
         noteComment: IAnnotationCommentSummary,
         updated: IAnnotationCommentSummary,
@@ -850,6 +926,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         annotationNoteWindows.value.forEach((note) => {
             const updated = findCurrentAnnotationNoteComment(note.comment, indexes);
             if (!updated) {
+                if (shouldKeepUnmatchedAnnotationNoteWindow(note)) {
+                    return;
+                }
                 staleStableKeys.push(note.comment.stableKey);
                 return;
             }
