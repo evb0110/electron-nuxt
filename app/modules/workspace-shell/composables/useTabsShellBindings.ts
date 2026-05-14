@@ -220,6 +220,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         const onMountedStart = performance.now();
         const platformApi = getPlatformAPI();
         traceRendererStartup('tabs shell onMounted start');
+        isStartupOpenClaimPending.value = true;
         ensureAtLeastOneTab();
         traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
 
@@ -248,7 +249,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }));
         traceRendererStartup('tabs shell menu bindings registered');
 
-        isStartupOpenClaimPending.value = true;
         void (async () => {
             const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
             dispatchStartupOpenClaimed(startupExternalPaths.length);
