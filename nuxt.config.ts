@@ -552,6 +552,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'ph:x-circle',
             'ph:clock',
             'ph:scan',
+            'ph:text-aa',
             'ph:copy',
             'ph:stack-plus',
             'ph:crop',
