@@ -24,6 +24,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { uniq } from 'es-toolkit/array';
+import { PDFDocument } from 'pdf-lib';
 import {
     forEachConcurrent,
     getOcrConcurrency,
@@ -37,6 +38,7 @@ import type {
     IOcrPageWithWords,
     IOcrPdfPageRequest,
     IWorkerPaths,
+    TOcrWorkerInboundMessage,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
 import {
@@ -143,15 +145,7 @@ function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
 }
 
 type TOcrWorkerParsedInboundMessage =
-    | {
-        type: 'start';
-        jobId: string;
-        data: IOcrWorkerStartPayload;
-    }
-    | {
-        type: 'cancel';
-        jobId: string;
-    };
+    TOcrWorkerInboundMessage;
 
 function parseInboundMessage(value: unknown): TOcrWorkerParsedInboundMessage | null {
     if (!isRecord(value) || typeof value.jobId !== 'string') {
@@ -162,6 +156,24 @@ function parseInboundMessage(value: unknown): TOcrWorkerParsedInboundMessage | n
         return {
             type: 'cancel',
             jobId: value.jobId,
+        };
+    }
+
+    if (value.type === 'resource-acquired') {
+        if (
+            typeof value.requestId !== 'string'
+            || typeof value.token !== 'string'
+            || typeof value.effectiveDpi !== 'number'
+            || !Number.isFinite(value.effectiveDpi)
+        ) {
+            return null;
+        }
+        return {
+            type: 'resource-acquired',
+            jobId: value.jobId,
+            requestId: value.requestId,
+            token: value.token,
+            effectiveDpi: value.effectiveDpi,
         };
     }
 
@@ -226,6 +238,14 @@ function resolveWorkerPaths(rawWorkerData: unknown) {
 
 const paths = resolveWorkerPaths(workerData);
 const activeJobControllers = new Map<string, AbortController>();
+type TOcrResourceLease = {
+    token: string;
+    effectiveDpi: number;
+};
+const pendingResourceAcquires = new Map<string, {
+    resolve: (lease: TOcrResourceLease) => void;
+    reject: (error: Error) => void;
+}>();
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
@@ -343,6 +363,68 @@ function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
     parentPort?.postMessage(payload);
 }
 
+async function acquireOcrResourceSlot(
+    jobId: string,
+    pageNumber: number,
+    requestedDpi: number,
+    pageSizeInches: IOcrPageSizeInches | undefined,
+    signal: AbortSignal,
+) {
+    const requestId = randomUUID();
+    const payload: TOcrWorkerOutboundMessage = {
+        type: 'resource-acquire',
+        jobId,
+        requestId,
+        pageNumber,
+        requestedDpi,
+        pageWidthIn: pageSizeInches?.width,
+        pageHeightIn: pageSizeInches?.height,
+    };
+
+    throwIfAborted(signal);
+    const leasePromise = new Promise<TOcrResourceLease>((resolve, reject) => {
+        pendingResourceAcquires.set(requestId, {
+            resolve,
+            reject,
+        });
+    });
+
+    const abortListener = () => {
+        const pending = pendingResourceAcquires.get(requestId);
+        pendingResourceAcquires.delete(requestId);
+        pending?.reject(signal.reason instanceof Error
+            ? signal.reason
+            : new Error('OCR job aborted'));
+    };
+    signal.addEventListener('abort', abortListener, { once: true });
+    parentPort?.postMessage(payload);
+
+    try {
+        return await leasePromise;
+    } finally {
+        signal.removeEventListener('abort', abortListener);
+        pendingResourceAcquires.delete(requestId);
+    }
+}
+
+function releaseOcrResourceSlot(jobId: string, token: string) {
+    const payload: TOcrWorkerOutboundMessage = {
+        type: 'resource-release',
+        jobId,
+        token,
+    };
+    parentPort?.postMessage(payload);
+}
+
+function throwIfAborted(signal: AbortSignal) {
+    if (!signal.aborted) {
+        return;
+    }
+    throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error('OCR job aborted');
+}
+
 async function unlinkIfPresent(filePath: string) {
     try {
         await unlink(filePath);
@@ -363,13 +445,20 @@ function readPngDimensions(imageBuffer: Buffer) {
 }
 
 interface IOcrPageProcessingContext {
+    jobId: string;
     sessionId: string;
     popplerSourcePdfPath: string;
     extractionDpi: number;
     tesseractThreads: number;
+    pageSizeByNumber: Map<number, IOcrPageSizeInches>;
     popplerEnv?: NodeJS.ProcessEnv;
     signal: AbortSignal;
     trackTempFile: (path: string) => string;
+}
+
+interface IOcrPageSizeInches {
+    width: number;
+    height: number;
 }
 
 async function processOcrPage(
@@ -379,13 +468,27 @@ async function processOcrPage(
     log('debug', `Processing page ${page.pageNumber}`);
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
+    let resourceToken: string | null = null;
 
     try {
+        const resourceLease = await acquireOcrResourceSlot(
+            context.jobId,
+            page.pageNumber,
+            context.extractionDpi,
+            context.pageSizeByNumber.get(page.pageNumber),
+            context.signal,
+        );
+        resourceToken = resourceLease.token;
+        const effectiveDpi = resourceLease.effectiveDpi;
+        if (effectiveDpi < context.extractionDpi) {
+            log('debug', `Reduced OCR render DPI for page ${page.pageNumber} from ${context.extractionDpi} to ${effectiveDpi} to stay within native resource budget`);
+        }
+
         await renderPdfPageToPng(
             page.pageNumber,
             context.popplerSourcePdfPath,
             pageImagePath,
-            context.extractionDpi,
+            effectiveDpi,
             context.popplerEnv,
             context.signal,
         );
@@ -397,7 +500,7 @@ async function processOcrPage(
             page.languages,
             dims.width,
             dims.height,
-            context.extractionDpi,
+            effectiveDpi,
             paths.tesseractBinary,
             paths.tessdataPath,
             context.tesseractThreads,
@@ -428,11 +531,16 @@ async function processOcrPage(
             pageData,
             pdfPath: ocrResult.pdfPath,
             pageImagePath,
+            effectiveDpi,
         };
     } catch (err) {
         const errMsg = getErrorMessage(err);
         log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
         return { error: `Failed to process page ${page.pageNumber}: ${errMsg}` };
+    } finally {
+        if (resourceToken) {
+            releaseOcrResourceSlot(context.jobId, resourceToken);
+        }
     }
 }
 
@@ -447,6 +555,7 @@ async function processOcrPages(
     const ocrPdfMap: Map<number, string> = new Map();
     const pageImageMap: Map<number, string> = new Map();
     let processedCount = 0;
+    let effectiveRenderDpi = context.extractionDpi;
 
     sendProgress(jobId, targetPages[0]?.pageNumber ?? 0, 0, targetPages.length);
 
@@ -464,6 +573,9 @@ async function processOcrPages(
         if (result.error) {
             errors.push(result.error);
         }
+        if (result.effectiveDpi) {
+            effectiveRenderDpi = Math.min(effectiveRenderDpi, result.effectiveDpi);
+        }
 
         processedCount += 1;
         sendProgress(
@@ -480,6 +592,7 @@ async function processOcrPages(
         ocrPageData,
         ocrPdfMap,
         pageImageMap,
+        effectiveRenderDpi,
     };
 }
 
@@ -549,18 +662,40 @@ function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
     }
 }
 
+async function readPdfPageSizesInches(pdfPath: string) {
+    try {
+        const pdfBytes = await readFile(pdfPath);
+        const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+        const pageSizes = new Map<number, IOcrPageSizeInches>();
+        pdfDoc.getPages().forEach((page, index) => {
+            const size = page.getSize();
+            if (size.width > 0 && size.height > 0) {
+                pageSizes.set(index + 1, {
+                    width: size.width / 72,
+                    height: size.height / 72,
+                });
+            }
+        });
+        return pageSizes;
+    } catch (err) {
+        log('debug', `Unable to inspect PDF page sizes for OCR resource budgeting; using fallback page size: ${getErrorMessage(err)}`);
+        return new Map<number, IOcrPageSizeInches>();
+    }
+}
+
 async function buildOcrPageProcessingPlan(
     pages: IOcrPdfPageRequest[],
     popplerSourcePdfPath: string,
     renderDpi: number | undefined,
     popplerEnv: NodeJS.ProcessEnv | undefined,
-    baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads'>,
+    baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber'>,
 ) {
     const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
     const detectedDpi = renderDpi ?? await detectSourceDpi(popplerSourcePdfPath, paths.pdfimagesBinary, log, popplerEnv);
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);
+    const pageSizeByNumber = await readPdfPageSizesInches(popplerSourcePdfPath);
 
     log('debug', `OCR PDF: pages=${targetPages.length}, dpi=${extractionDpi}, concurrency=${concurrency}, threads=${tesseractThreads}`);
 
@@ -572,6 +707,7 @@ async function buildOcrPageProcessingPlan(
             ...baseContext,
             extractionDpi,
             tesseractThreads,
+            pageSizeByNumber,
         },
     };
 }
@@ -660,10 +796,10 @@ async function processOcrJob(
         const {
             targetPages,
             concurrency,
-            effectiveRenderDpi,
             pageContext,
         } = await buildOcrPageProcessingPlan(pages, popplerSourcePdfPath, renderDpi, popplerEnv, {
             sessionId,
+            jobId,
             popplerSourcePdfPath,
             popplerEnv,
             signal: abortController.signal,
@@ -674,9 +810,10 @@ async function processOcrJob(
             ocrPageData,
             ocrPdfMap,
             pageImageMap,
+            effectiveRenderDpi: actualRenderDpi,
         } = await processOcrPages(jobId, targetPages, concurrency, pageContext);
 
-        log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}, renderDpi=${effectiveRenderDpi}`);
+        log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}, renderDpi=${actualRenderDpi}`);
 
         sendProgress(
             jobId,
@@ -710,7 +847,7 @@ async function processOcrJob(
         }
 
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
-        await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, effectiveRenderDpi);
+        await writeOcrIndexes(sourcePdfPath, ocrPageData, pageCount, allLanguages, actualRenderDpi);
 
         keepFiles.add(mergedPdfPath);
         sendComplete(jobId, {
@@ -751,6 +888,18 @@ parentPort?.on('message', async (rawMessage: unknown) => {
         case 'cancel':
             activeJobControllers.get(message.jobId)?.abort();
             return;
+        case 'resource-acquired': {
+            const pending = pendingResourceAcquires.get(message.requestId);
+            if (!pending) {
+                releaseOcrResourceSlot(message.jobId, message.token);
+                return;
+            }
+            pending.resolve({
+                token: message.token,
+                effectiveDpi: message.effectiveDpi,
+            });
+            return;
+        }
     }
 });
 
