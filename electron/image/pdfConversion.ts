@@ -1,5 +1,12 @@
 import { existsSync } from 'fs';
-import { stat } from 'fs/promises';
+import {
+    mkdtemp,
+    readFile,
+    rm,
+    stat,
+} from 'fs/promises';
+import { randomUUID } from 'crypto';
+import { tmpdir } from 'os';
 import {
     basename,
     dirname,
@@ -8,12 +15,14 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import { PDFDocument } from 'pdf-lib';
 import { createLogger } from '@electron/utils/logger';
 import {
     createCombinedPdf,
     isImagePath,
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdfCombineShared';
+import { convertDjvuToPdfFile } from '@electron/features/djvu/main/ddjvuConversion';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
@@ -199,6 +208,36 @@ async function createPdfFromInputPathsLocal(
     return createCombinedPdf(inputPaths, {
         onProgress: options?.onProgress,
         unsupportedFileError: (sourcePath) => `Unsupported file type: ${sourcePath}`,
+        appendDjvuPages: async (targetPdf, sourcePath) => {
+            const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));
+            const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
+
+            try {
+                const result = await convertDjvuToPdfFile(
+                    sourcePath,
+                    tempPdfPath,
+                    `pdf-combine-djvu-${randomUUID()}`,
+                    { subsample: 1 },
+                );
+
+                if (!result.success) {
+                    throw new Error(result.error ?? `Failed to convert DjVu file: ${sourcePath}`);
+                }
+
+                const sourceBytes = await readFile(tempPdfPath);
+                const sourcePdf = await PDFDocument.load(sourceBytes);
+                const copiedPages = await targetPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+                for (const page of copiedPages) {
+                    targetPdf.addPage(page);
+                }
+                return copiedPages.length;
+            } finally {
+                await rm(tempDir, {
+                    recursive: true,
+                    force: true,
+                }).catch(() => undefined);
+            }
+        },
     });
 }
 

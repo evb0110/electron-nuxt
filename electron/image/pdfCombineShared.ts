@@ -1,14 +1,5 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-} from 'fs/promises';
-import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
-import {
-    extname,
-    join,
-} from 'path';
+import { readFile } from 'fs/promises';
+import { extname } from 'path';
 import { encode } from 'fast-png';
 import {
     PDFDocument,
@@ -20,7 +11,6 @@ import {
     readImageDpi,
     readTiffFrameDpi,
 } from '@electron/image/imageDpi';
-import { convertDjvuToPdfFile } from '@electron/features/djvu/main/ddjvuConversion';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -33,6 +23,7 @@ export interface ICreateCombinedPdfProgress {
 interface ICreateCombinedPdfOptions {
     onProgress?: (progress: ICreateCombinedPdfProgress) => void;
     unsupportedFileError: (sourcePath: string) => string;
+    appendDjvuPages?: (targetPdf: PDFDocument, sourcePath: string) => Promise<number>;
 }
 
 export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
@@ -140,34 +131,6 @@ async function appendPdfPages(
     return copiedPages.length;
 }
 
-async function appendDjvuPages(
-    targetPdf: PDFDocument,
-    sourcePath: string,
-): Promise<number> {
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));
-    const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
-
-    try {
-        const result = await convertDjvuToPdfFile(
-            sourcePath,
-            tempPdfPath,
-            `pdf-combine-djvu-${randomUUID()}`,
-            { subsample: 1 },
-        );
-
-        if (!result.success) {
-            throw new Error(result.error ?? `Failed to convert DjVu file: ${sourcePath}`);
-        }
-
-        return await appendPdfPages(targetPdf, tempPdfPath);
-    } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
-    }
-}
-
 async function appendBitmapPage(
     targetPdf: PDFDocument,
     sourcePath: string,
@@ -251,8 +214,8 @@ export async function createCombinedPdf(
 
         if (extension === '.pdf') {
             pageCount += await appendPdfPages(targetPdf, sourcePath);
-        } else if (isDjvuPath(sourcePath)) {
-            pageCount += await appendDjvuPages(targetPdf, sourcePath);
+        } else if (isDjvuPath(sourcePath) && options.appendDjvuPages) {
+            pageCount += await options.appendDjvuPages(targetPdf, sourcePath);
         } else if (isImagePath(sourcePath)) {
             pageCount += await appendImagePages(targetPdf, sourcePath);
         } else {
