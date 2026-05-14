@@ -245,6 +245,7 @@ const browserInstallHintDismissed = computed(() => (
     browserInstallHintCookie.value !== null
     || browserInstallHintStorageDismissed.value
 ));
+const isBrowserInstallHintClientReady = ref(false);
 const didTrackViewerSession = useState(
     'analytics:viewer-session-started',
     () => false,
@@ -762,6 +763,7 @@ const browserInstallUrl = computed(() => {
 });
 const showBrowserInstallHint = computed(() => (
     isBrowserRuntime.value
+    && isBrowserInstallHintClientReady.value
     && Boolean(browserInstallUrl.value)
     && !browserInstallHintDismissed.value
 ));
@@ -835,6 +837,8 @@ watch(windowTitle, (nextTitle) => {
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
 
 onMounted(() => {
+    isBrowserInstallHintClientReady.value = true;
+
     if (isBrowserRuntime.value && !didTrackViewerSession.value) {
         didTrackViewerSession.value = true;
         analytics.track('viewer_session_started', {
