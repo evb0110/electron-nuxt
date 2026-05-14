@@ -96,6 +96,7 @@
 
 <script setup lang="ts">
 import { onClickOutside } from '@vueuse/core';
+import { useClamp } from '@vueuse/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import {
@@ -140,7 +141,7 @@ const pageInputValue = ref(currentPage.toString());
 const pageInputRef = ref<HTMLInputElement | null>(null);
 const pageControlsRef = ref<HTMLElement | null>(null);
 
-const effectiveCompactLevel = computed(() => Math.max(0, Math.min(compactLevel, 3)));
+const effectiveCompactLevel = useClamp(() => compactLevel, 0, 3);
 
 const showEdgeButtons = computed(() => true);
 const showStepButtons = computed(() => true);

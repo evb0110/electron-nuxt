@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
-import { debounce } from 'es-toolkit/function';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IMarkerViewModel } from '@app/composables/pdf/annotations/types';
@@ -177,10 +176,10 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
         recompute();
     }
 
-    const debouncedSyncInlineCommentIndicators = debounce(
-        syncInlineCommentIndicators,
-        70,
-    );
+    const {
+        start: debouncedSyncInlineCommentIndicators,
+        stop: cancelDebouncedSyncInlineCommentIndicators,
+    } = useTimeoutFn(syncInlineCommentIndicators, 70, { immediate: false });
 
     const {
         start: startPulseCleanup,
@@ -231,7 +230,7 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
 
     function cleanup() {
         stopPulseCleanup();
-        debouncedSyncInlineCommentIndicators.cancel();
+        cancelDebouncedSyncInlineCommentIndicators();
     }
 
     return {

@@ -5,11 +5,11 @@
 </template>
 
 <script setup lang="ts">
+import { useMutationObserver } from '@vueuse/core';
 import { Agentation } from 'agentation-vue3';
 import 'agentation-vue3/dist/style.css';
 
 const agentationRootRef = useTemplateRef<HTMLElement>('agentationRootRef');
-let observer: MutationObserver | null = null;
 
 function removeNativeTooltips(root: HTMLElement) {
     root.querySelectorAll<HTMLElement>('[title]').forEach((element) => {
@@ -34,22 +34,17 @@ function removeAgentationNativeTooltips() {
 }
 
 onMounted(() => {
-    if (typeof document === 'undefined') {
-        return;
-    }
-
     removeAgentationNativeTooltips();
-    observer = new MutationObserver(removeAgentationNativeTooltips);
-    observer.observe(document.body, {
+});
+
+useMutationObserver(
+    typeof document !== 'undefined' ? document.body : null,
+    removeAgentationNativeTooltips,
+    {
         attributes: true,
         attributeFilter: ['title'],
         childList: true,
         subtree: true,
-    });
-});
-
-onBeforeUnmount(() => {
-    observer?.disconnect();
-    observer = null;
-});
+    },
+);
 </script>

@@ -151,6 +151,9 @@ interface IActiveInteraction {
 }
 
 let activeInteraction: IActiveInteraction | null = null;
+let stopPointerMoveListener: (() => void) | null = null;
+let stopPointerUpListener: (() => void) | null = null;
+let stopPointerCancelListener: (() => void) | null = null;
 
 function setGlobalInteractionCursor(cursor: string) {
     const root = document.documentElement;
@@ -327,9 +330,9 @@ function startInteraction(
     createVirtualCursor(buildVirtualCursorSvg(mode, handle));
     updateVirtualCursorPosition(event.clientX, event.clientY);
 
-    window.addEventListener('pointermove', handleWindowPointerMove);
-    window.addEventListener('pointerup', handleWindowPointerUp);
-    window.addEventListener('pointercancel', handleWindowPointerUp);
+    stopPointerMoveListener = useEventListener(window, 'pointermove', handleWindowPointerMove);
+    stopPointerUpListener = useEventListener(window, 'pointerup', handleWindowPointerUp);
+    stopPointerCancelListener = useEventListener(window, 'pointercancel', handleWindowPointerUp);
 }
 
 function stopInteraction() {
@@ -344,9 +347,12 @@ function stopInteraction() {
     activeInteraction = null;
     clearGlobalInteractionCursor();
     removeVirtualCursor();
-    window.removeEventListener('pointermove', handleWindowPointerMove);
-    window.removeEventListener('pointerup', handleWindowPointerUp);
-    window.removeEventListener('pointercancel', handleWindowPointerUp);
+    stopPointerMoveListener?.();
+    stopPointerMoveListener = null;
+    stopPointerUpListener?.();
+    stopPointerUpListener = null;
+    stopPointerCancelListener?.();
+    stopPointerCancelListener = null;
 }
 
 function handleMovePointerDown(event: PointerEvent) {
