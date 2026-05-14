@@ -14,7 +14,7 @@ import {
 import { fileURLToPath } from 'url';
 import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
-import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
+import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
 import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {

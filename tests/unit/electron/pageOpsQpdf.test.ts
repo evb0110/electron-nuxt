@@ -31,7 +31,7 @@ vi.mock('node:crypto', async (importOriginal) => {
 });
 vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
-vi.mock('@electron/ipc/workingCopy', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
+vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),

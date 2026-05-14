@@ -27,10 +27,8 @@ import {
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
-import {
-    ensureWorkingCopyDirectory,
-    findWorkingCopyPathByOriginalPath,
-} from '@electron/ipc/workingCopy';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
 import {
     allowOpenPath,
     allowOpenPaths,

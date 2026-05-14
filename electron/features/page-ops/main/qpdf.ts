@@ -11,7 +11,7 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 
 const log = createLogger('page-ops-qpdf');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;

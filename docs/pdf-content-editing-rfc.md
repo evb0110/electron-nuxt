@@ -73,8 +73,10 @@ Inference from sources listed at end:
   - `electron/preload/create-electron-api.ts`
   - `packages/contracts/electron-api.ts`
 - Working copy and file safety:
-  - `electron/ipc/workingCopy.ts`
-  - `electron/ipc/fileOps.ts`
+  - `electron/ipc/workingCopyCreation.ts`
+  - `electron/ipc/workingCopySave.ts`
+  - `electron/ipc/workingCopyStore.ts`
+  - `electron/features/documents/main/fileOps.ts`
   - `electron/utils/path-validator.ts`
 - Existing feature module pattern references:
   - `electron/features/documents/*`

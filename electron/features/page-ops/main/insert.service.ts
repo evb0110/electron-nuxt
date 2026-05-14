@@ -17,7 +17,7 @@ import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
