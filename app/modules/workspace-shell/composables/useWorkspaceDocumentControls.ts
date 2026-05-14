@@ -13,6 +13,7 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platformApi';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps,
     'closeFile'
@@ -36,9 +37,9 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     handleExportImages: (pages: number[]) => Promise<void>;
     pickFileToOpenWithDjvuCleanup: () => Promise<TOpenFileResult | null>;
-    openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<void>;
-    openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<void>;
+    openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+    openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     closeFileWithDjvuCleanup: () => Promise<void>;
 }
 

@@ -24,6 +24,7 @@ function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWo
     return {
         hasPdf: false,
         isOpeningDocument: false,
+        hasOpenError: false,
         isPreparingPrint: false,
         canSave: false,
         canUndo: false,
@@ -158,6 +159,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
         expect(createDefaultWorkspaceToolbarSnapshot()).toEqual({
             hasPdf: false,
             isOpeningDocument: false,
+            hasOpenError: false,
             isPreparingPrint: false,
             canSave: false,
             canUndo: false,

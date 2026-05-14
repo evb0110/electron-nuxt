@@ -3,6 +3,10 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platformApi';
+import {
+    didOpenDocument,
+    type TDocumentOpenOutcome,
+} from '@app/types/documentOpenOutcome';
 
 interface IWorkspaceFileSwitchDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -11,9 +15,9 @@ interface IWorkspaceFileSwitchDeps {
     exitDjvuMode: () => void;
     invalidatePendingDjvuOpen: () => void;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
-    openFile: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirect: (path: TDocumentRef) => Promise<void>;
-    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
+    openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void;
 }
 
@@ -38,31 +42,34 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
     async function openFileWithDjvuCleanup(preSelected?: TOpenFileResult) {
         const oldPath = workingCopyPath.value;
         invalidatePendingDjvuOpen();
-        await openFile(preSelected);
-        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
+        const outcome = await openFile(preSelected);
+        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
             await cleanupDjvuTemp();
             exitDjvuMode();
         }
+        return outcome;
     }
 
     async function openFileDirectWithDjvuCleanup(path: TDocumentRef) {
         const oldPath = workingCopyPath.value;
         invalidatePendingDjvuOpen();
-        await openFileDirect(path);
-        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
+        const outcome = await openFileDirect(path);
+        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
             await cleanupDjvuTemp();
             exitDjvuMode();
         }
+        return outcome;
     }
 
     async function openFileDirectBatchWithDjvuCleanup(paths: TDocumentRef[]) {
         const oldPath = workingCopyPath.value;
         invalidatePendingDjvuOpen();
-        await openFileDirectBatch(paths);
-        if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
+        const outcome = await openFileDirectBatch(paths);
+        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
             await cleanupDjvuTemp();
             exitDjvuMode();
         }
+        return outcome;
     }
 
     async function closeFileWithDjvuCleanup() {

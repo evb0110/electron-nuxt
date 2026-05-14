@@ -18,6 +18,7 @@ interface ICreateWorkspaceExposeDeps extends
     IWorkspaceExportPort {
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
+    hasOpenError: Ref<boolean>;
     isPreparingPrint: Ref<boolean>;
     canSave: Ref<boolean>;
     canUndo: Ref<boolean>;
@@ -114,6 +115,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         return {
             hasPdf: deps.hasPdf.value,
             isOpeningDocument: deps.isOpeningDocument.value,
+            hasOpenError: deps.hasOpenError.value,
             isPreparingPrint: deps.isPreparingPrint.value,
             canSave: deps.canSave.value,
             canUndo: deps.canUndo.value,

@@ -116,8 +116,9 @@ describe('usePdfFile', () => {
             });
 
             const file = usePdfFile();
-            await file.openFile();
+            const outcome = await file.openFile();
 
+            expect(outcome.status).toBe('opened');
             expect(file.pendingDjvu.value).toBe('/docs/scan.djvu');
             expect(file.pdfData.value).toBeNull();
         });
@@ -138,8 +139,9 @@ describe('usePdfFile', () => {
             mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
             const file = usePdfFile();
-            await file.openFile();
+            const outcome = await file.openFile();
 
+            expect(outcome.status).toBe('opened');
             expect(file.workingCopyPath.value).toBe('/tmp/work/report.pdf');
             expect(file.originalPath.value).toBe('/docs/report.pdf');
             expect(file.pdfData.value).toBeTruthy();
@@ -155,8 +157,12 @@ describe('usePdfFile', () => {
             mockDocuments.statFile.mockResolvedValue({ size: 0 });
 
             const file = usePdfFile();
-            await file.openFile();
+            const outcome = await file.openFile();
 
+            expect(outcome).toEqual({
+                status: 'failed',
+                error: 'errors.file.emptyPdf',
+            });
             expect(file.error.value).toBe('errors.file.emptyPdf');
             expect(file.workingCopyPath.value).toBeNull();
             expect(file.originalPath.value).toBeNull();
@@ -210,8 +216,9 @@ describe('usePdfFile', () => {
             mockDocuments.openPdfDialog.mockResolvedValue(null);
 
             const file = usePdfFile();
-            await file.openFile();
+            const outcome = await file.openFile();
 
+            expect(outcome.status).toBe('cancelled');
             expect(file.pdfSrc.value).toBeNull();
             expect(file.error.value).toBeNull();
         });
@@ -220,8 +227,12 @@ describe('usePdfFile', () => {
             mockDocuments.openPdfDialog.mockRejectedValue(new Error('Access denied'));
 
             const file = usePdfFile();
-            await file.openFile();
+            const outcome = await file.openFile();
 
+            expect(outcome).toEqual({
+                status: 'failed',
+                error: 'Access denied',
+            });
             expect(file.error.value).toBe('Access denied');
         });
 
@@ -327,8 +338,12 @@ describe('usePdfFile', () => {
             mockDocuments.openPdfDirect.mockResolvedValue(null);
 
             const file = usePdfFile();
-            await file.openFileDirect('/nonexistent.pdf');
+            const outcome = await file.openFileDirect('/nonexistent.pdf');
 
+            expect(outcome).toEqual({
+                status: 'failed',
+                error: 'errors.file.invalid',
+            });
             expect(file.error.value).toBe('errors.file.invalid');
         });
     });

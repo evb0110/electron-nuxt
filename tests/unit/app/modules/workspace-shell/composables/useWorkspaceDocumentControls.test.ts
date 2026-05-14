@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | { onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void; } }));
 
@@ -20,6 +21,15 @@ vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ 
 vi.mock('@app/modules/workspace-shell/composables/usePageFileOperations', () => ({ usePageFileOperations: () => ({}) }));
 
 const { useWorkspaceDocumentControls } = await import('@app/modules/workspace-shell/composables/useWorkspaceDocumentControls');
+
+const openedOutcome: TDocumentOpenOutcome = {
+    status: 'opened',
+    result: {
+        kind: 'pdf',
+        originalPath: '/tmp/source.pdf',
+        workingPath: '/tmp/working.pdf',
+    },
+};
 
 function createOptions() {
     return {
@@ -63,9 +73,9 @@ function createOptions() {
         hasAnnotationChanges: vi.fn(() => false),
         persistAllAnnotationNotes: vi.fn(async () => true),
         pickFileToOpenWithDjvuCleanup: vi.fn(async () => null),
-        openFileWithDjvuCleanup: vi.fn(async () => {}),
-        openFileDirectWithDjvuCleanup: vi.fn(async () => {}),
-        openFileDirectBatchWithDjvuCleanup: vi.fn(async () => {}),
+        openFileWithDjvuCleanup: vi.fn(async () => openedOutcome),
+        openFileDirectWithDjvuCleanup: vi.fn(async () => openedOutcome),
+        openFileDirectBatchWithDjvuCleanup: vi.fn(async () => openedOutcome),
         closeFileWithDjvuCleanup: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),

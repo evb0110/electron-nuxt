@@ -12,6 +12,7 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platformApi';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { ISettingsData } from '@contracts/shared';
 import type {
     IAnnotationSettings,
@@ -65,7 +66,7 @@ interface IWorkspaceInteractionControlsOptions {
     originalPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: ComputedRef<boolean>;
     pdfData: Ref<Uint8Array | null>;
-    openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<void>;
+    openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
 }
