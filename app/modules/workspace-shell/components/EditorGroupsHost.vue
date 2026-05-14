@@ -10,6 +10,8 @@
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
             :start-section-by-tab-id="startSectionByTabId"
+            :tab-lifecycle-by-id="tabLifecycleById"
+            :view-state-by-tab-id="viewStateByTabId"
             :zen-mode="zenMode"
             :zen-active-tab-id="zenActiveTabId"
             :is-fullscreen="isFullscreen"
@@ -23,6 +25,7 @@
             @tab-context-command="handleTabContextCommand"
             @set-workspace-ref="handleSetWorkspaceRef"
             @update-tab="handleUpdateTab"
+            @update-tab-session-state="handleUpdateTabSessionState"
             @update-tab-start-section="handleUpdateTabStartSection"
             @open-in-new-tab="handleOpenInNewTab"
             @request-close-tab="handleRequestCloseTab"
@@ -50,6 +53,10 @@ import type {
     TTabUpdate,
 } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startPage';
+import type {
+    ITabLifecycleState,
+    ITabViewSessionState,
+} from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
 defineOptions({ name: 'EditorGroupsHost' });
 
@@ -62,6 +69,8 @@ defineProps<{
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
+    tabLifecycleById: Record<string, ITabLifecycleState>;
+    viewStateByTabId: Record<string, ITabViewSessionState>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;
@@ -78,6 +87,7 @@ const emit = defineEmits<{
     'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
+    'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult, groupId?: string];
     'request-close-tab': [groupId: string, tabId: string];
@@ -121,6 +131,10 @@ function handleSetWorkspaceRef(tabId: string, el: unknown) {
 
 function handleUpdateTab(tabId: string, updates: TTabUpdate) {
     emit('update-tab', tabId, updates);
+}
+
+function handleUpdateTabSessionState(tabId: string, state: ITabViewSessionState) {
+    emit('update-tab-session-state', tabId, state);
 }
 
 function handleUpdateTabStartSection(tabId: string, section: TStartSection) {

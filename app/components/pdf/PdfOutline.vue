@@ -12,10 +12,7 @@
             v-if="isLoading"
             class="pdf-bookmarks-loading"
         >
-            <UIcon
-                name="i-ph-circle-notch"
-                class="animate-spin"
-            />
+            <AppSpinner size="md" tone="muted" />
             <span>{{ t('bookmarks.loading') }}</span>
         </div>
 
@@ -114,6 +111,7 @@ import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDro
 import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
 import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/components/pdf/PdfOutlineContextMenu.vue';
 import PdfOutlineItem from '@app/components/pdf/PdfOutlineItem.vue';
 import PdfOutlineToolbar from '@app/components/pdf/PdfOutlineToolbar.vue';

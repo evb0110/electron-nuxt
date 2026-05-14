@@ -361,6 +361,26 @@ export async function openDjvuInApp(page: Page, djvuPath: string, timeoutMs = DE
     await openPathInApp(page, djvuPath, waitForDjvuLoaded, timeoutMs);
 }
 
+export async function setTabMemoryPolicyForE2E(
+    page: Page,
+    policy: 'conservative' | 'aggressive',
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await waitForRendererBindings(page, timeoutMs);
+    await runWithExecutionContextRetry(page, async () => {
+        await evaluateInPage(page, async (policy: 'conservative' | 'aggressive') => {
+            const setter = (window as Window & {__setTabMemoryPolicyForE2E?: (policy: 'conservative' | 'aggressive') => void;}).__setTabMemoryPolicyForE2E;
+            if (typeof setter !== 'function') {
+                throw new Error('Tab memory policy automation hook is not available');
+            }
+            setter(policy);
+        }, policy);
+    });
+    await waitForFunctionInPage(page, (policy: 'conservative' | 'aggressive') => (
+        window.electronAPI?.settings.get().then(settings => settings.tabMemoryPolicy === policy) ?? false
+    ), { timeout: timeoutMs }, policy);
+}
+
 export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await waitForActiveWorkspaceHost(page, timeoutMs);
 
@@ -706,7 +726,45 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     });
 
     if (!hasSidebar) {
-        await clickVisibleToolbarButton(page, 'Toggle Sidebar');
+        const toggledViaWorkspace = await page.evaluate(() => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = (activeHost && isVisibleHost(activeHost))
+                ? activeHost
+                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                    .find(isVisibleHost);
+            const component = (host as (HTMLElement & {__vueParentComponent?: {
+                exposed?: unknown;
+                setupState?: {
+                    mountedWorkspace?: { value?: unknown; };
+                    workspaceRef?: { value?: unknown; };
+                };
+            };}) | null)?.__vueParentComponent;
+            const candidates = [
+                component?.exposed,
+                component?.setupState?.mountedWorkspace?.value,
+                component?.setupState?.workspaceRef?.value,
+            ];
+            for (const candidate of candidates) {
+                if (!candidate || typeof candidate !== 'object') {
+                    continue;
+                }
+                const workspace = candidate as { handleToggleSidebar?: () => void; };
+                if (typeof workspace.handleToggleSidebar === 'function') {
+                    workspace.handleToggleSidebar();
+                    return true;
+                }
+            }
+            return false;
+        });
+        if (!toggledViaWorkspace) {
+            await clickVisibleToolbarButton(page, 'Toggle Sidebar');
+        }
     }
 
     await page.waitForFunction(() => {
@@ -1187,6 +1245,38 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const saved = await page.evaluate(() => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleHost);
+        const component = (host as (HTMLElement & {__vueParentComponent?: {
+            exposed?: unknown;
+            setupState?: {
+                mountedWorkspace?: { value?: unknown; };
+                workspaceRef?: { value?: unknown; };
+            };
+        };}) | null)?.__vueParentComponent;
+        const candidates = [
+            component?.exposed,
+            component?.setupState?.mountedWorkspace?.value,
+            component?.setupState?.workspaceRef?.value,
+        ];
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'object') {
+                continue;
+            }
+            const workspace = candidate as { handleSave?: () => Promise<void>; };
+            if (typeof workspace.handleSave === 'function') {
+                void workspace.handleSave();
+                return true;
+            }
+        }
+
         const save = (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
         if (typeof save !== 'function') {
             return false;

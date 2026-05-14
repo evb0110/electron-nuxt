@@ -67,10 +67,7 @@
                         v-if="estimatesLoading"
                         class="convert-preset-loading"
                     >
-                        <UIcon
-                            name="i-ph-circle-notch"
-                            class="convert-loading-spinner"
-                        />
+                        <AppSpinner size="xs" tone="muted" />
                         {{ t('djvu.convertDialog.estimating') }}
                     </div>
                 </div>
@@ -110,6 +107,7 @@
 <script setup lang="ts">
 
 import type { TDocumentRef } from '@contracts/platformApi';
+import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/platformDjvu';
@@ -359,17 +357,6 @@ function handleConvert() {
     font-size: 12px;
     color: var(--ui-text-muted);
     padding: 8px 0;
-}
-
-.convert-loading-spinner {
-    width: 14px;
-    height: 14px;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
 }
 
 .convert-option {

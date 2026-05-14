@@ -25,9 +25,11 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
+    initialViewState?: ITabViewSessionState | null;
     emit: {
         (e: 'update-tab', updates: TTabUpdate): void;
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
@@ -89,7 +91,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         });
     }
 
-    const sidebarSearch = useWorkspaceSidebarSearchSyncController({workingCopyPath});
+    const sidebarSearch = useWorkspaceSidebarSearchSyncController({
+        workingCopyPath,
+        initialViewState: deps.initialViewState,
+    });
     const {
         pdfViewerRef,
         closeAllDropdowns,

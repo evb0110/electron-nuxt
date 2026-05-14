@@ -101,6 +101,7 @@ interface IUsePdfViewerCoreOptions {
         },
     ) => Promise<void>;
     cancelInFlightPageRenders?: () => void;
+    cancelPendingSearchScroll?: () => void;
     cleanupRenderedPages: () => void;
     invalidateRenderedPages: (pages: number[]) => void;
     applySearchHighlights: () => void;
@@ -234,6 +235,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         renderVisiblePages,
         reRenderAllVisiblePages,
         cancelInFlightPageRenders,
+        cancelPendingSearchScroll,
         cleanupRenderedPages,
         invalidateRenderedPages,
         applySearchHighlights,
@@ -563,6 +565,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             }
             return;
         }
+        cancelPendingSearchScroll?.();
         cancelInFlightPageRenders?.();
         cleanupRenderedPages();
         resetZoomRerenderQueueState('inactive-tab');

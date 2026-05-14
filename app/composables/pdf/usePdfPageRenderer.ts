@@ -1408,20 +1408,22 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     watch(
         () => [
+            toValue(isActive),
             isLoading.value,
             toValue(currentSearchMatchNavigationId),
         ] as const,
         ([
-            ,
+            active,
+            loading,
             navigationId,
         ]) => {
-            if (!toValue(isActive)) {
+            if (!active) {
                 return;
             }
             if (navigationId <= 0 || navigationId === lastHandledSearchNavigationId) {
                 return;
             }
-            if (isLoading.value) {
+            if (loading) {
                 return;
             }
 
@@ -1454,6 +1456,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     function requestScrollToCurrentResult() {
+        if (!toValue(isActive)) {
+            return;
+        }
         const currentMatchValue = toValue(currentSearchMatch);
         if (!currentMatchValue) {
             return;

@@ -83,6 +83,7 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
         defaultContinuousScroll: sanitized.defaultContinuousScroll,
         defaultAnnotationColor: sanitized.defaultAnnotationColor,
         uiScale: sanitized.uiScale,
+        tabMemoryPolicy: sanitized.tabMemoryPolicy,
         suppressDefaultViewerPrompt: sanitized.suppressDefaultViewerPrompt,
         skippedUpdateVersion: sanitized.skippedUpdateVersion,
     };

@@ -7,13 +7,19 @@ import {
 } from 'vitest';
 import { basename } from 'node:path';
 import { stopSingleSession } from '../../../scripts/electron-run/sessionManager';
-import { createMultiPageTextFixturePdf } from './helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf,
+    isDjvuFixtureRequired,
+    resolveDjvuFixturePath,
+} from './helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
 } from './helpers/sessionHarness';
 import {
+    openDjvuInApp,
     openPdfInApp,
+    waitForDjvuLoaded,
     waitForPdfLoaded,
 } from './helpers/viewerHelpers';
 import {
@@ -165,6 +171,47 @@ async function waitForRecentPdfOpen(session: IElectronE2ESession, fileName: stri
     })}`);
 }
 
+async function waitForRecentDjvuOpen(session: IElectronE2ESession, fileName: string) {
+    const deadline = Date.now() + RECENT_OPEN_TIMEOUT_MS;
+    let sawOpenAttempt = false;
+    let lastState: IRecentOpenDomState | null = null;
+
+    while (Date.now() < deadline) {
+        const state = await readRecentOpenDomState(session, fileName);
+        lastState = state;
+
+        if (state.hasLoader || state.visibleText.includes('.djvu') || state.visibleText.includes('.djv')) {
+            sawOpenAttempt = true;
+        }
+
+        if (sawOpenAttempt && state.recentRowVisible && !state.hasLoader) {
+            throw new Error(`Recent DjVu "${fileName}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
+        }
+
+        const loaded = await evaluateInPage(session.page, () => {
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                ?? document.querySelector<HTMLElement>('.workspace-host');
+            return (activeHost?.querySelectorAll('.djvu-page-shell img').length ?? 0) > 0;
+        });
+        if (loaded) {
+            await waitForDjvuLoaded(session.page, RECENT_OPEN_TIMEOUT_MS);
+            return;
+        }
+
+        await delay(RECENT_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(`Recent DjVu "${fileName}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
+        hasHost: false,
+        hasLoader: false,
+        hasViewer: false,
+        hasRenderedContent: false,
+        recentRowVisible: false,
+        visibleRecentRows: 0,
+        visibleText: '',
+    })}`);
+}
+
 async function assertRecentPdfStaysLoaded(session: IElectronE2ESession, fileName: string) {
     const deadline = Date.now() + RECENT_OPEN_STABILITY_MS;
     while (Date.now() < deadline) {
@@ -205,5 +252,41 @@ describe('Electron E2E - Phase 0 (Recent Files)', () => {
         await clickRecentFile(session, basename(fixturePath));
         await waitForRecentPdfOpen(session, basename(fixturePath));
         await assertRecentPdfStaysLoaded(session, basename(fixturePath));
+    });
+});
+
+const djvuFixture = resolveDjvuFixturePath();
+const runDjvuRecentOrSkip = djvuFixture.path || isDjvuFixtureRequired() ? describe : describe.skip;
+
+runDjvuRecentOrSkip('Electron E2E - Phase 0 (Recent DjVu Files)', () => {
+    let session: IElectronE2ESession | null = null;
+    const sessionName = `e2e-recent-djvu-files-${Date.now()}`;
+
+    beforeAll(async () => {
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+
+        session = await startElectronE2ESession(sessionName);
+        await openDjvuInApp(session.page, djvuFixture.path, 90_000);
+        await waitForDjvuLoaded(session.page, 90_000);
+
+        session.browser.disconnect();
+        await stopSingleSession(sessionName, { keepNuxt: true });
+        session = await startElectronE2ESession(sessionName, { clean: false });
+    });
+
+    afterAll(async () => {
+        await session?.stop();
+    });
+
+    it('opens a persisted recent DjVu after restarting Electron', async () => {
+        if (!session || !djvuFixture.path) {
+            throw new Error('Recent DjVu session was not initialized');
+        }
+
+        await assertRecentListStaysStableBeforeOpen(session, basename(djvuFixture.path));
+        await clickRecentFile(session, basename(djvuFixture.path));
+        await waitForRecentDjvuOpen(session, basename(djvuFixture.path));
     });
 });

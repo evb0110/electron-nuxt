@@ -303,7 +303,7 @@
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
                         :is-resizing="isResizingSidebar"
-                        :is-active="isActive"
+                        :is-active="isRenderActive"
                         :annotation-tool="annotationTool"
                         :annotation-cursor-mode="annotationCursorMode"
                         :annotation-keep-active="annotationKeepActive"
@@ -346,7 +346,7 @@
                         :view-mode="viewMode"
                         :continuous-scroll="continuousScroll"
                         :drag-mode="dragMode"
-                        :is-active="isActive"
+                        :is-active="isRenderActive"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:current-page="handleViewerCurrentPageUpdate"
                         @update:total-pages="handleViewerTotalPagesUpdate"
@@ -540,6 +540,7 @@ import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
@@ -549,16 +550,20 @@ const {
     fullscreenSupported,
     isActive,
     isFullscreen,
+    isRenderActive = isActive,
     isTabTransitionBusy,
+    initialViewState = null,
     pendingDocumentOpen: pendingDocumentOpenProp = false,
     startSection = 'recent',
     tabId,
 } = defineProps<{
     tabId: string;
     isActive: boolean;
+    isRenderActive?: boolean;
     isTabTransitionBusy: boolean;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
+    initialViewState?: ITabViewSessionState | null;
     pendingDocumentOpen?: boolean;
     startSection?: TStartSection;
 }>();
@@ -622,6 +627,7 @@ const isActiveRef = computed({
 
 const w = useWorkspaceOrchestration({
     isActive: isActiveRef,
+    initialViewState,
     emit,
 });
 
@@ -854,12 +860,29 @@ const {
     hasPdf,
 } = w;
 
+const hasAppliedInitialViewState = ref(false);
+
+watch([
+    pdfDocument,
+    totalPages,
+], ([
+    document,
+    pages,
+]) => {
+    if (hasAppliedInitialViewState.value || !initialViewState || !document || pages <= 0) {
+        return;
+    }
+
+    currentPage.value = Math.min(Math.max(initialViewState.currentPage, 1), pages);
+    hasAppliedInitialViewState.value = true;
+}, { flush: 'post' });
+
 const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
 const viewerSearchPageMatches = computed(() => (
-    showSidebar.value ? pageMatches.value : hiddenSearchPageMatches
+    isActiveRef.value && showSidebar.value ? pageMatches.value : hiddenSearchPageMatches
 ));
 const viewerCurrentSearchMatch = computed(() => (
-    showSidebar.value ? currentResult.value : null
+    isActiveRef.value && showSidebar.value ? currentResult.value : null
 ));
 
 const viewerSourcePdfData = computed(() => pdfData.value);

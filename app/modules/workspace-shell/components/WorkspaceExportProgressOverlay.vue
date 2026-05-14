@@ -1,34 +1,16 @@
 <template>
-    <div
-        v-if="overlay"
-        class="pointer-events-none absolute bottom-12 right-4 z-50 w-60 rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg"
-        role="status"
-        aria-live="polite"
-    >
-        <div class="flex items-center gap-2">
-            <UIcon :name="icon" :class="iconClass" />
-            <div class="min-w-0">
-                <p class="m-0 text-xs font-medium text-default">
-                    {{ title }}
-                </p>
-                <p class="m-0 text-[11px] text-muted">
-                    {{ detail }}
-                </p>
-            </div>
-        </div>
-        <UProgress
-            v-if="overlay.state === 'success'"
-            :value="100"
-            class="mt-2"
-        />
-        <UProgress
-            v-else
-            class="mt-2"
-        />
-    </div>
+    <AppProgressChip
+        :visible="overlay !== null"
+        :title="title"
+        :detail="detail"
+        :state="overlay?.state ?? 'running'"
+        offset-bottom="low"
+    />
 </template>
 
 <script setup lang="ts">
+import AppProgressChip from '@app/components/AppProgressChip.vue';
+
 interface IWorkspaceExportOverlay {
     kind: 'images' | 'multipage-tiff';
     state: 'running' | 'success';
@@ -57,10 +39,4 @@ const title = computed(() => {
 const detail = computed(() => overlay
     ? t('export.pageCount', {count: overlay.pageCount})
     : '');
-const icon = computed(() => overlay?.state === 'success'
-    ? 'i-ph-check-circle'
-    : 'i-ph-circle-notch');
-const iconClass = computed(() => overlay?.state === 'success'
-    ? 'size-4 text-[var(--ui-success)]'
-    : 'size-4 animate-spin text-muted');
 </script>

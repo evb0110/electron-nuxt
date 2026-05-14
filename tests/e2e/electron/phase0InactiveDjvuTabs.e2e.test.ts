@@ -17,6 +17,8 @@ import {
 import {
     openDjvuInApp,
     openPdfInApp,
+    assertInactiveDocumentPressureReleased,
+    setTabMemoryPolicyForE2E,
     waitForDjvuLoaded,
     waitForPdfLoaded,
     waitForTabCount,
@@ -50,7 +52,7 @@ function readDjvuPressureFromPage(): IWorkspaceDjvuPressure[] {
             const visible = isVisible(host);
             return {
                 index,
-                active: visible && Boolean(host.closest('.editor-group-pane.is-active')),
+                active: visible,
                 visible,
                 pageShells: host.querySelectorAll('.djvu-page-shell').length,
                 images: host.querySelectorAll('.djvu-page-shell img').length,
@@ -59,8 +61,9 @@ function readDjvuPressureFromPage(): IWorkspaceDjvuPressure[] {
 }
 
 async function createNewTab(session: IElectronE2ESession) {
+    const nextCount = await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length + 1);
     await session.page.locator('.tab-list .tab-new').click();
-    await waitForTabCount(session.page, 2);
+    await waitForTabCount(session.page, nextCount);
 }
 
 async function activateTab(session: IElectronE2ESession, tabIndex: number) {
@@ -70,11 +73,45 @@ async function activateTab(session: IElectronE2ESession, tabIndex: number) {
     }, tabIndex);
 }
 
+async function splitActiveDocument(session: IElectronE2ESession, direction: 'right' | 'down' = 'right') {
+    const split = await session.page.evaluate(async (targetDirection: 'right' | 'down') => {
+        const splitEditor = (window as Window & {__splitEditorForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
+        if (typeof splitEditor === 'function') {
+            await splitEditor(targetDirection);
+            return true;
+        }
+        return false;
+    }, direction);
+
+    expect(split).toBe(true);
+    await session.page.waitForFunction(() => document.querySelectorAll('.editor-group-pane').length >= 2);
+}
+
 async function waitForActiveDjvuImages(session: IElectronE2ESession) {
     await session.page.waitForFunction(() => {
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
         return (activeHost?.querySelectorAll('.djvu-page-shell img').length ?? 0) > 0;
     }, { timeout: 20_000 });
+}
+
+async function waitForVisibleDjvuImageHosts(session: IElectronE2ESession, expectedCount: number) {
+    await session.page.waitForFunction((expected: number) => {
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 100
+                && rect.height > 100
+            );
+        };
+
+        return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(host => isVisible(host) && host.querySelectorAll('.djvu-page-shell img').length > 0)
+            .length >= expected;
+    }, { timeout: DJVU_E2E_TIMEOUT_MS }, expectedCount);
 }
 
 async function waitForInactiveDjvuImagesToRelease(session: IElectronE2ESession) {
@@ -91,7 +128,7 @@ async function waitForInactiveDjvuImagesToRelease(session: IElectronE2ESession) 
             );
         };
         return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => !(isVisible(host) && host.closest('.editor-group-pane.is-active')))
+            .filter(host => !isVisible(host))
             .every(host => host.querySelectorAll('.djvu-page-shell img').length === 0);
     }, { timeout: 20_000 });
 }
@@ -109,6 +146,7 @@ runOrSkip('Electron E2E - Phase 0 (Inactive DjVu Tabs)', () => {
         }
 
         session = await startElectronE2ESession(`e2e-inactive-djvu-tabs-${Date.now()}`);
+        await setTabMemoryPolicyForE2E(session.page, 'aggressive', DJVU_E2E_TIMEOUT_MS);
         pdfFixturePath = await createMultiPageTextFixturePdf(`inactive-djvu-other-tab-${Date.now()}.pdf`, 3);
     });
 
@@ -136,17 +174,61 @@ runOrSkip('Electron E2E - Phase 0 (Inactive DjVu Tabs)', () => {
         await waitForInactiveDjvuImagesToRelease(session);
 
         const afterPdfOpen = await session.page.evaluate(readDjvuPressureFromPage);
-        expect(afterPdfOpen).toHaveLength(2);
-        expect(afterPdfOpen[0]?.active).toBe(false);
-        expect(afterPdfOpen[0]?.images).toBe(0);
+        expect(afterPdfOpen.length).toBeGreaterThanOrEqual(1);
+        expect(afterPdfOpen.length).toBeLessThanOrEqual(2);
+        expect(afterPdfOpen.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
 
         await activateTab(session, 0);
         await waitForDjvuLoaded(session.page);
         await waitForActiveDjvuImages(session);
 
         const afterDjvuReactivation = await session.page.evaluate(readDjvuPressureFromPage);
-        expect(afterDjvuReactivation[0]?.active).toBe(true);
-        expect(afterDjvuReactivation[0]?.images).toBeGreaterThan(0);
-        expect(afterDjvuReactivation[1]?.active).toBe(false);
+        const activeAfterDjvuReactivation = afterDjvuReactivation.find(host => host.active);
+        expect(activeAfterDjvuReactivation?.images).toBeGreaterThan(0);
+        expect(afterDjvuReactivation.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
+    });
+
+    it('keeps mixed PDF, DjVu, and empty tabs under inactive resource thresholds', async () => {
+        if (!session || !djvuFixture.path) {
+            throw new Error('Inactive DjVu tabs session was not initialized');
+        }
+
+        await createNewTab(session);
+        await openPdfInApp(session.page, pdfFixturePath);
+        await waitForPdfLoaded(session.page);
+
+        await createNewTab(session);
+        await waitForTabCount(session.page, 3);
+
+        await activateTab(session, 0);
+        await waitForDjvuLoaded(session.page);
+        await waitForActiveDjvuImages(session);
+        await waitForInactiveDjvuImagesToRelease(session);
+        await assertInactiveDocumentPressureReleased(session.page);
+
+        await activateTab(session, 1);
+        await waitForPdfLoaded(session.page);
+        await waitForInactiveDjvuImagesToRelease(session);
+        const pressure = await assertInactiveDocumentPressureReleased(session.page);
+
+        expect(pressure.filter(host => host.active)).toHaveLength(1);
+        expect(pressure.filter(host => !host.active).every(host => host.emptyPlaceholders > 0 || host.canvases === 0)).toBe(true);
+    });
+
+    it('keeps copied visible split-pane DjVu documents rendered', async () => {
+        if (!session || !djvuFixture.path) {
+            throw new Error('Inactive DjVu tabs session was not initialized');
+        }
+
+        await activateTab(session, 0);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await waitForActiveDjvuImages(session);
+
+        await splitActiveDocument(session, 'right');
+        await waitForVisibleDjvuImageHosts(session, 2);
+
+        const pressure = await assertInactiveDocumentPressureReleased(session.page);
+        expect(pressure.filter(host => host.active).length).toBeGreaterThanOrEqual(2);
+        expect(pressure.filter(host => host.active).every(host => host.djvuImages > 0)).toBe(true);
     });
 });

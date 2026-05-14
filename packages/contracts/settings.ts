@@ -30,6 +30,10 @@ const UI_SCALE_PREFERENCES: ReadonlySet<string> = new Set<ISettingsData['uiScale
     'comfortable',
     'large',
 ]);
+const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<ISettingsData['tabMemoryPolicy']>([
+    'conservative',
+    'aggressive',
+]);
 
 export const DEFAULT_SETTINGS: ISettingsData = {
     version: 2,
@@ -41,6 +45,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultContinuousScroll: true,
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
+    tabMemoryPolicy: 'conservative',
 };
 
 const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
@@ -114,6 +119,14 @@ function normalizeUiScale(value: unknown): ISettingsData['uiScale'] {
     return isUiScalePreference(value) ? value : DEFAULT_SETTINGS.uiScale;
 }
 
+function normalizeTabMemoryPolicy(value: unknown): ISettingsData['tabMemoryPolicy'] {
+    if (!isString(value)) {
+        return DEFAULT_SETTINGS.tabMemoryPolicy;
+    }
+
+    return TAB_MEMORY_POLICIES.has(value) ? value as ISettingsData['tabMemoryPolicy'] : DEFAULT_SETTINGS.tabMemoryPolicy;
+}
+
 export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
     return {
         version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
@@ -127,6 +140,7 @@ export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined)
             : DEFAULT_SETTINGS.defaultContinuousScroll,
         defaultAnnotationColor: normalizeDefaultAnnotationColor(raw?.defaultAnnotationColor),
         uiScale: normalizeUiScale(raw?.uiScale),
+        tabMemoryPolicy: normalizeTabMemoryPolicy(raw?.tabMemoryPolicy),
         suppressDefaultViewerPrompt: isBoolean(raw?.suppressDefaultViewerPrompt)
             ? raw.suppressDefaultViewerPrompt
             : undefined,

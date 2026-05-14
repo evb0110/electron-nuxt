@@ -7,7 +7,7 @@
             aria-live="polite"
         >
             <div class="flex items-center gap-2 text-sm text-[var(--ui-text)]">
-                <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+                <AppSpinner size="sm" tone="inherit" />
                 <span>{{ t('emptyState.preparingBatch') }}</span>
             </div>
             <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
@@ -84,9 +84,16 @@
                             :disabled="openInProgress"
                             @click="openFile"
                         >
+                            <AppSpinner
+                                v-if="openInProgress"
+                                size="sm"
+                                tone="inherit"
+                                class="shrink-0"
+                            />
                             <UIcon
-                                :name="openInProgress ? 'i-ph-circle-notch' : 'i-ph-folder-open'"
-                                :class="['open-panel-cta-icon', { 'animate-spin': openInProgress }]"
+                                v-else
+                                name="i-ph-folder-open"
+                                class="open-panel-cta-icon"
                                 aria-hidden="true"
                             />
                             <span>{{ t('emptyState.openFileEllipsis') }}</span>
@@ -306,6 +313,7 @@ import {
     formatEtaDuration,
 } from '@app/utils/progressFormatting';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
+import AppSpinner from '@app/components/AppSpinner.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';

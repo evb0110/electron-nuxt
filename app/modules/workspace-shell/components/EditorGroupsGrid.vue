@@ -22,27 +22,32 @@
                 @tab-context-command="handleLeafTabContextCommand"
             />
             <div class="editor-group-content">
-                <DeferredDocumentWorkspaceHost
-                    v-for="tab in tabsForGroup(groupForLeaf!.id)"
-                    v-show="tab.id === groupForLeaf!.activeTabId"
-                    :key="tab.id"
-                    :ref="workspaceRefHandler(tab.id)"
-                    :tab-id="tab.id"
-                    :has-document-hint="hasDocumentMountHint(tab)"
-                    :is-startup-open-claim-pending="isStartupOpenClaimPending"
-                    :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
-                    :is-tab-transition-busy="isTabTransitionBusy"
-                    :is-fullscreen="isFullscreen"
-                    :fullscreen-supported="fullscreenSupported"
-                    :start-section="startSectionByTabId[tab.id] ?? 'recent'"
-                    @update-tab="handleWorkspaceTabUpdate(tab.id, $event)"
-                    @update:start-section="handleWorkspaceStartSectionUpdate(tab.id, $event)"
-                    @open-in-new-tab="handleLeafOpenInNewTab"
-                    @request-close-tab="handleLeafRequestCloseTab(tab.id)"
-                    @open-settings="handleOpenSettings"
-                    @open-combine="handleOpenCombine"
-                    @toggle-fullscreen="handleToggleFullscreen"
-                />
+                <template v-for="tab in tabsForGroup(groupForLeaf!.id)" :key="tab.id">
+                    <DeferredDocumentWorkspaceHost
+                        v-if="shouldMountHost(tab.id)"
+                        v-show="tab.id === groupForLeaf!.activeTabId"
+                        :ref="workspaceRefHandler(tab.id)"
+                        :tab-id="tab.id"
+                        :document-path="tab.originalPath"
+                        :has-document-hint="hasDocumentMountHint(tab)"
+                        :initial-view-state="viewStateByTabId[tab.id] ?? null"
+                        :is-startup-open-claim-pending="isStartupOpenClaimPending"
+                        :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
+                        :is-render-active="tab.id === groupForLeaf!.activeTabId"
+                        :is-tab-transition-busy="isTabTransitionBusy"
+                        :is-fullscreen="isFullscreen"
+                        :fullscreen-supported="fullscreenSupported"
+                        :start-section="startSectionByTabId[tab.id] ?? 'recent'"
+                        @update-tab="handleWorkspaceTabUpdate(tab.id, $event)"
+                        @update-session-state="handleWorkspaceSessionStateUpdate(tab.id, $event)"
+                        @update:start-section="handleWorkspaceStartSectionUpdate(tab.id, $event)"
+                        @open-in-new-tab="handleLeafOpenInNewTab"
+                        @request-close-tab="handleLeafRequestCloseTab(tab.id)"
+                        @open-settings="handleOpenSettings"
+                        @open-combine="handleOpenCombine"
+                        @toggle-fullscreen="handleToggleFullscreen"
+                    />
+                </template>
             </div>
         </template>
         <div v-else class="editor-group-content" />
@@ -68,6 +73,8 @@
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 :start-section-by-tab-id="startSectionByTabId"
+                :tab-lifecycle-by-id="tabLifecycleById"
+                :view-state-by-tab-id="viewStateByTabId"
                 :zen-mode="zenMode"
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
@@ -81,6 +88,7 @@
                 @tab-context-command="handleTabContextCommand"
                 @set-workspace-ref="handleSetWorkspaceRef"
                 @update-tab="handleUpdateTab"
+                @update-tab-session-state="handleUpdateTabSessionState"
                 @update-tab-start-section="handleUpdateTabStartSection"
                 @open-in-new-tab="handleOpenInNewTab"
                 @request-close-tab="handleRequestCloseTab"
@@ -113,6 +121,8 @@
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 :start-section-by-tab-id="startSectionByTabId"
+                :tab-lifecycle-by-id="tabLifecycleById"
+                :view-state-by-tab-id="viewStateByTabId"
                 :zen-mode="zenMode"
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
@@ -126,6 +136,7 @@
                 @tab-context-command="handleTabContextCommand"
                 @set-workspace-ref="handleSetWorkspaceRef"
                 @update-tab="handleUpdateTab"
+                @update-tab-session-state="handleUpdateTabSessionState"
                 @update-tab-start-section="handleUpdateTabStartSection"
                 @open-in-new-tab="handleOpenInNewTab"
                 @request-close-tab="handleRequestCloseTab"
@@ -161,13 +172,19 @@ import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/w
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
 import type { TStartSection } from '@app/types/startPage';
+import type {
+    ITabLifecycleState,
+    ITabViewSessionState,
+} from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
 defineOptions({name: 'EditorGroupsGrid'});
 
 const {
     groups,
     node,
+    tabLifecycleById,
     tabs,
+    viewStateByTabId,
     zenActiveTabId,
     zenMode,
 } = defineProps<{
@@ -179,6 +196,8 @@ const {
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
+    tabLifecycleById: Record<string, ITabLifecycleState>;
+    viewStateByTabId: Record<string, ITabViewSessionState>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;
@@ -195,6 +214,7 @@ const emit = defineEmits<{
     'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
+    'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult, groupId: string];
     'request-close-tab': [groupId: string, tabId: string];
@@ -276,6 +296,10 @@ function tabsForGroup(groupId: string) {
     return groupTabs.filter(tab => tab.id === zenActiveTabId);
 }
 
+function shouldMountHost(tabId: string) {
+    return tabLifecycleById[tabId]?.shouldMountHost !== false;
+}
+
 function nodeContainsTab(node: TEditorLayoutNode, tabId: string | null): boolean {
     if (!tabId) {
         return false;
@@ -351,6 +375,10 @@ function handleWorkspaceTabUpdate(tabId: string, updates: TTabUpdate) {
     emit('update-tab', tabId, updates);
 }
 
+function handleWorkspaceSessionStateUpdate(tabId: string, state: ITabViewSessionState) {
+    emit('update-tab-session-state', tabId, state);
+}
+
 function handleWorkspaceStartSectionUpdate(tabId: string, section: TStartSection) {
     emit('update-tab-start-section', tabId, section);
 }
@@ -403,6 +431,10 @@ function handleSetWorkspaceRef(tabId: string, el: unknown) {
 
 function handleUpdateTab(tabId: string, updates: TTabUpdate) {
     emit('update-tab', tabId, updates);
+}
+
+function handleUpdateTabSessionState(tabId: string, state: ITabViewSessionState) {
+    emit('update-tab-session-state', tabId, state);
 }
 
 function handleUpdateTabStartSection(tabId: string, section: TStartSection) {

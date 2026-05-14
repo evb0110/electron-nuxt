@@ -23,7 +23,7 @@
             >
                 <Icon v-if="!progress.isRunning && !showSuccessState" name="ph:text-aa" class="size-5" />
                 <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
-                <Icon v-else name="ph:circle-notch" class="size-5 animate-spin" />
+                <AppSpinner v-else size="md" tone="inherit" />
             </button>
         </AppTooltip>
         <span v-else class="hidden-trigger" aria-hidden="true" />
@@ -282,6 +282,7 @@ import type {
     TDocumentRef,
 } from '@contracts/platformApi';
 import type { TTranslationKey } from '@i18n-app';
+import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/platformSettings';
 

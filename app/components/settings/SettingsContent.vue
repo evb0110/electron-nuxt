@@ -15,10 +15,12 @@
             :zoom-preset-items="zoomPresetItems"
             :view-mode-items="viewModeItems"
             :scroll-mode-items="scrollModeItems"
+            :tab-memory-policy-items="tabMemoryPolicyItems"
             :annotation-color-swatches="annotationColorSwatches"
             @update:zoom-preset="applyZoomPreset"
             @update:view-mode="applyViewMode"
             @update:scroll-mode="applyScrollMode"
+            @update:tab-memory-policy="applyTabMemoryPolicy"
             @update:annotation-color="updateSetting('defaultAnnotationColor', $event)"
         />
 
@@ -40,6 +42,7 @@ import type {
     TAppLocale,
     TAppTheme,
     TDefaultZoomPreset,
+    TTabMemoryPolicy,
     TPdfViewMode,
 } from '@contracts/shared';
 import { LOCALE_CODES } from '@i18n-core';
@@ -62,6 +65,10 @@ const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>([
     'single',
     'facing',
     'facing-first-single',
+]);
+const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<TTabMemoryPolicy>([
+    'conservative',
+    'aggressive',
 ]);
 
 const {
@@ -195,6 +202,20 @@ const scrollModeItems = computed(() => [
     },
 ]);
 
+const tabMemoryPolicyItems = computed<Array<{
+    value: TTabMemoryPolicy;
+    label: string;
+}>>(() => [
+    {
+        value: 'conservative',
+        label: t('settings.tabMemoryConservative'),
+    },
+    {
+        value: 'aggressive',
+        label: t('settings.tabMemoryAggressive'),
+    },
+]);
+
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 const mod = isMac ? '\u2318' : 'Ctrl';
 const shift = isMac ? '\u21E7' : 'Shift';
@@ -297,6 +318,10 @@ function isAppLocale(value: string): value is TAppLocale {
     return SUPPORTED_LOCALES.has(value);
 }
 
+function isTabMemoryPolicy(value: string): value is TTabMemoryPolicy {
+    return TAB_MEMORY_POLICIES.has(value);
+}
+
 function applyZoomPreset(preset: string | { value: string }) {
     const value = readSelectValue(preset);
     if (isDefaultZoomPreset(value)) {
@@ -314,6 +339,13 @@ function applyViewMode(mode: string | { value: string }) {
 function applyScrollMode(mode: boolean | { value: boolean }) {
     const value = typeof mode === 'boolean' ? mode : mode.value;
     updateSetting('defaultContinuousScroll', value);
+}
+
+function applyTabMemoryPolicy(policy: string | { value: string }) {
+    const value = readSelectValue(policy);
+    if (isTabMemoryPolicy(value)) {
+        updateSetting('tabMemoryPolicy', value);
+    }
 }
 
 async function applyLocale(locale: string | { value: string }) {
