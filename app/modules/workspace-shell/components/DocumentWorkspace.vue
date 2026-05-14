@@ -25,7 +25,7 @@
                 :is-capturing-region="isCapturingRegion"
                 :is-crop-selecting="isCropSelecting"
                 :is-placing-page-note="annotationPlacingPageNote"
-                :document-busy="isDocumentBusy"
+                :document-busy="toolbarDocumentBusy"
                 :has-ocr-action="canUseOcr"
                 :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
@@ -66,7 +66,7 @@
                         :is-preparing-current-page-print="isPreparingCurrentPagePrint"
                         :is-djvu-mode="isDjvuMode"
                         :can-use-djvu="canUseDjvu"
-                        :document-busy="isDocumentBusy"
+                        :document-busy="toolbarDocumentBusy"
                         @update:open="handleDropdownOpen('appMenu', $event)"
                         @open-file="handleOpenFileFromUi"
                         @save="handleToolbarSave"
@@ -98,7 +98,7 @@
                         :open="ocrPopupOpen"
                         :is-exporting-docx="isExportingDocx"
                         :external-error="docxExportError"
-                        :disabled="isDjvuMode || isConversionBusy || !toolbarHasPdf"
+                        :disabled="isDjvuMode || toolbarControlsDisabled"
                         :hide-trigger="isCollapsed(3)"
                         @update:open="handleDropdownOpen('ocr', $event)"
                         @update:running="isOcrRunning = $event"
@@ -154,7 +154,7 @@
                         :is-capturing-region="isCapturingRegion"
                         :is-crop-selecting="isCropSelecting"
                         :is-placing-page-note="annotationPlacingPageNote"
-                        :document-busy="isDocumentBusy"
+                        :document-busy="toolbarDocumentBusy"
                         :surface="toolbarSurface"
                         :show-document-section="isDesktopRuntime"
                         can-combine-files
@@ -879,8 +879,14 @@ const isDocumentOpenPlaceholderVisible = computed(() => (
     pendingDocumentOpen.value
     || isDjvuOpening.value
 ));
+const isOpeningDocumentForToolbar = computed(() => (
+    isDocumentOpenPlaceholderVisible.value
+    || isRestoringSplitPayload.value
+    || isExternallyRestoring.value
+));
 const toolbarHasPdf = computed(() => (
     hasPdf.value
+    || pendingDocumentOpen.value
     || showNativeDjvuViewer.value
     || isDjvuOpening.value
     || hasQueuedSplitRestore.value
@@ -894,17 +900,22 @@ const toolbarShowSidebar = computed(() => (
 const canToggleSidebar = computed(() => (
     toolbarHasPdf.value
     && !showNativeDjvuViewer.value
-    && !isDocumentBusy.value
+    && !toolbarDocumentBusy.value
 ));
 const isConversionBusy = computed(() => conversionState.value.isConverting);
 const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
-const documentMetadataReady = computed(() => (
+const toolbarDocumentBusy = computed(() => isDocumentBusy.value || isOpeningDocumentForToolbar.value);
+const documentMetadataAvailable = computed(() => (
     toolbarHasPdf.value
     && totalPages.value > 0
     && pageLabelsResolved.value
 ));
+const documentMetadataReady = computed(() => (
+    documentMetadataAvailable.value
+    && !isOpeningDocumentForToolbar.value
+));
 const toolbarControlsDisabled = computed(() => (
-    !documentMetadataReady.value || isDocumentBusy.value
+    !documentMetadataReady.value || toolbarDocumentBusy.value
 ));
 
 async function revealRecentFile(file: IRecentFile) {
@@ -1120,6 +1131,86 @@ const {
     clearSidebarToggleCheckpointTimers,
 });
 
+const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 4_000;
+const DOCUMENT_OPEN_VISUAL_SETTLE_POLL_MS = 25;
+
+function waitForDocumentOpenPoll() {
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, DOCUMENT_OPEN_VISUAL_SETTLE_POLL_MS);
+    });
+}
+
+function hasSettledDocumentOpenVisualState() {
+    if (pdfError.value || djvuError.value) {
+        return true;
+    }
+
+    if (showNativeDjvuViewer.value) {
+        return true;
+    }
+
+    return Boolean(
+        pdfSrc.value
+        && pdfDocument.value
+        && documentMetadataAvailable.value
+        && !isLoading.value
+        && pdfViewerRef.value
+            ?.getViewerContainer?.()
+            ?.querySelector('.page_container--rendered .page_canvas canvas'),
+    );
+}
+
+async function waitForViewerSettleOrPollUntil(deadline: number) {
+    const viewer = pdfViewerRef.value;
+    const waitForViewerLoadSettled = viewer?.waitForViewerLoadSettled;
+    if (!waitForViewerLoadSettled || !pdfSrc.value) {
+        await waitForDocumentOpenPoll();
+        return;
+    }
+
+    const remainingMs = Math.max(0, deadline - Date.now());
+    if (remainingMs <= 0) {
+        return;
+    }
+
+    await Promise.race([
+        waitForViewerLoadSettled.call(viewer),
+        new Promise<void>((resolve) => {
+            setTimeout(resolve, Math.min(remainingMs, DOCUMENT_OPEN_VISUAL_SETTLE_POLL_MS));
+        }),
+    ]);
+}
+
+async function waitForDocumentOpenSettled() {
+    const deadline = Date.now() + DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+        await nextTick();
+        if (hasSettledDocumentOpenVisualState()) {
+            return;
+        }
+
+        await waitForViewerSettleOrPollUntil(deadline);
+        await nextTick();
+        if (hasSettledDocumentOpenVisualState()) {
+            return;
+        }
+    }
+
+    BrowserLogger.warn('recent-open', 'Document open visual settle timed out', {
+        tabId: tabId,
+        hasPdf: hasPdf.value,
+        hasPdfSrc: Boolean(pdfSrc.value),
+        hasPdfDocument: Boolean(pdfDocument.value),
+        totalPages: totalPages.value,
+        pageLabelsResolved: pageLabelsResolved.value,
+        isLoading: isLoading.value,
+        showNativeDjvuViewer: showNativeDjvuViewer.value,
+        hasPdfError: Boolean(pdfError.value),
+        hasDjvuError: Boolean(djvuError.value),
+    });
+}
+
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleSaveAs,
@@ -1144,11 +1235,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
-    isOpeningDocument: computed(() => (
-        pendingDocumentOpen.value
-        || isDjvuOpening.value
-        || isRestoringSplitPayload.value
-    )),
+    isOpeningDocument: isOpeningDocumentForToolbar,
     hasOpenError: computed(() => Boolean(pdfError.value || djvuError.value)),
     isPreparingPrint,
     canSave,
@@ -1210,6 +1297,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     openConvertDialog,
     captureSplitPayload,
     restoreSplitPayload,
+    waitForDocumentOpenSettled,
 });
 
 defineExpose(workspaceExpose);

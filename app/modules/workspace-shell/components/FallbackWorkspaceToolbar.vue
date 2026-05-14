@@ -21,6 +21,7 @@
         :is-capturing-region="snapshot.isCapturingRegion"
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
+        :document-busy="fallbackDocumentBusy"
         :has-ocr-action="canUseOcr"
         :surface="toolbarSurface"
         :is-fullscreen="isFullscreen"
@@ -59,6 +60,7 @@
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-djvu-mode="snapshot.isDjvuMode"
                 :can-use-djvu="canUseDjvu"
+                :document-busy="fallbackDocumentBusy"
                 @update:open="handleAppMenuOpenUpdate"
                 @open-file="handleOpenFile"
                 @save="handleSave"
@@ -89,7 +91,7 @@
                 :total-pages="snapshot.totalPages"
                 :working-copy-path="null"
                 :open="ocrPopupOpen"
-                :disabled="snapshot.isDjvuMode || !hasPdf"
+                :disabled="snapshot.isDjvuMode || fallbackControlsDisabled"
                 :hide-trigger="isCollapsed(3)"
                 @update:open="handleOcrPopupOpenUpdate"
                 @export-docx="handleExportDocx"
@@ -104,7 +106,7 @@
                 v-model:view-mode="viewMode"
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
-                :disabled="!hasPdf"
+                :disabled="fallbackControlsDisabled"
                 :compact-level="compactLevel"
                 @update:effective-zoom="handleEffectiveZoomUpdate"
                 @update:open="handleZoomDropdownOpenUpdate"
@@ -117,7 +119,7 @@
                 :total-pages="snapshot.totalPages"
                 :view-mode="snapshot.viewMode"
                 :page-labels="null"
-                :disabled="!hasPdf"
+                :disabled="fallbackControlsDisabled"
                 :compact-level="compactLevel"
                 @go-to-page="handleGoToPage"
                 @update:open="handlePageDropdownOpenUpdate"
@@ -152,6 +154,7 @@
                 :is-preparing-print="snapshot.isPreparingPrint"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :document-busy="fallbackDocumentBusy"
                 trigger-icon="i-ph-dots-three"
                 @update:open="handleOverflowMenuOpenUpdate"
                 @capture-region="handleCaptureRegion"
@@ -188,7 +191,10 @@ import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandS
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 
-const { snapshot } = defineProps<{
+const {
+    hasPdf,
+    snapshot,
+} = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
     hasPdf: boolean;
     ocrPopupOpen: boolean;
@@ -204,6 +210,8 @@ const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = computed(() => isDesktopRuntime.value);
 const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
+const fallbackDocumentBusy = computed(() => snapshot.isOpeningDocument);
+const fallbackControlsDisabled = computed(() => !hasPdf || fallbackDocumentBusy.value || snapshot.totalPages <= 0);
 
 const emit = defineEmits<{
     'update:ocrPopupOpen': [open: boolean];

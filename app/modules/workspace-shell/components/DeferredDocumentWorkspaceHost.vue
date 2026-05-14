@@ -497,7 +497,7 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
 async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransaction, opened: boolean) {
     await nextTick();
 
-    if (!opened || workspaceHasDocumentOrOpenError()) {
+    if (!opened) {
         return;
     }
 
@@ -507,13 +507,26 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
         && activeDocumentOpenTransaction.value?.id === transaction.id
         && Date.now() < deadline
     ) {
-        if (workspaceHasDocumentOrOpenError()) {
-            return;
-        }
+        const workspace = mountedWorkspace.value;
+        if (workspace) {
+            const remainingMs = Math.max(0, deadline - Date.now());
+            if (remainingMs > 0) {
+                await Promise.race([
+                    workspace.waitForDocumentOpenSettled(),
+                    new Promise<void>((resolve) => {
+                        setTimeout(resolve, remainingMs);
+                    }),
+                ]);
+            }
 
-        await new Promise<void>((resolve) => {
-            setTimeout(resolve, 25);
-        });
+            if (workspaceHasDocumentOrOpenError()) {
+                return;
+            }
+        } else {
+            await new Promise<void>((resolve) => {
+                setTimeout(resolve, 25);
+            });
+        }
     }
 
     if (!workspaceHasDocumentOrOpenError()) {
@@ -1055,6 +1068,9 @@ const workspaceExpose: IWorkspaceExpose = {
     },
     closeAllDropdowns: () => {
         void withLoadedWorkspace('closeAllDropdowns', workspace => workspace.closeAllDropdowns());
+    },
+    waitForDocumentOpenSettled: async () => {
+        await withLoadedWorkspace('waitForDocumentOpenSettled', workspace => workspace.waitForDocumentOpenSettled());
     },
     getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
 };

@@ -8,6 +8,14 @@ import {
 
 const MAX_COLLAPSE_TIER = 5;
 const OVERFLOW_TOLERANCE_PX = 0.5;
+const NON_LAYOUT_ATTRIBUTE_NAMES = new Set([
+    'aria-disabled',
+    'aria-label',
+    'aria-pressed',
+    'class',
+    'disabled',
+    'title',
+]);
 
 export const useToolbarOverflow = () => {
     const toolbarRef = ref<HTMLElement | null>(null);
@@ -170,9 +178,23 @@ export const useToolbarOverflow = () => {
         scheduleRecalculation();
     });
 
-    useMutationObserver(toolbarRef, () => {
+    function shouldRecalculateForMutations(mutations: MutationRecord[]) {
+        return mutations.some((mutation) => {
+            if (mutation.type !== 'attributes') {
+                return true;
+            }
+
+            const attributeName = mutation.attributeName;
+            return !attributeName || !NON_LAYOUT_ATTRIBUTE_NAMES.has(attributeName);
+        });
+    }
+
+    useMutationObserver(toolbarRef, (mutations) => {
         if (suppressMutationEvents) {
             needsRecalculation = true;
+            return;
+        }
+        if (!shouldRecalculateForMutations(mutations)) {
             return;
         }
         scheduleRecalculation();

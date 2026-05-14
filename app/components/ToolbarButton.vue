@@ -77,7 +77,7 @@ function handleClick() {
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
+    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .toolbar-btn.is-toggle {
