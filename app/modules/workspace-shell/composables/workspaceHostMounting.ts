@@ -1,4 +1,5 @@
 import type { ITab } from '@app/types/tabs';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 
 interface IWorkspaceHostSignals {
     hasQueuedSplitRestore: boolean;
@@ -7,7 +8,7 @@ interface IWorkspaceHostSignals {
 }
 
 export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath' | 'isDjvu'>) {
-    return Boolean(tab.fileName || tab.originalPath || tab.isDjvu);
+    return tabHasDocumentHint(tab);
 }
 
 export function shouldAutoRequestWorkspace(signals: IWorkspaceHostSignals) {

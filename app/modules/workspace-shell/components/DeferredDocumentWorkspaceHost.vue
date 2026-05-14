@@ -103,6 +103,11 @@ import { useRecentFiles } from '@app/composables/useRecentFiles';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import {
+    buildPendingTabDocumentHint,
+    hasDocumentHintUpdate,
+    isEmptyTabDocumentUpdate,
+} from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import type { TStartSection } from '@app/types/startPage';
 
 const {
@@ -137,6 +142,16 @@ const emit = defineEmits<{
 }>();
 
 function handleUpdateTab(updates: TTabUpdate) {
+    if (activeDocumentOpenTransaction.value && isEmptyTabDocumentUpdate(updates)) {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Suppressing empty workspace tab update during document open', {
+            tabId: tabId,
+            transactionId: activeDocumentOpenTransaction.value.id,
+            action: activeDocumentOpenTransaction.value.action,
+            target: activeDocumentOpenTransaction.value.target,
+        });
+        return;
+    }
+
     emit('update-tab', updates);
 }
 
@@ -165,6 +180,19 @@ function handleToggleFullscreen() {
 }
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
+const DOCUMENT_OPEN_SETTLE_TIMEOUT_MS = 4_000;
+
+interface IDocumentOpenTransaction {
+    id: number;
+    action: string;
+    target: TTabUpdate | null;
+    seededTabHint: boolean;
+}
+
+interface IDocumentOpenIntent {
+    action: string;
+    target?: TTabUpdate | null;
+}
 
 const loadDocumentWorkspace = () => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
 const workspaceChunkLoadError = ref<unknown>(null);
@@ -207,6 +235,8 @@ const workspaceRef = ref<unknown>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
+let nextDocumentOpenTransactionId = 0;
+const activeDocumentOpenTransaction = ref<IDocumentOpenTransaction | null>(null);
 const documentOpenInFlightCount = ref(0);
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
@@ -236,10 +266,12 @@ const workspaceVisibleDocument = computed(() => {
     const snapshot = workspace.getToolbarSnapshot();
     return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument || snapshot.hasOpenError;
 });
+const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
 const isPlaceholderVisible = computed(() => (
     !isDocumentOpenInFlight.value
     && isStartupOpenClaimPending !== true
     && !hasQueuedSplitRestore.value
+    && !hasPendingDocumentHint.value
     && !workspaceVisibleDocument.value
 ));
 const workspaceLoadErrorDescription = computed(() => {
@@ -262,19 +294,20 @@ const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createDefaultWorkspac
 
 function readWorkspaceToolbarSnapshot() {
     const workspace = mountedWorkspace.value;
+    const isOpeningDocument = isDocumentOpenInFlight.value || hasPendingDocumentHint.value;
     if (isPlaceholderVisible.value) {
         lastToolbarSnapshot.value = createDefaultWorkspaceToolbarSnapshot();
         return {
             ...lastToolbarSnapshot.value,
-            isOpeningDocument: isDocumentOpenInFlight.value,
+            isOpeningDocument,
         };
     }
 
     if (!workspace) {
-        if (workspaceRequested.value || isDocumentOpenInFlight.value || hasQueuedSplitRestore.value) {
+        if (workspaceRequested.value || isOpeningDocument || hasQueuedSplitRestore.value) {
             return {
                 ...lastToolbarSnapshot.value,
-                isOpeningDocument: isDocumentOpenInFlight.value,
+                isOpeningDocument,
             };
         }
 
@@ -285,13 +318,16 @@ function readWorkspaceToolbarSnapshot() {
     const workspaceSnapshot = workspace.getToolbarSnapshot();
     const snapshot = {
         ...workspaceSnapshot,
-        isOpeningDocument: workspaceSnapshot.isOpeningDocument || isDocumentOpenInFlight.value,
+        isOpeningDocument: workspaceSnapshot.isOpeningDocument || isOpeningDocument,
     };
     lastToolbarSnapshot.value = snapshot;
     return snapshot;
 }
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(tabId));
-const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+const isDocumentOpenInFlight = computed(() => (
+    documentOpenInFlightCount.value > 0
+    || activeDocumentOpenTransaction.value !== null
+));
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
 let documentOpenQueue: Promise<unknown> = Promise.resolve();
@@ -305,6 +341,7 @@ const isHostLoaderVisible = computed(() => (
     !isHostErrorVisible.value && (
         isStartupOpenClaimPending === true
     || isDocumentOpenInFlight.value
+    || (workspaceRequested.value && hasPendingDocumentHint.value)
     || (workspaceRequested.value && !hasMountedWorkspace.value && shouldShowWorkspaceMountLoader.value)
     )
 ));
@@ -319,6 +356,12 @@ const loaderVariant = computed(() => {
 
     if (isStartupOpenClaimPending === true) {
         return 'startup-open:claiming';
+    }
+
+    if (hasPendingDocumentHint.value && workspaceRequested.value && !isDocumentOpenInFlight.value) {
+        return hasMountedWorkspace.value
+            ? 'document-hint:awaiting-open'
+            : 'document-hint:mounting-workspace';
     }
 
     if (isDocumentOpenInFlight.value && workspaceRequested.value && !hasMountedWorkspace.value) {
@@ -394,19 +437,149 @@ function workspaceHasPdf(workspace: IWorkspaceExpose) {
     return typeof value === 'boolean' ? value : value.value;
 }
 
-async function runWithDocumentOpenInFlight<T>(run: () => Promise<T>) {
-    documentOpenInFlightCount.value += 1;
-    try {
-        return await run();
-    } finally {
-        documentOpenInFlightCount.value = Math.max(0, documentOpenInFlightCount.value - 1);
+function workspaceHasDocumentOrOpenError() {
+    const workspace = mountedWorkspace.value;
+    if (!workspace) {
+        return false;
+    }
+
+    const snapshot = workspace.getToolbarSnapshot();
+    return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.hasOpenError;
+}
+
+function workspaceHasOpenedDocument() {
+    const workspace = mountedWorkspace.value;
+    if (!workspace) {
+        return false;
+    }
+
+    const snapshot = workspace.getToolbarSnapshot();
+    return snapshot.hasPdf || snapshot.isDjvuMode;
+}
+
+function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
+    return Boolean(
+        target
+        && hasDocumentHintUpdate(target)
+        && !workspaceHasOpenedDocument(),
+    );
+}
+
+function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
+    const target = intent.target ?? null;
+    const transaction: IDocumentOpenTransaction = {
+        id: ++nextDocumentOpenTransactionId,
+        action: intent.action,
+        target,
+        seededTabHint: shouldSeedPendingTabHint(target),
+    };
+
+    activeDocumentOpenTransaction.value = transaction;
+
+    if (transaction.seededTabHint && target) {
+        emit('update-tab', target);
+    }
+
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
+        tabId: tabId,
+        transactionId: transaction.id,
+        action: transaction.action,
+        seededTabHint: transaction.seededTabHint,
+        target: transaction.target,
+    });
+
+    return transaction;
+}
+
+async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransaction, opened: boolean) {
+    await nextTick();
+
+    if (!opened || workspaceHasDocumentOrOpenError()) {
+        return;
+    }
+
+    const deadline = Date.now() + DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
+    while (
+        !isHostUnmounted
+        && activeDocumentOpenTransaction.value?.id === transaction.id
+        && Date.now() < deadline
+    ) {
+        if (workspaceHasDocumentOrOpenError()) {
+            return;
+        }
+
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 25);
+        });
+    }
+
+    if (!workspaceHasDocumentOrOpenError()) {
+        BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
+            tabId: tabId,
+            transactionId: transaction.id,
+            action: transaction.action,
+            target: transaction.target,
+            timeoutMs: DOCUMENT_OPEN_SETTLE_TIMEOUT_MS,
+            hasMountedWorkspace: hasMountedWorkspace.value,
+        });
     }
 }
 
-async function enqueueDocumentOpen<T>(run: () => Promise<T>) {
+function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, opened: boolean) {
+    if (!opened && transaction.seededTabHint && !workspaceHasDocumentOrOpenError()) {
+        emit('update-tab', {
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+    }
+
+    if (activeDocumentOpenTransaction.value?.id === transaction.id) {
+        activeDocumentOpenTransaction.value = null;
+    }
+
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
+        tabId: tabId,
+        transactionId: transaction.id,
+        action: transaction.action,
+        opened,
+        hasTerminalDocumentState: workspaceHasDocumentOrOpenError(),
+    });
+}
+
+async function runWithDocumentOpenInFlight<T>(
+    intent: IDocumentOpenIntent,
+    run: () => Promise<T>,
+) {
+    const transaction = beginDocumentOpenTransaction(intent);
+    documentOpenInFlightCount.value += 1;
+    let result: T | undefined;
+    let didThrow = false;
+    try {
+        result = await run();
+        return result;
+    } catch (error) {
+        didThrow = true;
+        throw error;
+    } finally {
+        const opened = !didThrow && result !== false;
+        try {
+            await waitForDocumentOpenTerminalState(transaction, opened);
+        } finally {
+            finishDocumentOpenTransaction(transaction, opened);
+            documentOpenInFlightCount.value = Math.max(0, documentOpenInFlightCount.value - 1);
+        }
+    }
+}
+
+async function enqueueDocumentOpen<T>(
+    intent: IDocumentOpenIntent,
+    run: () => Promise<T>,
+) {
     const queuedRun = documentOpenQueue
         .catch(() => {})
-        .then(() => runWithDocumentOpenInFlight(run));
+        .then(() => runWithDocumentOpenInFlight(intent, run));
     documentOpenQueue = queuedRun.catch(() => {});
     return queuedRun;
 }
@@ -613,7 +786,10 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    return enqueueDocumentOpen(async () => {
+    return enqueueDocumentOpen({
+        action: 'openRecentFromPlaceholder',
+        target: buildPendingTabDocumentHint(file),
+    }, async () => {
         const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
         if (!preloadedWorkspace) {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
@@ -644,7 +820,10 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
-    return enqueueDocumentOpen(async () => withWorkspace(
+    return enqueueDocumentOpen({
+        action: 'openCombineResultFromPlaceholder',
+        target: buildPendingTabDocumentHint(result),
+    }, async () => withWorkspace(
         'openCombineResultFromPlaceholder',
         workspace => workspace.handleOpenFileWithResult(result),
     ));
@@ -656,7 +835,10 @@ async function handleOpenFileFromUi() {
         return false;
     }
 
-    return enqueueDocumentOpen(async () => withWorkspace(
+    return enqueueDocumentOpen({
+        action: 'handleOpenFileWithResultFromUi',
+        target: buildPendingTabDocumentHint(result),
+    }, async () => withWorkspace(
         'handleOpenFileWithResultFromUi',
         workspace => workspace.handleOpenFileWithResult(result),
     ));
@@ -721,10 +903,16 @@ const workspaceExpose: IWorkspaceExpose = {
         }
     },
     handleOpenFileDirectWithPersist: async (path: string) => {
-        return enqueueDocumentOpen(async () => openPath(path, 'handleOpenFileDirectWithPersist'));
+        return enqueueDocumentOpen({
+            action: 'handleOpenFileDirectWithPersist',
+            target: buildPendingTabDocumentHint(path),
+        }, async () => openPath(path, 'handleOpenFileDirectWithPersist'));
     },
     handleOpenFileDirectBatchWithPersist: async (paths: string[]) => {
-        return enqueueDocumentOpen(async () => (
+        return enqueueDocumentOpen({
+            action: 'handleOpenFileDirectBatchWithPersist',
+            target: null,
+        }, async () => (
             withWorkspace(
                 'handleOpenFileDirectBatchWithPersist',
                 workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
@@ -732,7 +920,10 @@ const workspaceExpose: IWorkspaceExpose = {
         ));
     },
     handleOpenFileWithResult: async (result: TOpenFileResult) => {
-        return enqueueDocumentOpen(async () => withWorkspace(
+        return enqueueDocumentOpen({
+            action: 'handleOpenFileWithResult',
+            target: buildPendingTabDocumentHint(result),
+        }, async () => withWorkspace(
             'handleOpenFileWithResult',
             workspace => workspace.handleOpenFileWithResult(result),
         ));
@@ -741,7 +932,10 @@ const workspaceExpose: IWorkspaceExpose = {
         await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options));
     },
     openRecentFile: async (file: IRecentFile) => {
-        return enqueueDocumentOpen(async () => withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file)));
+        return enqueueDocumentOpen({
+            action: 'openRecentFile',
+            target: buildPendingTabDocumentHint(file),
+        }, async () => withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file)));
     },
     handleExportDocx: async () => {
         await withLoadedWorkspace('handleExportDocx', workspace => workspace.handleExportDocx());
@@ -845,7 +1039,10 @@ const workspaceExpose: IWorkspaceExpose = {
             return;
         }
 
-        await enqueueDocumentOpen(restorePayload);
+        await enqueueDocumentOpen({
+            action: 'restoreSplitPayload',
+            target: null,
+        }, restorePayload);
     },
     closeAllDropdowns: () => {
         void withLoadedWorkspace('closeAllDropdowns', workspace => workspace.closeAllDropdowns());

@@ -176,6 +176,38 @@ describe('useWorkspaceUiSyncWatchers', () => {
         });
     });
 
+    it('does not emit an initial empty tab state while a parent open hint owns the tab', async () => {
+        const deps = createWatcherDeps();
+
+        useWorkspaceUiSyncWatchers(deps);
+        await nextTick();
+
+        expect(deps.emitUpdateTab).not.toHaveBeenCalled();
+    });
+
+    it('emits an empty tab state after a previously opened document closes', async () => {
+        const fileName = ref<string | null>('paper.pdf');
+        const originalPath = ref<string | null>('/docs/paper.pdf');
+        const deps = createWatcherDeps({
+            fileName,
+            originalPath,
+        });
+
+        useWorkspaceUiSyncWatchers(deps);
+        await nextTick();
+
+        fileName.value = null;
+        originalPath.value = null;
+        await nextTick();
+
+        expect(deps.emitUpdateTab).toHaveBeenLastCalledWith({
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+    });
+
     it('opens pending DjVu paths and clears pending state', async () => {
         const deps = createWatcherDeps();
         useWorkspaceUiSyncWatchers(deps);

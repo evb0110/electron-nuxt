@@ -5,6 +5,7 @@ import type {
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import type { IEditorGroupState } from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
@@ -42,44 +43,6 @@ interface IUseAppShellWorkspaceRoutingOptions {
 }
 
 type TOpenDocumentTarget = TDocumentRef | TOpenFileResult;
-
-function decodeDocumentFileName(segment: string) {
-    try {
-        return decodeURIComponent(segment);
-    } catch {
-        return segment;
-    }
-}
-
-function getDocumentRefFileName(ref: TDocumentRef) {
-    const lastSegment = ref.split(/[\\/]/u).at(-1) ?? '';
-    if (!lastSegment) {
-        return null;
-    }
-
-    return decodeDocumentFileName(lastSegment);
-}
-
-function buildPendingTabDocumentHint(pathOrResult: TOpenDocumentTarget): Partial<ITab> {
-    if (typeof pathOrResult === 'string') {
-        const fileName = getDocumentRefFileName(pathOrResult);
-        return {
-            fileName,
-            originalPath: pathOrResult,
-            isDjvu: /\.djvu?$/iu.test(fileName ?? pathOrResult),
-        };
-    }
-
-    const fileName = getDocumentRefFileName(
-        pathOrResult.originalPath || (pathOrResult.kind === 'pdf' ? pathOrResult.workingPath : ''),
-    );
-
-    return {
-        fileName,
-        originalPath: pathOrResult.originalPath,
-        isDjvu: pathOrResult.kind === 'djvu',
-    };
-}
 
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
