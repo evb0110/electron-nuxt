@@ -3,7 +3,9 @@
     "compilerOptions": {
         "composite": false,
         "declaration": false,
-        "emitDeclarationOnly": false
+        "emitDeclarationOnly": false,
+        "noEmit": true,
+        "baseUrl": "../.."
     },
     "include": [
         "./**/*.ts"

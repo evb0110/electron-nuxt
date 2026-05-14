@@ -11,6 +11,7 @@ import {
 import type {
     IBrowserPageOpsWorkerResultMap,
     IBrowserPageOpsWorkerRequest,
+    TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { getErrorMessage } from '@app/utils/error';
@@ -102,49 +103,47 @@ async function handleGetPageGeometryRequest(
 }
 
 async function handleRequest(
-    request: IBrowserPageOpsWorkerRequest,
+    request: TBrowserPageOpsWorkerRequest,
 ) {
     switch (request.type) {
         case 'deletePages':
-            return handleDeleteRequest(request as IBrowserPageOpsWorkerRequest<'deletePages'>);
+            return handleDeleteRequest(request);
         case 'extractPages':
-            return handleExtractRequest(request as IBrowserPageOpsWorkerRequest<'extractPages'>);
+            return handleExtractRequest(request);
         case 'reorderPages':
-            return handleReorderRequest(request as IBrowserPageOpsWorkerRequest<'reorderPages'>);
+            return handleReorderRequest(request);
         case 'insertPages':
-            return handleInsertRequest(request as IBrowserPageOpsWorkerRequest<'insertPages'>);
+            return handleInsertRequest(request);
         case 'rotate':
-            return handleRotateRequest(request as IBrowserPageOpsWorkerRequest<'rotate'>);
+            return handleRotateRequest(request);
         case 'crop':
-            return handleCropRequest(request as IBrowserPageOpsWorkerRequest<'crop'>);
+            return handleCropRequest(request);
         case 'removeCrop':
-            return handleRemoveCropRequest(request as IBrowserPageOpsWorkerRequest<'removeCrop'>);
+            return handleRemoveCropRequest(request);
         case 'getPageGeometry':
-            return handleGetPageGeometryRequest(request as IBrowserPageOpsWorkerRequest<'getPageGeometry'>);
-        default:
-            throw new Error(`Unsupported browser page-op worker request: ${String(request.type)}`);
+            return handleGetPageGeometryRequest(request);
     }
 }
 
-self.addEventListener('message', async (event: MessageEvent<IBrowserPageOpsWorkerRequest>) => {
+self.addEventListener('message', async (event: MessageEvent<TBrowserPageOpsWorkerRequest>) => {
     const request = event.data;
 
     try {
         const data = await handleRequest(request);
         if (request.type === 'getPageGeometry') {
-            const response: TBrowserPageOpsWorkerResponse = {
+            const response = {
                 id: request.id,
                 type: request.type,
                 ok: true,
                 data: data as IBrowserPageOpsWorkerResultMap['getPageGeometry'],
-            };
+            } satisfies TBrowserPageOpsWorkerResponse;
             self.postMessage(response);
             return;
         }
 
         const mutationResult = data as IBrowserPageOpsWorkerResultMap['rotate'];
         const transferableData = toTransferableUint8Array(mutationResult.data);
-        const response: TBrowserPageOpsWorkerResponse = {
+        const response = {
             id: request.id,
             type: request.type,
             ok: true,
@@ -152,14 +151,14 @@ self.addEventListener('message', async (event: MessageEvent<IBrowserPageOpsWorke
                 ...mutationResult,
                 data: transferableData,
             },
-        };
+        } satisfies TBrowserPageOpsWorkerResponse;
         self.postMessage(response, [transferableData.buffer]);
     } catch (error) {
-        const response: TBrowserPageOpsWorkerResponse = {
+        const response = {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
-        };
+        } satisfies TBrowserPageOpsWorkerResponse;
         self.postMessage(response);
     }
 });

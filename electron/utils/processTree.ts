@@ -17,12 +17,12 @@ interface IProcessTreeRuntime {
 }
 
 // Keep runtime hooks narrow so tests can avoid mocking global process state.
-export const processTreeRuntime: IProcessTreeRuntime = {
+export const processTreeRuntime = {
     delay,
     kill: process.kill.bind(process),
     now: () => Date.now(),
     spawn,
-};
+} satisfies IProcessTreeRuntime;
 
 function isPidAlive(pid: number) {
     if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {

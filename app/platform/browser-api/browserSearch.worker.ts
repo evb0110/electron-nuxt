@@ -4,6 +4,7 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageText } from '@app/platform/browser-api/browserSearchText';
 import type {
     IBrowserSearchWorkerRequest,
+    TBrowserSearchWorkerRequest,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import { getErrorMessage } from '@app/utils/error';
@@ -28,7 +29,7 @@ async function handleExtractDocumentTextRequest(
 
             const page = await pdfDocument.getPage(pageNumber);
             pageTexts[pageNumber - 1] = await extractBrowserSearchPageText(page);
-            const progress: TBrowserSearchWorkerResponse = {
+            const progress = {
                 id: request.id,
                 type: request.type,
                 ok: true,
@@ -36,7 +37,7 @@ async function handleExtractDocumentTextRequest(
                     processed: pageNumber,
                     total: pdfDocument.numPages,
                 },
-            };
+            } satisfies TBrowserSearchWorkerResponse;
             self.postMessage(progress);
             await yieldToBrowser();
         }
@@ -58,40 +59,36 @@ function handleCancelRequest(
     return { canceled: true };
 }
 
-self.addEventListener('message', async (event: MessageEvent<IBrowserSearchWorkerRequest>) => {
+self.addEventListener('message', async (event: MessageEvent<TBrowserSearchWorkerRequest>) => {
     const request = event.data;
 
     try {
         if (request.type === 'cancel') {
-            const data = handleCancelRequest(
-                request as IBrowserSearchWorkerRequest<'cancel'>,
-            );
-            const response: TBrowserSearchWorkerResponse = {
+            const data = handleCancelRequest(request);
+            const response = {
                 id: request.id,
                 type: request.type,
                 ok: true,
                 data,
-            };
+            } satisfies TBrowserSearchWorkerResponse;
             self.postMessage(response);
             return;
         }
 
-        const data = await handleExtractDocumentTextRequest(
-            request as IBrowserSearchWorkerRequest<'extractDocumentText'>,
-        );
-        const response: TBrowserSearchWorkerResponse = {
+        const data = await handleExtractDocumentTextRequest(request);
+        const response = {
             id: request.id,
             type: request.type,
             ok: true,
             data,
-        };
+        } satisfies TBrowserSearchWorkerResponse;
         self.postMessage(response);
     } catch (error) {
-        const response: TBrowserSearchWorkerResponse = {
+        const response = {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
-        };
+        } satisfies TBrowserSearchWorkerResponse;
         self.postMessage(response);
     }
 });

@@ -77,7 +77,7 @@ function onBrowserZenModeChange(callback: (state: IHostZenModeState) => void) {
     };
 }
 
-export const browserHostCapability: IHostCapability = {
+export const browserHostCapability = {
     getEnvironment() {
         return Promise.resolve(snapshotBrowserHostEnvironment());
     },
@@ -89,4 +89,4 @@ export const browserHostCapability: IHostCapability = {
         return setBrowserZenMode(active);
     },
     onZenModeChange: onBrowserZenModeChange,
-};
+} satisfies IHostCapability;

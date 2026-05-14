@@ -1,6 +1,6 @@
 import type { IAnnotationSettings } from '@app/types/annotations';
 
-export const DEFAULT_ANNOTATION_SETTINGS: IAnnotationSettings = {
+export const DEFAULT_ANNOTATION_SETTINGS = {
     highlightColor: '#ffd400',
     highlightOpacity: 0.35,
     highlightThickness: 12,
@@ -21,7 +21,7 @@ export const DEFAULT_ANNOTATION_SETTINGS: IAnnotationSettings = {
     shapeFillColor: 'transparent',
     shapeOpacity: 1,
     shapeStrokeWidth: 2,
-};
+} satisfies IAnnotationSettings;
 
 export const ANNOTATION_PROPERTY_RANGES = {
     highlightThickness: {

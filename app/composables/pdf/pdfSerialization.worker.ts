@@ -84,21 +84,21 @@ self.addEventListener('message', async (event: MessageEvent<TSerializationWorker
     try {
         const data = await handleRequest(request);
         const transferableData = data ? toTransferableUint8Array(data) : null;
-        const response: TSerializationWorkerResponse = {
+        const response = {
             id: request.id,
             ok: true,
             data: transferableData,
-        };
+        } satisfies TSerializationWorkerResponse;
         self.postMessage(
             response,
             transferableData ? [transferableData.buffer] : [],
         );
     } catch (error) {
-        const response: TSerializationWorkerResponse = {
+        const response = {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
-        };
+        } satisfies TSerializationWorkerResponse;
         self.postMessage(response);
     }
 });

@@ -65,6 +65,10 @@ interface IBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestTyp
     payload: IBrowserPageOpsWorkerRequestMap[K];
 }
 
+type TBrowserPageOpsWorkerRequest = {
+    [K in TBrowserPageOpsWorkerRequestType]: IBrowserPageOpsWorkerRequest<K>;
+}[TBrowserPageOpsWorkerRequestType];
+
 type TBrowserPageOpsWorkerResponse =
     | {
         [K in TBrowserPageOpsWorkerRequestType]: {
@@ -85,6 +89,7 @@ export type {
     IBrowserPageOpsWorkerResultMap,
     IPageMutationWorkerResult,
     IBrowserPageOpsWorkerRequest,
+    TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
     TBrowserPageOpsWorkerResponse,
 };

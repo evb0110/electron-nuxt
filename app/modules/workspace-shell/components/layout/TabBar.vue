@@ -98,12 +98,12 @@ import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
-const DIRECTION_ORDER: TGroupDirection[] = [
+const DIRECTION_ORDER = [
     'right',
     'left',
     'up',
     'down',
-];
+] as const satisfies readonly TGroupDirection[];
 type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy';
 type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty' | 'focus' | 'move' | 'copy'>;
 type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TGroupDirection }>;
