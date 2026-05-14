@@ -44,6 +44,11 @@ interface IUseAppShellWorkspaceRoutingOptions {
 
 type TOpenDocumentTarget = TDocumentRef | TOpenFileResult;
 
+interface IOpenInExistingTabOptions {
+    documentHintAlreadySeeded?: boolean;
+    reuseAlreadyReserved?: boolean;
+}
+
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
         return workspace.getToolbarSnapshot();
@@ -132,8 +137,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         return workspace.handleOpenFileWithResult(pathOrResult);
     }
 
-    async function openInExistingTab(tabId: string, pathOrResult: TOpenDocumentTarget) {
-        seedTabDocumentHint(tabId, pathOrResult);
+    async function openInExistingTab(
+        tabId: string,
+        pathOrResult: TOpenDocumentTarget,
+        openOptions: IOpenInExistingTabOptions = {},
+    ) {
         const workspace = activeTabId.value === tabId
             ? activeWorkspace.value ?? await resolveWorkspaceForTab(tabId)
             : await resolveWorkspaceForTab(tabId);
@@ -141,10 +149,13 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        if (workspaceOccupiesTab(workspace)) {
+        if (!openOptions.reuseAlreadyReserved && workspaceOccupiesTab(workspace)) {
             return false;
         }
 
+        if (!openOptions.documentHintAlreadySeeded) {
+            seedTabDocumentHint(tabId, pathOrResult);
+        }
         await openDocumentInWorkspace(workspace, pathOrResult);
         return true;
     }
@@ -268,7 +279,15 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             if (canReuseActiveTab && initialActiveTab) {
                 seedTabDocumentHint(initialActiveTab.id, path);
                 canReuseActiveTab = false;
-                startupOpenTasks.push(openInExistingTab(initialActiveTab.id, path).then(() => undefined));
+                startupOpenTasks.push((async () => {
+                    const opened = await openInExistingTab(initialActiveTab.id, path, {
+                        documentHintAlreadySeeded: true,
+                        reuseAlreadyReserved: true,
+                    });
+                    if (!opened) {
+                        throw new Error('Startup active tab was not available for external open');
+                    }
+                })());
                 continue;
             }
 
@@ -287,17 +306,19 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             })());
         }
 
+        const startupOpenResults = await Promise.allSettled(startupOpenTasks);
         for (const [
             index,
-            task,
-        ] of startupOpenTasks.entries()) {
-            void task.catch((error: unknown) => {
+            result,
+        ] of startupOpenResults.entries()) {
+            if (result.status === 'rejected') {
+                const reason: unknown = result.reason;
                 BrowserLogger.warn('workspace-routing', 'Failed to begin startup external path open', {
                     path: normalizedPaths[index],
                     pathIndex: index,
-                    error,
+                    error: reason,
                 });
-            });
+            }
         }
 
         await nextTick();

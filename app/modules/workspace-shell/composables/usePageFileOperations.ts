@@ -247,7 +247,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path aborted by persistence gate', { path });
             return false;
         }
-        const outcome = await openFileDirect(path);
+        let outcome = await openFileDirect(path);
+        if (outcome.status === 'stale' && !pdfSrc.value) {
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying stale direct open once before returning to empty state', { path });
+            outcome = await openFileDirect(path);
+        }
         const opened = didOpenDocument(outcome);
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect resolved', {
             path,

@@ -25,13 +25,13 @@ interface IExternalOpenManager {
     queueOpenRequestFromArgs(args: string[]): void;
     requestMainWindowForExternalOpen(): void;
     scheduleFlushPendingFiles(): void;
-    claimPendingOpenPaths(): string[];
+    claimPendingOpenPaths(): Promise<string[]>;
     markBootstrapReady(): void;
 }
 
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (event: IpcMainInvokeEvent) => string[];
+    claimPendingExternalOpenPaths?: (event: IpcMainInvokeEvent) => Promise<string[]>;
 }
 
 export interface IRunInitSequenceOptions {
@@ -183,13 +183,13 @@ function bootIpc(options: IRunInitSequenceOptions) {
                 maybePromptForDefaultViewer();
             }
         },
-        claimPendingExternalOpenPaths: (event) => {
+        claimPendingExternalOpenPaths: async (event) => {
             const window = getWindowFromWebContents(event.sender);
             if (!window || window.id !== getMainWindow()?.id) {
                 return [];
             }
 
-            const paths = externalOpenManager.claimPendingOpenPaths();
+            const paths = await externalOpenManager.claimPendingOpenPaths();
             allowOpenPaths(paths, event.sender);
             return paths;
         },

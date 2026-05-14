@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
     shouldHandleRendererMenuAccelerators: vi.fn(),
     registerTabsMenuBindings: vi.fn(() => []),
     getPlatformAPI: vi.fn(() => ({})),
-    claimPendingExternalOpenPaths: vi.fn(async () => []),
+    claimPendingExternalOpenPaths: vi.fn(async (): Promise<string[]> => []),
     notifyRendererReady: vi.fn(),
 }));
 
@@ -144,6 +144,31 @@ describe('useTabsShellBindings', () => {
         expect(statesWhenEnsuringTabs).toEqual([true]);
 
         await flushMountedStartupClaim();
+        expect(options.isStartupOpenClaimPending.value).toBe(false);
+        expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        unmount();
+    });
+
+    it('waits for claimed startup external paths before notifying renderer readiness', async () => {
+        const options = createOptions();
+        let resolveStartupOpen: (() => void) | undefined;
+        options.beginOpenPathsInAppropriateTab = vi.fn(() => new Promise<void>((resolve) => {
+            resolveStartupOpen = resolve;
+        }));
+        mocks.claimPendingExternalOpenPaths.mockResolvedValue(['/tmp/startup.pdf']);
+
+        const unmount = await mountBindingsClient(options);
+        await Promise.resolve();
+        await Promise.resolve();
+        await nextTick();
+
+        expect(options.beginOpenPathsInAppropriateTab).toHaveBeenCalledWith(['/tmp/startup.pdf']);
+        expect(options.isStartupOpenClaimPending.value).toBe(true);
+        expect(mocks.notifyRendererReady).not.toHaveBeenCalled();
+
+        resolveStartupOpen?.();
+        await flushMountedStartupClaim();
+
         expect(options.isStartupOpenClaimPending.value).toBe(false);
         expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
         unmount();

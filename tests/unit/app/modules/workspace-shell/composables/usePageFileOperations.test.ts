@@ -9,6 +9,7 @@ import { ref } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { TPdfSource } from '@app/types/pdf';
 
 const {
     mockHasElectronAPI,
@@ -168,6 +169,49 @@ describe('usePageFileOperations', () => {
                 status: 'failed',
                 error: 'not allowed',
             },
+        );
+    });
+
+    it('retries one stale direct open when no document reached renderer state', async () => {
+        const infoSpy = vi.spyOn(BrowserLogger, 'info').mockImplementation(() => {});
+        const pdfSrc = ref<TPdfSource | null>(null);
+        let openAttempt = 0;
+        const openFileDirect = vi.fn(async (path: string) => {
+            openAttempt += 1;
+            if (openAttempt === 1) {
+                return {
+                    status: 'stale' as const,
+                    result: {
+                        kind: 'pdf' as const,
+                        originalPath: path,
+                        workingPath: '/tmp/stale-working.pdf',
+                    },
+                };
+            }
+
+            pdfSrc.value = {
+                kind: 'path',
+                path,
+                size: 1,
+            };
+            return openedOutcome(path);
+        });
+        const deps = createDeps({
+            pdfSrc,
+            openFileDirect,
+        });
+        const { handleOpenFileDirectWithPersist } = usePageFileOperations(deps);
+
+        await expect(handleOpenFileDirectWithPersist('/tmp/startup.pdf')).resolves.toBe(true);
+
+        expect(openFileDirect).toHaveBeenCalledTimes(2);
+        expect(openFileDirect).toHaveBeenNthCalledWith(1, '/tmp/startup.pdf');
+        expect(openFileDirect).toHaveBeenNthCalledWith(2, '/tmp/startup.pdf');
+        expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
+        expect(infoSpy).toHaveBeenCalledWith(
+            'recent-open',
+            'Retrying stale direct open once before returning to empty state',
+            { path: '/tmp/startup.pdf' },
         );
     });
 
