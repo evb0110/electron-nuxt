@@ -32,8 +32,21 @@ import {
 } from './helpers/viewerHelpers';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
+const REOPEN_NOTE_TIMEOUT_MS = 45_000;
+const RENDERER_SNAPSHOT_TIMEOUT_MS = 5_000;
 const runLargePdfE2E = process.env.EVB_E2E_LARGE_PDF === '1' && Boolean(resolveLargePdfFixturePath());
 const largePdfIt = runLargePdfE2E ? it : it.skip;
+
+interface INoteWindowSnapshot {
+    textareaValues: string[];
+    noteWindowCount: number;
+    pageCount: number;
+    renderedContentCount: number;
+    markerLabels: string[];
+    activeHostVisible: boolean;
+    saveState: string | null;
+    errorText: string | null;
+}
 
 function getPdfStringValue(value: unknown) {
     if (value instanceof PDFHexString || value instanceof PDFString) {
@@ -115,10 +128,132 @@ async function placePageNote(page: Page, text: string) {
 }
 
 async function waitForOpenNoteText(page: Page, expectedText: string) {
-    await page.waitForFunction((text: string) => (
-        Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
-            .some(textarea => textarea.value === text)
-    ), { timeout: LARGE_PDF_TIMEOUT_MS }, expectedText);
+    const startedAt = Date.now();
+    let lastSnapshot: INoteWindowSnapshot | null = null;
+    let lastError: Error | null = null;
+
+    while (Date.now() - startedAt < REOPEN_NOTE_TIMEOUT_MS) {
+        try {
+            lastSnapshot = await withTimeout(
+                readNoteWindowSnapshot(page),
+                RENDERER_SNAPSHOT_TIMEOUT_MS,
+                'Renderer did not respond while waiting for the reopened large-PDF note',
+            );
+            if (lastSnapshot.textareaValues.includes(expectedText)) {
+                return;
+            }
+        } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            break;
+        }
+
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 500);
+        });
+    }
+
+    const detail = lastSnapshot
+        ? JSON.stringify(lastSnapshot)
+        : (lastError?.message ?? 'no renderer snapshot available');
+    throw new Error(`Expected reopened large-PDF note text within ${REOPEN_NOTE_TIMEOUT_MS}ms. Last state: ${detail}`);
+}
+
+async function openPersistedNoteMarker(page: Page, expectedText: string) {
+    const startedAt = Date.now();
+    let lastSnapshot: INoteWindowSnapshot | null = null;
+    let lastError: Error | null = null;
+
+    while (Date.now() - startedAt < REOPEN_NOTE_TIMEOUT_MS) {
+        try {
+            const clickedLabel = await withTimeout(
+                clickPersistedNoteMarker(page, expectedText),
+                RENDERER_SNAPSHOT_TIMEOUT_MS,
+                'Renderer did not respond while locating the reopened large-PDF note marker',
+            );
+            if (clickedLabel) {
+                return;
+            }
+            lastSnapshot = await withTimeout(
+                readNoteWindowSnapshot(page),
+                RENDERER_SNAPSHOT_TIMEOUT_MS,
+                'Renderer did not respond while snapshotting reopened large-PDF markers',
+            );
+        } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            break;
+        }
+
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 500);
+        });
+    }
+
+    const detail = lastSnapshot
+        ? JSON.stringify(lastSnapshot)
+        : (lastError?.message ?? 'no renderer snapshot available');
+    throw new Error(`Expected reopened large-PDF note marker within ${REOPEN_NOTE_TIMEOUT_MS}ms. Last state: ${detail}`);
+}
+
+async function clickPersistedNoteMarker(page: Page, expectedText: string) {
+    return page.evaluate((text: string): string | null => {
+        const markers = Array.from(document.querySelectorAll<HTMLButtonElement>('.pdf-comment-marker-button'));
+        const target = markers.find((marker) =>
+            marker.getAttribute('aria-label')?.includes(text),
+        );
+        if (!target) {
+            return null;
+        }
+        const label = target.getAttribute('aria-label') ?? '';
+        target.click();
+        return label;
+    }, expectedText);
+}
+
+async function readNoteWindowSnapshot(page: Page) {
+    return page.evaluate((): INoteWindowSnapshot => {
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHostRect = activeHost?.getBoundingClientRect();
+        const activeHostStyle = activeHost ? window.getComputedStyle(activeHost) : null;
+        const errorText = document.querySelector<HTMLElement>('[role="alert"], .app-error-boundary, .app-error')?.innerText?.trim() ?? null;
+        const markers = Array.from(document.querySelectorAll<HTMLButtonElement>('.pdf-comment-marker-button'));
+        return {
+            textareaValues: Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
+                .map(textarea => textarea.value),
+            noteWindowCount: document.querySelectorAll('.note-window').length,
+            pageCount: document.querySelectorAll('.page_container').length,
+            renderedContentCount: document.querySelectorAll('.page_canvas canvas, .text-layer span, .textLayer span').length,
+            markerLabels: markers.map(marker => marker.getAttribute('aria-label') ?? ''),
+            activeHostVisible: Boolean(
+                activeHostRect
+                && activeHostStyle
+                && activeHostRect.width > 100
+                && activeHostRect.height > 100
+                && activeHostStyle.display !== 'none'
+                && activeHostStyle.visibility !== 'hidden',
+            ),
+            saveState: document.querySelector<HTMLButtonElement>('.status-save-dot-button')?.getAttribute('aria-label') ?? null,
+            errorText,
+        };
+    });
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    promise.catch(() => undefined);
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_resolve, reject) => {
+                timeout = setTimeout(() => {
+                    reject(new Error(`${message} within ${timeoutMs}ms`));
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+    }
 }
 
 async function waitForCleanSaveState(page: Page) {
@@ -169,6 +304,7 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
         console.info('[large-pdf-e2e] reopening fixture');
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
+        await openPersistedNoteMarker(page, firstText);
         await waitForOpenNoteText(page, firstText);
     }, LARGE_PDF_TIMEOUT_MS);
 });
