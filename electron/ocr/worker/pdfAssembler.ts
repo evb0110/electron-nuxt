@@ -1,22 +1,17 @@
 import {
-    readFile,
     stat,
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
-import { PDFDocument } from 'pdf-lib';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runOcrCommand } from '@electron/ocr/worker/runCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-const PDF_ASSEMBLER_MAX_INPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_PDF_ASSEMBLER_MAX_INPUT_MB ?? '1024', 10);
-    if (!Number.isFinite(parsed) || parsed < 64) {
-        return 1024 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
+const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
+    0,
+    3,
+];
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -24,21 +19,18 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-async function readBoundedFile(path: string, label: string, signal?: AbortSignal) {
-    throwIfAborted(signal);
+async function assertNonEmptyFile(path: string, label: string) {
     const fileStat = await stat(path);
-    if (fileStat.size > PDF_ASSEMBLER_MAX_INPUT_BYTES) {
-        throw new Error(`${label} is too large to assemble safely (${fileStat.size} bytes)`);
+    if (fileStat.size <= 0) {
+        throw new Error(`${label} is empty: ${path}`);
     }
-    const bytes = await readFile(path);
-    throwIfAborted(signal);
-    return bytes;
 }
 
 export async function getPageCount(
     qpdfBinary: string,
     pdfPath: string,
     fallback: number,
+    signal?: AbortSignal,
 ): Promise<number> {
     try {
         const result = await runOcrCommand(qpdfBinary, [
@@ -46,6 +38,7 @@ export async function getPageCount(
             pdfPath,
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
+            signal,
             commandLabel: 'qpdf(show-npages)',
         });
         const parsed = parseInt((result.stdout ?? '').trim(), 10);
@@ -58,7 +51,53 @@ export async function getPageCount(
     return fallback;
 }
 
+function buildOriginalPageRange(start: number, end: number) {
+    if (start > end) {
+        return null;
+    }
+    if (start === end) {
+        return String(start);
+    }
+    return `${start}-${end}`;
+}
+
+function buildReplacementPageArgs(
+    originalPdfPath: string,
+    ocrPdfMap: Map<number, string>,
+    pageCount: number,
+) {
+    const args: string[] = [];
+    let nextOriginalPage = 1;
+    const replacementPages = Array.from(ocrPdfMap.entries())
+        .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount)
+        .sort(([a], [b]) => a - b);
+
+    for (const [
+        pageNumber,
+        ocrPdfPath,
+    ] of replacementPages) {
+        const originalRange = buildOriginalPageRange(nextOriginalPage, pageNumber - 1);
+        if (originalRange) {
+            args.push(originalPdfPath, originalRange);
+        }
+        args.push(ocrPdfPath, '1');
+        nextOriginalPage = pageNumber + 1;
+    }
+
+    const tailRange = buildOriginalPageRange(nextOriginalPage, pageCount);
+    if (tailRange) {
+        args.push(originalPdfPath, tailRange);
+    }
+
+    return args;
+}
+
+async function writeQpdfArgFile(path: string, args: string[]) {
+    await writeFile(path, `${args.join('\n')}\n`, 'utf8');
+}
+
 export async function assembleSearchablePdf(
+    qpdfBinary: string,
     originalPdfPath: string,
     ocrPdfMap: Map<number, string>,
     pageImageMap: Map<number, string>,
@@ -69,57 +108,37 @@ export async function assembleSearchablePdf(
     trackTempFile: (path: string) => string,
     signal?: AbortSignal,
 ): Promise<string> {
-    log('debug', `Replacing ${ocrPdfMap.size} page(s) with rasterized OCR pages`);
-
-    const originalPdfBytes = await readBoundedFile(originalPdfPath, 'Original PDF', signal);
-    const originalPdf = await PDFDocument.load(originalPdfBytes, { updateMetadata: false });
-    const outputDoc = await PDFDocument.create();
-
-    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-        throwIfAborted(signal);
-        const ocrPath = ocrPdfMap.get(pageNum);
-        const imagePath = pageImageMap.get(pageNum);
-        if (!ocrPath || !imagePath) {
-            const [copiedPage] = await outputDoc.copyPages(originalPdf, [pageNum - 1]);
-            if (copiedPage) {
-                outputDoc.addPage(copiedPage);
-            }
-            continue;
-        }
-
-        const sourcePage = originalPdf.getPage(pageNum - 1);
-        const {
-            width,
-            height,
-        } = sourcePage.getSize();
-
-        const outputPage = outputDoc.addPage([
-            width,
-            height,
-        ]);
-        const pageImage = await outputDoc.embedPng(await readBoundedFile(imagePath, `OCR page image ${pageNum}`, signal));
-        outputPage.drawImage(pageImage, {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        });
-
-        const ocrPdfBytes = await readBoundedFile(ocrPath, `OCR PDF page ${pageNum}`, signal);
-        const ocrPdf = await PDFDocument.load(ocrPdfBytes, { updateMetadata: false });
-        const ocrPage = ocrPdf.getPage(0);
-        const embeddedOcrPage = await outputDoc.embedPage(ocrPage);
-        outputPage.drawPage(embeddedOcrPage, {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        });
-    }
-
     throwIfAborted(signal);
+    log('debug', `Replacing ${ocrPdfMap.size} page(s) with qpdf page splicing (${pageImageMap.size} rendered image(s) produced)`);
+    await assertNonEmptyFile(originalPdfPath, 'Original PDF');
+    await Promise.all(Array.from(ocrPdfMap.entries()).map(
+        ([
+            pageNumber,
+            ocrPath,
+        ]) => assertNonEmptyFile(ocrPath, `OCR PDF page ${pageNumber}`),
+    ));
+
     const replacementPdfPath = trackTempFile(join(tempDir, `${sessionId}-merged.pdf`));
-    await writeFile(replacementPdfPath, await outputDoc.save());
+    const argFilePath = trackTempFile(join(tempDir, `${sessionId}-qpdf-pages.args`));
+    const args = [
+        originalPdfPath,
+        '--pages',
+        ...buildReplacementPageArgs(originalPdfPath, ocrPdfMap, pageCount),
+        '--',
+        replacementPdfPath,
+    ];
+    await writeQpdfArgFile(argFilePath, args);
     throwIfAborted(signal);
+
+    await runOcrCommand(qpdfBinary, [`@${argFilePath}`], {
+        timeoutMs: QPDF_TIMEOUT_MS,
+        allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+        signal,
+        commandLabel: 'qpdf(ocr-assemble)',
+        log,
+    });
+    await assertNonEmptyFile(replacementPdfPath, 'Assembled OCR PDF');
+    throwIfAborted(signal);
+
     return replacementPdfPath;
 }

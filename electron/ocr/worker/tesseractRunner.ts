@@ -88,8 +88,6 @@ export async function runOcrFileBased(
         'tessedit_create_tsv=1',
         '-c',
         'tessedit_create_pdf=1',
-        '-c',
-        'textonly_pdf=1',
     ];
 
     return new Promise((resolve) => {

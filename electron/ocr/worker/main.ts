@@ -736,6 +736,7 @@ async function assembleMergedOcrPdf(
 ) {
     try {
         return await assembleSearchablePdf(
+            paths.qpdfBinary,
             sourcePdfPath,
             ocrPdfMap,
             pageImageMap,
@@ -829,7 +830,7 @@ async function processOcrJob(
 
         const ocrPageNumbers = Array.from(ocrPdfMap.keys()).sort((a, b) => a - b);
         const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
-        const pageCount = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage);
+        const pageCount = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage, abortController.signal);
 
         const mergedPdfPath = await assembleMergedOcrPdf(
             jobId,

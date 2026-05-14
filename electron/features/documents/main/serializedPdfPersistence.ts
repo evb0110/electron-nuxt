@@ -54,6 +54,19 @@ export interface IBeginSerializedPdfSaveAsResult {
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
 
+export function getPdfPersistencePortMessageData(messageEvent: unknown) {
+    const data = messageEvent && typeof messageEvent === 'object' && 'data' in messageEvent
+        ? messageEvent.data
+        : null;
+    if (
+        data != null
+    ) {
+        return data;
+    }
+
+    return messageEvent;
+}
+
 function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
     return {
         isValid: false,
@@ -235,6 +248,14 @@ function getChunkBytes(value: unknown): Uint8Array {
     throw new Error('Invalid PDF persistence chunk');
 }
 
+function describePersistenceMessage(message: unknown) {
+    if (!message || typeof message !== 'object') {
+        return typeof message;
+    }
+
+    return `keys=${Object.keys(message).join(',')}`;
+}
+
 function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
     const sessionId = typeof rawSessionId === 'string' ? rawSessionId : '';
     const session = sessions.get(sessionId);
@@ -256,9 +277,10 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
     }
 
     port.on('message', (messageEvent) => {
+        const messageData = getPdfPersistencePortMessageData(messageEvent);
         session.queue = session.queue.then(
-            () => handlePortMessage(session, port, messageEvent.data),
-            () => handlePortMessage(session, port, messageEvent.data),
+            () => handlePortMessage(session, port, messageData),
+            () => handlePortMessage(session, port, messageData),
         );
     });
     port.once('close', () => {
@@ -319,7 +341,7 @@ async function handlePortMessage(
             return;
         }
 
-        throw new Error('Unknown PDF persistence message');
+        throw new Error(`Unknown PDF persistence message (${describePersistenceMessage(message)})`);
     } catch (error) {
         await cleanupSession(session);
         port.postMessage({

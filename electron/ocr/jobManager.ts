@@ -246,9 +246,10 @@ async function terminateWorkerSafely(
     reason: string,
 ) {
     try {
+        const jobId = activeJobs.get(scopedJobId)?.requestId ?? scopedJobId;
         worker.postMessage({
             type: 'cancel',
-            jobId: scopedJobId,
+            jobId,
         });
         if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
             await new Promise(resolve => setTimeout(resolve, OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS));
