@@ -86,10 +86,8 @@ vi.mock('fs/promises', () => ({
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
-vi.mock('@electron/ipc/workingCopy', () => ({
-    ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
-    findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
-}));
+vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/ipc/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),

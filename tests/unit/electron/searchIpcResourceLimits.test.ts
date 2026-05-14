@@ -116,7 +116,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
-vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
+vi.mock('@electron/ipc/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
 vi.mock('fs', () => ({existsSync: (...args: unknown[]) => mocks.existsSync(...args)}));
 

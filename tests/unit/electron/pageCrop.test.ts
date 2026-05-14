@@ -32,7 +32,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     warn: vi.fn(),
     error: vi.fn(),
 })}));
-vi.mock('@electron/ipc/workingCopy', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 
 async function createPdf(path: string, options?: { inheritedCropBox?: [number, number, number, number] }) {
     const pdfDoc = await PDFDocument.create();
