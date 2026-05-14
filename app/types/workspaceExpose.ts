@@ -136,6 +136,7 @@ export interface IWorkspaceSplitTransferPort {
 export interface IWorkspaceUiPort {
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
+    waitForDocumentOpenSettled: () => Promise<void>;
 }
 
 interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}

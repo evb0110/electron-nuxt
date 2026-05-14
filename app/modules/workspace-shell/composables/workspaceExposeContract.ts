@@ -63,6 +63,7 @@ const SPLIT_TRANSFER_METHODS = [
 const UI_METHODS = [
     'closeAllDropdowns',
     'getToolbarSnapshot',
+    'waitForDocumentOpenSettled',
 ] as const satisfies ReadonlyArray<keyof IWorkspaceUiPort>;
 
 type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;

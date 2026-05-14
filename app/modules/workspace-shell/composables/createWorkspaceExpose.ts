@@ -63,6 +63,7 @@ interface ICreateWorkspaceExposeDeps extends
     openConvertDialog: () => void;
     captureSplitPayload: IWorkspaceExpose['captureSplitPayload'];
     restoreSplitPayload: IWorkspaceExpose['restoreSplitPayload'];
+    waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
 }
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
@@ -264,6 +265,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         },
         captureSplitPayload: deps.captureSplitPayload,
         restoreSplitPayload: deps.restoreSplitPayload,
+        waitForDocumentOpenSettled: deps.waitForDocumentOpenSettled,
         closeAllDropdowns: deps.closeAllDropdowns,
         getToolbarSnapshot,
     };

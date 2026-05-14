@@ -307,6 +307,7 @@ const {
     surface = undefined,
     variant = 'editor',
     documentBusy = false,
+    isOpeningDocument = false,
     isFullscreen = false,
     fullscreenSupported = true,
 } = defineProps<{
@@ -389,7 +390,7 @@ type TToolbarCommand =
 const { t } = useTypedI18n();
 
 const shortcutLabels = getShortcutLabels();
-const hasInteractiveDocument = computed(() => hasPdf && !documentBusy);
+const hasInteractiveDocument = computed(() => hasPdf && !documentBusy && !isOpeningDocument);
 const {
     toolbarRef,
     collapseTier,
