@@ -54,7 +54,10 @@
 
 <script setup lang="ts">
 
-import { useResizeObserver } from '@vueuse/core';
+import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { clamp } from 'es-toolkit/math';
@@ -107,8 +110,8 @@ const frameStartY = ref(0);
 const isDragging = ref(false);
 let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
 let focusGuardToken = 0;
-let dragMoveListener: ((event: MouseEvent) => void) | null = null;
-let dragUpListener: (() => void) | null = null;
+let stopDragMoveListener: (() => void) | null = null;
+let stopDragUpListener: (() => void) | null = null;
 
 function focusNote() {
     emit('focus');
@@ -328,14 +331,10 @@ function handlePointerMove(event: MouseEvent) {
 }
 
 function cleanupDragListeners() {
-    if (typeof window !== 'undefined' && dragMoveListener) {
-        window.removeEventListener('mousemove', dragMoveListener);
-    }
-    if (typeof window !== 'undefined' && dragUpListener) {
-        window.removeEventListener('mouseup', dragUpListener);
-    }
-    dragMoveListener = null;
-    dragUpListener = null;
+    stopDragMoveListener?.();
+    stopDragMoveListener = null;
+    stopDragUpListener?.();
+    stopDragUpListener = null;
 }
 
 function stopDrag() {
@@ -361,10 +360,8 @@ function startDrag(event: MouseEvent) {
     if (typeof window === 'undefined') {
         return;
     }
-    dragMoveListener = handlePointerMove;
-    dragUpListener = stopDrag;
-    window.addEventListener('mousemove', dragMoveListener);
-    window.addEventListener('mouseup', dragUpListener);
+    stopDragMoveListener = useEventListener(window, 'mousemove', handlePointerMove);
+    stopDragUpListener = useEventListener(window, 'mouseup', stopDrag);
 }
 
 function handleViewportResize() {
@@ -395,9 +392,11 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
-if (typeof window !== 'undefined') {
-    window.addEventListener('resize', handleViewportResize);
-}
+useEventListener(
+    typeof window !== 'undefined' ? window : undefined,
+    'resize',
+    handleViewportResize,
+);
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];
@@ -427,9 +426,6 @@ onBeforeUnmount(() => {
     clearFocusGuard();
     focusGuardToken += 1;
     stopDrag();
-    if (typeof window !== 'undefined') {
-        window.removeEventListener('resize', handleViewportResize);
-    }
 });
 
 watch(

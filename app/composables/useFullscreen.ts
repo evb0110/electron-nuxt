@@ -1,32 +1,19 @@
-export const useFullscreen = () => {
-    const isFullscreen = ref(false);
-    const isSupported = ref(true);
+import { useFullscreen as useVueUseFullscreen } from '@vueuse/core';
 
-    function updateState() {
-        isFullscreen.value = Boolean(document.fullscreenElement);
-    }
+export const useFullscreen = () => {
+    const {
+        isFullscreen,
+        isSupported,
+        toggle,
+    } = useVueUseFullscreen(
+        typeof document !== 'undefined'
+            ? document.documentElement
+            : undefined,
+    );
 
     function toggleFullscreen() {
-        if (!isSupported.value) {
-            return;
-        }
-
-        if (document.fullscreenElement) {
-            void document.exitFullscreen();
-        } else {
-            void document.documentElement.requestFullscreen();
-        }
+        void toggle();
     }
-
-    onMounted(() => {
-        isSupported.value = Boolean(document.fullscreenEnabled);
-        document.addEventListener('fullscreenchange', updateState);
-        updateState();
-    });
-
-    onUnmounted(() => {
-        document.removeEventListener('fullscreenchange', updateState);
-    });
 
     return {
         isFullscreen,

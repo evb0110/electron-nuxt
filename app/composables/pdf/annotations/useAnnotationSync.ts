@@ -2,8 +2,10 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
-import { debounce } from 'es-toolkit/function';
+import {
+    tryOnScopeDispose,
+    useTimeoutFn,
+} from '@vueuse/core';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,
@@ -638,23 +640,26 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
     }
 
-    const debouncedSync = debounce(() => {
+    const {
+        start: startDebouncedSync,
+        stop: cancelDebouncedSync,
+    } = useTimeoutFn(() => {
         runGuardedTask(() => syncAnnotationComments(), {
             scope: 'annotations',
             message: 'Failed to synchronize annotation comments (debounced)',
         });
-    }, debounceMs);
+    }, debounceMs, { immediate: false });
 
     function scheduleAnnotationCommentsSync(immediate = false) {
         if (immediate) {
-            debouncedSync.cancel();
+            cancelDebouncedSync();
             runGuardedTask(() => syncAnnotationComments(), {
                 scope: 'annotations',
                 message: 'Failed to synchronize annotation comments',
             });
             return;
         }
-        debouncedSync();
+        startDebouncedSync();
     }
 
     function setActiveCommentStableKey(stableKey: string | null) {
@@ -668,7 +673,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
     function clearSyncState() {
         syncToken += 1;
-        debouncedSync.cancel();
+        cancelDebouncedSync();
         pendingCommentEditorKeys.clear();
         resetPdfAnnotationSnapshot();
         getIdentity().clearMemory();
@@ -676,7 +681,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     }
 
     tryOnScopeDispose(() => {
-        debouncedSync.cancel();
+        cancelDebouncedSync();
         syncToken += 1;
         resetPdfAnnotationSnapshot();
     });

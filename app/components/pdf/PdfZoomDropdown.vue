@@ -124,6 +124,7 @@
 </template>
 
 <script setup lang="ts">
+import { useClamp } from '@vueuse/math';
 import type {
     TFitMode,
     TZoomMode,
@@ -172,9 +173,7 @@ const isOpen = computed({
 const customZoomValue = ref(formatZoomValue(zoom));
 const customInputRef = ref<HTMLInputElement | null>(null);
 
-const effectiveCompactLevel = computed(() => {
-    return Math.max(0, Math.min(compactLevel, 2));
-});
+const effectiveCompactLevel = useClamp(() => compactLevel, 0, 2);
 
 const showStepButtons = computed(() => true);
 const shortcutLabels = getShortcutLabels();

@@ -681,13 +681,19 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
                         'pdfjs-dist/web/pdf_viewer.mjs',
                     ],
                     'vendor-pdf-lib': ['pdf-lib'],
-                    'vendor-vueuse': ['@vueuse/core'],
+                    'vendor-vueuse': [
+                        '@vueuse/core',
+                        '@vueuse/math',
+                        '@vueuse/router',
+                    ],
                 }},
             },
         },
         optimizeDeps: {
             include: [
                 '@vueuse/core',
+                '@vueuse/math',
+                '@vueuse/router',
                 'devalue',
                 'unhead',
                 '@unhead/vue',

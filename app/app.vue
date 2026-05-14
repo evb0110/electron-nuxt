@@ -146,6 +146,7 @@
 </template>
 
 <script setup lang="ts">
+import { useClipboard } from '@vueuse/core';
 import AgentationWidget from '@app/components/AgentationWidget.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -211,6 +212,11 @@ const runtimeErrorReportCount = computed(() => runtimeErrorReports.value.reduce(
     (total, report) => total + report.count,
     0,
 ));
+const {
+    copied: recentlyCopiedReports,
+    copy: copyToClipboard,
+    isSupported: isClipboardSupported,
+} = useClipboard({ copiedDuring: 1500 });
 
 function formatRuntimeErrorReport(report: {
     title: string;
@@ -232,11 +238,11 @@ function formatRuntimeErrorReports() {
 }
 
 async function copyText(value: string): Promise<boolean> {
-    if (!import.meta.client || !navigator.clipboard) {
+    if (!import.meta.client || !isClipboardSupported.value) {
         return false;
     }
     try {
-        await navigator.clipboard.writeText(value);
+        await copyToClipboard(value);
         return true;
     } catch (error) {
         BrowserLogger.warn('runtime-errors', 'Failed to copy runtime error report', error);
@@ -244,29 +250,11 @@ async function copyText(value: string): Promise<boolean> {
     }
 }
 
-const recentlyCopiedReports = ref(false);
-let recentlyCopiedTimeout: ReturnType<typeof setTimeout> | null = null;
-
 async function handleCopyReports() {
-    const succeeded = await copyText(formatRuntimeErrorReports());
-    if (!succeeded) {
-        return;
-    }
-    recentlyCopiedReports.value = true;
-    if (recentlyCopiedTimeout) {
-        clearTimeout(recentlyCopiedTimeout);
-    }
-    recentlyCopiedTimeout = setTimeout(() => {
-        recentlyCopiedReports.value = false;
-        recentlyCopiedTimeout = null;
-    }, 1500);
+    await copyText(formatRuntimeErrorReports());
 }
 
 onBeforeUnmount(() => {
-    if (recentlyCopiedTimeout) {
-        clearTimeout(recentlyCopiedTimeout);
-        recentlyCopiedTimeout = null;
-    }
     while (hostEnvironmentUnsubscribers.length > 0) {
         const unsubscribe = hostEnvironmentUnsubscribers.pop();
         try {
