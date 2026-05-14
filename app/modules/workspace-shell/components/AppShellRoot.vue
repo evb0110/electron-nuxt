@@ -150,9 +150,15 @@
 </template>
 
 <script setup lang="ts">
-import { useEventListener } from '@vueuse/core';
+import {
+    useEventListener,
+    useLocalStorage,
+} from '@vueuse/core';
 import { guardAsync } from '@app/utils/asyncGuard';
-import { BROWSER_INSTALL_HINT_COOKIE_KEY } from '@app/utils/browserRuntimePersistence';
+import {
+    BROWSER_INSTALL_HINT_COOKIE_KEY,
+    BROWSER_INSTALL_HINT_STORAGE_KEY,
+} from '@app/utils/browserRuntimePersistence';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/startupTrace';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
@@ -231,10 +237,14 @@ const browserInstallHintCookie = useCookie<string | null>(
         maxAge: 365 * 24 * 60 * 60,
     },
 );
-const browserInstallHintDismissed = useState(
-    'browser-install-hint:dismissed',
-    () => browserInstallHintCookie.value !== null,
+const browserInstallHintStorageDismissed = useLocalStorage(
+    BROWSER_INSTALL_HINT_STORAGE_KEY,
+    false,
 );
+const browserInstallHintDismissed = computed(() => (
+    browserInstallHintCookie.value !== null
+    || browserInstallHintStorageDismissed.value
+));
 const didTrackViewerSession = useState(
     'analytics:viewer-session-started',
     () => false,
@@ -791,7 +801,6 @@ function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
         return;
     }
 
-    browserInstallHintDismissed.value = true;
     trackBrowserInstallHint(reason === 'auto' ? 'auto_dismissed' : 'dismissed');
 
     if (!import.meta.client || !isBrowserRuntime.value) {
@@ -799,6 +808,7 @@ function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
     }
 
     browserInstallHintCookie.value = '1';
+    browserInstallHintStorageDismissed.value = true;
 }
 
 watch(windowTitle, (nextTitle) => {
