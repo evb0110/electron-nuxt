@@ -77,6 +77,12 @@ describe('usePdfFile', () => {
         mockHasElectronAPI.mockReturnValue(true);
         mockDocuments.cleanupFile.mockResolvedValue(undefined);
         mockDocuments.createWorkingCopyFromPath.mockReset();
+        mockDocuments.validatePdfData.mockResolvedValue({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
     });
 
     describe('initial state', () => {

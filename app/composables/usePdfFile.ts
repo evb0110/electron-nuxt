@@ -711,6 +711,19 @@ export const usePdfFile = () => {
         return mode === 'rewrite' || mode === 'save_as_rewrite';
     }
 
+    async function shouldForceSaveAsForWorkingCopy(
+        mode: TPdfSaveMode,
+        workingPath: TDocumentRef,
+    ) {
+        if (requiresSaveAsOnFirstSave.value) {
+            return true;
+        }
+        if (!pdfConformanceProfile.value) {
+            await refreshPdfConformanceProfile(workingPath);
+        }
+        return shouldForceSaveAs(mode);
+    }
+
     async function loadPdfFromPath(path: TDocumentRef, opts?: { markDirty?: boolean }) {
         const requestId = ++latestLoadRequestId;
         // Yield one visual frame so upstream loading indicators (e.g. the
@@ -958,17 +971,58 @@ export const usePdfFile = () => {
         }
     }
 
+    async function savePdfBytesToWorkingCopy(
+        workingPath: TDocumentRef,
+        data: Uint8Array,
+    ) {
+        const documents = getDocumentsCapability();
+        if (typeof documents.savePdfData === 'function') {
+            return documents.savePdfData(workingPath, data);
+        }
+
+        const validation = await documents.validatePdfData(data);
+        if (validation.isValid) {
+            await documents.writeFile(workingPath, data);
+            await documents.saveFile(workingPath);
+        }
+        return validation;
+    }
+
+    async function savePdfBytesAs(
+        workingPath: TDocumentRef,
+        data: Uint8Array,
+    ) {
+        const documents = getDocumentsCapability();
+        if (typeof documents.savePdfDataAs === 'function') {
+            return documents.savePdfDataAs(workingPath, data);
+        }
+
+        const validation = await documents.validatePdfData(data);
+        if (!validation.isValid) {
+            return {
+                path: null,
+                validation,
+            };
+        }
+
+        await documents.writeFile(workingPath, data);
+        return {
+            path: await documents.savePdfAs(workingPath),
+            validation,
+        };
+    }
+
     async function saveFile(
         data: Uint8Array,
         opts?: { saveMode?: TPdfSaveMode },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
-            if (shouldForceSaveAs(requestedSaveMode)) {
+            if (await shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath)) {
                 return saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
             }
 
-            const validation = await getDocumentsCapability().savePdfData(workingPath, data);
+            const validation = await savePdfBytesToWorkingCopy(workingPath, data);
             if (!validation.isValid) {
                 error.value = validation.errors.join('\n') || t('errors.file.save');
                 return createFailedPersistResult(requestedSaveMode, false);
@@ -984,7 +1038,7 @@ export const usePdfFile = () => {
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
-            if (shouldForceSaveAs(requestedSaveMode)) {
+            if (await shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath)) {
                 return saveWorkingCopyAs(undefined, { saveMode: 'save_as_rewrite' });
             }
 
@@ -1003,7 +1057,7 @@ export const usePdfFile = () => {
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
             const previousWorkingPath = workingPath;
             const saveAsResult = data
-                ? await getDocumentsCapability().savePdfDataAs(workingPath, data)
+                ? await savePdfBytesAs(workingPath, data)
                 : {
                     path: await getDocumentsCapability().savePdfAs(workingPath),
                     validation: null,
