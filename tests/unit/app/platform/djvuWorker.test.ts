@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@app/platform/browser-api/djvujsLoader', () => ({loadDjvuJs: mocks.loadDjvuJs}));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({
+    BROWSER_DOCUMENT_CHUNK_SIZE: 4 * 1024 * 1024,
     browserDocumentStore: {
         stat: mocks.stat,
         read: mocks.read,

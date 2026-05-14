@@ -489,7 +489,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
     }
 
-    function finalizeSaveReload(
+    async function finalizeSaveReload(
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         saveSucceeded: boolean,
         opts?: { markShapeStateSavedOnSuccess?: boolean },
@@ -505,7 +505,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
             return;
         }
-        void reloadWaiter.promise.then(() => true).catch((error) => {
+        await reloadWaiter.promise.then(() => true).catch((error) => {
             BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
             return false;
         }).finally(() => {
@@ -739,7 +739,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode,
             persist,
         );
-        finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+        await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
         return saveSucceeded;
     }
 
@@ -812,7 +812,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     'save',
                     saveWorkingCopy,
                 );
-                finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                 finalizedReloadWaiter = true;
                 saveSucceededForTelemetry = saveSucceeded;
                 return saveSucceeded;
@@ -914,7 +914,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     opts => saveWorkingCopyAs(undefined, opts),
                 );
             }
-            finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+            await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
             if (!saveSucceeded) {
                 restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
