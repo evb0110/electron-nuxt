@@ -346,6 +346,7 @@
                         :view-mode="viewMode"
                         :continuous-scroll="continuousScroll"
                         :drag-mode="dragMode"
+                        :is-active="isActive"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:current-page="handleViewerCurrentPageUpdate"
                         @update:total-pages="handleViewerTotalPagesUpdate"

@@ -239,6 +239,7 @@ function createRenderResult() {
 describe('usePdfPageRenderer resilience', () => {
     afterEach(() => {
         vi.useRealTimers();
+        vi.clearAllMocks();
     });
 
     it('releases page resources after a page finishes rendering', async () => {
@@ -500,5 +501,79 @@ describe('usePdfPageRenderer resilience', () => {
 
         expect(onRenderStall).not.toHaveBeenCalled();
         expect(renderer.isPageRendered(1)).toBe(true);
+    });
+
+    it('does not render visible pages while inactive', async () => {
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const ensurePageMetricsInRange = vi.fn(async () => true);
+        const getPage = vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))}));
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: {
+                pdfDocument: shallowRef({} as object),
+                numPages: ref(1),
+                basePageWidth: ref(100),
+                basePageHeight: ref(100),
+                isLoading: ref(false),
+                ensurePageMetricsInRange,
+                getPage,
+                evictPage: vi.fn(),
+                cleanupPageCache: vi.fn(),
+            } as never,
+            currentPage: ref(1),
+            isActive: ref(false),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+
+        expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
+        expect(canvasRendererMock.prepareCanvasRender).not.toHaveBeenCalled();
+    });
+
+    it('does not rerender visible pages while inactive', async () => {
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const getPage = vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))}));
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: {
+                pdfDocument: shallowRef({} as object),
+                numPages: ref(1),
+                basePageWidth: ref(100),
+                basePageHeight: ref(100),
+                isLoading: ref(false),
+                getPage,
+                evictPage: vi.fn(),
+                cleanupPageCache: vi.fn(),
+            } as never,
+            currentPage: ref(1),
+            isActive: ref(false),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.reRenderAllVisiblePages(() => ({
+            start: 1,
+            end: 1,
+        }));
+
+        expect(getPage).not.toHaveBeenCalled();
+        expect(canvasRendererMock.renderCanvas).not.toHaveBeenCalled();
+        expect(pageContainer.classList.remove).not.toHaveBeenCalled();
     });
 });

@@ -10,6 +10,8 @@ export default defineConfig({ test: {
         'tests/e2e/electron/phase0StartupHydration.e2e.test.ts',
         'tests/e2e/electron/phase0RecentFiles.e2e.test.ts',
         'tests/e2e/electron/phase0ViewerSmoke.e2e.test.ts',
+        'tests/e2e/electron/phase0InactivePdfTabs.e2e.test.ts',
+        'tests/e2e/electron/phase0InactiveDjvuTabs.e2e.test.ts',
         'tests/e2e/electron/phase1AnnotationLifecycle.e2e.test.ts',
         ...(includeExtendedDrawShapeLifecycle
             ? ['tests/e2e/electron/phase1DrawShapeLifecycle.e2e.test.ts']
