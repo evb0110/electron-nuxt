@@ -226,6 +226,18 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+export function createPngFixture(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const bytes = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGElEQVR4nGP8z8Dw'
+        + 'n4GBgYmBgQEAOgoCEVxTeGsAAAAASUVORK5CYII=',
+        'base64',
+    );
+    writeFileSync(filePath, bytes);
+    return filePath;
+}
+
 export async function createBlankFixturePdf(filename: string, pageCount = 1) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

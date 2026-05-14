@@ -5,7 +5,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createMultiPageTextFixturePdf } from './helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf,
+    createPngFixture,
+} from './helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
@@ -149,5 +152,22 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
             const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
             return Boolean(pageElement && Math.abs(pageElement.getBoundingClientRect().height - previousHeight) > 5);
         }, { timeout: 5_000 }, beforeZoom.firstPageHeight);
+    });
+
+    it('opens a PNG image through the same document entrypoint', async () => {
+        if (!session) {
+            throw new Error('Viewer smoke session was not initialized');
+        }
+
+        const pngPath = createPngFixture(`viewer-smoke-image-${Date.now()}.png`);
+        await openPdfInApp(session.page, pngPath);
+        await waitForPdfLoaded(session.page);
+
+        const snapshot = await readViewerSmokeSnapshot(session);
+        expect(snapshot.hostHeight).toBeGreaterThan(300);
+        expect(snapshot.viewerHeight).toBeGreaterThan(300);
+        expect(snapshot.visiblePages).toEqual([1]);
+        expect(snapshot.firstPageWidth).toBeGreaterThan(0);
+        expect(snapshot.firstPageHeight).toBeGreaterThan(0);
     });
 });
