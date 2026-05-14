@@ -142,7 +142,7 @@ export async function handlePdfExportImages(
     }
 
     const { normalizedPath } = normalizeImageExportPath(result.filePath, 'png');
-    const outputPaths = await exportPdfPagesAsImages(workingCopyPath, normalizedPath, {pageNumbers: normalizedPageNumbers});
+    const outputPaths = await exportPdfPagesAsImages(workingCopyPath, normalizedPath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
 
     return {
         success: true,
@@ -171,7 +171,7 @@ export async function handlePdfExportMultiPageTiff(
         };
     }
 
-    const outputPath = await exportPdfAsMultiPageTiff(workingCopyPath, result.filePath, {pageNumbers: normalizedPageNumbers});
+    const outputPath = await exportPdfAsMultiPageTiff(workingCopyPath, result.filePath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
 
     return {
         success: true,

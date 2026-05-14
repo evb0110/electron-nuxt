@@ -70,7 +70,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
-        onExtractedDocument,
+        ...(onExtractedDocument !== undefined ? { onExtractedDocument } : {}),
     });
 
     function handlePageContextMenuDelete() {

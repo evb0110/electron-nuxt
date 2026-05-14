@@ -42,7 +42,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<IPageRange>;
     zoom: ComputedRef<number>;
-    zoomMode?: ComputedRef<TZoomMode>;
+    zoomMode?: ComputedRef<TZoomMode> | undefined;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
     isResizing: ComputedRef<boolean>;
@@ -57,8 +57,8 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
             disableVerticalAnchorRestore?: boolean;
             disablePageAnchorRestore?: boolean;
             rerenderSource?: string;
-            renderBufferOverride?: number;
-            maxCanvasPixelsOverride?: number;
+            renderBufferOverride?: number | undefined;
+            maxCanvasPixelsOverride?: number | undefined;
         },
     ) => Promise<void>;
     isPageRendered: (page: number) => boolean;
@@ -77,17 +77,17 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
         stage: string,
         syncOptions?: ICurrentPageSyncOptions,
     ) => void;
-    cancelInFlightPageRenders?: () => void;
+    cancelInFlightPageRenders?: (() => void) | undefined;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
-    syncHorizontalScrollForZoomMode?: () => boolean;
+    syncHorizontalScrollForZoomMode?: (() => boolean) | undefined;
     setupPagePlaceholders: () => void;
     scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean }) => void;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
     resetContinuousScrollState: () => void;
     resetZoomRerenderQueueState: (reason: string) => void;
-    consumeZoomViewportAnchor?: () => IZoomViewportAnchor | null;
+    consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
-    consumeSuppressedZoomRerender?: (nextZoom: number) => boolean;
+    consumeSuppressedZoomRerender?: ((nextZoom: number) => boolean) | undefined;
 }
 
 export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCoordinatorOptions) => {
@@ -235,13 +235,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         if (maxCanvasPixelsOverride !== undefined) {
             markLowResZoomRerenderUsed();
         }
+        const renderBufferOverride = resolveRerenderBufferOverride(source);
         await reRenderAllVisiblePages(getVisibleRange, {
             preserveExistingPages,
             anchorSnapshot: syncOptions.resizeAnchor?.snapshot ?? null,
             disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
             rerenderSource: source,
-            renderBufferOverride: resolveRerenderBufferOverride(source),
-            maxCanvasPixelsOverride,
+            ...(renderBufferOverride !== undefined ? { renderBufferOverride } : {}),
+            ...(maxCanvasPixelsOverride !== undefined ? { maxCanvasPixelsOverride } : {}),
         });
         syncHorizontalScrollAfterLayoutUpdate();
         if (runId !== reRenderSyncRunId) {

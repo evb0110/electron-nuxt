@@ -227,14 +227,21 @@ export async function ensureSearchIndex(
     let entry = await loadCachedIndex(indexCache, pdfPath, cacheOptions);
     ensureOptions.throwIfCancelled(signal);
     if (!entry || shouldRebuildCachedIndex(entry, expectedCount)) {
+        const buildOptions: Parameters<typeof buildSearchIndex>[2] = {};
+        if (expectedCount !== undefined) {
+            buildOptions.pageCount = expectedCount;
+        }
+        if (signal !== undefined) {
+            buildOptions.signal = signal;
+        }
+        if (ensureOptions.onPageIndexed !== undefined) {
+            buildOptions.onPageIndexed = ensureOptions.onPageIndexed;
+        }
+
         entry = await cacheBuiltIndex(
             indexCache,
             pdfPath,
-            await buildSearchIndex(pdfPath, [], {
-                pageCount: expectedCount,
-                signal,
-                onPageIndexed: ensureOptions.onPageIndexed,
-            }),
+            await buildSearchIndex(pdfPath, [], buildOptions),
             cacheOptions,
         );
         return entry;

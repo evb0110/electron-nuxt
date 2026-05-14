@@ -12,7 +12,7 @@ export interface IRecentFile {
     originalPath: TDocumentRef;
     fileName: string;
     timestamp: number;
-    fileSize?: number;
+    fileSize?: number | undefined;
 }
 
 export interface IOcrLanguage {
@@ -49,8 +49,8 @@ export interface ISettingsData {
     defaultAnnotationColor: string;
     uiScale: TUiScalePreference;
     tabMemoryPolicy: TTabMemoryPolicy;
-    suppressDefaultViewerPrompt?: boolean;
-    skippedUpdateVersion?: string;
+    suppressDefaultViewerPrompt?: boolean | undefined;
+    skippedUpdateVersion?: string | undefined;
 }
 
 export interface ICropMargins {

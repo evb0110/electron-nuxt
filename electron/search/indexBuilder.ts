@@ -139,6 +139,79 @@ function resolveManifestPagePath(
     return resolvedPath;
 }
 
+function parseOcrManifestPayload(payload: unknown): IOcrIndexV2Manifest | null {
+    if (!isRecord(payload) || !isRecord(payload.source) || !isRecord(payload.pages)) {
+        return null;
+    }
+    if (
+        typeof payload.version !== 'number'
+        || payload.version < 2
+        || typeof payload.source.pdfPath !== 'string'
+        || !isPositiveInteger(payload.pageCount)
+    ) {
+        return null;
+    }
+    const pages: IOcrIndexV2Manifest['pages'] = {};
+    for (const [
+        rawPageNumber,
+        rawPageMapping,
+    ] of Object.entries(payload.pages)) {
+        const pageNumber = Number.parseInt(rawPageNumber, 10);
+        if (
+            Number.isInteger(pageNumber)
+            && pageNumber > 0
+            && isRecord(rawPageMapping)
+            && typeof rawPageMapping.path === 'string'
+        ) {
+            pages[pageNumber] = { path: rawPageMapping.path };
+        }
+    }
+    return {
+        version: payload.version,
+        createdAt: finiteNumberOrUndefined(payload.createdAt) ?? Date.now(),
+        source: { pdfPath: payload.source.pdfPath },
+        pageCount: payload.pageCount,
+        pageBox: typeof payload.pageBox === 'string' ? payload.pageBox : 'crop',
+        ocr: isRecord(payload.ocr)
+            ? {
+                engine: typeof payload.ocr.engine === 'string' ? payload.ocr.engine : '',
+                languages: Array.isArray(payload.ocr.languages) && payload.ocr.languages.every(item => typeof item === 'string')
+                    ? payload.ocr.languages
+                    : [],
+                renderDpi: finiteNumberOrUndefined(payload.ocr.renderDpi) ?? 0,
+            }
+            : {
+                engine: '',
+                languages: [],
+                renderDpi: 0,
+            },
+        pages,
+    };
+}
+
+function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
+    if (!isRecord(payload)) {
+        return null;
+    }
+    if (
+        payload.pageNumber !== undefined
+        && !isPositiveInteger(payload.pageNumber)
+    ) {
+        return null;
+    }
+    if (payload.text !== undefined && typeof payload.text !== 'string') {
+        return null;
+    }
+    const page: IOcrIndexV2Page = {
+        pageNumber: isPositiveInteger(payload.pageNumber) ? payload.pageNumber : 0,
+        text: typeof payload.text === 'string' ? payload.text : '',
+    };
+    if (Array.isArray(payload.words)) {
+        page.words = payload.words as IOcrWord[];
+    }
+    return page;
+}
+
 /**
  * Load OCR v2 index text for all pages.
  * Returns a Map of pageNumber -> text, or null if no v2 index exists.
@@ -161,10 +234,10 @@ async function loadOcrIndexText(
         throwIfAborted(signal);
         const manifestJson = await readFile(manifestPath, 'utf-8');
         throwIfAborted(signal);
-        const manifest = JSON.parse(manifestJson) as IOcrIndexV2Manifest;
+        const manifest = parseOcrManifestPayload(JSON.parse(manifestJson));
 
-        if (manifest.version < 2) {
-            log.debug(`OCR index version ${manifest.version} < 2, skipping`);
+        if (!manifest) {
+            log.debug('OCR v2 manifest is invalid, skipping');
             return null;
         }
 
@@ -187,9 +260,29 @@ async function loadOcrIndexText(
             }
 
             if (existsSync(pagePath)) {
-                const pageJson = await readFile(pagePath, 'utf-8');
+                let pageJson = '';
+                try {
+                    pageJson = await readFile(pagePath, 'utf-8');
+                } catch (pageReadError) {
+                    if (isAbortError(pageReadError)) {
+                        throw pageReadError;
+                    }
+                    log.warn(`Skipping OCR page ${pageNum} with unreadable page data`);
+                    continue;
+                }
                 throwIfAborted(signal);
-                const pageData = JSON.parse(pageJson) as IOcrIndexV2Page;
+                let pagePayload: unknown;
+                try {
+                    pagePayload = JSON.parse(pageJson);
+                } catch {
+                    log.warn(`Skipping OCR page ${pageNum} with invalid page JSON`);
+                    continue;
+                }
+                const pageData = parseOcrPagePayload(pagePayload);
+                if (!pageData) {
+                    log.warn(`Skipping OCR page ${pageNum} with invalid page data`);
+                    continue;
+                }
                 if (pageData.pageNumber !== undefined && pageData.pageNumber !== pageNum) {
                     log.warn(`Skipping OCR page ${pageNum} with mismatched page data ${pageData.pageNumber}`);
                     continue;
@@ -233,13 +326,22 @@ function parseSearchIndexPage(page: unknown): IPageIndex | null {
         return null;
     }
 
-    return {
+    const normalizedPage: IPageIndex = {
         pageNumber: page.pageNumber,
         text: page.text,
-        words: Array.isArray(page.words) ? page.words as IOcrWord[] : undefined,
-        pageWidth: finiteNumberOrUndefined(page.pageWidth),
-        pageHeight: finiteNumberOrUndefined(page.pageHeight),
     };
+    if (Array.isArray(page.words)) {
+        normalizedPage.words = page.words as IOcrWord[];
+    }
+    const pageWidth = finiteNumberOrUndefined(page.pageWidth);
+    if (pageWidth !== undefined) {
+        normalizedPage.pageWidth = pageWidth;
+    }
+    const pageHeight = finiteNumberOrUndefined(page.pageHeight);
+    if (pageHeight !== undefined) {
+        normalizedPage.pageHeight = pageHeight;
+    }
+    return normalizedPage;
 }
 
 function parseSearchIndexPages(pages: unknown[]): IPageIndex[] | null {
@@ -270,23 +372,28 @@ function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
 
     const createdAt = finiteNumberOrUndefined(payload.createdAt);
 
-    return {
-        schemaVersion: isPositiveInteger(payload.schemaVersion)
-            ? payload.schemaVersion
-            : undefined,
+    const normalizedIndex: IPdfSearchIndex = {
         pdfPath: payload.pdfPath,
         createdAt: createdAt ?? Date.now(),
         pages: normalizedPages,
-        pageCount: isPositiveInteger(payload.pageCount) ? payload.pageCount : undefined,
-        textSource: isRecord(payload.textSource)
-            && typeof payload.textSource.kind === 'string'
-            && typeof payload.textSource.version === 'number'
-            ? {
-                kind: payload.textSource.kind,
-                version: payload.textSource.version,
-            }
-            : undefined,
     };
+    if (isPositiveInteger(payload.schemaVersion)) {
+        normalizedIndex.schemaVersion = payload.schemaVersion;
+    }
+    if (isPositiveInteger(payload.pageCount)) {
+        normalizedIndex.pageCount = payload.pageCount;
+    }
+    if (
+        isRecord(payload.textSource)
+        && typeof payload.textSource.kind === 'string'
+        && typeof payload.textSource.version === 'number'
+    ) {
+        normalizedIndex.textSource = {
+            kind: payload.textSource.kind,
+            version: payload.textSource.version,
+        };
+    }
+    return normalizedIndex;
 }
 
 function pagesFromOcrTexts(
@@ -368,13 +475,20 @@ function seedFromExistingIndex(
         return;
     }
     existing.pages.forEach((page) => {
-        pagesByNumber.set(page.pageNumber, {
+        const seededPage: IPageIndex = {
             pageNumber: page.pageNumber,
             text: page.text ?? '',
-            pageWidth: page.pageWidth,
-            pageHeight: page.pageHeight,
-            words: STORE_WORD_BOXES ? page.words : undefined,
-        });
+        };
+        if (page.pageWidth !== undefined) {
+            seededPage.pageWidth = page.pageWidth;
+        }
+        if (page.pageHeight !== undefined) {
+            seededPage.pageHeight = page.pageHeight;
+        }
+        if (STORE_WORD_BOXES && page.words !== undefined) {
+            seededPage.words = page.words;
+        }
+        pagesByNumber.set(page.pageNumber, seededPage);
     });
 }
 
@@ -408,7 +522,6 @@ function applyExtractedTexts(
             pagesByNumber.set(pt.pageNumber, {
                 pageNumber: pt.pageNumber,
                 text: pt.text,
-                words: undefined,
             });
             continue;
         }
@@ -429,8 +542,7 @@ async function seedFromPdfjs(
     try {
         log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
         let hasText = false;
-        await extractTextWithPdfjs(pdfPath, {
-            signal,
+        const extractOptions: Parameters<typeof extractTextWithPdfjs>[1] = {
             collectPages: false,
             onPageText: (pageText) => {
                 hasText ||= pageText.text.length > 0;
@@ -440,7 +552,11 @@ async function seedFromPdfjs(
                     onPageIndexed?.(page);
                 }
             },
-        });
+        };
+        if (signal !== undefined) {
+            extractOptions.signal = signal;
+        }
+        await extractTextWithPdfjs(pdfPath, extractOptions);
         return hasText;
     } catch (pdfjsErr) {
         if (isAbortError(pdfjsErr)) {
@@ -461,10 +577,14 @@ async function seedFromPdftotext(
 ): Promise<void> {
     try {
         log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
-        const pageTexts = await extractTextFromPdf(pdfPath, {
-            pageCount: expectedCount,
-            signal,
-        });
+        const extractOptions: Parameters<typeof extractTextFromPdf>[1] = {};
+        if (expectedCount !== undefined) {
+            extractOptions.pageCount = expectedCount;
+        }
+        if (signal !== undefined) {
+            extractOptions.signal = signal;
+        }
+        const pageTexts = await extractTextFromPdf(pdfPath, extractOptions);
         applyExtractedTexts(pagesByNumber, pageTexts, signal);
         pageTexts.forEach((pageText) => {
             const page = pagesByNumber.get(pageText.pageNumber);
@@ -509,7 +629,6 @@ function padMissingPages(
             pagesByNumber.set(pageNumber, {
                 pageNumber,
                 text: '',
-                words: undefined,
             });
         }
     }
@@ -532,13 +651,19 @@ function mergePageData(
         const textFromOcr = page.text?.trim() ?? '';
         const text = textFromWords || textFromOcr;
         const previous = pagesByNumber.get(page.pageNumber);
-        const indexedPage = {
+        const indexedPage: IPageIndex = {
             pageNumber: page.pageNumber,
             text: text || previous?.text || '',
-            pageWidth: page.pageWidth,
-            pageHeight: page.pageHeight,
-            words: STORE_WORD_BOXES ? page.words : undefined,
         };
+        if (page.pageWidth !== undefined) {
+            indexedPage.pageWidth = page.pageWidth;
+        }
+        if (page.pageHeight !== undefined) {
+            indexedPage.pageHeight = page.pageHeight;
+        }
+        if (STORE_WORD_BOXES) {
+            indexedPage.words = page.words;
+        }
         pagesByNumber.set(page.pageNumber, indexedPage);
         onPageIndexed?.(indexedPage);
     });
@@ -551,13 +676,18 @@ function assembleIndex(
     existing: IPdfSearchIndex | null,
 ): IPdfSearchIndex {
     const pages = Array.from(pagesByNumber.values()).sort((a, b) => a.pageNumber - b.pageNumber);
-    return {
+    const index: IPdfSearchIndex = {
         schemaVersion: SEARCH_INDEX_SCHEMA_VERSION,
         pdfPath,
         createdAt: Date.now(),
         pages,
-        pageCount: isPositiveInteger(expectedCount) ? expectedCount : existing?.pageCount,
     };
+    if (isPositiveInteger(expectedCount)) {
+        index.pageCount = expectedCount;
+    } else if (existing?.pageCount !== undefined) {
+        index.pageCount = existing.pageCount;
+    }
+    return index;
 }
 
 /**

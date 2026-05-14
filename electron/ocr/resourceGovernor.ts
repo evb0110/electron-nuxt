@@ -19,7 +19,7 @@ const LOW_MEMORY_PAGE_SLOTS = 2;
 const HIGH_DPI_THRESHOLD = 450;
 const HIGH_DPI_PAGE_SLOTS = 1;
 
-interface IOcrResourceRequest {
+export interface IOcrResourceRequest {
     jobId: string;
     pageNumber: number;
     requestedDpi: number;

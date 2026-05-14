@@ -109,7 +109,7 @@ describe('createExternalOpenManager', () => {
             }),
             hasWindows: () => hasWindows,
             createWindow,
-            grantOpenPaths: options.grantOpenPaths,
+            ...(options.grantOpenPaths ? { grantOpenPaths: options.grantOpenPaths } : {}),
             dispatchOpenPaths,
         });
 

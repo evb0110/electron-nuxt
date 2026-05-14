@@ -124,12 +124,12 @@ import {
 } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
 const {
-    hasDocumentHint,
+    hasDocumentHint = false,
     documentPath = null,
     isActive,
     isFullscreen,
     isRenderActive = isActive,
-    isStartupOpenClaimPending,
+    isStartupOpenClaimPending = false,
     isTabTransitionBusy,
     fullscreenSupported,
     initialViewState = null,
@@ -138,13 +138,13 @@ const {
 } = defineProps<{
     tabId: string;
     isActive: boolean;
-    isRenderActive?: boolean;
+    isRenderActive?: boolean | undefined;
     isTabTransitionBusy: boolean;
-    isStartupOpenClaimPending?: boolean;
-    hasDocumentHint?: boolean;
-    documentPath?: TDocumentRef | null;
-    initialViewState?: ITabViewSessionState | null;
-    startSection?: TStartSection;
+    isStartupOpenClaimPending?: boolean | undefined;
+    hasDocumentHint?: boolean | undefined;
+    documentPath?: TDocumentRef | null | undefined;
+    initialViewState?: ITabViewSessionState | null | undefined;
+    startSection?: TStartSection | undefined;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
 }>();

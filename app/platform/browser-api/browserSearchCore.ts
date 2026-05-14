@@ -56,7 +56,7 @@ export async function extractBrowserSearchDocumentText(
             pageTexts[pageNumber - 1] = text;
             return options.onPageExtracted?.(pageNumber, totalPages);
         },
-        { shouldContinue: options.shouldContinue },
+        options.shouldContinue ? { shouldContinue: options.shouldContinue } : {},
     );
 
     return {

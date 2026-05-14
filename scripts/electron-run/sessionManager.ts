@@ -1865,7 +1865,7 @@ export async function stopSession(options: {
     if (options.stopAll) {
         await stopAllSessions();
     } else {
-        await stopSingleSession(getCurrentSessionName(), {keepNuxt: options.keepNuxt});
+        await stopSingleSession(getCurrentSessionName(), {...(options.keepNuxt === undefined ? {} : { keepNuxt: options.keepNuxt })});
     }
 }
 

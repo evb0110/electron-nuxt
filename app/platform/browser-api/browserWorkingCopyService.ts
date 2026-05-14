@@ -132,7 +132,7 @@ export async function createBrowserWorkingCopyFromBytes(options: {
             mimeType: options.mimeType ?? 'application/pdf',
             saveKind: 'pdf',
             kind: 'working',
-            sourceRef: options.sourceRef,
+            ...(options.sourceRef ? { sourceRef: options.sourceRef } : {}),
         },
     );
 

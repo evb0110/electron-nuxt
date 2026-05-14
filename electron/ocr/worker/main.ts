@@ -39,6 +39,7 @@ import type {
     IOcrPdfPageRequest,
     IWorkerPaths,
     TOcrWorkerInboundMessage,
+    IOcrWorkerStartPayload,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
 import {
@@ -58,7 +59,10 @@ import {
     writeOcrIndexV1,
     writeOcrIndexV2,
 } from '@electron/ocr/worker/indexWriter';
-import { runOcrCommand } from '@electron/ocr/worker/runCommand';
+import {
+    runOcrCommand,
+    type IRunCommandOptions,
+} from '@electron/ocr/worker/runCommand';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -118,12 +122,6 @@ function parseOptionalDpi(value: unknown) {
         : undefined;
 }
 
-interface IOcrWorkerStartPayload {
-    sourcePdfPath: string;
-    pages: IOcrPdfPageRequest[];
-    renderDpi?: number;
-}
-
 function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
     if (!isRecord(value)) {
         return null;
@@ -137,17 +135,18 @@ function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
         return null;
     }
 
-    return {
+    const payload: IOcrWorkerStartPayload = {
         sourcePdfPath,
         pages,
-        renderDpi: parseOptionalDpi(value.renderDpi),
     };
+    const renderDpi = parseOptionalDpi(value.renderDpi);
+    if (renderDpi !== undefined) {
+        payload.renderDpi = renderDpi;
+    }
+    return payload;
 }
 
-type TOcrWorkerParsedInboundMessage =
-    TOcrWorkerInboundMessage;
-
-function parseInboundMessage(value: unknown): TOcrWorkerParsedInboundMessage | null {
+function parseInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
     if (!isRecord(value) || typeof value.jobId !== 'string') {
         return null;
     }
@@ -284,6 +283,18 @@ async function renderPdfPageToPng(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
 ) {
+    const commandOptions: IRunCommandOptions = {
+        commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
+        timeoutMs: PDFTOPPM_TIMEOUT_MS,
+        log,
+    };
+    if (popplerEnv !== undefined) {
+        commandOptions.env = popplerEnv;
+    }
+    if (signal !== undefined) {
+        commandOptions.signal = signal;
+    }
+
     await runOcrCommand(paths.pdftoppmBinary, [
         '-png',
         '-r',
@@ -295,13 +306,7 @@ async function renderPdfPageToPng(
         '-singlefile',
         sourcePdfPath,
         outputPngPath.replace(/\.png$/, ''),
-    ], {
-        commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
-        env: popplerEnv,
-        timeoutMs: PDFTOPPM_TIMEOUT_MS,
-        signal,
-        log,
-    });
+    ], commandOptions);
 }
 
 async function preparePdfForPoppler(
@@ -313,19 +318,23 @@ async function preparePdfForPoppler(
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
-        await runOcrCommand(paths.qpdfBinary, [
-            sourcePdfPath,
-            normalizedPdfPath,
-        ], {
+        const commandOptions: IRunCommandOptions = {
             commandLabel: 'qpdf(poppler-preflight)',
             allowedExitCodes: [
                 0,
                 3,
             ],
             timeoutMs: QPDF_TIMEOUT_MS,
-            signal,
             log,
-        });
+        };
+        if (signal !== undefined) {
+            commandOptions.signal = signal;
+        }
+
+        await runOcrCommand(paths.qpdfBinary, [
+            sourcePdfPath,
+            normalizedPdfPath,
+        ], commandOptions);
 
         const normalizedStat = await stat(normalizedPdfPath);
         if (normalizedStat.size <= 0) {
@@ -377,9 +386,11 @@ async function acquireOcrResourceSlot(
         requestId,
         pageNumber,
         requestedDpi,
-        pageWidthIn: pageSizeInches?.width,
-        pageHeightIn: pageSizeInches?.height,
     };
+    if (pageSizeInches !== undefined) {
+        payload.pageWidthIn = pageSizeInches.width;
+        payload.pageHeightIn = pageSizeInches.height;
+    }
 
     throwIfAborted(signal);
     const leasePromise = new Promise<TOcrResourceLease>((resolve, reject) => {
@@ -794,18 +805,21 @@ async function processOcrJob(
         const popplerEnv = buildPopplerEnv();
         logPopplerEnvironment(popplerEnv);
 
+        const planOptions: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber'> = {
+            sessionId,
+            jobId,
+            popplerSourcePdfPath,
+            signal: abortController.signal,
+            trackTempFile,
+        };
+        if (popplerEnv !== undefined) {
+            planOptions.popplerEnv = popplerEnv;
+        }
         const {
             targetPages,
             concurrency,
             pageContext,
-        } = await buildOcrPageProcessingPlan(pages, popplerSourcePdfPath, renderDpi, popplerEnv, {
-            sessionId,
-            jobId,
-            popplerSourcePdfPath,
-            popplerEnv,
-            signal: abortController.signal,
-            trackTempFile,
-        });
+        } = await buildOcrPageProcessingPlan(pages, popplerSourcePdfPath, renderDpi, popplerEnv, planOptions);
         const {
             errors,
             ocrPageData,

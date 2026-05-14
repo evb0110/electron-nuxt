@@ -1,5 +1,8 @@
 import type { TWorkerLog } from '@electron/ocr/worker/types';
-import { runOcrCommand } from '@electron/ocr/worker/runCommand';
+import {
+    runOcrCommand,
+    type IRunCommandOptions,
+} from '@electron/ocr/worker/runCommand';
 import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -16,15 +19,19 @@ export async function detectSourceDpi(
     }
 
     try {
+        const commandOptions: IRunCommandOptions = {
+            commandLabel: 'pdfimages(-list)',
+            timeoutMs: PDFIMAGES_TIMEOUT_MS,
+            log,
+        };
+        if (commandEnv !== undefined) {
+            commandOptions.env = commandEnv;
+        }
+
         const result = await runOcrCommand(pdfimagesBinary, [
             '-list',
             pdfPath,
-        ], {
-            commandLabel: 'pdfimages(-list)',
-            env: commandEnv,
-            timeoutMs: PDFIMAGES_TIMEOUT_MS,
-            log,
-        });
+        ], commandOptions);
         const lines = result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
         if (lines.length <= 1) {
             return null;

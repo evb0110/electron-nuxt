@@ -1,49 +1,13 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { IPdfSerializationSavePayload } from '@app/composables/pdf/pdfSerializationOperations';
+import type {
+    TSerializationWorkerRequest,
+    TSerializationWorkerResponse,
+} from '@app/composables/pdf/pdfSerializationWorker.types';
 import {
     deleteEmbeddedAnnotation,
     serializePdfEdits,
     updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { getErrorMessage } from '@app/utils/error';
-
-interface ISerializationWorkerRequestMap {
-    save: {
-        data: Uint8Array;
-        payload: IPdfSerializationSavePayload;
-    };
-    updateEmbeddedText: {
-        data: Uint8Array;
-        comment: IAnnotationCommentSummary;
-        text: string;
-    };
-    deleteEmbeddedAnnotation: {
-        data: Uint8Array;
-        comment: IAnnotationCommentSummary;
-    };
-}
-
-type TSerializationWorkerRequestType = keyof ISerializationWorkerRequestMap;
-
-type TSerializationWorkerRequest = {
-    [K in TSerializationWorkerRequestType]: {
-        id: number;
-        type: K;
-        payload: ISerializationWorkerRequestMap[K];
-    };
-}[TSerializationWorkerRequestType];
-
-type TSerializationWorkerResponse =
-    | {
-        id: number;
-        ok: true;
-        data: Uint8Array | null;
-    }
-    | {
-        id: number;
-        ok: false;
-        error: string;
-    };
 
 function toTransferableUint8Array(data: Uint8Array) {
     if (

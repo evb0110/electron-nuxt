@@ -358,12 +358,15 @@ async function cleanScannedPageWithUnpaper(
 
     args.push(inputPath, outputPath);
 
-    return runPreprocessing({
+    const preprocessingOptions: IPreprocessingOptions = {
         binary: bins.unpaper,
         args,
         timeout: 30000,
-        signal,
-    });
+    };
+    if (signal !== undefined) {
+        preprocessingOptions.signal = signal;
+    }
+    return runPreprocessing(preprocessingOptions);
 }
 
 /**

@@ -92,7 +92,7 @@ export async function openInputPaths(
         };
     }
 
-    const mergedPdf = await createPdfFromInputPaths(normalizedPaths, {onProgress: options.onCombineProgress});
+    const mergedPdf = await createPdfFromInputPaths(normalizedPaths, {...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {})});
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
     logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
     const workingPath = await createWorkingCopyFromData(

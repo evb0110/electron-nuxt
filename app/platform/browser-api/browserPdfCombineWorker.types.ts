@@ -15,6 +15,10 @@ interface IBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequ
     payload: IBrowserPdfCombineWorkerRequestMap[K];
 }
 
+type TBrowserPdfCombineWorkerRequest = {
+    [K in TBrowserPdfCombineWorkerRequestType]: IBrowserPdfCombineWorkerRequest<K>;
+}[TBrowserPdfCombineWorkerRequestType];
+
 type TBrowserPdfCombineWorkerResponse =
     | {
         [K in TBrowserPdfCombineWorkerRequestType]: {
@@ -35,6 +39,7 @@ export type {
     IBrowserPdfCombineWorkerRequestMap,
     IBrowserPdfCombineWorkerResultMap,
     IBrowserPdfCombineWorkerRequest,
+    TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
     TBrowserPdfCombineWorkerResponse,
 };

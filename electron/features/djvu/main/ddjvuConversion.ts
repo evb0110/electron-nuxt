@@ -180,7 +180,7 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: mergeResult.error,
+                error: mergeResult.error ?? 'Failed to merge converted DjVu PDF chunks',
             };
         }
 

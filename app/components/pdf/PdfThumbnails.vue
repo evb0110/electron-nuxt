@@ -77,13 +77,13 @@ interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
-    pageLabels?: string[] | null;
-    selectedPages?: number[];
+    pageLabels?: string[] | null | undefined;
+    selectedPages?: number[] | undefined;
     invalidationRequest?: {
         id: number;
         pages: number[];
-    } | null;
-    isActive?: boolean;
+    } | null | undefined;
+    isActive?: boolean | undefined;
 }
 
 const THUMBNAIL_GAP = 8;
@@ -108,7 +108,7 @@ const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 const {
     currentPage,
     invalidationRequest = undefined,
-    isActive,
+    isActive = true,
     pageLabels = undefined,
     pdfDocument,
     selectedPages = undefined,

@@ -11,7 +11,7 @@ import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRen
 interface IUsePdfViewerRenderStallRecoveryOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
-    isAnySaving?: Ref<boolean>;
+    isAnySaving?: Ref<boolean> | undefined;
     numPages: Ref<number>;
     currentPage: Ref<number>;
     visibleRange: Ref<{
@@ -20,7 +20,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     }>;
     viewerContainer: Ref<HTMLElement | null>;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;
-    cancelInFlightPageRenders?: () => void;
+    cancelInFlightPageRenders?: (() => void) | undefined;
     renderVisiblePages: (
         range: {
             start: number;

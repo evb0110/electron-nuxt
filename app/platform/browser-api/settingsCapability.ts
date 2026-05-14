@@ -49,12 +49,17 @@ function readBrowserSettingsFromCookie() {
         return null;
     }
 
+    const fallbackSettings: Partial<ISettingsData> = {};
+    if (localeCookie) {
+        fallbackSettings.locale = decodeURIComponent(localeCookie) as TAppLocale;
+    }
+    if (themeCookie) {
+        fallbackSettings.theme = decodeURIComponent(themeCookie) as TAppTheme;
+    }
+
     return parseBrowserSettingsPayload(
         rawSettingsCookie ? decodeURIComponent(rawSettingsCookie) : null,
-        {
-            locale: localeCookie ? decodeURIComponent(localeCookie) as TAppLocale : undefined,
-            theme: themeCookie ? decodeURIComponent(themeCookie) as TAppTheme : undefined,
-        },
+        fallbackSettings,
     );
 }
 

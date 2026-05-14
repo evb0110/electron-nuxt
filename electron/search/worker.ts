@@ -117,16 +117,27 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     const matchCase = typeof value.matchCase === 'boolean' ? value.matchCase : undefined;
     const wholeWord = typeof value.wholeWord === 'boolean' ? value.wholeWord : undefined;
     const useRegex = typeof value.useRegex === 'boolean' ? value.useRegex : undefined;
-    return {
+    const request: ISearchWorkerRequest = {
         requestId: value.requestId,
         pdfPath: value.pdfPath,
         query: value.query,
-        pageCount,
-        warmup,
-        matchCase,
-        wholeWord,
-        useRegex,
     };
+    if (pageCount !== undefined) {
+        request.pageCount = pageCount;
+    }
+    if (warmup !== undefined) {
+        request.warmup = warmup;
+    }
+    if (matchCase !== undefined) {
+        request.matchCase = matchCase;
+    }
+    if (wholeWord !== undefined) {
+        request.wholeWord = wholeWord;
+    }
+    if (useRegex !== undefined) {
+        request.useRegex = useRegex;
+    }
+    return request;
 }
 
 function parseInboundMessage(value: unknown): TSearchWorkerInboundMessage | null {
@@ -246,14 +257,17 @@ function sendProgress(
     }
 
     progressSentAt.set(requestId, now);
-    postMessage({
+    const progress: TSearchWorkerOutboundMessage = {
         type: 'progress',
         requestId,
         processed,
         total,
-        results: partialResult?.results,
-        truncated: partialResult?.truncated,
-    });
+    };
+    if (partialResult !== undefined) {
+        progress.results = partialResult.results;
+        progress.truncated = partialResult.truncated;
+    }
+    postMessage(progress);
 }
 
 function postEmptySearchComplete(requestId: string) {
@@ -321,17 +335,20 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
     }
     throwIfCancelled(requestId, signal);
 
-    return {
+    const context: ISearchRequestContext = {
         requestId,
         pdfPath,
         normalizedQuery: query.trim(),
-        pageCount,
         shouldWarmup: warmup === true,
         matchCase,
         wholeWord,
         useRegex,
         signal,
     };
+    if (pageCount !== undefined) {
+        context.pageCount = pageCount;
+    }
+    return context;
 }
 
 async function getRequestSearchIndex(context: ISearchRequestContext) {
@@ -343,16 +360,22 @@ async function getRequestSearchIndex(context: ISearchRequestContext) {
     } = context;
 
     const streamIndexedPage = createIndexedPageResultStreamer(context);
+    const ensureOptions: Parameters<typeof ensureSearchIndex>[3] = {
+        signal,
+        throwIfCancelled: abortSignal => throwIfCancelled(requestId, abortSignal),
+    };
+    if (pageCount !== undefined) {
+        ensureOptions.pageCount = pageCount;
+    }
+    if (streamIndexedPage !== undefined) {
+        ensureOptions.onPageIndexed = streamIndexedPage;
+    }
+
     const indexEntry = await ensureSearchIndex(
         indexCache,
         pdfPath,
         searchIndexCacheOptions,
-        {
-            pageCount,
-            signal,
-            throwIfCancelled: abortSignal => throwIfCancelled(requestId, abortSignal),
-            onPageIndexed: streamIndexedPage,
-        },
+        ensureOptions,
     );
     throwIfCancelled(requestId, signal);
     return indexEntry;

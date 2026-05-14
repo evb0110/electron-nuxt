@@ -312,8 +312,8 @@ export function createBrowserPageOps(
                     mimeType: 'application/pdf',
                     saveKind: 'pdf',
                     kind: 'source',
-                    saveHandle: saveTarget.handle,
-                    storageMode: saveTarget.handle ? 'handle' : undefined,
+                    saveHandle: saveTarget.handle ?? null,
+                    ...(saveTarget.handle ? { storageMode: 'handle' as const } : {}),
                 },
             );
             if (saveTarget.handle) {

@@ -99,7 +99,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
         renderVersion: number,
         getCurrentVersion: () => number,
     ) => Promise<void>;
-    beforeInitialRender?: () => Promise<void>;
+    beforeInitialRender?: (() => Promise<void>) | undefined;
     invalidateRenderedPages: (pages: number[]) => void;
     consumePendingInvalidation: () => number[] | null;
     commentSync: ICommentSyncLike;
@@ -114,10 +114,10 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     suppressNextZoomRerender: (targetZoom: number) => void;
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
-    onDocumentLoadStateChange?: (payload: {
+    onDocumentLoadStateChange?: ((payload: {
         token: number;
         phase: 'started' | 'settled';
-    }) => void;
+    }) => void) | undefined;
     emit: {
         (e: 'update:totalPages', total: number): void;
         (e: 'update:currentPage', page: number): void;

@@ -103,8 +103,8 @@ import {
 
 interface IProps {
     comments: IAnnotationCommentSummary[];
-    activeCommentStableKey?: string | null;
-    authorName?: string | null;
+    activeCommentStableKey?: string | null | undefined;
+    authorName?: string | null | undefined;
 }
 
 const COMMENT_SUBTYPE_LABELS = [

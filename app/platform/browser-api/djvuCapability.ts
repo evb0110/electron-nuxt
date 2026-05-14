@@ -165,10 +165,11 @@ async function canvasToImageBytes(
         typeof OffscreenCanvas !== 'undefined'
         && canvas instanceof OffscreenCanvas
     ) {
-        const blob = await canvas.convertToBlob({
-            type,
-            quality,
-        });
+        const encodeOptions: ImageEncodeOptions = {type};
+        if (quality !== undefined) {
+            encodeOptions.quality = quality;
+        }
+        const blob = await canvas.convertToBlob(encodeOptions);
         return new Uint8Array(await blob.arrayBuffer());
     }
 

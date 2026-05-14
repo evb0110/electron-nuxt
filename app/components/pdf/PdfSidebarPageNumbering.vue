@@ -172,8 +172,8 @@ type TNumberingScope = 'all' | 'range' | 'selection';
 interface IProps {
     totalPages: number;
     selectedPages: number[];
-    pageLabels?: string[] | null;
-    pageLabelRanges?: IPdfPageLabelRange[];
+    pageLabels?: string[] | null | undefined;
+    pageLabelRanges?: IPdfPageLabelRange[] | undefined;
 }
 
 const {

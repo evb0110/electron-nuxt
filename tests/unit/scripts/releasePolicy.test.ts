@@ -167,7 +167,7 @@ describe('release policy', () => {
                 calls.push({
                     args,
                     command,
-                    env: options.env,
+                    ...(options.env === undefined ? {} : { env: options.env }),
                 });
             },
         });

@@ -128,7 +128,7 @@ function normalizeTabMemoryPolicy(value: unknown): ISettingsData['tabMemoryPolic
 }
 
 export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
-    return {
+    const settings: ISettingsData = {
         version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
         authorName: isString(raw?.authorName) ? raw.authorName : DEFAULT_SETTINGS.authorName,
         theme: normalizeTheme(raw?.theme),
@@ -141,11 +141,12 @@ export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined)
         defaultAnnotationColor: normalizeDefaultAnnotationColor(raw?.defaultAnnotationColor),
         uiScale: normalizeUiScale(raw?.uiScale),
         tabMemoryPolicy: normalizeTabMemoryPolicy(raw?.tabMemoryPolicy),
-        suppressDefaultViewerPrompt: isBoolean(raw?.suppressDefaultViewerPrompt)
-            ? raw.suppressDefaultViewerPrompt
-            : undefined,
-        skippedUpdateVersion: isString(raw?.skippedUpdateVersion) && trim(raw.skippedUpdateVersion)
-            ? trim(raw.skippedUpdateVersion)
-            : undefined,
     };
+    if (isBoolean(raw?.suppressDefaultViewerPrompt)) {
+        settings.suppressDefaultViewerPrompt = raw.suppressDefaultViewerPrompt;
+    }
+    if (isString(raw?.skippedUpdateVersion) && trim(raw.skippedUpdateVersion)) {
+        settings.skippedUpdateVersion = trim(raw.skippedUpdateVersion);
+    }
+    return settings;
 }

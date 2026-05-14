@@ -44,12 +44,12 @@ interface IPageRange {
 interface IUsePdfViewerCoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
-    isAnySaving?: ComputedRef<boolean>;
+    isAnySaving?: ComputedRef<boolean> | undefined;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
-    isActive?: ComputedRef<boolean>;
+    isActive?: ComputedRef<boolean> | undefined;
     isResizing: ComputedRef<boolean>;
     continuousScroll: ComputedRef<boolean>;
     annotationTool: ComputedRef<TAnnotationTool>;
@@ -96,12 +96,12 @@ interface IUsePdfViewerCoreOptions {
             disableVerticalAnchorRestore?: boolean;
             disablePageAnchorRestore?: boolean;
             rerenderSource?: string;
-            renderBufferOverride?: number;
-            maxCanvasPixelsOverride?: number;
+            renderBufferOverride?: number | undefined;
+            maxCanvasPixelsOverride?: number | undefined;
         },
     ) => Promise<void>;
-    cancelInFlightPageRenders?: () => void;
-    cancelPendingSearchScroll?: () => void;
+    cancelInFlightPageRenders?: (() => void) | undefined;
+    cancelPendingSearchScroll?: (() => void) | undefined;
     cleanupRenderedPages: () => void;
     invalidateRenderedPages: (pages: number[]) => void;
     applySearchHighlights: () => void;
@@ -121,15 +121,15 @@ interface IUsePdfViewerCoreOptions {
     startDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     onDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     stopDrag: () => void;
-    consumeZoomViewportAnchor?: () => IZoomViewportAnchor | null;
-    isZoomInteractionLocked?: () => boolean;
-    isZoomGestureSessionLocked?: () => boolean;
-    setZoomRerenderBusy?: (busy: boolean) => void;
-    setResizeTransitionVisible?: (payload: IResizeTransitionSignal) => void;
-    onDocumentLoadStateChange?: (payload: {
+    consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
+    isZoomInteractionLocked?: (() => boolean) | undefined;
+    isZoomGestureSessionLocked?: (() => boolean) | undefined;
+    setZoomRerenderBusy?: ((busy: boolean) => void) | undefined;
+    setResizeTransitionVisible?: ((payload: IResizeTransitionSignal) => void) | undefined;
+    onDocumentLoadStateChange?: ((payload: {
         token: number;
         phase: 'started' | 'settled';
-    }) => void;
+    }) => void) | undefined;
     pinCurrentPageDuringRecovery: (
         page: number,
         options?: {

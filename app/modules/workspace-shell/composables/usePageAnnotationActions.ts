@@ -624,9 +624,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
         await viewer.startImagePlacement(file, {
-            pageNumber,
-            pageX,
-            pageY,
+            ...(pageNumber !== undefined ? { pageNumber } : {}),
+            ...(pageX !== undefined ? { pageX } : {}),
+            ...(pageY !== undefined ? { pageY } : {}),
         });
     }
 
@@ -648,9 +648,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 return;
             }
             await viewer.startImagePlacement(file, {
-                pageNumber,
-                pageX,
-                pageY,
+                ...(pageNumber !== undefined ? { pageNumber } : {}),
+                ...(pageX !== undefined ? { pageX } : {}),
+                ...(pageY !== undefined ? { pageY } : {}),
             });
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to paste image from clipboard', error);

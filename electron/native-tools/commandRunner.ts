@@ -15,7 +15,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
 import { parseIntegerEnv } from '@electron/utils/env';
 
-interface IRunCommandOptions {
+export interface IRunCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
@@ -107,9 +107,7 @@ function spawnNativeProcess(
     context: ICommandRunContext,
     windowsHide: boolean,
 ) {
-    return spawn(command, args, {
-        cwd: context.effectiveCwd,
-        env: context.effectiveEnv,
+    const spawnOptions: Parameters<typeof spawn>[2] = {
         shell: false,
         windowsHide,
         detached: process.platform !== 'win32',
@@ -118,7 +116,14 @@ function spawnNativeProcess(
             'pipe',
             'pipe',
         ],
-    });
+    };
+    if (context.effectiveCwd !== undefined) {
+        spawnOptions.cwd = context.effectiveCwd;
+    }
+    if (context.effectiveEnv !== undefined) {
+        spawnOptions.env = context.effectiveEnv;
+    }
+    return spawn(command, args, spawnOptions);
 }
 
 function killProcessBestEffort(proc: TNativeProcess) {
@@ -182,14 +187,22 @@ export async function runNativeCommand(
         let proc: TNativeProcess | null = null;
         let abortHandler: (() => void) | null = null;
 
-        const context = createCommandRunContext(command, args, {
-            cwd,
-            env,
-            commandLabel,
+        const contextOptions: IRunCommandOptions = {
             defaultCwdToCommandDir,
             prependCommandDirToPath,
             includeProcessEnv,
-        });
+        };
+        if (cwd !== undefined) {
+            contextOptions.cwd = cwd;
+        }
+        if (env !== undefined) {
+            contextOptions.env = env;
+        }
+        if (commandLabel !== undefined) {
+            contextOptions.commandLabel = commandLabel;
+        }
+
+        const context = createCommandRunContext(command, args, contextOptions);
         const output = createBoundedOutputCapture(maxStdoutBytes, maxStderrBytes);
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;

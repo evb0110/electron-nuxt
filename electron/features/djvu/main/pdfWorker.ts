@@ -10,12 +10,59 @@ import type {
 } from '@electron/features/djvu/main/pdfWorkerProtocol';
 import { getErrorMessage } from '@electron/utils/error';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
 function getTask(): TDjvuPdfWorkerTask {
-    const task = workerData as TDjvuPdfWorkerTask | undefined;
-    if (!task || typeof task !== 'object' || typeof task.type !== 'string') {
+    const task = workerData;
+    if (!isRecord(task) || typeof task.type !== 'string') {
         throw new Error('Invalid DjVu PDF worker payload');
     }
-    return task;
+    switch (task.type) {
+        case 'buildPdf':
+            if (!isStringArray(task.imagePaths) || !isFiniteNumber(task.dpi)) {
+                throw new Error('Invalid DjVu PDF build task payload');
+            }
+            return {
+                type: 'buildPdf',
+                imagePaths: task.imagePaths,
+                dpi: task.dpi,
+            };
+        case 'estimatePdfSize':
+            if (typeof task.imagePath !== 'string' || !isFiniteNumber(task.dpi)) {
+                throw new Error('Invalid DjVu PDF estimate task payload');
+            }
+            return {
+                type: 'estimatePdfSize',
+                imagePath: task.imagePath,
+                dpi: task.dpi,
+            };
+        case 'embedBookmarksInFile':
+            if (
+                typeof task.inputPdfPath !== 'string'
+                || typeof task.outputPdfPath !== 'string'
+                || !Array.isArray(task.bookmarks)
+            ) {
+                throw new Error('Invalid DjVu PDF bookmark task payload');
+            }
+            return {
+                type: 'embedBookmarksInFile',
+                inputPdfPath: task.inputPdfPath,
+                outputPdfPath: task.outputPdfPath,
+                bookmarks: task.bookmarks,
+            };
+        default:
+            throw new Error(`Unsupported DjVu PDF worker task: ${task.type}`);
+    }
 }
 
 function toTransferableBuffer(data: Uint8Array): ArrayBuffer {

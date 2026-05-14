@@ -1,18 +1,6 @@
 <template>
     <UTooltip
-        :text="text"
-        :content="content"
-        :arrow="arrow"
-        :portal="portal"
-        :class="tooltipClass"
-        :default-open="defaultOpen"
-        :open="open"
-        :delay-duration="delayDuration"
-        :disable-hoverable-content="disableHoverableContent"
-        :disable-closing-trigger="disableClosingTrigger"
-        :disabled="disabled || !isUseful"
-        :ignore-non-keyboard-focus="ignoreNonKeyboardFocus"
-        :reference="referenceElement"
+        v-bind="tooltipProps"
         @update:open="updateOpen"
     >
         <span
@@ -37,18 +25,18 @@ type TTooltipObject = Record<string, unknown>;
 type TTooltipPortal = boolean | string | HTMLElement;
 
 interface IAppTooltipProps {
-    text?: string;
-    content?: TTooltipObject;
-    arrow?: boolean | TTooltipObject;
-    portal?: TTooltipPortal;
+    text?: string | undefined;
+    content?: TTooltipObject | undefined;
+    arrow?: boolean | TTooltipObject | undefined;
+    portal?: TTooltipPortal | undefined;
     class?: TTooltipClass;
-    defaultOpen?: boolean;
-    open?: boolean;
-    delayDuration?: number;
-    disableHoverableContent?: boolean;
-    disableClosingTrigger?: boolean;
-    disabled?: boolean;
-    ignoreNonKeyboardFocus?: boolean;
+    defaultOpen?: boolean | undefined;
+    open?: boolean | undefined;
+    delayDuration?: number | undefined;
+    disableHoverableContent?: boolean | undefined;
+    disableClosingTrigger?: boolean | undefined;
+    disabled?: boolean | undefined;
+    ignoreNonKeyboardFocus?: boolean | undefined;
     usefulness?: TTooltipUsefulness;
 }
 
@@ -73,6 +61,22 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
 const referenceElement = shallowRef<HTMLElement | undefined>();
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
+const tooltipProps = computed(() => {
+    const props: Record<string, unknown> = {disabled: disabled || !isUseful.value};
+    if (text !== undefined) props.text = text;
+    if (content !== undefined) props.content = content;
+    if (arrow !== undefined) props.arrow = arrow;
+    if (portal !== undefined) props.portal = portal;
+    if (tooltipClass !== undefined) props.class = tooltipClass;
+    if (defaultOpen !== undefined) props.defaultOpen = defaultOpen;
+    if (open !== undefined) props.open = open;
+    if (delayDuration !== undefined) props.delayDuration = delayDuration;
+    if (disableHoverableContent !== undefined) props.disableHoverableContent = disableHoverableContent;
+    if (disableClosingTrigger !== undefined) props.disableClosingTrigger = disableClosingTrigger;
+    if (ignoreNonKeyboardFocus !== undefined) props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
+    if (referenceElement.value !== undefined) props.reference = referenceElement.value;
+    return props;
+});
 
 function updateOpen(value: boolean) {
     emit('update:open', value);

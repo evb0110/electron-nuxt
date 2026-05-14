@@ -1,5 +1,11 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfSerializationSavePayload } from '@app/composables/pdf/pdfSerializationOperations';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {
+    ISerializationWorkerRequest,
+    ISerializationWorkerRequestMap,
+    TSerializationWorkerRequest,
+    TSerializationWorkerRequestType,
+} from '@app/composables/pdf/pdfSerializationWorker.types';
 import {
     deleteEmbeddedAnnotation,
     serializePdfEdits,
@@ -15,30 +21,6 @@ import {
     BrowserWorkerClient,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
-
-interface ISerializationWorkerRequestMap {
-    save: {
-        data: Uint8Array;
-        payload: IPdfSerializationSavePayload;
-    };
-    updateEmbeddedText: {
-        data: Uint8Array;
-        comment: IAnnotationCommentSummary;
-        text: string;
-    };
-    deleteEmbeddedAnnotation: {
-        data: Uint8Array;
-        comment: IAnnotationCommentSummary;
-    };
-}
-
-type TSerializationWorkerRequestType = keyof ISerializationWorkerRequestMap;
-
-interface ISerializationWorkerRequest<K extends TSerializationWorkerRequestType = TSerializationWorkerRequestType> {
-    id: number;
-    type: K;
-    payload: ISerializationWorkerRequestMap[K];
-}
 
 type TSerializationWorkerResult = TBrowserWorkerResult<Uint8Array | null>;
 
@@ -57,7 +39,7 @@ function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
 }
 
 function buildWorkerRequestWithTransfers(
-    request: ISerializationWorkerRequest,
+    request: TSerializationWorkerRequest,
 ) {
     switch (request.type) {
         case 'save': {
@@ -70,7 +52,7 @@ function buildWorkerRequestWithTransfers(
                         ...payload,
                         data: transferableData,
                     },
-                } as ISerializationWorkerRequest<'save'>,
+                } satisfies ISerializationWorkerRequest<'save'>,
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
@@ -84,7 +66,7 @@ function buildWorkerRequestWithTransfers(
                         ...payload,
                         data: transferableData,
                     },
-                } as ISerializationWorkerRequest<'updateEmbeddedText'>,
+                } satisfies ISerializationWorkerRequest<'updateEmbeddedText'>,
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
@@ -98,7 +80,7 @@ function buildWorkerRequestWithTransfers(
                         ...payload,
                         data: transferableData,
                     },
-                } as ISerializationWorkerRequest<'deleteEmbeddedAnnotation'>,
+                } satisfies ISerializationWorkerRequest<'deleteEmbeddedAnnotation'>,
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
@@ -128,15 +110,15 @@ const serializationWorkerClient = new BrowserWorkerClient<
 });
 
 async function runDirect(
-    request: ISerializationWorkerRequest,
+    request: TSerializationWorkerRequest,
 ) {
     switch (request.type) {
         case 'save': {
-            const payload = request.payload as ISerializationWorkerRequestMap['save'];
+            const { payload } = request;
             return serializePdfEdits(payload.data, payload.payload);
         }
         case 'updateEmbeddedText': {
-            const payload = request.payload as ISerializationWorkerRequestMap['updateEmbeddedText'];
+            const { payload } = request;
             return updateEmbeddedAnnotationText(
                 payload.data,
                 payload.comment,
@@ -144,16 +126,16 @@ async function runDirect(
             );
         }
         case 'deleteEmbeddedAnnotation': {
-            const payload = request.payload as ISerializationWorkerRequestMap['deleteEmbeddedAnnotation'];
+            const { payload } = request;
             return deleteEmbeddedAnnotation(payload.data, payload.comment);
         }
         default:
-            throw new Error(`Unsupported PDF serialization request: ${String(request.type)}`);
+            throw new Error('Unsupported PDF serialization request');
     }
 }
 
 async function runDirectWithYield(
-    request: ISerializationWorkerRequest,
+    request: TSerializationWorkerRequest,
 ) {
     await yieldToBrowser();
     const result = await runDirect(request);
@@ -170,16 +152,17 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
         type,
         payload,
     };
+    const typedRequest = request as TSerializationWorkerRequest;
 
     if (!canUseSerializationWorker()) {
-        return runDirectWithYield(request);
+        return runDirectWithYield(typedRequest);
     }
 
     let worker: Worker;
     try {
         worker = serializationWorkerClient.getWorker();
     } catch {
-        return runDirectWithYield(request);
+        return runDirectWithYield(typedRequest);
     }
 
     return new Promise<Uint8Array | null>((resolve, reject) => {
@@ -218,7 +201,7 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
         }, SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS);
 
         try {
-            const workerRequest = buildWorkerRequestWithTransfers(request);
+            const workerRequest = buildWorkerRequestWithTransfers(typedRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
             clearRequestTimeout();
@@ -229,7 +212,7 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
         if (serializationWorkerClient.isActiveWorker(worker)) {
             serializationWorkerClient.resetWorker();
         }
-        return runDirectWithYield(request).catch(() => {
+        return runDirectWithYield(typedRequest).catch(() => {
             throw error;
         });
     });

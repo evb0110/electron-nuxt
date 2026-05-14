@@ -4,7 +4,10 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
-import { runOcrCommand } from '@electron/ocr/worker/runCommand';
+import {
+    runOcrCommand,
+    type IRunCommandOptions,
+} from '@electron/ocr/worker/runCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -33,14 +36,18 @@ export async function getPageCount(
     signal?: AbortSignal,
 ): Promise<number> {
     try {
+        const commandOptions: IRunCommandOptions = {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(show-npages)',
+        };
+        if (signal !== undefined) {
+            commandOptions.signal = signal;
+        }
+
         const result = await runOcrCommand(qpdfBinary, [
             '--show-npages',
             pdfPath,
-        ], {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            signal,
-            commandLabel: 'qpdf(show-npages)',
-        });
+        ], commandOptions);
         const parsed = parseInt((result.stdout ?? '').trim(), 10);
         if (Number.isFinite(parsed) && parsed > 0) {
             return parsed;
@@ -130,13 +137,16 @@ export async function assembleSearchablePdf(
     await writeQpdfArgFile(argFilePath, args);
     throwIfAborted(signal);
 
-    await runOcrCommand(qpdfBinary, [`@${argFilePath}`], {
+    const commandOptions: IRunCommandOptions = {
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-        signal,
         commandLabel: 'qpdf(ocr-assemble)',
         log,
-    });
+    };
+    if (signal !== undefined) {
+        commandOptions.signal = signal;
+    }
+    await runOcrCommand(qpdfBinary, [`@${argFilePath}`], commandOptions);
     await assertNonEmptyFile(replacementPdfPath, 'Assembled OCR PDF');
     throwIfAborted(signal);
 

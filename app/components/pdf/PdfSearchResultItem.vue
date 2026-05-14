@@ -34,14 +34,14 @@ const { t } = useTypedI18n();
 interface IProps {
     result: IPdfSearchMatch;
     isActive: boolean;
-    pageLabels?: string[] | null;
-    showPageLabel?: boolean;
+    pageLabels?: string[] | null | undefined;
+    showPageLabel?: boolean | undefined;
 }
 
 const {
     pageLabels = undefined,
     result,
-    showPageLabel: showPageLabelProp,
+    showPageLabel: showPageLabelProp = true,
 } = defineProps<IProps>();
 const emit = defineEmits<{(e: 'activate'): void;}>();
 

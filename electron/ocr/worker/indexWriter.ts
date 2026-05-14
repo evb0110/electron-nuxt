@@ -36,20 +36,61 @@ function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | null {
+    const parsed: unknown = JSON.parse(rawManifest);
+    if (!isRecord(parsed) || !isRecord(parsed.pages) || !isRecord(parsed.source)) {
+        return null;
+    }
+    const pageCount = parsed.pageCount;
+    if (
+        parsed.version !== 2
+        || typeof parsed.source.pdfPath !== 'string'
+        || typeof pageCount !== 'number'
+        || !Number.isInteger(pageCount)
+        || pageCount <= 0
+    ) {
+        return null;
+    }
+    const pages: IOcrIndexV2Manifest['pages'] = {};
+    for (const [
+        rawPageNumber,
+        rawPageMapping,
+    ] of Object.entries(parsed.pages)) {
+        const pageNumber = parseManifestPageNumber(rawPageNumber);
+        if (
+            pageNumber !== null
+            && isRecord(rawPageMapping)
+            && typeof rawPageMapping.path === 'string'
+            && rawPageMapping.path.length > 0
+        ) {
+            pages[pageNumber] = { path: rawPageMapping.path };
+        }
+    }
+    return {
+        version: 2,
+        createdAt: typeof parsed.createdAt === 'number' && Number.isFinite(parsed.createdAt)
+            ? parsed.createdAt
+            : Date.now(),
+        source: { pdfPath: parsed.source.pdfPath },
+        pageCount,
+        pageBox: 'crop',
+        ocr: {
+            engine: 'tesseract',
+            languages: [],
+            renderDpi: 0,
+        },
+        pages,
+    };
+}
+
 async function readExistingOcrIndexV2Manifest(ocrDir: string): Promise<IOcrIndexV2Manifest | null> {
     try {
         const rawManifest = await readFile(join(ocrDir, 'manifest.json'), 'utf-8');
-        const manifest = JSON.parse(rawManifest) as Partial<IOcrIndexV2Manifest>;
-        if (
-            manifest.version !== 2
-            || typeof manifest.pages !== 'object'
-            || manifest.pages === null
-            || typeof manifest.source?.pdfPath !== 'string'
-            || !Number.isInteger(manifest.pageCount)
-        ) {
-            return null;
-        }
-        return manifest as IOcrIndexV2Manifest;
+        return parseOcrIndexV2Manifest(rawManifest);
     } catch {
         return null;
     }

@@ -94,15 +94,34 @@ function parseSearchRequestPayload(raw: unknown): {
     const wholeWord = typeof raw.wholeWord === 'boolean' ? raw.wholeWord : undefined;
     const useRegex = typeof raw.useRegex === 'boolean' ? raw.useRegex : undefined;
 
-    return {
+    const parsed: {
+        pdfPath: string;
+        query: string;
+        pageCount?: number;
+        requestId?: string;
+        matchCase?: boolean;
+        wholeWord?: boolean;
+        useRegex?: boolean;
+    } = {
         pdfPath,
         query,
-        pageCount,
-        requestId,
-        matchCase,
-        wholeWord,
-        useRegex,
     };
+    if (pageCount !== undefined) {
+        parsed.pageCount = pageCount;
+    }
+    if (requestId !== undefined) {
+        parsed.requestId = requestId;
+    }
+    if (matchCase !== undefined) {
+        parsed.matchCase = matchCase;
+    }
+    if (wholeWord !== undefined) {
+        parsed.wholeWord = wholeWord;
+    }
+    if (useRegex !== undefined) {
+        parsed.useRegex = useRegex;
+    }
+    return parsed;
 }
 
 function parseWarmIndexPayload(raw: unknown): {
@@ -122,11 +141,18 @@ function parseWarmIndexPayload(raw: unknown): {
     const pageCount = parseOptionalPageCount(raw.pageCount);
     const requestId = parseOptionalRequestId(raw.requestId);
 
-    return {
-        pdfPath,
-        pageCount,
-        requestId,
-    };
+    const parsed: {
+        pdfPath: string;
+        pageCount?: number;
+        requestId?: string;
+    } = {pdfPath};
+    if (pageCount !== undefined) {
+        parsed.pageCount = pageCount;
+    }
+    if (requestId !== undefined) {
+        parsed.requestId = requestId;
+    }
+    return parsed;
 }
 
 export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
@@ -200,16 +226,28 @@ async function handlePdfSearch(
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
 
-    return searchWorkerService.dispatchSearchRequest(event, {
+    const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
         resolvedPdfPath,
         query,
-        pageCount,
-        matchCase,
-        wholeWord,
-        useRegex,
-        requestId: parsedRequest.requestId,
         requestIdPrefix: 'search',
-    });
+    };
+    if (pageCount !== undefined) {
+        dispatchPayload.pageCount = pageCount;
+    }
+    if (parsedRequest.requestId !== undefined) {
+        dispatchPayload.requestId = parsedRequest.requestId;
+    }
+    if (matchCase !== undefined) {
+        dispatchPayload.matchCase = matchCase;
+    }
+    if (wholeWord !== undefined) {
+        dispatchPayload.wholeWord = wholeWord;
+    }
+    if (useRegex !== undefined) {
+        dispatchPayload.useRegex = useRegex;
+    }
+
+    return searchWorkerService.dispatchSearchRequest(event, dispatchPayload);
 }
 
 async function handlePdfSearchWarmIndex(
@@ -227,14 +265,20 @@ async function handlePdfSearchWarmIndex(
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
 
-    await searchWorkerService.dispatchSearchRequest(event, {
+    const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
         resolvedPdfPath,
         query: '',
-        pageCount: parsedRequest.pageCount,
-        requestId: parsedRequest.requestId,
         warmup: true,
         requestIdPrefix: 'search-warm',
-    });
+    };
+    if (parsedRequest.pageCount !== undefined) {
+        dispatchPayload.pageCount = parsedRequest.pageCount;
+    }
+    if (parsedRequest.requestId !== undefined) {
+        dispatchPayload.requestId = parsedRequest.requestId;
+    }
+
+    await searchWorkerService.dispatchSearchRequest(event, dispatchPayload);
 
     return true;
 }

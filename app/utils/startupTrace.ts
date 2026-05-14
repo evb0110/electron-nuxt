@@ -15,7 +15,7 @@ interface IStartupTraceEvent {
     sinceStartupMs: number;
     sinceNavigationStartMs: number;
     startupStartedAt: string;
-    details?: Record<string, unknown>;
+    details?: Record<string, unknown> | undefined;
 }
 
 function getStartupState() {

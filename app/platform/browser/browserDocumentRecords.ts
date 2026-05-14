@@ -108,14 +108,15 @@ function normalizePersistedSaveTarget(
 ): IPersistedSaveTarget {
     const saveName =
         typeof value.saveName === 'string' ? value.saveName : undefined;
+    const saveKind = normalizePersistedSaveKind(value.saveKind);
     const saveHandle = 'saveHandle' in value
         ? (value.saveHandle as FileSystemFileHandle | null | undefined)
         : undefined;
 
     return {
-        saveName,
-        saveKind: normalizePersistedSaveKind(value.saveKind),
-        saveHandle: saveHandle ?? undefined,
+        ...(saveName ? { saveName } : {}),
+        ...(saveKind ? { saveKind } : {}),
+        ...(saveHandle !== undefined ? { saveHandle } : {}),
     };
 }
 
@@ -132,8 +133,8 @@ function normalizePersistedChunkLayout(
             : undefined;
 
     return {
-        chunkCount,
-        chunkSize,
+        ...(chunkCount !== undefined ? { chunkCount } : {}),
+        ...(chunkSize !== undefined ? { chunkSize } : {}),
     };
 }
 
@@ -159,7 +160,7 @@ export function toPersistedDocumentRecord(
     return {
         ...requiredFields,
         retention: retention === 'transient' ? 'transient' : 'durable',
-        sourceRef,
+        ...(sourceRef ? { sourceRef } : {}),
         ...saveTarget,
         storageMode,
         ...chunkLayout,
@@ -269,7 +270,7 @@ export function createBrowserDocumentEntry(
         mimeType: input.mimeType,
         kind: input.kind,
         retention: input.retention,
-        sourceRef: input.sourceRef,
+        ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
         data: input.data,
         fileSize: input.fileSize,
         updatedAt: Date.now(),

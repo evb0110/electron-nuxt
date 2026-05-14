@@ -3,6 +3,7 @@ import type {
     IBrowserPdfCombineWorkerRequestMap,
     IBrowserPdfCombineWorkerResultMap,
     IBrowserPdfCombineWorkerRequest,
+    TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
@@ -17,10 +18,6 @@ import {
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
 
-type TAnyBrowserPdfCombineWorkerRequest = {
-    [K in TBrowserPdfCombineWorkerRequestType]: IBrowserPdfCombineWorkerRequest<K>;
-}[TBrowserPdfCombineWorkerRequestType];
-
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
 
 export class BrowserPdfCombineWorkerUnavailableError extends Error {
@@ -31,7 +28,7 @@ export class BrowserPdfCombineWorkerUnavailableError extends Error {
 }
 
 function buildWorkerRequestWithTransfers(
-    request: TAnyBrowserPdfCombineWorkerRequest,
+    request: TBrowserPdfCombineWorkerRequest,
 ) {
     const inputs = request.payload.inputs.map((input) => ({
         ...input,

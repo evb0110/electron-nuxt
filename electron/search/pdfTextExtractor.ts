@@ -69,16 +69,20 @@ export async function extractTextFromPdf(
         throwIfAborted(signal);
         // Use pdftotext -layout to preserve some structure
         // Each page is separated by form feed character (0x0C)
+        const commandOptions: Parameters<typeof runElectronCommand>[2] = {
+            timeoutMs: PDFTOTEXT_TIMEOUT_MS,
+            maxStdoutBytes: PDFTOTEXT_MAX_STDOUT_BYTES,
+            rejectOnStdoutTruncation: true,
+        };
+        if (signal !== undefined) {
+            commandOptions.signal = signal;
+        }
+
         const result = await runElectronCommand(pdftotext, [
             '-layout',
             pdfPath,
             '-',
-        ], {
-            signal,
-            timeoutMs: PDFTOTEXT_TIMEOUT_MS,
-            maxStdoutBytes: PDFTOTEXT_MAX_STDOUT_BYTES,
-            rejectOnStdoutTruncation: true,
-        });
+        ], commandOptions);
         throwIfAborted(signal);
 
         const output = result.stdout ?? '';

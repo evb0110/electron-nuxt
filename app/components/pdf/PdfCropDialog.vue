@@ -204,20 +204,20 @@ const {
     currentPage,
     currentVisibleBox = undefined,
     initialMargins,
-    loading,
+    loading = false,
     mediaBox,
     rotation = undefined,
     selectedPages,
     totalPages,
 } = defineProps<{
-    loading?: boolean;
+    loading?: boolean | undefined;
     totalPages: number;
     currentPage: number;
     selectedPages: number[];
     initialMargins: ICropMargins;
     mediaBox: IPdfBox;
-    currentVisibleBox?: IPdfBox | null;
-    rotation?: number;
+    currentVisibleBox?: IPdfBox | null | undefined;
+    rotation?: number | undefined;
 }>();
 
 const emit = defineEmits<{

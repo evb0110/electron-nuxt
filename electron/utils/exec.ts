@@ -1,4 +1,7 @@
-import {runNativeCommand} from '@electron/native-tools/commandRunner';
+import {
+    runNativeCommand,
+    type IRunCommandOptions,
+} from '@electron/native-tools/commandRunner';
 
 interface IRunCommandResult {
     stdout: string;
@@ -31,17 +34,35 @@ export async function runElectronCommand(
         signal,
     } = options;
 
-    return runNativeCommand(command, args, {
-        cwd,
-        env,
-        timeoutMs,
-        maxStdoutBytes,
-        maxStderrBytes,
-        rejectOnStdoutTruncation,
-        allowedExitCodes,
-        signal,
+    const commandOptions: IRunCommandOptions = {
         commandLabel: command,
         includeProcessEnv: env === undefined,
         windowsHide: false,
-    });
+    };
+    if (cwd !== undefined) {
+        commandOptions.cwd = cwd;
+    }
+    if (env !== undefined) {
+        commandOptions.env = env;
+    }
+    if (timeoutMs !== undefined) {
+        commandOptions.timeoutMs = timeoutMs;
+    }
+    if (maxStdoutBytes !== undefined) {
+        commandOptions.maxStdoutBytes = maxStdoutBytes;
+    }
+    if (maxStderrBytes !== undefined) {
+        commandOptions.maxStderrBytes = maxStderrBytes;
+    }
+    if (rejectOnStdoutTruncation !== undefined) {
+        commandOptions.rejectOnStdoutTruncation = rejectOnStdoutTruncation;
+    }
+    if (allowedExitCodes !== undefined) {
+        commandOptions.allowedExitCodes = allowedExitCodes;
+    }
+    if (signal !== undefined) {
+        commandOptions.signal = signal;
+    }
+
+    return runNativeCommand(command, args, commandOptions);
 }

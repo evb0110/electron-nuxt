@@ -45,9 +45,9 @@ const knownSourcemapWarningPlugins = new Set([
 ]);
 
 interface IRollupLog {
-    code?: string;
+    code?: string | undefined;
     message: string;
-    plugin?: string;
+    plugin?: string | undefined;
 }
 
 function isKnownSourcemapWarning(log: IRollupLog) {

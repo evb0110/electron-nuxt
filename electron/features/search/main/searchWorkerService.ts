@@ -278,19 +278,31 @@ export class SearchWorkerService {
             state.requestTimeouts.set(requestId, requestTimeout);
 
             try {
-                state.worker.postMessage({
+                const workerRequest: TSearchWorkerInboundMessage = {
                     type: 'search',
                     payload: {
                         requestId,
                         pdfPath: payload.resolvedPdfPath,
                         query: payload.query,
-                        pageCount: payload.pageCount,
-                        warmup: payload.warmup,
-                        matchCase: payload.matchCase,
-                        wholeWord: payload.wholeWord,
-                        useRegex: payload.useRegex,
                     },
-                } satisfies TSearchWorkerInboundMessage);
+                };
+                if (payload.pageCount !== undefined) {
+                    workerRequest.payload.pageCount = payload.pageCount;
+                }
+                if (payload.warmup !== undefined) {
+                    workerRequest.payload.warmup = payload.warmup;
+                }
+                if (payload.matchCase !== undefined) {
+                    workerRequest.payload.matchCase = payload.matchCase;
+                }
+                if (payload.wholeWord !== undefined) {
+                    workerRequest.payload.wholeWord = payload.wholeWord;
+                }
+                if (payload.useRegex !== undefined) {
+                    workerRequest.payload.useRegex = payload.useRegex;
+                }
+
+                state.worker.postMessage(workerRequest);
             } catch (error) {
                 this.clearRequestTimeout(state, requestId);
                 state.pendingByRequestId.delete(requestId);
@@ -555,15 +567,27 @@ export class SearchWorkerService {
         this.markStateActivity(state);
 
         switch (message.type) {
-            case 'progress':
-                this.sendSearchProgress(senderId, {
+            case 'progress': {
+                const progress: {
+                    requestId: string;
+                    processed: number;
+                    total: number;
+                    results?: TSearchMatch[];
+                    truncated?: boolean;
+                } = {
                     requestId: message.requestId,
                     processed: message.processed,
                     total: message.total,
-                    results: message.results,
-                    truncated: message.truncated,
-                });
+                };
+                if (message.results !== undefined) {
+                    progress.results = message.results;
+                }
+                if (message.truncated !== undefined) {
+                    progress.truncated = message.truncated;
+                }
+                this.sendSearchProgress(senderId, progress);
                 return;
+            }
             case 'complete':
                 if (state.activeRequestId === message.requestId) {
                     state.activeRequestId = null;
