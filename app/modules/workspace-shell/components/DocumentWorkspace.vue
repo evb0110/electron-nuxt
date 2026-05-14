@@ -303,6 +303,7 @@
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
                         :is-resizing="isResizingSidebar"
+                        :is-active="isActive"
                         :annotation-tool="annotationTool"
                         :annotation-cursor-mode="annotationCursorMode"
                         :annotation-keep-active="annotationKeepActive"

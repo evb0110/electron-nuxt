@@ -28,6 +28,7 @@ export interface IBuildResizeAnchorContextOptions {
 interface IUsePdfViewerResizeLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;
+    isActive?: Ref<boolean>;
     isResizing: Ref<boolean>;
     pdfDocument: Ref<unknown | null>;
     currentPage: Ref<number>;
@@ -56,6 +57,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     const {
         viewerContainer,
         isLoading,
+        isActive,
         isResizing,
         pdfDocument,
         currentPage,
@@ -129,6 +131,19 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     function buildResizeAnchorContext(optionsOverride?: IBuildResizeAnchorContextOptions) {
+        if (isActive?.value === false) {
+            return {
+                capturedAtMs: Date.now(),
+                page: currentPage.value,
+                transitionToken: 0,
+                snapshot: null,
+                visibleRange: {
+                    start: visibleRange.value.start,
+                    end: visibleRange.value.end,
+                },
+                viewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
+            } satisfies IResizeAnchorContext;
+        }
         const initialSnapshot = captureScrollSnapshot(viewerContainer.value, optionsOverride);
         const snapshotAnchorPage =
             initialSnapshot
@@ -185,7 +200,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     const debouncedRenderOnResizeWithAnchor = useDebounceFn(() => {
-        if (isLoading.value || !pdfDocument.value) {
+        if (isActive?.value === false || isLoading.value || !pdfDocument.value) {
             if (pendingResizeAnchor) {
                 scheduleEndResizeTransition(
                     pendingResizeAnchor.transitionToken,
@@ -246,6 +261,9 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     function handleResize() {
+        if (isActive?.value === false) {
+            return;
+        }
         if (isLoading.value || isResizing.value) {
             return;
         }
@@ -302,6 +320,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             clearTimeout(pendingResizeTransitionHideTimer);
             pendingResizeTransitionHideTimer = null;
         }
+        pendingResizeAnchor = null;
+        resizeTransitionToken += 1;
         emitResizeTransitionSignal(false, 'unmount', resizeTransitionToken, currentPage.value);
     }
 

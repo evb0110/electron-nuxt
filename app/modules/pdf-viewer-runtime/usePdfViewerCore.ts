@@ -49,6 +49,7 @@ interface IUsePdfViewerCoreOptions {
     zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
+    isActive?: ComputedRef<boolean>;
     isResizing: ComputedRef<boolean>;
     continuousScroll: ComputedRef<boolean>;
     annotationTool: ComputedRef<TAnnotationTool>;
@@ -206,6 +207,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         zoomMode,
         fitMode,
         viewMode,
+        isActive: isActiveOption,
         isResizing,
         continuousScroll,
         annotationTool,
@@ -253,6 +255,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         endVisualReloadTransition,
         emit,
     } = options;
+    const isActive = computed(() => isActiveOption?.value ?? true);
 
     const {
         pdfDocument,
@@ -378,6 +381,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     } = usePdfViewerResizeLifecycle({
         viewerContainer,
         isLoading,
+        isActive,
         isResizing,
         pdfDocument,
         currentPage,
@@ -518,19 +522,52 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     useEventListener(
         documentTarget,
         'selectionchange',
-        highlight.cacheCurrentTextSelection,
+        () => {
+            if (isActive.value) {
+                highlight.cacheCurrentTextSelection();
+            }
+        },
         { passive: true },
     );
     useEventListener(
         documentTarget,
         'pointerup',
-        highlight.handleDocumentPointerUp,
+        (event) => {
+            if (isActive.value && event instanceof PointerEvent) {
+                highlight.handleDocumentPointerUp(event);
+            }
+        },
         { passive: true },
     );
 
     onMounted(() => {
         inlineIndicators.attachInlineCommentMarkerObserver();
-        scheduleLoadFromSource();
+        if (isActive.value) {
+            scheduleLoadFromSource();
+        }
+    });
+
+    watch(isActive, async (active) => {
+        if (active) {
+            await nextTick();
+            scheduleSetAnnotationTool(annotationTool.value, 'restore annotation tool after tab activation');
+            editor.applyAnnotationSettings(annotationSettings.value);
+            if (src.value && !pdfDocument.value && !isLoading.value) {
+                scheduleLoadFromSource();
+                return;
+            }
+            if (pdfDocument.value && !isLoading.value) {
+                updateVisibleRange(viewerContainer.value, numPages.value);
+                void renderVisiblePages(visibleRange.value, { preserveRenderedPages: true });
+                applySearchHighlights();
+            }
+            return;
+        }
+        cancelInFlightPageRenders?.();
+        cleanupRenderedPages();
+        resetZoomRerenderQueueState('inactive-tab');
+        cleanupResizeLifecycle();
+        highlight.clearSelectionCache();
     });
 
     onUnmounted(() => {
@@ -578,10 +615,16 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     );
 
     watch(effectiveScale, (scale) => {
+        if (!isActive.value) {
+            return;
+        }
         annotationUiManager.value?.onScaleChanging({scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS});
     });
 
     watch(currentPage, (page) => {
+        if (!isActive.value) {
+            return;
+        }
         annotationUiManager.value?.onPageChanging({ pageNumber: page });
         if (fitMode.value === 'height' && !continuousScroll.value && pdfDocument.value) {
             computeFitWidthScale(viewerContainer.value);
@@ -591,6 +634,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     watch(
         annotationTool,
         (tool) => {
+            if (!isActive.value) {
+                return;
+            }
             if (tool !== 'none') highlight.cancelCommentPlacement();
             scheduleSetAnnotationTool(tool, `apply annotation tool "${tool}"`);
         },
@@ -598,6 +644,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     );
 
     watch(annotationCursorMode, () => {
+        if (!isActive.value) {
+            return;
+        }
         if (annotationTool.value === 'none') {
             scheduleSetAnnotationTool('none', 're-apply annotation cursor mode');
         }
@@ -613,6 +662,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     watch(
         annotationSettingsSignature,
         () => {
+            if (!isActive.value) {
+                return;
+            }
             editor.applyAnnotationSettings(annotationSettings.value);
         },
         {immediate: true},

@@ -54,11 +54,19 @@ describe('workspace host mount request state', () => {
         })).toBe(true);
     });
 
-    it('requests mount when a document hint exists', () => {
+    it('waits to mount inactive tabs with only a document hint', () => {
         expect(shouldAutoRequestWorkspace({
             hasQueuedSplitRestore: false,
             hasDocumentHint: true,
             isActive: false,
+        })).toBe(false);
+    });
+
+    it('requests mount when an active tab has a document hint', () => {
+        expect(shouldAutoRequestWorkspace({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: true,
+            isActive: true,
         })).toBe(true);
     });
 
@@ -86,6 +94,15 @@ describe('workspace host mount request state', () => {
             isActive: false,
         });
         expect(requested).toBe(false);
+    });
+
+    it('requests a hinted workspace when its tab becomes active', () => {
+        const requested = resolveWorkspaceRequestedState(false, {
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: true,
+            isActive: true,
+        });
+        expect(requested).toBe(true);
     });
 });
 
@@ -122,25 +139,44 @@ describe('workspace preload policy', () => {
         expect(shouldPreloadWorkspaceOnHostMount({
             hasQueuedSplitRestore: false,
             hasDocumentHint: false,
+            isActive: true,
             isDev: true,
         })).toBe(false);
     });
 
-    it('keeps host mount preload for production empty tabs and real document work', () => {
+    it('keeps host mount preload for active production empty tabs and active document work', () => {
         expect(shouldPreloadWorkspaceOnHostMount({
             hasQueuedSplitRestore: false,
             hasDocumentHint: false,
+            isActive: true,
             isDev: false,
         })).toBe(true);
         expect(shouldPreloadWorkspaceOnHostMount({
             hasQueuedSplitRestore: true,
             hasDocumentHint: false,
+            isActive: false,
             isDev: true,
         })).toBe(true);
         expect(shouldPreloadWorkspaceOnHostMount({
             hasQueuedSplitRestore: false,
             hasDocumentHint: true,
+            isActive: true,
             isDev: true,
         })).toBe(true);
+    });
+
+    it('skips host mount preload for inactive document and production placeholder tabs', () => {
+        expect(shouldPreloadWorkspaceOnHostMount({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: true,
+            isActive: false,
+            isDev: false,
+        })).toBe(false);
+        expect(shouldPreloadWorkspaceOnHostMount({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: false,
+            isActive: false,
+            isDev: false,
+        })).toBe(false);
     });
 });
