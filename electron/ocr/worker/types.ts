@@ -43,11 +43,23 @@ export interface IOcrWorkerStartPayload {
     renderDpi?: number;
 }
 
-export interface IOcrWorkerInboundMessage {
-    type: 'start';
-    jobId: string;
-    data: IOcrWorkerStartPayload;
-}
+export type TOcrWorkerInboundMessage =
+    | {
+        type: 'start';
+        jobId: string;
+        data: IOcrWorkerStartPayload;
+    }
+    | {
+        type: 'cancel';
+        jobId: string;
+    }
+    | {
+        type: 'resource-acquired';
+        jobId: string;
+        requestId: string;
+        token: string;
+        effectiveDpi: number;
+    };
 
 interface IOcrWorkerProgressPayload {
     requestId: string;
@@ -86,10 +98,28 @@ export interface IOcrWorkerLogMessage {
     message: string;
 }
 
+export interface IOcrWorkerResourceAcquireMessage {
+    type: 'resource-acquire';
+    jobId: string;
+    requestId: string;
+    pageNumber: number;
+    requestedDpi: number;
+    pageWidthIn?: number;
+    pageHeightIn?: number;
+}
+
+export interface IOcrWorkerResourceReleaseMessage {
+    type: 'resource-release';
+    jobId: string;
+    token: string;
+}
+
 export type TOcrWorkerOutboundMessage =
     | IOcrWorkerProgressMessage
     | IOcrWorkerCompleteMessage
-    | IOcrWorkerLogMessage;
+    | IOcrWorkerLogMessage
+    | IOcrWorkerResourceAcquireMessage
+    | IOcrWorkerResourceReleaseMessage;
 
 export type TRotation = 0 | 90 | 180 | 270;
 

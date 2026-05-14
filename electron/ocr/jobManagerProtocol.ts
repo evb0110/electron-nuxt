@@ -35,7 +35,12 @@ export function isScopedJobOwnedBySender(scopedJobId: string, webContentsId: num
     return scopedJobId.startsWith(`${webContentsId}:`);
 }
 
-function parseWorkerLogMessage(message: Record<string, unknown>): TOcrWorkerOutboundMessage | null {
+type TOcrWorkerManagerMessage = Exclude<
+    TOcrWorkerOutboundMessage,
+    { type: 'resource-acquire' } | { type: 'resource-release' }
+>;
+
+function parseWorkerLogMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
     if (
         (message.level === 'debug' || message.level === 'warn' || message.level === 'error')
         && typeof message.message === 'string'
@@ -49,7 +54,7 @@ function parseWorkerLogMessage(message: Record<string, unknown>): TOcrWorkerOutb
     return null;
 }
 
-function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorkerOutboundMessage | null {
+function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
     const progress = message.progress;
     if (!isRecord(progress) || typeof message.jobId !== 'string' || typeof progress.requestId !== 'string') {
         return null;
@@ -108,7 +113,7 @@ function parseWorkerCompleteResult(result: unknown) {
         : parseFailedCompleteResult(result);
 }
 
-function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerOutboundMessage | null {
+function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
     if (typeof message.jobId !== 'string') {
         return null;
     }
@@ -123,7 +128,7 @@ function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorke
         : null;
 }
 
-export function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null {
+export function parseWorkerMessage(message: unknown): TOcrWorkerManagerMessage | null {
     if (!isRecord(message) || typeof message.type !== 'string') {
         return null;
     }

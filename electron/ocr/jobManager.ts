@@ -27,6 +27,7 @@ import {
 } from '@electron/ocr/jobManagerProtocol';
 import { createPendingResultFileStore } from '@electron/ocr/jobManagerResultFiles';
 import { createOcrWorker } from '@electron/ocr/jobManager.worker';
+import { ocrResourceGovernor } from '@electron/ocr/resourceGovernor';
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
@@ -34,7 +35,7 @@ import type {
 } from '@electron/ocr/jobManager.types';
 import type {
     IOcrPdfPageRequest,
-    IOcrWorkerInboundMessage,
+    TOcrWorkerInboundMessage,
     TOcrWorkerOutboundMessage,
 } from '@electron/ocr/worker/types';
 import { createLogger } from '@electron/utils/logger';
@@ -57,6 +58,11 @@ const queuedJobIds = new Set<string>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
+
+type TOcrWorkerManagerMessage = Exclude<
+    TOcrWorkerOutboundMessage,
+    { type: 'resource-acquire' } | { type: 'resource-release' }
+>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -354,15 +360,75 @@ function sendJobFailure(job: IOcrQueuedJob, error: string) {
 
 function finalizeActiveJob(scopedJobId: string) {
     clearJobWatchdog(scopedJobId);
+    ocrResourceGovernor.releaseJob(scopedJobId);
     activeJobs.delete(scopedJobId);
     dispatchQueuedJobs();
+}
+
+function isWorkerResourceMessage(message: unknown): message is Extract<
+    TOcrWorkerOutboundMessage,
+    { type: 'resource-acquire' } | { type: 'resource-release' }
+> {
+    if (!isRecord(message) || typeof message.type !== 'string') {
+        return false;
+    }
+
+    if (message.type === 'resource-release') {
+        return typeof message.jobId === 'string' && typeof message.token === 'string';
+    }
+
+    return message.type === 'resource-acquire'
+        && typeof message.jobId === 'string'
+        && typeof message.requestId === 'string'
+        && typeof message.pageNumber === 'number'
+        && Number.isFinite(message.pageNumber)
+        && typeof message.requestedDpi === 'number'
+        && Number.isFinite(message.requestedDpi)
+        && (message.pageWidthIn === undefined || (typeof message.pageWidthIn === 'number' && Number.isFinite(message.pageWidthIn)))
+        && (message.pageHeightIn === undefined || (typeof message.pageHeightIn === 'number' && Number.isFinite(message.pageHeightIn)));
+}
+
+function handleWorkerResourceMessage(
+    scopedJobId: string,
+    worker: Worker,
+    message: Extract<TOcrWorkerOutboundMessage, { type: 'resource-acquire' } | { type: 'resource-release' }>,
+) {
+    if (message.type === 'resource-release') {
+        ocrResourceGovernor.release(message.token);
+        return;
+    }
+
+    void ocrResourceGovernor.acquire({
+        jobId: scopedJobId,
+        pageNumber: message.pageNumber,
+        requestedDpi: message.requestedDpi,
+        pageWidthIn: message.pageWidthIn,
+        pageHeightIn: message.pageHeightIn,
+    }).then((lease) => {
+        const active = activeJobs.get(scopedJobId);
+        if (!active || active.completed || active.terminatedByUs) {
+            ocrResourceGovernor.release(lease.token);
+            return;
+        }
+
+        const response: TOcrWorkerInboundMessage = {
+            type: 'resource-acquired',
+            jobId: message.jobId,
+            requestId: message.requestId,
+            token: lease.token,
+            effectiveDpi: lease.effectiveDpi,
+        };
+        worker.postMessage(response);
+    }).catch((error: unknown) => {
+        log.warn(`[${scopedJobId}] Failed to grant OCR resource slot: ${getErrorMessage(error)}`);
+    });
 }
 
 function handleWorkerMessage(
     scopedJobId: string,
     requestId: string,
     webContentsId: number,
-    message: TOcrWorkerOutboundMessage,
+    message: TOcrWorkerManagerMessage,
 ) {
     const window = getJobWindow(webContentsId);
 
@@ -434,6 +500,10 @@ function startQueuedJob(job: IOcrQueuedJob) {
 
     worker.on('message', (message: unknown) => {
         resetJobWatchdog(job);
+        if (isWorkerResourceMessage(message)) {
+            handleWorkerResourceMessage(job.scopedJobId, worker, message);
+            return;
+        }
         const parsedMessage = parseWorkerMessage(message);
         if (!parsedMessage) {
             log.warn(`Ignoring malformed OCR worker message for job ${job.requestId}`);
@@ -483,7 +553,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
     });
 
     try {
-        const startMessage: IOcrWorkerInboundMessage = {
+        const startMessage: TOcrWorkerInboundMessage = {
             type: 'start',
             // Keep worker-visible job ids sender-agnostic so renderer callbacks
             // continue matching the requestId generated in the UI.
@@ -852,6 +922,7 @@ export async function shutdownOcrJobManager() {
 
     await pendingResultFileStore.shutdown();
 
+    ocrResourceGovernor.reset();
     cancelledJobs.clear();
     registeredSenderCleanupIds.clear();
 }
