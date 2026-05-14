@@ -10,6 +10,7 @@ import {
     basename,
 } from 'path';
 import { app } from 'electron';
+import { uniq } from 'es-toolkit/array';
 import type { IRecentFile } from '@contracts/shared';
 import {
     CACHE_TTL_MS,
@@ -55,9 +56,9 @@ function getBootstrapStoragePaths() {
 
     const appDataPath = app.getPath('appData');
     const currentStoragePath = getStoragePath();
-    return Array.from(new Set(BOOTSTRAP_RECENT_FILES_DIR_NAMES
+    return uniq(BOOTSTRAP_RECENT_FILES_DIR_NAMES
         .map(dirName => join(appDataPath, dirName, 'recentFiles.json'))
-        .filter(candidatePath => candidatePath !== currentStoragePath)));
+        .filter(candidatePath => candidatePath !== currentStoragePath));
 }
 
 function normalizeRecentFilesData(raw: unknown): IRecentFilesData {

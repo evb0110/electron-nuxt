@@ -1,5 +1,6 @@
 import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import { clamp } from 'es-toolkit/math';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { detectEditorSubtype } from '@app/composables/pdf/pdfAnnotationEditorUtils';
@@ -123,7 +124,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         }
 
         const maxCornerSize = Math.floor((Math.min(rect.width, rect.height) - 2) / 2);
-        const nextSize = Math.max(4, Math.min(10, maxCornerSize));
+        const nextSize = clamp(maxCornerSize, 4, 10);
         div.style.setProperty('--evb-resizer-size', `${nextSize}px`);
     }
 

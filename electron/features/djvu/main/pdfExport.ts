@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import type { Worker } from 'worker_threads';
+import { uniq } from 'es-toolkit/array';
 import {
     rm,
     stat,
@@ -414,11 +415,11 @@ export function handleDjvuCancel(
 }
 
 export async function shutdownDjvuConversions() {
-    const jobIds = Array.from(new Set([
+    const jobIds = uniq([
         ...activeJobIds,
         ...queuedConversionJobIds,
         ...activePdfWorkerByJobId.keys(),
-    ]));
+    ]);
 
     if (jobIds.length === 0) {
         return;

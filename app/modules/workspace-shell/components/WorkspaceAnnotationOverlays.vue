@@ -137,6 +137,7 @@ import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/a
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
+import { compact } from 'es-toolkit/array';
 import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
 
 const INLINE_NOTE_SUBTYPES = new Set([
@@ -265,10 +266,9 @@ function parseStableKeysAttr(value: string | null | undefined) {
     if (!value) {
         return [];
     }
-    return value
+    return compact(value
         .split('|')
-        .map(entry => entry.trim())
-        .filter(Boolean);
+        .map(entry => entry.trim()));
 }
 
 interface IInlineTriggerIdentity {
@@ -659,8 +659,8 @@ function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
     if (!markerRect) {
         return {display: 'none'};
     }
-    const leftPercent = Math.max(1, Math.min(99, (markerRect.left + markerRect.width) * 100));
-    const topPercent = Math.max(1, Math.min(99, markerRect.top * 100));
+    const leftPercent = clamp((markerRect.left + markerRect.width) * 100, 1, 99);
+    const topPercent = clamp(markerRect.top * 100, 1, 99);
 
     return {
         left: `${leftPercent}%`,

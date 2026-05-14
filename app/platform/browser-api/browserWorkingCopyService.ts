@@ -2,6 +2,7 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platformApi';
+import { clamp } from 'es-toolkit/math';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {
     BROWSER_MAX_FULL_READ_BYTES,
@@ -42,7 +43,7 @@ function emitBatchOpenProgress(
     const requestId = options?.requestId?.trim();
     const safeTotal = Math.max(total, 0);
     const safeProcessed = safeTotal > 0
-        ? Math.min(Math.max(processed, 0), safeTotal)
+        ? clamp(processed, 0, safeTotal)
         : 0;
     const elapsedMs = Math.max(0, Date.now() - startedAt);
     const percent = safeTotal > 0

@@ -25,12 +25,13 @@ function getCpuCount(): number {
 
 export function getOcrConcurrency(targetCount: number): number {
     const configured = parsePositiveInt(process.env.OCR_CONCURRENCY);
+    const safeTargetCount = Math.max(1, targetCount);
     if (configured) {
-        return Math.max(1, Math.min(configured, targetCount));
+        return clamp(configured, 1, safeTargetCount);
     }
     const cpuCount = getCpuCount();
     const defaultConcurrency = Math.min(cpuCount, 8);
-    return Math.max(1, Math.min(defaultConcurrency, targetCount));
+    return clamp(defaultConcurrency, 1, safeTargetCount);
 }
 
 export function getTesseractThreadLimit(concurrency: number): number {
@@ -51,7 +52,7 @@ export async function forEachConcurrent<T>(
         return;
     }
 
-    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+    const workerCount = clamp(concurrency, 1, items.length);
     const limited = limitAsync(fn, workerCount);
     await Promise.all(items.map((item, index) => limited(item, index)));
 }

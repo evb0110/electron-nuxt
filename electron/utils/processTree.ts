@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { clamp } from 'es-toolkit/math';
 import { delay } from 'es-toolkit/promise';
 
 interface ITerminateProcessTreeOptions {
@@ -107,7 +108,7 @@ export async function terminateProcessTree(
         const exitedGracefully = await waitForExit(pid, graceMs);
         if (!exitedGracefully && isPidAlive(pid)) {
             await runTaskkill(pid, true);
-            const forceKillWaitMs = Math.min(2_000, Math.max(250, Math.floor(graceMs / 2)));
+            const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
             await waitForExit(pid, forceKillWaitMs);
         }
         return;
@@ -120,6 +121,6 @@ export async function terminateProcessTree(
     }
 
     sendPosixSignal(pid, 'SIGKILL', preferProcessGroup);
-    const forceKillWaitMs = Math.min(2_000, Math.max(250, Math.floor(graceMs / 2)));
+    const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
     await waitForExit(pid, forceKillWaitMs);
 }

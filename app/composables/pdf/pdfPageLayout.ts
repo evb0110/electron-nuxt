@@ -2,6 +2,10 @@ import type {
     IPdfPageMetric,
     TPdfViewMode,
 } from '@app/types/pdf';
+import {
+    clamp,
+    sumBy,
+} from 'es-toolkit/math';
 
 export interface IPdfPageLayoutMetrics {
     totalPages: number;
@@ -58,7 +62,7 @@ function resolveNearestMetricEstimate(
 }
 
 function clampPageNumber(pageNumber: number, totalPages: number) {
-    return Math.max(1, Math.min(totalPages, Math.floor(pageNumber)));
+    return clamp(Math.floor(pageNumber), 1, totalPages);
 }
 
 function resolveSinglePageRowBounds(pageNumber: number) {
@@ -184,10 +188,7 @@ function buildLayoutRows(options: {
     for (let pageNumber = 1; pageNumber <= options.totalPages;) {
         const rowStartPage = pageNumber;
         const rowPages = getSpreadRowPages(pageNumber, options.viewMode, options.totalPages);
-        const rowHeight = rowPages.reduce(
-            (height, rowPage) => Math.max(height, options.pageHeights[rowPage - 1] ?? 0),
-            0,
-        );
+        const rowHeight = Math.max(...rowPages.map(rowPage => options.pageHeights[rowPage - 1] ?? 0));
 
         rowStartPages.push(rowStartPage);
         rowEndPages.push(rowPages[rowPages.length - 1] ?? rowStartPage);
@@ -332,10 +333,10 @@ export function resolveSpreadBaseWidth(
 
     while (pageNumber <= totalPages) {
         const rowPages = getSpreadRowPages(pageNumber, viewMode, totalPages);
-        const rowWidth = rowPages.reduce((sum, rowPage) => {
+        const rowWidth = sumBy(rowPages, (rowPage) => {
             const pageWidth = pageMetrics[rowPage - 1]?.width;
-            return sum + (isFinitePositive(pageWidth) ? pageWidth : 0);
-        }, 0);
+            return isFinitePositive(pageWidth) ? pageWidth : 0;
+        });
         maxWidth = Math.max(maxWidth, rowWidth);
         pageNumber = rowPages[rowPages.length - 1] ?? pageNumber;
         pageNumber += 1;
@@ -355,10 +356,10 @@ export function resolveCurrentSpreadBaseWidth(
     }
 
     const rowPages = getSpreadRowPages(currentPage, viewMode, totalPages);
-    const width = rowPages.reduce((sum, rowPage) => {
+    const width = sumBy(rowPages, (rowPage) => {
         const pageWidth = pageMetrics[rowPage - 1]?.width;
-        return sum + (isFinitePositive(pageWidth) ? pageWidth : 0);
-    }, 0);
+        return isFinitePositive(pageWidth) ? pageWidth : 0;
+    });
 
     return width > 0 ? width : null;
 }
@@ -455,7 +456,7 @@ export function getLeadingSpacerHeight(
     layout: IPdfPageLayoutMetrics,
     hiddenPages: number,
 ) {
-    const clampedHiddenPages = Math.max(0, Math.min(hiddenPages, layout.totalPages));
+    const clampedHiddenPages = clamp(hiddenPages, 0, layout.totalPages);
     if (clampedHiddenPages === 0) {
         return 0;
     }
@@ -486,7 +487,7 @@ export function getTrailingSpacerHeight(
     layout: IPdfPageLayoutMetrics,
     hiddenPages: number,
 ) {
-    const clampedHiddenPages = Math.max(0, Math.min(hiddenPages, layout.totalPages));
+    const clampedHiddenPages = clamp(hiddenPages, 0, layout.totalPages);
     if (clampedHiddenPages === 0) {
         return 0;
     }

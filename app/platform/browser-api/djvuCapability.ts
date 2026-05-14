@@ -1,3 +1,4 @@
+import { uniq } from 'es-toolkit/array';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import type {
     IDjvuCapability,
@@ -608,7 +609,7 @@ function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
         pageCount,
     ];
 
-    return Array.from(new Set(candidates)).slice(0, maxSamples);
+    return uniq(candidates).slice(0, maxSamples);
 }
 
 async function getDjvuInfo(djvuPath: TDocumentRef): Promise<IDjvuInfo> {

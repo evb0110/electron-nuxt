@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import { PDF_PAGE_STALL_RECOVERY_COOLDOWN_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TPdfSource } from '@app/types/pdf';
@@ -86,7 +87,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
         }
 
         const maxPage = numPages.value > 0 ? numPages.value : payload.pageNumber;
-        const pageNumber = Math.max(1, Math.min(payload.pageNumber, maxPage));
+        const pageNumber = clamp(payload.pageNumber, 1, Math.max(1, maxPage));
         const now = Date.now();
         const cooldownUntil = renderStallRecoveryCooldownByPage.get(pageNumber) ?? 0;
         if (cooldownUntil > now) {

@@ -1,3 +1,4 @@
+import { sumBy } from 'es-toolkit/math';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 
 export interface IStreamingPdfSink { write(bytes: Uint8Array): Promise<void>; }
@@ -128,7 +129,7 @@ function flattenBookmarkLevel(
     return {
         nodes,
         nextRef: cursorRef,
-        visibleCount: nodes.reduce((total, node) => total + node.visibleCount, 0),
+        visibleCount: sumBy(nodes, node => node.visibleCount),
     };
 }
 

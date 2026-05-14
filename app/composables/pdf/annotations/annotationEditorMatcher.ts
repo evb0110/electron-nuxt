@@ -1,4 +1,5 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
@@ -113,7 +114,7 @@ function chooseMarkerRectEditorMatch(
 
 function pageSearchOrder(preferredPageIndex: number, numPages: number) {
     return [
-        Math.max(0, Math.min(preferredPageIndex, numPages - 1)),
+        clamp(preferredPageIndex, 0, Math.max(0, numPages - 1)),
         ...Array.from({ length: numPages }, (_, i) => i).filter(i => i !== preferredPageIndex),
     ];
 }

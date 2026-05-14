@@ -6,6 +6,7 @@ import type {
     ISettingsData,
     TUiScalePreference,
 } from '@contracts/shared';
+import { clamp } from 'es-toolkit/math';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPlatformAPI } from '@app/utils/platform';
 
@@ -28,10 +29,6 @@ const PRESET_SCALE_FACTORS: Record<Exclude<TUiScalePreference, 'auto'>, number> 
 const WINDOWS_AUTO_COMPENSATION_T = 0.4;
 const MIN_AUTO_SCALE = 0.85;
 const MAX_AUTO_SCALE = 1;
-
-function clamp(value: number, min: number, max: number) {
-    return Math.min(Math.max(value, min), max);
-}
 
 function lerp(start: number, end: number, t: number) {
     return start + (end - start) * t;

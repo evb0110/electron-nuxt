@@ -1,4 +1,5 @@
 import type { IPagePointTarget } from '@app/composables/pdf/annotations/types';
+import { clamp } from 'es-toolkit/math';
 import { clamp01 } from '@app/composables/pdf/annotationGeometry';
 
 function getTextSpanDistanceScore(rect: DOMRect, targetX: number, targetY: number) {
@@ -50,7 +51,7 @@ function isWhitespaceAt(text: string, offset: number) {
 
 function nearestNonWhitespaceOffset(text: string, seedOffset: number) {
     const length = text.length;
-    const offset = Math.max(0, Math.min(length - 1, seedOffset));
+    const offset = clamp(seedOffset, 0, Math.max(0, length - 1));
     if (!isWhitespaceAt(text, offset)) {
         return offset;
     }

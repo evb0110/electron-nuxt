@@ -16,6 +16,7 @@ import {
 } from 'os';
 import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
+import { clamp } from 'es-toolkit/math';
 import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
@@ -698,6 +699,6 @@ function getLogicalCpuCount() {
 
 function getRangeWorkerCount(pageCount: number) {
     const cpuBound = Math.max(1, getLogicalCpuCount() - 1);
-    const desired = Math.max(2, Math.min(MAX_RANGE_WORKERS, cpuBound));
+    const desired = clamp(cpuBound, 2, MAX_RANGE_WORKERS);
     return Math.min(pageCount, desired);
 }

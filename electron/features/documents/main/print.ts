@@ -4,6 +4,7 @@ import {
     shell,
 } from 'electron';
 import type { WebContentsPrintOptions } from 'electron';
+import { uniq } from 'es-toolkit/array';
 import {
     readdir,
     stat,
@@ -192,7 +193,7 @@ function normalizePrintPageNumbers(pageNumbers?: number[]) {
         return null;
     }
 
-    const normalized = Array.from(new Set(pageNumbers));
+    const normalized = uniq(pageNumbers);
     if (normalized.some(pageNumber => !Number.isInteger(pageNumber) || pageNumber < 1)) {
         throw new Error('Invalid print page numbers');
     }

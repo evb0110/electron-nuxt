@@ -2,6 +2,7 @@ import { TextLayer } from '@app/services/pdfjs/runtimeLib';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -663,7 +664,7 @@ export const usePdfTextLayerRenderer = (deps: {
             const minTop = Math.max(0, targetPageContainer.offsetTop - paddingTop);
             const pageBottom = targetPageContainer.offsetTop + targetPageContainer.offsetHeight + paddingBottom;
             const maxTop = Math.max(minTop, pageBottom - containerRoot.clientHeight);
-            const clampedTop = Math.min(maxTop, Math.max(minTop, desiredTop));
+            const clampedTop = clamp(desiredTop, minTop, maxTop);
 
             return {
                 clampedTop,

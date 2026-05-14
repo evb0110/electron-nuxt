@@ -6,6 +6,7 @@ import {
     tryOnScopeDispose,
     useDebounceFn,
 } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -403,7 +404,7 @@ export const usePdfSinglePageScroll = (
             return null;
         }
 
-        const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
+        const targetPage = clamp(pageNumber, 1, numPages.value);
         return getPageScrollBoundsForContainer(
             container,
             targetPage,
@@ -442,7 +443,7 @@ export const usePdfSinglePageScroll = (
             return;
         }
 
-        const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
+        const targetPage = clamp(pageNumber, 1, numPages.value);
         const targetEl = getPageContainerByNumber(
             viewerContainer.value,
             targetPage,

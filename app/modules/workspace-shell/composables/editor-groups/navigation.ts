@@ -3,6 +3,7 @@ import type {
     TEditorLayoutNode,
     TGroupDirection,
 } from '@app/types/editorGroups';
+import { clamp } from 'es-toolkit/math';
 
 interface IFindDirectionalGroupIdParams {
     layout: TEditorLayoutNode | null;
@@ -31,7 +32,7 @@ function collectGroupRects(
         return;
     }
 
-    const ratio = Math.max(0.1, Math.min(0.9, node.ratio));
+    const ratio = clamp(node.ratio, 0.1, 0.9);
     if (node.orientation === 'horizontal') {
         const firstWidth = width * ratio;
         const secondWidth = width - firstWidth;

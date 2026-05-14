@@ -3,6 +3,7 @@ import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
 } from './browserDocumentConstants';
+import { uniq } from 'es-toolkit/array';
 import {
     cloneBytes,
     normalizePersistedWriteBytes,
@@ -743,9 +744,7 @@ export class BrowserDocumentStore {
     }
 
     private async cleanupEvictedRecentRefs(refs: string[]) {
-        const uniqueRefs = Array.from(new Set(
-            refs.filter((ref) => typeof ref === 'string' && ref.length > 0),
-        ));
+        const uniqueRefs = uniq(refs.filter(ref => ref.length > 0));
         if (uniqueRefs.length === 0) {
             return;
         }

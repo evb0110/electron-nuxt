@@ -3,6 +3,7 @@ import type {
     PDFDocument,
     PDFRef,
 } from 'pdf-lib';
+import { sumBy } from 'es-toolkit/math';
 import {
     PDFHexString,
     PDFName,
@@ -128,7 +129,7 @@ function buildOutlineLevel(
     return {
         first: nodes[0]?.ref ?? null,
         last: nodes[nodes.length - 1]?.ref ?? null,
-        visibleCount: nodes.reduce((total, node) => total + node.visibleCount, 0),
+        visibleCount: sumBy(nodes, node => node.visibleCount),
     };
 }
 

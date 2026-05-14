@@ -3,6 +3,7 @@ import type {
     IPdfBox,
     TCropUnit,
 } from '@app/types/crop';
+import { clamp } from 'es-toolkit/math';
 
 export const PDF_POINTS_PER_INCH = 72;
 export const PDF_POINTS_PER_MM = 72 / 25.4;
@@ -45,7 +46,7 @@ export function formatUnitValue(pts: number, unit: TCropUnit): string {
 }
 
 function clamp01(value: number) {
-    return Math.max(0, Math.min(1, value));
+    return clamp(value, 0, 1);
 }
 
 export function normalizeCropRotation(rotation: number): 0 | 90 | 180 | 270 {

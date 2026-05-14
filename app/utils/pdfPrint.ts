@@ -1,4 +1,12 @@
 import { PDFDocument } from 'pdf-lib';
+import {
+    compact,
+    uniq,
+} from 'es-toolkit/array';
+import {
+    range,
+    sumBy,
+} from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageMetric } from '@app/types/pdf';
 import {
@@ -257,7 +265,7 @@ function normalizeTotalPages(value: number) {
 }
 
 function buildAllPageNumbers(totalPages: number) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
+    return range(1, totalPages + 1);
 }
 
 export function parsePrintPageRangeInput(input: string, totalPages: number): number[] | null {
@@ -276,10 +284,9 @@ export function parsePrintPageRangeInput(input: string, totalPages: number): num
     }
 
     const pages = new Set<number>();
-    const parts = normalizedInput
+    const parts = compact(normalizedInput
         .split(',')
-        .map(part => part.trim())
-        .filter(Boolean);
+        .map(part => part.trim()));
 
     if (parts.length === 0) {
         return null;
@@ -315,7 +322,7 @@ export function parsePrintPageRangeInput(input: string, totalPages: number): num
         }
     }
 
-    return Array.from(pages).sort((left, right) => left - right);
+    return uniq([...pages]).sort((left, right) => left - right);
 }
 
 export function normalizePrintPageNumbers(
@@ -331,7 +338,7 @@ export function normalizePrintPageNumbers(
         return buildAllPageNumbers(normalizedTotalPages);
     }
 
-    return Array.from(new Set(pageNumbers))
+    return uniq(pageNumbers)
         .filter(page => Number.isInteger(page) && page >= 1 && page <= normalizedTotalPages)
         .sort((left, right) => left - right);
 }
@@ -340,7 +347,7 @@ export function buildPrintSpreadGroups(
     pageNumbers: number[],
     viewMode: TPdfViewMode,
 ) {
-    const normalizedPages = Array.from(new Set(pageNumbers))
+    const normalizedPages = uniq(pageNumbers)
         .filter(page => Number.isInteger(page) && page >= 1)
         .sort((left, right) => left - right);
 
@@ -633,8 +640,8 @@ export async function buildPrintablePdfData(
     const spreads = buildSpreadPages(spreadGroups, embeddedPagesByNumber);
 
     for (const spread of spreads) {
-        const naturalWidth = spread.reduce((sum, page) => sum + page.width, 0);
-        const naturalHeight = spread.reduce((maxHeight, page) => Math.max(maxHeight, page.height), 0);
+        const naturalWidth = sumBy(spread, page => page.width);
+        const naturalHeight = Math.max(...spread.map(page => page.height));
         const preferredSheet = resolveDefaultA4PrintSheet(
             naturalWidth,
             naturalHeight,

@@ -3,6 +3,7 @@ import {
     type WriteStream,
 } from 'fs';
 import { readFile } from 'fs/promises';
+import { sumBy } from 'es-toolkit/math';
 import * as utifModule from 'utif';
 import {
     buildTiffImageIfd,
@@ -267,7 +268,7 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
     }
 
     const firstPageDataOffset = alignOffset(header.length, 8);
-    const totalByteLength = firstPageDataOffset + pages.reduce((total, page) => total + page.dataLength, 0);
+    const totalByteLength = firstPageDataOffset + sumBy(pages, page => page.dataLength);
     if (totalByteLength > 0xFFFFFFFF) {
         throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
     }

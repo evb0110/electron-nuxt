@@ -5,6 +5,7 @@ import {
     unlink,
 } from 'fs/promises';
 import type { Worker } from 'worker_threads';
+import { sumBy } from 'es-toolkit/math';
 import { withTimeout } from 'es-toolkit/promise';
 import {
     OCR_JOB_IDLE_TIMEOUT_MS,
@@ -86,18 +87,9 @@ function getJobWindow(webContentsId: number) {
 }
 
 function getBufferedBytes() {
-    const preparingBytes = Array.from(preparingJobs.values()).reduce(
-        (total, job) => total + job.requestedBytes,
-        0,
-    );
-    const activeBytes = Array.from(activeJobs.values()).reduce(
-        (total, job) => total + job.requestedBytes,
-        0,
-    );
-    const queuedBytes = queuedJobs.reduce(
-        (total, job) => total + job.requestedBytes,
-        0,
-    );
+    const preparingBytes = sumBy([...preparingJobs.values()], job => job.requestedBytes);
+    const activeBytes = sumBy([...activeJobs.values()], job => job.requestedBytes);
+    const queuedBytes = sumBy(queuedJobs, job => job.requestedBytes);
     return preparingBytes + activeBytes + queuedBytes;
 }
 

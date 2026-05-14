@@ -124,6 +124,7 @@
 </template>
 
 <script setup lang="ts">
+import { clamp } from 'es-toolkit/math';
 import { useClamp } from '@vueuse/math';
 import type {
     TFitMode,
@@ -182,7 +183,7 @@ function normalizeZoomLevel(value: number) {
     if (!Number.isFinite(value)) {
         return 1;
     }
-    return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, value));
+    return clamp(value, ZOOM.MIN, ZOOM.MAX);
 }
 
 const normalizedZoom = computed(() => normalizeZoomLevel(zoom));

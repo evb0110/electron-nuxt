@@ -2,7 +2,10 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { range } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import type { IPdfPageMetric } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
@@ -55,7 +58,7 @@ export function expandVirtualWindowForAnchor(options: {
     const baseEnd = Math.max(baseStart, Math.trunc(options.baseEnd));
     const totalPages = Math.max(baseEnd, Math.trunc(options.totalPages));
     const anchorPage = typeof options.anchorPage === 'number' && Number.isFinite(options.anchorPage)
-        ? Math.max(1, Math.min(totalPages, Math.trunc(options.anchorPage)))
+        ? clamp(Math.trunc(options.anchorPage), 1, totalPages)
         : null;
     if (anchorPage === null) {
         return {
@@ -66,8 +69,8 @@ export function expandVirtualWindowForAnchor(options: {
 
     const buffer = Math.max(0, Math.trunc(options.buffer));
     return {
-        start: Math.max(1, Math.min(baseStart, anchorPage - buffer)),
-        end: Math.min(totalPages, Math.max(baseEnd, anchorPage + buffer)),
+        start: clamp(anchorPage - buffer, 1, baseStart),
+        end: clamp(anchorPage + buffer, baseEnd, totalPages),
     };
 }
 

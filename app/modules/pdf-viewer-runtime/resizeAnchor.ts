@@ -1,3 +1,5 @@
+import { clamp } from 'es-toolkit/math';
+
 function normalizeResizeAnchorPage(
     page: number | null | undefined,
     totalPages: number,
@@ -6,7 +8,7 @@ function normalizeResizeAnchorPage(
         return null;
     }
 
-    return Math.min(totalPages, Math.max(1, Math.floor(page)));
+    return clamp(Math.floor(page), 1, totalPages);
 }
 
 const MAX_CURRENT_PAGE_VIEWPORT_DRIFT = 1;

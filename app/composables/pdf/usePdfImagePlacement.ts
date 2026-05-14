@@ -156,7 +156,7 @@ function resolvePlacementPageNumber(
         return Math.max(1, fallbackPageNumber);
     }
 
-    return Math.max(1, Math.min(pageCount, Math.floor(Number(requestedPageNumber))));
+    return clamp(Math.floor(Number(requestedPageNumber)), 1, pageCount);
 }
 
 function resolvePlacementCoordinate(value: number | null | undefined) {

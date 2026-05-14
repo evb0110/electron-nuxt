@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TTranslationKey } from '@i18n-app';
@@ -235,7 +236,7 @@ export const usePageOperations = (deps: {
                 batchProgress.value = {
                     processed: Math.max(0, progress.processed),
                     total: Math.max(0, progress.total),
-                    percent: Math.min(100, Math.max(0, progress.percent)),
+                    percent: clamp(progress.percent, 0, 100),
                     elapsedMs: Math.max(0, progress.elapsedMs),
                     estimatedRemainingMs:
                         typeof progress.estimatedRemainingMs === 'number'

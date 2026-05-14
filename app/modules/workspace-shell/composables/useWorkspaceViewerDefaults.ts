@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import { ZOOM } from '@app/constants/pdfLayout';
 import type { TPdfSource } from '@app/types/pdf';
 import type {
@@ -26,7 +27,7 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         if (!Number.isFinite(level)) {
             return 1;
         }
-        return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, level));
+        return clamp(level, ZOOM.MIN, ZOOM.MAX);
     }
 
     function resolveDisplayZoom() {

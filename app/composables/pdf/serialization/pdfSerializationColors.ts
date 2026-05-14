@@ -6,6 +6,7 @@ import {
     PDFName,
     PDFNumber,
 } from 'pdf-lib';
+import { clamp } from 'es-toolkit/math';
 import { parseHexColor } from '@app/utils/color';
 
 export function setRgbColor(
@@ -42,7 +43,7 @@ export function parsePdfColor(color: string | undefined): [number, number, numbe
         return null;
     }
 
-    const values = rgbMatch.slice(1, 4).map(value => Math.max(0, Math.min(255, Number(value))) / 255);
+    const values = rgbMatch.slice(1, 4).map(value => clamp(Number(value), 0, 255) / 255);
     if (values.some(value => !Number.isFinite(value))) {
         return null;
     }

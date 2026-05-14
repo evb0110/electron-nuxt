@@ -147,6 +147,7 @@
 
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core';
+import { sumBy } from 'es-toolkit/math';
 import AgentationWidget from '@app/components/AgentationWidget.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -208,10 +209,7 @@ const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'star
 const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupDescription')
     : t('errors.runtime.description'));
-const runtimeErrorReportCount = computed(() => runtimeErrorReports.value.reduce(
-    (total, report) => total + report.count,
-    0,
-));
+const runtimeErrorReportCount = computed(() => sumBy(runtimeErrorReports.value, report => report.count));
 const {
     copied: recentlyCopiedReports,
     copy: copyToClipboard,

@@ -28,6 +28,7 @@ import {
     errorToLogText,
     toCssColor,
 } from '@app/composables/pdf/annotationCssUtils';
+import { clamp } from 'es-toolkit/math';
 import {
     clearSelectedEditorState,
     getEditorsOnPage,
@@ -262,7 +263,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     }
 
     function toOpaqueHighlightDisplayColor(color: string, opacity: number) {
-        const normalizedOpacity = Math.min(1, Math.max(0, opacity));
+        const normalizedOpacity = clamp(opacity, 0, 1);
         const hexMatch = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
         if (!hexMatch?.groups?.hex || normalizedOpacity >= 1) {
             return color;

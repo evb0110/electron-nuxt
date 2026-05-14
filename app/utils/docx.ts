@@ -1,3 +1,4 @@
+import { sumBy } from 'es-toolkit/math';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 
 const CRC_TABLE = (() => {
@@ -25,7 +26,7 @@ function encodeUtf8(input: string) {
 }
 
 function concatBytes(parts: Uint8Array[]) {
-    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const total = sumBy(parts, part => part.length);
     const output = new Uint8Array(total);
     let offset = 0;
     for (const part of parts) {
@@ -112,7 +113,7 @@ function createZip(entries: Array<{
     }
 
     const centralOffset = offset;
-    const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+    const centralSize = sumBy(centralParts, part => part.length);
     const footer = makeEndOfCentralDirectory(entries.length, centralSize, centralOffset);
 
     return concatBytes([

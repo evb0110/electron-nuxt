@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/platformApi';
 import { useIntervalFn } from '@vueuse/core';
 import { getDocumentPathForFile } from '@app/utils/platformDocuments';
@@ -94,7 +95,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         if (resolveDropIndex) {
             const resolved = resolveDropIndex(clientY, el);
             if (typeof resolved === 'number' && Number.isFinite(resolved)) {
-                return Math.max(0, Math.min(totalPages.value, Math.floor(resolved)));
+                return clamp(Math.floor(resolved), 0, totalPages.value);
             }
         }
 
@@ -150,7 +151,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         insertAt: number,
         context: IDragReorderContext,
     ) {
-        const clamped = Math.max(0, Math.min(context.total, Math.floor(insertAt)));
+        const clamped = clamp(Math.floor(insertAt), 0, context.total);
         return context.nonDraggedPrefixBySlot[clamped] ?? 0;
     }
 
