@@ -320,6 +320,8 @@
                         @update:total-pages="handleViewerTotalPagesUpdate"
                         @update:document="pdfDocument = $event"
                         @loading="isLoading = $event"
+                        @initial-visual-pending="handlePdfInitialVisualPending"
+                        @initial-visual-ready="handlePdfInitialVisualReady"
                         @annotation-state="handleAnnotationState"
                         @annotation-modified="handleAnnotationModified"
                         @annotation-comments="annotationComments = $event"
@@ -1078,6 +1080,7 @@ function handleViewerCurrentPageUpdate(page: number) {
 
 watch(pdfSrc, (src) => {
     if (src) {
+        resetDocumentOpenVisualSettleWaiter();
         scheduleStartupOpenVisualReady('pdf-src');
     }
 });
@@ -1097,6 +1100,7 @@ watch([
 ]) => {
     if (nextPdfError || nextDjvuError) {
         dispatchStartupOpenVisualReady('document-error', true);
+        resolveDocumentOpenVisualSettleIfReady();
     }
 });
 
@@ -1132,12 +1136,28 @@ const {
 });
 
 const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 4_000;
-const DOCUMENT_OPEN_VISUAL_SETTLE_POLL_MS = 25;
+const initialDocumentVisualReady = ref(false);
+let documentOpenVisualSettlePromise: Promise<void> | null = null;
+let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
 
-function waitForDocumentOpenPoll() {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, DOCUMENT_OPEN_VISUAL_SETTLE_POLL_MS);
-    });
+function ensureDocumentOpenVisualSettlePromise() {
+    if (!documentOpenVisualSettlePromise) {
+        documentOpenVisualSettlePromise = new Promise<void>((resolve) => {
+            resolveDocumentOpenVisualSettlePromise = resolve;
+        });
+    }
+
+    return documentOpenVisualSettlePromise;
+}
+
+function resolveDocumentOpenVisualSettle() {
+    resolveDocumentOpenVisualSettlePromise?.();
+    documentOpenVisualSettlePromise = null;
+    resolveDocumentOpenVisualSettlePromise = null;
+}
+
+function resetDocumentOpenVisualSettleWaiter() {
+    initialDocumentVisualReady.value = false;
 }
 
 function hasSettledDocumentOpenVisualState() {
@@ -1154,47 +1174,48 @@ function hasSettledDocumentOpenVisualState() {
         && pdfDocument.value
         && documentMetadataAvailable.value
         && !isLoading.value
-        && pdfViewerRef.value
-            ?.getViewerContainer?.()
-            ?.querySelector('.page_container--rendered .page_canvas canvas'),
+        && initialDocumentVisualReady.value,
     );
 }
 
-async function waitForViewerSettleOrPollUntil(deadline: number) {
-    const viewer = pdfViewerRef.value;
-    const waitForViewerLoadSettled = viewer?.waitForViewerLoadSettled;
-    if (!waitForViewerLoadSettled || !pdfSrc.value) {
-        await waitForDocumentOpenPoll();
-        return;
+function resolveDocumentOpenVisualSettleIfReady() {
+    if (hasSettledDocumentOpenVisualState()) {
+        resolveDocumentOpenVisualSettle();
     }
+}
 
-    const remainingMs = Math.max(0, deadline - Date.now());
-    if (remainingMs <= 0) {
+function handlePdfInitialVisualReady() {
+    initialDocumentVisualReady.value = true;
+    resolveDocumentOpenVisualSettleIfReady();
+}
+
+function handlePdfInitialVisualPending() {
+    resetDocumentOpenVisualSettleWaiter();
+}
+
+function waitForDocumentOpenVisualSettleTimeout() {
+    return new Promise<'timeout'>((resolve) => {
+        setTimeout(() => {
+            resolve('timeout');
+        }, DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS);
+    });
+}
+
+async function waitForDocumentOpenSettled() {
+    await nextTick();
+    resolveDocumentOpenVisualSettleIfReady();
+    if (hasSettledDocumentOpenVisualState()) {
         return;
     }
 
     await Promise.race([
-        waitForViewerLoadSettled.call(viewer),
-        new Promise<void>((resolve) => {
-            setTimeout(resolve, Math.min(remainingMs, DOCUMENT_OPEN_VISUAL_SETTLE_POLL_MS));
-        }),
+        ensureDocumentOpenVisualSettlePromise(),
+        waitForDocumentOpenVisualSettleTimeout(),
     ]);
-}
+    await nextTick();
 
-async function waitForDocumentOpenSettled() {
-    const deadline = Date.now() + DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS;
-
-    while (Date.now() < deadline) {
-        await nextTick();
-        if (hasSettledDocumentOpenVisualState()) {
-            return;
-        }
-
-        await waitForViewerSettleOrPollUntil(deadline);
-        await nextTick();
-        if (hasSettledDocumentOpenVisualState()) {
-            return;
-        }
+    if (hasSettledDocumentOpenVisualState()) {
+        return;
     }
 
     BrowserLogger.warn('recent-open', 'Document open visual settle timed out', {
@@ -1209,7 +1230,19 @@ async function waitForDocumentOpenSettled() {
         hasPdfError: Boolean(pdfError.value),
         hasDjvuError: Boolean(djvuError.value),
     });
+    resolveDocumentOpenVisualSettle();
 }
+
+watch([
+    pdfDocument,
+    totalPages,
+    pageLabelsResolved,
+    isLoading,
+    showNativeDjvuViewer,
+    initialDocumentVisualReady,
+], () => {
+    resolveDocumentOpenVisualSettleIfReady();
+});
 
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,

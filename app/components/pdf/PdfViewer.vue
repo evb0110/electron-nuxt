@@ -246,6 +246,8 @@ const emit = defineEmits<{
         clientY: number;
     }): void;
     (e: 'image-placement-finalize', payload: IPdfPlacedImageFinalizePayload): void;
+    (e: 'initial-visual-pending'): void;
+    (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
 }>();
 
 const viewerHost = ref<HTMLElement | null>(null);
@@ -266,11 +268,28 @@ const {
     settleViewerLoadSettle,
     waitForViewerLoadSettled,
 } = useViewerLoadSettle();
+let pendingInitialVisualReadyToken: number | null = null;
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
 
 function settleViewerLoadSettledWithManagedShapes(token: number) {
     managedEmbeddedPdfShapes.settleViewerLoadSettledWithManagedShapes(token, settleViewerLoadSettle);
+}
+
+function handlePageRendered(pageNumber: number) {
+    managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
+
+    if (pendingInitialVisualReadyToken === null) {
+        return;
+    }
+
+    const token = pendingInitialVisualReadyToken;
+    pendingInitialVisualReadyToken = null;
+    emit('initial-visual-ready', { pageNumber });
+    BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
+        token,
+        pageNumber,
+    });
 }
 
 const pdfDocumentResult = usePdfDocument();
@@ -531,7 +550,7 @@ const {
     currentSearchMatchNavigationId,
     workingCopyPath,
     onRenderStall: relayPageRenderStall,
-    onPageRendered: managedEmbeddedPdfShapes.syncAfterPageRendered,
+    onPageRendered: handlePageRendered,
 });
 
 const singlePageScroll = usePdfSinglePageScroll({
@@ -810,6 +829,8 @@ const {
     endVisualReloadTransition,
     onDocumentLoadStateChange: (payload) => {
         if (payload.phase === 'started') {
+            pendingInitialVisualReadyToken = payload.token;
+            emit('initial-visual-pending');
             beginViewerLoadSettle(payload.token);
             return;
         }
