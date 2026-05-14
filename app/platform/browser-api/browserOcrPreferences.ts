@@ -1,3 +1,4 @@
+import { uniq } from 'es-toolkit/array';
 import type {
     IOcrSettings,
     TOcrPageRange,
@@ -34,7 +35,7 @@ function sanitizeSelectedLanguages(value: unknown) {
         .filter((language): language is string => language.length > 0);
 
     return languages.length > 0
-        ? [...new Set(languages)]
+        ? uniq(languages)
         : [...DEFAULT_BROWSER_OCR_SETTINGS.selectedLanguages];
 }
 

@@ -140,7 +140,7 @@ function pointToSegmentDistancePx(
     }
 
     const projection = ((pointX - startX) * deltaX + (pointY - startY) * deltaY) / lengthSquared;
-    const t = Math.max(0, Math.min(1, projection));
+    const t = clamp(projection, 0, 1);
     const closestX = startX + deltaX * t;
     const closestY = startY + deltaY * t;
 

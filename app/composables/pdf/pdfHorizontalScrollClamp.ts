@@ -3,6 +3,7 @@ import {
     normalizePageMetrics,
     resolveCurrentSpreadBaseWidth,
 } from '@app/composables/pdf/pdfPageLayout';
+import { clamp } from 'es-toolkit/math';
 import type {
     TFitMode,
     IPdfPageMetric,
@@ -39,7 +40,7 @@ function normalizeNonNegative(value: number) {
 }
 
 function clampNumber(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
+    return clamp(value, min, max);
 }
 
 export function resolvePageBoundedHorizontalScroll(

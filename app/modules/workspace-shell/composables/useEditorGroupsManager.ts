@@ -1,4 +1,5 @@
 import type { ITab } from '@app/types/tabs';
+import { clamp } from 'es-toolkit/math';
 import type {
     IEditorGroupState,
     IEditorLayoutLeafNode,
@@ -434,7 +435,7 @@ export const useEditorGroupsManager = () => {
     }
 
     function setSplitRatio(splitId: string, nextRatio: number) {
-        const clamped = Math.max(0.15, Math.min(0.85, nextRatio));
+        const clamped = clamp(nextRatio, 0.15, 0.85);
 
         if (!layout.value) {
             return;

@@ -1,3 +1,5 @@
+import { clamp } from 'es-toolkit/math';
+
 interface IBuildThumbnailRenderQueueOptions {
     totalPages: number;
     currentPage: number;
@@ -13,7 +15,7 @@ function normalizePageNumber(page: number, totalPages: number) {
         return 0;
     }
 
-    return Math.max(1, Math.min(totalPages, Math.trunc(page)));
+    return clamp(Math.trunc(page), 1, totalPages);
 }
 
 export function buildThumbnailRenderQueue(

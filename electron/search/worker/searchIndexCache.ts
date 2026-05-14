@@ -1,4 +1,6 @@
 import { stat } from 'fs/promises';
+import { sortBy } from 'es-toolkit/array';
+import { sumBy } from 'es-toolkit/math';
 import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
 import {
     SEARCH_INDEX_SCHEMA_VERSION,
@@ -70,8 +72,10 @@ function pruneIndexCache(
         return;
     }
 
-    const sortedByLeastRecentlyUsed = Array.from(indexCache.entries())
-        .sort((left, right) => left[1].accessedAt - right[1].accessedAt);
+    const sortedByLeastRecentlyUsed = sortBy(
+        [...indexCache.entries()],
+        [entry => entry[1].accessedAt],
+    );
     const overflowCount = indexCache.size - options.maxEntries;
     for (let index = 0; index < overflowCount; index += 1) {
         const entry = sortedByLeastRecentlyUsed[index];
@@ -202,9 +206,10 @@ function shouldRebuildCachedIndex(
         return true;
     }
 
-    const inRangeCount = entry.index.pages.reduce((count, page) => (
-        count + (page.pageNumber >= 1 && page.pageNumber <= expectedCount ? 1 : 0)
-    ), 0);
+    const inRangeCount = sumBy(
+        entry.index.pages,
+        page => page.pageNumber >= 1 && page.pageNumber <= expectedCount ? 1 : 0,
+    );
 
     return inRangeCount < expectedCount;
 }

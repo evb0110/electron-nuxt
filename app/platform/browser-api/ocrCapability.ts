@@ -2,6 +2,11 @@ import {
     createScheduler,
     createWorker,
 } from 'tesseract.js';
+import { uniq } from 'es-toolkit/array';
+import {
+    clamp,
+    sumBy,
+} from 'es-toolkit/math';
 import type { IOcrCapability } from '@contracts/platformApi';
 import type { IOcrLanguage } from '@contracts/shared';
 import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
@@ -35,9 +40,9 @@ function emitProgress(progress: TOcrProgress) {
 }
 
 function normalizeLanguageCodes(languages: string[]) {
-    return [...new Set(languages
+    return uniq(languages
         .map(language => language.trim())
-        .filter(language => language.length > 0))];
+        .filter(language => language.length > 0));
 }
 
 function getNavigatorNumber(key: 'hardwareConcurrency' | 'deviceMemory') {
@@ -64,7 +69,7 @@ export function resolveBrowserOcrWorkerCount(options: {
     }
 
     const availableCores = Math.max(1, Math.floor((options.hardwareConcurrency ?? 2) / 3));
-    return Math.max(1, Math.min(3, options.pageCount, availableCores));
+    return clamp(options.pageCount, 1, Math.min(3, availableCores));
 }
 
 async function ensureLanguageInstalled(code: string) {
@@ -237,9 +242,7 @@ export const browserOcrCapability: IOcrCapability = {
             };
         }
 
-        const totalPixels = pages.reduce((sum, page) => (
-            sum + ((page.imageWidth ?? 0) * (page.imageHeight ?? 0))
-        ), 0);
+        const totalPixels = sumBy(pages, page => (page.imageWidth ?? 0) * (page.imageHeight ?? 0));
         const workerCount = resolveBrowserOcrWorkerCount({
             pageCount: pages.length,
             hardwareConcurrency: getNavigatorNumber('hardwareConcurrency'),

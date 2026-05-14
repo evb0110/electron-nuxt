@@ -6,6 +6,7 @@ import {
     PDFNumber,
 } from 'pdf-lib';
 import type { PDFRef } from 'pdf-lib';
+import { clamp } from 'es-toolkit/math';
 import type {
     IShapeAnnotation,
     IShapePoint,
@@ -105,7 +106,7 @@ function pointsFromPdfNumberPairs(
 }
 
 function rgbComponentToHex(value: number) {
-    return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+    return clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0');
 }
 
 function toHexColor(
@@ -133,7 +134,7 @@ function readOpacity(dict: PDFDict) {
     if (!(opacity instanceof PDFNumber)) {
         return 1;
     }
-    return Math.max(0, Math.min(1, opacity.asNumber()));
+    return clamp(opacity.asNumber(), 0, 1);
 }
 
 function readBorderWidth(dict: PDFDict) {

@@ -1,4 +1,6 @@
 import type { Ref } from 'vue';
+import { uniq } from 'es-toolkit/array';
+import { clamp } from 'es-toolkit/math';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
@@ -482,12 +484,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return null;
         }
 
-        const samplePages = Array.from(new Set([
+        const samplePages = uniq([
             1,
-            Math.min(total, Math.max(1, currentPage.value)),
+            clamp(currentPage.value, 1, total),
             Math.max(1, Math.ceil(total / 2)),
             total,
-        ])).sort((left, right) => left - right);
+        ]).sort((left, right) => left - right);
 
         for (const pageNumber of samplePages) {
             const ensured = await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);

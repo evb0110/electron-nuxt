@@ -1,5 +1,6 @@
 import UTIF from 'utif';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
+import { sumBy } from 'es-toolkit/math';
 import type { IImageExportCapability } from '@contracts/platformApi';
 import {
     browserDocumentStore,
@@ -71,7 +72,7 @@ interface IRenderedPdfPageCanvas {
 }
 
 function mergeUint8Arrays(parts: Uint8Array[]) {
-    const totalLength = parts.reduce((sum, part) => sum + part.byteLength, 0);
+    const totalLength = sumBy(parts, part => part.byteLength);
     const output = new Uint8Array(totalLength);
     let offset = 0;
 
@@ -237,10 +238,7 @@ function encodeMultiPageTiffHeader(pageDescriptors: ITiffPageDescriptor[]) {
     }
 
     const finalFirstDataOffset = alignOffset(header.length, 8);
-    const totalByteLength = finalFirstDataOffset + pageDescriptors.reduce(
-        (total, descriptor) => total + descriptor.dataLength,
-        0,
-    );
+    const totalByteLength = finalFirstDataOffset + sumBy(pageDescriptors, descriptor => descriptor.dataLength);
     if (totalByteLength > 0xFFFFFFFF) {
         throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
     }
@@ -279,10 +277,9 @@ async function encodeTiffToWritable(
         }
 
         await writable.close();
-        return header.length + Math.max(0, firstDataOffset - header.length) + pageDescriptors.reduce(
-            (total, descriptor) => total + descriptor.dataLength,
-            0,
-        );
+        return header.length
+            + Math.max(0, firstDataOffset - header.length)
+            + sumBy(pageDescriptors, descriptor => descriptor.dataLength);
     } catch (error) {
         await writable.abort().catch(() => undefined);
         throw error;
@@ -455,10 +452,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     };
                 }
 
-                const estimatedRgbaBytes = descriptors.reduce(
-                    (total, descriptor) => total + descriptor.dataLength,
-                    0,
-                );
+                const estimatedRgbaBytes = sumBy(descriptors, descriptor => descriptor.dataLength);
                 if (estimatedRgbaBytes > BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES) {
                     throw new Error(
                         `Multi-page TIFF export without a file handle is disabled for exports larger than ${Math.floor(BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES / (1024 * 1024))}MB`,

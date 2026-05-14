@@ -20,6 +20,7 @@ import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
+import { uniq } from 'es-toolkit/array';
 import { defaultDocument } from '@vueuse/core';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import {
@@ -272,10 +273,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
         const targetPageNumbers = pageNumber
             ? [pageNumber]
-            : Array.from(new Set([
+            : uniq([
                 ...annotationEditorLayers.keys(),
                 ...drawLayers.keys(),
-            ])).sort((left, right) => left - right);
+            ]).sort((left, right) => left - right);
         if (targetPageNumbers.length === 0) {
             return;
         }

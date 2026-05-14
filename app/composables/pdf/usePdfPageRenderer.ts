@@ -16,7 +16,10 @@ import type {
     Ref,
 } from 'vue';
 import { chunk } from 'es-toolkit/array';
-import { range } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
@@ -1410,7 +1413,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             const currentMatchValue = toValue(currentSearchMatch);
             const matchPageIndex = currentMatchValue && numPages.value > 0
-                ? Math.max(0, Math.min(currentMatchValue.pageIndex, numPages.value - 1))
+                ? clamp(currentMatchValue.pageIndex, 0, numPages.value - 1)
                 : null;
 
             if (matchPageIndex === null) {

@@ -1240,7 +1240,7 @@ onBeforeUnmount(() => {
 });
 
 function scrollToPage(pageNumber: number) {
-    const normalizedPage = Math.max(1, Math.min(pageNumber, totalPages.value || 1));
+    const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
 
     if (!isContinuousScroll.value) {
         currentPage.value = normalizedPage;

@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
-import { groupBy } from 'es-toolkit/array';
+import {
+    groupBy,
+    maxBy,
+} from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IMarkerViewModel } from '@app/composables/pdf/annotations/types';
@@ -48,9 +51,7 @@ function pickPrimaryComment(
             return active;
         }
     }
-    return comments
-        .slice()
-        .sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0))[0]!;
+    return maxBy(comments, comment => comment.modifiedAt ?? 0)!;
 }
 
 function isMarkerEligibleComment(comment: IAnnotationCommentSummary) {

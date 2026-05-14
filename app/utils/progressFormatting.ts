@@ -1,9 +1,11 @@
+import { clamp } from 'es-toolkit/math';
+
 export function displayProcessedCount(processed: number, total: number) {
     if (total <= 0) {
         return 0;
     }
     const rounded = Math.round(processed);
-    return Math.min(total, Math.max(0, rounded));
+    return clamp(rounded, 0, total);
 }
 
 export function formatEtaDuration(etaMs: number | null) {

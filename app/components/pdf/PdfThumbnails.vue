@@ -52,6 +52,7 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type {
     PDFDocumentProxy,
@@ -258,7 +259,7 @@ const {
         const rect = container.getBoundingClientRect();
         const offsetY = clientY - rect.top + container.scrollTop;
         const index = Math.floor(offsetY / itemPitch.value);
-        return Math.max(0, Math.min(totalPages, index));
+        return clamp(index, 0, totalPages);
     },
     onReorder: (newOrder) => emit('reorder', newOrder),
     onExternalFileDrop: (afterPage, filePaths) =>
@@ -629,7 +630,7 @@ function getPageBounds(page: number) {
 }
 
 function clampPage(page: number) {
-    return Math.max(1, Math.min(totalPages, page));
+    return clamp(page, 1, Math.max(1, totalPages));
 }
 
 function resolveViewportAnchorPage(pitch = itemPitch.value) {
@@ -669,7 +670,7 @@ function preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight: number)
     const nextScrollTop = ((anchorPage - 1) * itemPitch.value) + anchorOffset;
     return applyThumbnailScrollTop(
         container,
-        Math.max(0, Math.min(getMaxScrollTop(container), nextScrollTop)),
+        clamp(nextScrollTop, 0, getMaxScrollTop(container)),
     );
 }
 
@@ -800,14 +801,14 @@ function resolveCurrentPageSyncScrollTop(container: HTMLElement, page: number) {
 
     if (bottom <= viewportTop || top >= viewportBottom) {
         const centeredScrollTop = top - Math.max(0, (container.clientHeight - height) / 2);
-        return Math.max(0, Math.min(maxScrollTop, centeredScrollTop));
+        return clamp(centeredScrollTop, 0, maxScrollTop);
     }
 
     if (top < comfortTop) {
-        return Math.max(0, Math.min(maxScrollTop, top - comfortPadding));
+        return clamp(top - comfortPadding, 0, maxScrollTop);
     }
 
-    return Math.max(0, Math.min(maxScrollTop, bottom + comfortPadding - container.clientHeight));
+    return clamp(bottom + comfortPadding - container.clientHeight, 0, maxScrollTop);
 }
 
 function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number) {
@@ -828,7 +829,7 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
         ? thumbnailBottom + comfortPadding - container.clientHeight
         : thumbnailTop - comfortPadding;
 
-    return Math.max(0, Math.min(getMaxScrollTop(container), nextScrollTop));
+    return clamp(nextScrollTop, 0, getMaxScrollTop(container));
 }
 
 function isThumbnailElementFullyVisible(container: HTMLElement, page: number) {
@@ -1537,7 +1538,7 @@ function scheduleActivePaneRefresh(reason: string) {
 }
 
 async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
-    const pageNum = Math.max(1, Math.min(totalPages, currentPage || 1));
+    const pageNum = clamp(currentPage || 1, 1, Math.max(1, totalPages));
     try {
         const page = await pdfDocument.getPage(pageNum);
         if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {

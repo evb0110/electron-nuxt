@@ -2,6 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { webContents } from 'electron';
 import { Worker } from 'worker_threads';
+import { minBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { withTimeout } from 'es-toolkit/promise';
 import { SEARCH_EVENT_CHANNELS } from '@electron/features/search/contract';
@@ -636,9 +637,8 @@ export class SearchWorkerService {
 
     private findReusableIdleState() {
         const idleStates = Array.from(this.senderSearchStates.values())
-            .filter(state => this.isStateIdle(state))
-            .sort((left, right) => left.lastActivityAtMs - right.lastActivityAtMs);
-        return idleStates[0] ?? null;
+            .filter(state => this.isStateIdle(state));
+        return minBy(idleStates, state => state.lastActivityAtMs) ?? null;
     }
 
     private ensureSenderState(event: IpcMainInvokeEvent, senderId: number) {

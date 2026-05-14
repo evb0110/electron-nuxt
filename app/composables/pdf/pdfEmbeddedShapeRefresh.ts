@@ -1,3 +1,4 @@
+import { uniq } from 'es-toolkit/array';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 
@@ -124,7 +125,7 @@ export async function rerenderRenderedManagedEmbeddedShapePages({
     invalidatePages,
     renderVisiblePages,
 }: IRerenderRenderedManagedEmbeddedShapePagesOptions) {
-    const renderedManagedPages = Array.from(new Set(
+    const renderedManagedPages = uniq(
         shapes
             .filter(shape => shape.source === 'embedded' && !!shape.annotationId)
             .map(shape => Math.max(1, Math.floor(shape.pageIndex) + 1))
@@ -134,7 +135,7 @@ export async function rerenderRenderedManagedEmbeddedShapePages({
                 renderBuffer,
                 isPageRendered,
             })),
-    )).sort((left, right) => left - right);
+    ).sort((left, right) => left - right);
 
     if (renderedManagedPages.length === 0) {
         return;

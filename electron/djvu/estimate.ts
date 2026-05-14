@@ -5,6 +5,7 @@ import {
     mkdtemp,
     rm,
 } from 'fs/promises';
+import { sortBy } from 'es-toolkit/array';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
 import {
     createDjvuPdfEstimateTask,
@@ -85,8 +86,10 @@ function pruneEstimateCache(now = Date.now()) {
         return;
     }
 
-    const sortedByLeastRecentlyUsed = Array.from(estimateCache.entries())
-        .sort((left, right) => left[1].accessedAt - right[1].accessedAt);
+    const sortedByLeastRecentlyUsed = sortBy(
+        [...estimateCache.entries()],
+        [entry => entry[1].accessedAt],
+    );
     const overflowCount = estimateCache.size - DJVU_ESTIMATE_CACHE_MAX_ENTRIES;
     for (let index = 0; index < overflowCount; index += 1) {
         const entry = sortedByLeastRecentlyUsed[index];

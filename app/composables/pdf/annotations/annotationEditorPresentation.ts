@@ -6,6 +6,7 @@ import type {
     IPdfjsEditor,
     IPdfjsHighlightBox,
 } from '@app/types/pdfjs';
+import { meanBy } from 'es-toolkit/math';
 
 const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
 const MARKUP_FRAGMENTED_EDITOR_CLASS = 'pdf-markup-subtype-fragmented';
@@ -68,8 +69,8 @@ function addBoxToHighlightLineGroup(group: IHighlightLineGroup, indexedBox: IInd
     group.boxes.push(indexedBox);
     group.top = Math.min(group.top, box.y);
     group.bottom = Math.max(group.bottom, box.y + box.height);
-    group.centerY = group.boxes.reduce((sum, item) => sum + item.centerY, 0) / group.boxes.length;
-    group.averageHeight = group.boxes.reduce((sum, item) => sum + item.box.height, 0) / group.boxes.length;
+    group.centerY = meanBy(group.boxes, item => item.centerY);
+    group.averageHeight = meanBy(group.boxes, item => item.box.height);
 }
 
 function belongsToHighlightLineGroup(group: IHighlightLineGroup, indexedBox: IIndexedHighlightBox) {

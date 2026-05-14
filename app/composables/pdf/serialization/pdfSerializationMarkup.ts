@@ -12,6 +12,7 @@ import type {
     IAnnotationMarkerRect,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import { meanBy } from 'es-toolkit/math';
 import type { normalizePageRotation} from '@app/composables/pdf/annotationGeometry';
 import {
     markerRectIoU,
@@ -212,8 +213,8 @@ function addPdfMarkupQuadToLineGroup(group: IPdfMarkupQuadLineGroup, quad: IPdfM
     group.quads.push(quad);
     group.bottom = Math.min(group.bottom, quad.bottom);
     group.top = Math.max(group.top, quad.top);
-    group.centerY = group.quads.reduce((sum, item) => sum + item.centerY, 0) / group.quads.length;
-    group.averageHeight = group.quads.reduce((sum, item) => sum + item.top - item.bottom, 0) / group.quads.length;
+    group.centerY = meanBy(group.quads, item => item.centerY);
+    group.averageHeight = meanBy(group.quads, item => item.top - item.bottom);
 }
 
 function belongsToPdfMarkupQuadLineGroup(group: IPdfMarkupQuadLineGroup, quad: IPdfMarkupQuad) {

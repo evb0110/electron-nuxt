@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
+import { sumBy } from 'es-toolkit/math';
 import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdf';
 
 class MemorySink {
@@ -14,7 +15,7 @@ class MemorySink {
     }
 
     public toUint8Array() {
-        const totalLength = this.chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+        const totalLength = sumBy(this.chunks, chunk => chunk.byteLength);
         const output = new Uint8Array(totalLength);
         let offset = 0;
 

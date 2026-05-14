@@ -3,6 +3,7 @@ import {
     PDFName,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
@@ -24,7 +25,7 @@ export function normalizeBookmarkEntries(
     function normalizeItem(item: IPdfBookmarkEntry): IPdfBookmarkEntry {
         const title = item.title.trim();
         const pageIndex = typeof item.pageIndex === 'number'
-            ? Math.max(0, Math.min(maxPageIndex, Math.trunc(item.pageIndex)))
+            ? clamp(Math.trunc(item.pageIndex), 0, maxPageIndex)
             : null;
         const namedDest = typeof item.namedDest === 'string' && item.namedDest.trim().length > 0
             ? item.namedDest

@@ -1,4 +1,5 @@
 import pdfjsLib from '@app/services/pdfjs/runtimeLib';
+import { clamp } from 'es-toolkit/math';
 import type {
     PDFDataRangeTransport,
     PDFDocumentProxy,
@@ -194,8 +195,8 @@ export const usePdfDocument = () => {
             return false;
         }
 
-        const rangeStart = Math.max(1, Math.min(startPage, endPage));
-        const rangeEnd = Math.min(totalPages, Math.max(startPage, endPage));
+        const rangeStart = clamp(Math.min(startPage, endPage), 1, totalPages);
+        const rangeEnd = clamp(Math.max(startPage, endPage), 1, totalPages);
         const pagesToLoad: number[] = [];
 
         for (let pageNumber = rangeStart; pageNumber <= rangeEnd; pageNumber += 1) {

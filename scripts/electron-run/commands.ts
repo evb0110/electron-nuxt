@@ -3,6 +3,7 @@ import {
     join,
 } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { maxBy } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import {
     COMMAND_EXECUTION_TIMEOUT_MS,
@@ -408,17 +409,17 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         const hasRenderedContent = viewer.renderedCanvasCount > 0 || viewer.renderedTextSpanCount > 0;
         return hasPages && notLoading && hasRenderedContent;
     };
+    const scoreReadyViewer = (viewer: Pick<IViewerSnapshot, 'isVisible' | 'viewerIndex'>) => (
+        (viewer.isVisible ? 10_000 : 0) + viewer.viewerIndex
+    );
     const findRequestedReadyViewer = (state: IOpenPdfState) => {
-        return state.viewers
-            .filter(viewer => (
+        return maxBy(
+            state.viewers.filter(viewer => (
                 isRequestedDocumentLoaded(viewer.workingCopyPath)
                             && isViewerReady(viewer)
-            ))
-            .sort((left, right) => {
-                const leftScore = (left.isVisible ? 10_000 : 0) + left.viewerIndex;
-                const rightScore = (right.isVisible ? 10_000 : 0) + right.viewerIndex;
-                return rightScore - leftScore;
-            })[0] ?? null;
+            )),
+            scoreReadyViewer,
+        ) ?? null;
     };
 
     const readViewerState = (token?: string) => page.evaluate((requestedPathBasename: string, requestedToken?: string) => {

@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { uniq } from 'es-toolkit/array';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
     IPdfPageMetric,
@@ -119,7 +120,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
     }
 
     function normalizeSelectedPages() {
-        return Array.from(new Set(deps.selectedPages.value))
+        return uniq(deps.selectedPages.value)
             .filter(page => Number.isInteger(page) && page >= 1 && page <= deps.totalPages.value)
             .sort((left, right) => left - right);
     }

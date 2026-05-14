@@ -6,6 +6,11 @@ import type {
 } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
+import {
+    clamp,
+    range,
+    sumBy,
+} from 'es-toolkit/math';
 import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
@@ -257,7 +262,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         }
         setActiveCommentAndSync(comment.stableKey);
 
-        const pageNumber = Math.max(1, Math.min(comment.pageNumber, numPages.value));
+        const pageNumber = clamp(comment.pageNumber, 1, Math.max(1, numPages.value));
         scrollToPage(pageNumber);
 
         await nextTick();
@@ -328,7 +333,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         ]);
         const uiManager = annotationUiManager.value;
         const editorCountsByPage = uiManager
-            ? Array.from({ length: Math.max(0, numPages.value) }, (_, pageIndex) => ({
+            ? range(Math.max(0, numPages.value)).map(pageIndex => ({
                 pageIndex,
                 count: getEditorsOnPage(uiManager, pageIndex).length,
             }))
@@ -336,7 +341,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const nonEmptyPages = editorCountsByPage
             .filter(entry => entry.count > 0)
             .slice(0, 8);
-        const totalEditors = editorCountsByPage.reduce((sum, entry) => sum + entry.count, 0);
+        const totalEditors = sumBy(editorCountsByPage, entry => entry.count);
         BrowserLogger.warn('annotations', 'updateAnnotationComment: unable to resolve editor for note persistence', {
             stableKey: comment.stableKey,
             source: comment.source,
@@ -427,7 +432,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     }
 
     function toDeleteTargetState(comment: IAnnotationCommentSummary) {
-        const pageNumber = Math.max(1, Math.min(comment.pageNumber, numPages.value));
+        const pageNumber = clamp(comment.pageNumber, 1, Math.max(1, numPages.value));
         return {
             comment,
             pageNumber,
