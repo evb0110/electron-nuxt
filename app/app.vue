@@ -155,6 +155,7 @@ import {
     BROWSER_THEME_COOKIE_KEY,
 } from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 
 const {
     load: loadSettings,
@@ -318,9 +319,15 @@ async function preloadStartupContent() {
     } else {
         void loadRecentFiles();
     }
-    const workspacePreload = route.meta.preloadWorkspaceShell === false
-        ? null
-        : import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
+    const routePreloadWorkspaceShell = route.meta.preloadWorkspaceShell === false ? false : undefined;
+    const shouldPreloadWorkspace = shouldPreloadWorkspaceDuringStartup({
+        isDesktopRuntime: isDesktopRuntime.value,
+        isDev: import.meta.dev,
+        routePreloadWorkspaceShell,
+    });
+    const workspacePreload = shouldPreloadWorkspace
+        ? import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')
+        : null;
     if (workspacePreload) {
         if (shouldBlockOnWorkspacePreload) {
             warmupTasks.unshift(workspacePreload);
