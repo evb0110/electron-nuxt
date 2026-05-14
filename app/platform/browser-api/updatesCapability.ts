@@ -6,24 +6,24 @@ import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 type TUpdateStatusListener = (status: IAppUpdateStatus) => void;
 
-const browserUpdateState: IAppUpdateStatus = {
+const browserUpdateState = {
     phase: 'unsupported',
     origin: 'auto',
     version: null,
     percent: null,
     message: null,
-};
+} satisfies IAppUpdateStatus;
 const updateStatusListeners = new Set<TUpdateStatusListener>();
 
-export const browserUpdatesCapability: IUpdatesCapability = {
+export const browserUpdatesCapability = {
     getState() {
         return Promise.resolve(browserUpdateState);
     },
     check() {
-        const manualUnsupportedStatus: IAppUpdateStatus = {
+        const manualUnsupportedStatus = {
             ...browserUpdateState,
             origin: 'manual',
-        };
+        } satisfies IAppUpdateStatus;
         updateStatusListeners.forEach((listener) => {
             listener(manualUnsupportedStatus);
         });
@@ -45,4 +45,4 @@ export const browserUpdatesCapability: IUpdatesCapability = {
         };
     },
     onMenuCheckForUpdates: noopUnsubscribe,
-};
+} satisfies IUpdatesCapability;

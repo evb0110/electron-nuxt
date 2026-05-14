@@ -11,13 +11,14 @@ export type {
     TReaderCommandMap,
 } from '@contracts/readerCommands';
 
-function createCommandMap(overrides: Partial<Record<TReaderCommandId, boolean>>) {
-    return Object.freeze(Object.fromEntries(
-        READER_COMMANDS.map(command => [
-            command,
-            overrides[command] ?? false,
-        ]),
-    )) as TReaderCommandMap;
+function createCommandMap(overrides: Partial<Record<TReaderCommandId, boolean>>): TReaderCommandMap {
+    const commandMap = {} as Record<TReaderCommandId, boolean>;
+
+    for (const command of READER_COMMANDS) {
+        commandMap[command] = overrides[command] ?? false;
+    }
+
+    return Object.freeze(commandMap);
 }
 
 function createSurface(options: {
@@ -27,13 +28,13 @@ function createSurface(options: {
     return Object.freeze({
         inline: createCommandMap(options.inline),
         menu: createCommandMap(options.menu),
-    }) as IReaderCommandSurface;
+    }) satisfies IReaderCommandSurface;
 }
 
-const allCommands = Object.freeze(Object.fromEntries(READER_COMMANDS.map(command => [
+const allCommands = createCommandMap(Object.fromEntries(READER_COMMANDS.map(command => [
     command,
     true,
-]))) as TReaderCommandMap;
+])));
 
 const desktopInlineCommands = {
     ...allCommands,

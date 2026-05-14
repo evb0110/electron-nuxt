@@ -8,7 +8,7 @@ const RTL_LANGUAGE_CODES = new Set([
     'syr',
 ]);
 
-const LATIN_WORD_BOUNDARY_CONFIG: string[] = [
+const LATIN_WORD_BOUNDARY_CONFIG = [
     '-c',
     'preserve_interword_spaces=1',
     '-c',
@@ -27,9 +27,9 @@ const LATIN_WORD_BOUNDARY_CONFIG: string[] = [
     'load_system_dawg=0',
     '-c',
     'load_freq_dawg=0',
-];
+] as const satisfies readonly string[];
 
-const RTL_CONFIG: string[] = [];
+const RTL_CONFIG = [] as const satisfies readonly string[];
 
 interface ITesseractLanguageConfig {
     orderedLanguages: string[];

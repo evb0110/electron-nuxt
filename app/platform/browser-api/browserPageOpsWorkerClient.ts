@@ -2,6 +2,7 @@ import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
     IBrowserPageOpsWorkerRequest,
+    TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
@@ -16,10 +17,6 @@ import {
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
 
-type TAnyBrowserPageOpsWorkerRequest = {
-    [K in TBrowserPageOpsWorkerRequestType]: IBrowserPageOpsWorkerRequest<K>;
-}[TBrowserPageOpsWorkerRequestType];
-
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 
 export class BrowserPageOpsWorkerUnavailableError extends Error {
@@ -30,7 +27,7 @@ export class BrowserPageOpsWorkerUnavailableError extends Error {
 }
 
 function buildWorkerRequestWithTransfers(
-    request: TAnyBrowserPageOpsWorkerRequest,
+    request: TBrowserPageOpsWorkerRequest,
 ) {
     if (request.type === 'insertPages') {
         const transferableData = toTransferableUint8Array(request.payload.data);
@@ -111,7 +108,7 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         });
 
         try {
-            const workerRequest = buildWorkerRequestWithTransfers(request as TAnyBrowserPageOpsWorkerRequest);
+            const workerRequest = buildWorkerRequestWithTransfers(request as TBrowserPageOpsWorkerRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
             browserPageOpsWorkerClient.pendingRequests.delete(request.id);

@@ -12,7 +12,7 @@ function ensureTrailingSlash(path: string) {
     return path.endsWith('/') ? path : `${path}/`;
 }
 
-export const browserViewerAssets: IViewerAssetResolver = {
+export const browserViewerAssets = {
     pdfWorkerUrl() {
         return `${PDF_ASSET_BASE_URL}${PDF_WORKER_FILE}`;
     },
@@ -22,7 +22,7 @@ export const browserViewerAssets: IViewerAssetResolver = {
     standardFontUrl(fileName: string) {
         return `${PDF_ASSET_BASE_URL}${STANDARD_FONT_DIR}${trimLeadingSlash(fileName)}`;
     },
-};
+} satisfies IViewerAssetResolver;
 
 export function getViewerAssetResolver(): IViewerAssetResolver {
     return browserViewerAssets;

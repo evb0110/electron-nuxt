@@ -21,12 +21,12 @@ import { isWindowTabTransferSupported } from '@app/utils/platformWindowTabs';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
-const DIRECTION_ORDER: TGroupDirection[] = [
+const DIRECTION_ORDER = [
     'left',
     'right',
     'up',
     'down',
-];
+] as const satisfies readonly TGroupDirection[];
 
 interface IWorkspaceSplitCacheLike {
     set: (tabId: string, payload: TSplitPayload | null | undefined) => string | null;

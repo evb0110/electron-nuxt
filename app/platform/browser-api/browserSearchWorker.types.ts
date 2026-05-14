@@ -19,6 +19,10 @@ interface IBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType 
     payload: IBrowserSearchWorkerRequestMap[K];
 }
 
+type TBrowserSearchWorkerRequest = {
+    [K in TBrowserSearchWorkerRequestType]: IBrowserSearchWorkerRequest<K>;
+}[TBrowserSearchWorkerRequestType];
+
 type TBrowserSearchWorkerProgressResponse = {
     [K in TBrowserSearchWorkerRequestType]: {
         id: number;
@@ -55,6 +59,7 @@ export type {
     IBrowserSearchWorkerRequestMap,
     IBrowserSearchWorkerResultMap,
     IBrowserSearchWorkerRequest,
+    TBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
 };

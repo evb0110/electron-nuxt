@@ -720,7 +720,7 @@ const lazyHostCapability: IHostCapability = {
     ]),
 };
 
-export const lazyBrowserPlatformApi: IPlatformApi = {
+export const lazyBrowserPlatformApi = {
     documents: lazyDocumentsCapability,
     ocr: lazyOcrCapability,
     search: lazySearchCapability,
@@ -730,4 +730,4 @@ export const lazyBrowserPlatformApi: IPlatformApi = {
     windowTabs: lazyWindowTabsCapability,
     shell: lazyShellCapability,
     host: lazyHostCapability,
-};
+} satisfies IPlatformApi;
