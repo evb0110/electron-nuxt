@@ -660,7 +660,7 @@ function isTabEmpty(tabId: string) {
     }
 
     const snapshot = workspace.getToolbarSnapshot();
-    return !snapshot.hasPdf && !snapshot.isDjvuMode && !snapshot.isOpeningDocument;
+    return !snapshot.hasPdf && !snapshot.isDjvuMode && !snapshot.isOpeningDocument && !snapshot.hasOpenError;
 }
 
 function findEmptyTab() {

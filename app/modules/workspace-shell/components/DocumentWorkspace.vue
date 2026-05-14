@@ -189,10 +189,11 @@
         </WorkspaceToolbarHost>
 
         <UAlert
-            v-if="pdfError && pdfSrc"
+            v-if="pdfError"
             color="error"
             variant="soft"
             class="mx-3 mt-2"
+            :title="t('errors.file.open')"
             :description="String(pdfError)"
             :ui="{ title: 'sr-only' }"
         />
@@ -1148,6 +1149,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
         || isDjvuOpening.value
         || isRestoringSplitPayload.value
     )),
+    hasOpenError: computed(() => Boolean(pdfError.value || djvuError.value)),
     isPreparingPrint,
     canSave,
     canUndo,

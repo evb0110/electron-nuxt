@@ -22,8 +22,8 @@ function createOpenResult(): TOpenFileResult {
 
 function createWorkspace() {
     return cast<IWorkspaceExpose>({
-        handleOpenFileFromUi: vi.fn(async () => {}),
-        handleOpenFileWithResult: vi.fn(async (_result: TOpenFileResult) => {}),
+        handleOpenFileFromUi: vi.fn(async () => true),
+        handleOpenFileWithResult: vi.fn(async (_result: TOpenFileResult) => true),
     });
 }
 
@@ -32,14 +32,14 @@ describe('handleWorkspaceHostOpenFileFromUi', () => {
         const workspace = createWorkspace();
         const pickFileToOpen = vi.fn(async () => createOpenResult());
         const withWorkspace = vi.fn(async (_action, run) => {
-            await run(workspace);
+            return run(workspace);
         });
 
-        await handleWorkspaceHostOpenFileFromUi({
+        await expect(handleWorkspaceHostOpenFileFromUi({
             mountedWorkspace: workspace,
             pickFileToOpen,
             withWorkspace,
-        });
+        })).resolves.toBe(true);
 
         expect(pickFileToOpen).not.toHaveBeenCalled();
         expect(withWorkspace).toHaveBeenCalledWith(
@@ -60,14 +60,14 @@ describe('handleWorkspaceHostOpenFileFromUi', () => {
         });
         const withWorkspace = vi.fn(async (_action, run) => {
             callOrder.push('mount');
-            await run(workspace);
+            return run(workspace);
         });
 
-        await handleWorkspaceHostOpenFileFromUi({
+        await expect(handleWorkspaceHostOpenFileFromUi({
             mountedWorkspace: null,
             pickFileToOpen,
             withWorkspace,
-        });
+        })).resolves.toBe(true);
 
         expect(callOrder).toEqual([
             'pick',
@@ -83,13 +83,13 @@ describe('handleWorkspaceHostOpenFileFromUi', () => {
 
     it('does not mount a workspace when the picker is cancelled', async () => {
         const pickFileToOpen = vi.fn(async () => null);
-        const withWorkspace = vi.fn(async () => {});
+        const withWorkspace = vi.fn(async () => false);
 
-        await handleWorkspaceHostOpenFileFromUi({
+        await expect(handleWorkspaceHostOpenFileFromUi({
             mountedWorkspace: null,
             pickFileToOpen,
             withWorkspace,
-        });
+        })).resolves.toBe(false);
 
         expect(pickFileToOpen).toHaveBeenCalledOnce();
         expect(withWorkspace).not.toHaveBeenCalled();

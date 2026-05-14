@@ -6,26 +6,21 @@ interface IHandleWorkspaceHostOpenFileFromUiOptions {
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     withWorkspace: (
         action: string,
-        run: (workspace: IWorkspaceExpose) => Promise<void> | void,
-    ) => Promise<void>;
+        run: (workspace: IWorkspaceExpose) => Promise<boolean> | boolean,
+    ) => Promise<boolean>;
 }
 
 export async function handleWorkspaceHostOpenFileFromUi(
     options: IHandleWorkspaceHostOpenFileFromUiOptions,
 ) {
     if (options.mountedWorkspace) {
-        await options.withWorkspace('handleOpenFileFromUi', async (workspace) => {
-            await workspace.handleOpenFileFromUi();
-        });
-        return;
+        return options.withWorkspace('handleOpenFileFromUi', workspace => workspace.handleOpenFileFromUi());
     }
 
     const result = await options.pickFileToOpen();
     if (!result) {
-        return;
+        return false;
     }
 
-    await options.withWorkspace('handleOpenFileWithResultFromUi', async (workspace) => {
-        await workspace.handleOpenFileWithResult(result);
-    });
+    return options.withWorkspace('handleOpenFileWithResultFromUi', workspace => workspace.handleOpenFileWithResult(result));
 }

@@ -121,7 +121,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const snapshot = readWorkspaceToolbarSnapshot(workspace);
-        return Boolean(snapshot?.isDjvuMode || snapshot?.isOpeningDocument);
+        return Boolean(snapshot?.isDjvuMode || snapshot?.isOpeningDocument || snapshot?.hasOpenError);
     }
 
     function canReuseTabForDocument(tab: ITab | null, workspace: IWorkspaceExpose | null) {
@@ -163,11 +163,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         pathOrResult: TOpenDocumentTarget,
     ) {
         if (typeof pathOrResult === 'string') {
-            await workspace.handleOpenFileDirectWithPersist(pathOrResult);
-            return;
+            return workspace.handleOpenFileDirectWithPersist(pathOrResult);
         }
 
-        await workspace.handleOpenFileWithResult(pathOrResult);
+        return workspace.handleOpenFileWithResult(pathOrResult);
     }
 
     async function openInExistingTab(tabId: string, pathOrResult: TOpenDocumentTarget) {

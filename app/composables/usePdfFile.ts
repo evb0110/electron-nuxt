@@ -12,6 +12,7 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platformApi';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
@@ -152,22 +153,37 @@ export const usePdfFile = () => {
         try {
             const result = preSelected ?? (await pickFileToOpen());
             if (!result) {
-                return;
+                return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
             }
             if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
                 await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
-                return;
+                return {
+                    status: 'opened',
+                    result,
+                } satisfies TDocumentOpenOutcome;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
             if (workingCopyPath.value !== result.workingPath) {
-                return;
+                return {
+                    status: 'stale',
+                    result,
+                } satisfies TDocumentOpenOutcome;
             }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
+            return {
+                status: 'opened',
+                result,
+            } satisfies TDocumentOpenOutcome;
         } catch (e) {
-            error.value = classifyOpenError(e, preSelected?.originalPath ?? null);
+            const message = classifyOpenError(e, preSelected?.originalPath ?? null);
+            error.value = message;
+            return {
+                status: 'failed',
+                error: message,
+            } satisfies TDocumentOpenOutcome;
         }
     }
 
@@ -179,13 +195,17 @@ export const usePdfFile = () => {
         try {
             const result = await getDocumentsCapability().openPdfDirect(path);
             if (!result) {
-                error.value = t('errors.file.invalid');
+                const message = t('errors.file.invalid');
+                error.value = message;
                 BrowserLogger.warn(
                     RECENT_OPEN_LOG_SECTION,
                     'openPdfDirect returned null',
                     { path },
                 );
-                return;
+                return {
+                    status: 'failed',
+                    error: message,
+                } satisfies TDocumentOpenOutcome;
             }
 
             BrowserLogger.debug(
@@ -211,7 +231,10 @@ export const usePdfFile = () => {
                         djvuPath: result.originalPath,
                     },
                 );
-                return;
+                return {
+                    status: 'opened',
+                    result,
+                } satisfies TDocumentOpenOutcome;
             }
 
             BrowserLogger.debug(
@@ -232,7 +255,10 @@ export const usePdfFile = () => {
                         workingPath: result.workingPath,
                     },
                 );
-                return;
+                return {
+                    status: 'stale',
+                    result,
+                } satisfies TDocumentOpenOutcome;
             }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
@@ -243,12 +269,21 @@ export const usePdfFile = () => {
                 originalPath: result.originalPath,
                 requiresSaveAsOnFirstSave: requiresSaveAsOnFirstSave.value,
             });
+            return {
+                status: 'opened',
+                result,
+            } satisfies TDocumentOpenOutcome;
         } catch (e) {
-            error.value = classifyOpenError(e, path);
+            const message = classifyOpenError(e, path);
+            error.value = message;
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
                 path,
                 error: getErrorMessage(e),
             });
+            return {
+                status: 'failed',
+                error: message,
+            } satisfies TDocumentOpenOutcome;
         }
     }
 
@@ -272,8 +307,12 @@ export const usePdfFile = () => {
                 .filter((path) => path.length > 0);
 
             if (normalizedPaths.length === 0) {
-                error.value = t('errors.file.invalid');
-                return;
+                const message = t('errors.file.invalid');
+                error.value = message;
+                return {
+                    status: 'failed',
+                    error: message,
+                } satisfies TDocumentOpenOutcome;
             }
 
             const requestId = crypto.randomUUID();
@@ -316,27 +355,46 @@ export const usePdfFile = () => {
 
             if (!result) {
                 openBatchProgress.value = null;
-                error.value = t('errors.file.invalid');
-                return;
+                const message = t('errors.file.invalid');
+                error.value = message;
+                return {
+                    status: 'failed',
+                    error: message,
+                } satisfies TDocumentOpenOutcome;
             }
             if (result.kind === 'djvu') {
                 openBatchProgress.value = null;
                 pendingDjvu.value = result.originalPath;
                 await trackOpenedDocument(result, 'batch');
-                return;
+                return {
+                    status: 'opened',
+                    result,
+                } satisfies TDocumentOpenOutcome;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
             if (workingCopyPath.value !== result.workingPath) {
                 openBatchProgress.value = null;
-                return;
+                return {
+                    status: 'stale',
+                    result,
+                } satisfies TDocumentOpenOutcome;
             }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             openBatchProgress.value = null;
             await trackOpenedDocument(result, 'batch');
+            return {
+                status: 'opened',
+                result,
+            } satisfies TDocumentOpenOutcome;
         } catch (e) {
             openBatchProgress.value = null;
-            error.value = e instanceof Error ? e.message : t('errors.file.open');
+            const message = e instanceof Error ? e.message : t('errors.file.open');
+            error.value = message;
+            return {
+                status: 'failed',
+                error: message,
+            } satisfies TDocumentOpenOutcome;
         }
     }
 

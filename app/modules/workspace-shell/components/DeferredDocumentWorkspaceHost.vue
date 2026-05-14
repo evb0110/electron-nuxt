@@ -234,7 +234,7 @@ const workspaceVisibleDocument = computed(() => {
     }
 
     const snapshot = workspace.getToolbarSnapshot();
-    return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument;
+    return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument || snapshot.hasOpenError;
 });
 const isPlaceholderVisible = computed(() => (
     !isDocumentOpenInFlight.value
@@ -294,7 +294,7 @@ const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
-let documentOpenQueue: Promise<void> = Promise.resolve();
+let documentOpenQueue: Promise<unknown> = Promise.resolve();
 const shouldShowWorkspaceMountLoader = computed(() => isDocumentOpenInFlight.value);
 const isHostErrorVisible = computed(() => (
     hasWorkspaceChunkLoadError.value
@@ -394,21 +394,21 @@ function workspaceHasPdf(workspace: IWorkspaceExpose) {
     return typeof value === 'boolean' ? value : value.value;
 }
 
-async function runWhileOpeningDocument(run: () => Promise<void>) {
+async function runWithDocumentOpenInFlight<T>(run: () => Promise<T>) {
+    documentOpenInFlightCount.value += 1;
     try {
-        await run();
+        return await run();
     } finally {
         documentOpenInFlightCount.value = Math.max(0, documentOpenInFlightCount.value - 1);
     }
 }
 
-async function enqueueDocumentOpen(run: () => Promise<void>) {
-    documentOpenInFlightCount.value += 1;
+async function enqueueDocumentOpen<T>(run: () => Promise<T>) {
     const queuedRun = documentOpenQueue
         .catch(() => {})
-        .then(() => runWhileOpeningDocument(run));
+        .then(() => runWithDocumentOpenInFlight(run));
     documentOpenQueue = queuedRun.catch(() => {});
-    await queuedRun;
+    return queuedRun;
 }
 
 async function pickFileFromUi() {
@@ -547,7 +547,10 @@ async function withLoadedWorkspace(action: string, run: (workspace: IWorkspaceEx
     }
 }
 
-async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
+async function withWorkspace(
+    action: string,
+    run: (workspace: IWorkspaceExpose) => Promise<boolean | undefined> | boolean | undefined,
+) {
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
         tabId: tabId,
         action,
@@ -563,7 +566,7 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
                 action,
                 error: workspaceChunkLoadError.value,
             });
-            return;
+            return false;
         }
         workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
     }
@@ -572,21 +575,24 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
             tabId: tabId,
             action,
         });
-        return;
+        return false;
     }
 
     try {
-        await run(workspace);
+        const result = await run(workspace);
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
             tabId: tabId,
             action,
             hasPdf: workspaceHasPdf(workspace),
+            handled: result !== false,
         });
+        return result !== false;
     } catch (error) {
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
             tabId: tabId,
             error,
         });
+        return false;
     }
 }
 
@@ -596,7 +602,7 @@ async function openPath(path: string, action: string) {
         action,
         path,
     });
-    await withWorkspace(action, workspace => workspace.handleOpenFileDirectWithPersist(path));
+    return withWorkspace(action, workspace => workspace.handleOpenFileDirectWithPersist(path));
 }
 
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
@@ -607,17 +613,17 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    await enqueueDocumentOpen(async () => {
+    return enqueueDocumentOpen(async () => {
         const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
         if (!preloadedWorkspace) {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
                 tabId: tabId,
                 path: file.originalPath,
             });
-            return;
+            return false;
         }
 
-        await withWorkspace('openRecentFromPlaceholder', workspace => workspace.openRecentFile(file));
+        return withWorkspace('openRecentFromPlaceholder', workspace => workspace.openRecentFile(file));
     });
 }
 
@@ -638,31 +644,27 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
-    await enqueueDocumentOpen(async () => {
-        await withWorkspace('openCombineResultFromPlaceholder', workspace => workspace.handleOpenFileWithResult(result));
-    });
+    return enqueueDocumentOpen(async () => withWorkspace(
+        'openCombineResultFromPlaceholder',
+        workspace => workspace.handleOpenFileWithResult(result),
+    ));
 }
 
 async function handleOpenFileFromUi() {
     const result = await pickFileFromUi();
     if (!result) {
-        return;
+        return false;
     }
 
-    await enqueueDocumentOpen(async () => {
-        await withWorkspace('handleOpenFileWithResultFromUi', workspace => workspace.handleOpenFileWithResult(result));
-    });
+    return enqueueDocumentOpen(async () => withWorkspace(
+        'handleOpenFileWithResultFromUi',
+        workspace => workspace.handleOpenFileWithResult(result),
+    ));
 }
 
 onMounted(() => {
     isHostUnmounted = false;
-    void preloadWorkspaceComponent('workspace-host-mounted').then((preloadSucceeded) => {
-        if (isHostUnmounted || !preloadSucceeded || workspaceRequested.value) {
-            return;
-        }
-
-        workspaceRequested.value = true;
-    });
+    void preloadWorkspaceComponent('workspace-host-mounted');
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: tabId});
     void loadRecentFiles().finally(() => {
@@ -704,33 +706,42 @@ const workspaceExpose: IWorkspaceExpose = {
     },
     handleOpenFileFromUi,
     handleCombineImages: async () => {
-        await withLoadedWorkspace('handleCombineImages', workspace => workspace.handleCombineImages());
+        const workspace = mountedWorkspace.value;
+        if (!workspace) {
+            return false;
+        }
+        try {
+            return await workspace.handleCombineImages();
+        } catch (error) {
+            BrowserLogger.error('workspace-host', 'Action failed (handleCombineImages)', {
+                tabId: tabId,
+                error,
+            });
+            return false;
+        }
     },
     handleOpenFileDirectWithPersist: async (path: string) => {
-        await enqueueDocumentOpen(async () => {
-            await openPath(path, 'handleOpenFileDirectWithPersist');
-        });
+        return enqueueDocumentOpen(async () => openPath(path, 'handleOpenFileDirectWithPersist'));
     },
     handleOpenFileDirectBatchWithPersist: async (paths: string[]) => {
-        await enqueueDocumentOpen(async () => {
-            await withWorkspace(
+        return enqueueDocumentOpen(async () => (
+            withWorkspace(
                 'handleOpenFileDirectBatchWithPersist',
                 workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
-            );
-        });
+            )
+        ));
     },
     handleOpenFileWithResult: async (result: TOpenFileResult) => {
-        await enqueueDocumentOpen(async () => {
-            await withWorkspace('handleOpenFileWithResult', workspace => workspace.handleOpenFileWithResult(result));
-        });
+        return enqueueDocumentOpen(async () => withWorkspace(
+            'handleOpenFileWithResult',
+            workspace => workspace.handleOpenFileWithResult(result),
+        ));
     },
     handleCloseFileFromUi: async (options) => {
         await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options));
     },
     openRecentFile: async (file: IRecentFile) => {
-        await enqueueDocumentOpen(async () => {
-            await withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file));
-        });
+        return enqueueDocumentOpen(async () => withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file)));
     },
     handleExportDocx: async () => {
         await withLoadedWorkspace('handleExportDocx', workspace => workspace.handleExportDocx());
@@ -823,7 +834,10 @@ const workspaceExpose: IWorkspaceExpose = {
             return;
         }
         const restorePayload = async () => {
-            await withWorkspace('restoreSplitPayload', workspace => workspace.restoreSplitPayload(payload));
+            await withWorkspace('restoreSplitPayload', async (workspace) => {
+                await workspace.restoreSplitPayload(payload);
+                return true;
+            });
         };
 
         if (payload.kind === 'empty') {
@@ -831,7 +845,7 @@ const workspaceExpose: IWorkspaceExpose = {
             return;
         }
 
-        await runWhileOpeningDocument(restorePayload);
+        await enqueueDocumentOpen(restorePayload);
     },
     closeAllDropdowns: () => {
         void withLoadedWorkspace('closeAllDropdowns', workspace => workspace.closeAllDropdowns());

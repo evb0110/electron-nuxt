@@ -13,6 +13,7 @@ import type {
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
     isOpeningDocument: boolean;
+    hasOpenError: boolean;
     isPreparingPrint: boolean;
     canSave: boolean;
     canUndo: boolean;
@@ -45,6 +46,7 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
     return {
         hasPdf: false,
         isOpeningDocument: false,
+        hasOpenError: false,
         isPreparingPrint: false,
         canSave: false,
         canUndo: false,
@@ -83,13 +85,13 @@ export interface IWorkspaceFilePort {
     handlePrintCurrentPage: () => void | Promise<void>;
     handleUndo: () => void;
     handleRedo: () => void;
-    handleOpenFileFromUi: () => Promise<void>;
-    handleCombineImages: () => Promise<void>;
-    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<void>;
-    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
-    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
+    handleOpenFileFromUi: () => Promise<boolean>;
+    handleCombineImages: () => Promise<boolean>;
+    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
+    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
+    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
-    openRecentFile: (file: IRecentFile) => Promise<void>;
+    openRecentFile: (file: IRecentFile) => Promise<boolean>;
 }
 
 export interface IWorkspaceExportPort {

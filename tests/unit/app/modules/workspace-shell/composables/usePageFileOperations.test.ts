@@ -8,6 +8,7 @@ import {
 import { ref } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 const {
     mockHasElectronAPI,
@@ -29,6 +30,17 @@ function cast<T>(obj: unknown): T {
     return obj as T;
 }
 
+function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
+    return {
+        status: 'opened',
+        result: {
+            kind: 'pdf',
+            originalPath: path,
+            workingPath: path,
+        },
+    };
+}
+
 function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[0]> = {}) {
     return cast<Parameters<typeof usePageFileOperations>[0]>({
         pdfSrc: ref<unknown>({}),
@@ -45,9 +57,9 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
         handleSave: vi.fn(async () => {}),
         pickFileToOpen: vi.fn(async () => null),
-        openFile: vi.fn(async () => {}),
-        openFileDirect: vi.fn(async (_path: string) => {}),
-        openFileDirectBatch: vi.fn(async (_paths: string[]) => {}),
+        openFile: vi.fn(async () => openedOutcome()),
+        openFileDirect: vi.fn(async (path: string) => openedOutcome(path)),
+        openFileDirectBatch: vi.fn(async (_paths: string[]) => openedOutcome()),
         closeFile: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
@@ -105,7 +117,7 @@ describe('usePageFileOperations', () => {
         });
         const { handleOpenFileFromUi } = usePageFileOperations(deps);
 
-        await expect(handleOpenFileFromUi()).resolves.toBeUndefined();
+        await expect(handleOpenFileFromUi()).resolves.toBe(false);
 
         expect(deps.pickFileToOpen).not.toHaveBeenCalled();
         expect(deps.openFile).not.toHaveBeenCalled();
@@ -126,11 +138,37 @@ describe('usePageFileOperations', () => {
         const deps = createDeps({pickFileToOpen: vi.fn(async () => openResult)});
         const { handleOpenFileFromUi } = usePageFileOperations(deps);
 
-        await expect(handleOpenFileFromUi()).resolves.toBeUndefined();
+        await expect(handleOpenFileFromUi()).resolves.toBe(true);
 
         expect(deps.pickFileToOpen).toHaveBeenCalledOnce();
         expect(deps.openFile).toHaveBeenCalledWith(openResult);
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('returns failed direct opens immediately without retrying or closing dropdowns', async () => {
+        const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const deps = createDeps({
+            pdfSrc: ref(null),
+            openFileDirect: vi.fn(async () => ({
+                status: 'failed' as const,
+                error: 'not allowed',
+            })),
+        });
+        const { handleOpenFileDirectWithPersist } = usePageFileOperations(deps);
+
+        await expect(handleOpenFileDirectWithPersist('/tmp/blocked.pdf')).resolves.toBe(false);
+
+        expect(deps.openFileDirect).toHaveBeenCalledOnce();
+        expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledWith(
+            'recent-open',
+            'Open path finished without an active document',
+            {
+                path: '/tmp/blocked.pdf',
+                status: 'failed',
+                error: 'not allowed',
+            },
+        );
     });
 
     it('awaits the persistence gate before invoking the open picker', async () => {

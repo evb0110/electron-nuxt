@@ -37,9 +37,11 @@ function createWorkspace(hasPdf = false, isDjvuMode = false, isOpeningDocument =
     const state = ref(hasPdf);
     const openPath = vi.fn(async (_path: string) => {
         state.value = true;
+        return true;
     });
     const openResult = vi.fn(async (_result: unknown) => {
         state.value = true;
+        return true;
     });
 
     return {

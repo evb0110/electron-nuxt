@@ -11,10 +11,11 @@ import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
+import {
+    didOpenDocument,
+    type TDocumentOpenOutcome,
+} from '@app/types/documentOpenOutcome';
 
-const DJVU_PATH_REGEX = /\.djvu?$/i;
-const OPEN_SETTLE_DELAY_MS = 25;
-const OPEN_SETTLE_MAX_ATTEMPTS = 160;
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 export interface IPageFileOperationsDeps {
@@ -32,9 +33,9 @@ export interface IPageFileOperationsDeps {
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     handleSave: () => Promise<void>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
-    openFile: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirect: (path: TDocumentRef) => Promise<void>;
-    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
+    openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
+    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
     closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
@@ -155,17 +156,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return canProceed;
     }
 
-    async function waitForDocumentSource() {
-        await waitUntilIdle(
-            () => !pdfSrc.value,
-            {
-                delayMs: OPEN_SETTLE_DELAY_MS,
-                maxAttempts: OPEN_SETTLE_MAX_ATTEMPTS,
-            },
-        );
-        return Boolean(pdfSrc.value);
-    }
-
     async function ensureCurrentDocumentPersistedBeforeSwitch() {
         if (!pdfSrc.value) {
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no current document loaded');
@@ -198,12 +188,12 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     ) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            return;
+            return false;
         }
 
         const result = await pick();
         if (!result) {
-            return;
+            return false;
         }
 
         if (
@@ -214,15 +204,19 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         ) {
             emitOpenInNewTab(result);
             closeAllDropdowns();
-            return;
+            return true;
         }
 
-        await openFile(result);
-        closeAllDropdowns();
+        const outcome = await openFile(result);
+        const opened = didOpenDocument(outcome);
+        if (opened) {
+            closeAllDropdowns();
+        }
+        return opened;
     }
 
     async function handleOpenFileFromUi() {
-        await runPickerWithPersistence(pickFileToOpen, { openGeneratedInNewTab: true });
+        return runPickerWithPersistence(pickFileToOpen, { openGeneratedInNewTab: true });
     }
 
     async function pickCombineFiles() {
@@ -230,7 +224,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleCombineImages() {
-        await runPickerWithPersistence(pickCombineFiles, { openGeneratedInNewTab: true });
+        return runPickerWithPersistence(pickCombineFiles, { openGeneratedInNewTab: true });
     }
 
     async function pickFolderToOpen() {
@@ -238,7 +232,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleOpenFolderFromUi() {
-        await runPickerWithPersistence(pickFolderToOpen, { openGeneratedInNewTab: true });
+        return runPickerWithPersistence(pickFolderToOpen, { openGeneratedInNewTab: true });
     }
 
     async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
@@ -251,52 +245,52 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path aborted by persistence gate', { path });
-            return;
+            return false;
         }
-        await openFileDirect(path);
+        const outcome = await openFileDirect(path);
+        const opened = didOpenDocument(outcome);
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect resolved', {
             path,
+            status: outcome.status,
             hasDocumentAfterDirectOpen: Boolean(pdfSrc.value),
         });
 
-        if (!pdfSrc.value && !DJVU_PATH_REGEX.test(path)) {
-            const settled = await waitForDocumentSource();
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Post-open settle wait finished', {
+        if (!opened) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path finished without an active document', {
                 path,
-                settled,
-                hasDocumentAfterSettle: Boolean(pdfSrc.value),
+                status: outcome.status,
+                error: outcome.status === 'failed' ? outcome.error : undefined,
             });
-
-            if (!settled) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document still missing after first open, retrying once', {path});
-                await openFileDirect(path);
-                const settledAfterRetry = await waitForDocumentSource();
-                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Retry settle finished', {
-                    path,
-                    settledAfterRetry,
-                    hasDocumentAfterRetry: Boolean(pdfSrc.value),
-                });
-            }
+            return false;
         }
         closeAllDropdowns();
+        return true;
     }
 
     async function handleOpenFileWithResult(result: TOpenFileResult) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            return;
+            return false;
         }
-        await openFile(result);
-        closeAllDropdowns();
+        const outcome = await openFile(result);
+        const opened = didOpenDocument(outcome);
+        if (opened) {
+            closeAllDropdowns();
+        }
+        return opened;
     }
 
     async function handleOpenFileDirectBatchWithPersist(paths: string[]) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            return;
+            return false;
         }
-        await openFileDirectBatch(paths);
-        closeAllDropdowns();
+        const outcome = await openFileDirectBatch(paths);
+        const opened = didOpenDocument(outcome);
+        if (opened) {
+            closeAllDropdowns();
+        }
+        return opened;
     }
 
     async function handleCloseFileFromUi(options: ICloseFileFromUiOptions = {}) {
@@ -338,10 +332,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
             await removeRecentFile(file);
             notifyMissingRecentFile(file);
-            return;
+            return false;
         }
 
-        await handleOpenFileDirectWithPersist(file.originalPath);
+        return handleOpenFileDirectWithPersist(file.originalPath);
     }
 
     return {

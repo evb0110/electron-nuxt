@@ -9,6 +9,7 @@ import { readDocumentBytes } from '@app/utils/documentBytes';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
@@ -22,7 +23,7 @@ interface IUseWorkspaceSplitPayloadOptions {
     hasPendingTabChanges: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     pdfData: Ref<Uint8Array | null>;
-    openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<void>;
+    openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
 }
