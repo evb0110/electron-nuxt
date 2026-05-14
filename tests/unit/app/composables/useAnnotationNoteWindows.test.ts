@@ -61,7 +61,10 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('does not materialize a full PDF reload when force-saving viewer-backed note edits', async () => {
-        const { windows } = createHarness();
+        const {
+            deps,
+            windows,
+        } = createHarness();
 
         windows.handleOpenAnnotationNote(createComment());
         const note = windows.findAnnotationNoteWindow('note-1:0');
@@ -75,6 +78,7 @@ describe('useAnnotationNoteWindows', () => {
 
         expect(saved).toBe(true);
         expect(note.lastSavedText).toBe('Updated text');
+        expect(deps.annotationComments.value.find(comment => comment.stableKey === 'note-1:0')?.text).toBe('Updated text');
     });
 
     it('mirrors existing PDF note saves into the embedded serialization pipeline', () => {
@@ -264,11 +268,54 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('note-1:0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+        note.createdAtMs = Date.now() - 10_000;
 
         deps.annotationComments.value = [];
         await nextTick();
 
         expect(windows.findAnnotationNoteWindow('note-1:0')).toBeNull();
+    });
+
+    it('keeps a freshly opened note window while annotation sync catches up', async () => {
+        const comment = createComment();
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+
+        windows.handleOpenAnnotationNote(comment);
+
+        deps.annotationComments.value = [];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
+    });
+
+    it('keeps a dirty note window when annotation sync temporarily misses it', async () => {
+        const comment = createComment();
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+
+        windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('note-1:0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+        note.createdAtMs = Date.now() - 10_000;
+        windows.updateAnnotationNoteText('note-1:0', 'Unsynced typed note');
+
+        deps.annotationComments.value = [];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
     });
 
     it('keeps an open note window during transient document reload sync gaps', async () => {
@@ -285,5 +332,46 @@ describe('useAnnotationNoteWindows', () => {
         await nextTick();
 
         expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
+    });
+
+    it('adds locally saved new note comments to the annotation cache for serialization replay', () => {
+        const comment = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: '',
+            subtype: 'FreeText',
+            markerRect: {
+                left: 0.2,
+                top: 0.2,
+                width: 0.01,
+                height: 0.01,
+            },
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+        deps.annotationComments.value = [];
+
+        windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'Replayable new note text';
+        const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
+
+        expect(saved).toBe(true);
+        expect(deps.annotationComments.value).toContainEqual(expect.objectContaining({
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            text: 'Replayable new note text',
+            hasNote: true,
+            markerRect: comment.markerRect,
+        }));
     });
 });

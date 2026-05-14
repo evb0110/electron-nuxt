@@ -45,6 +45,8 @@
             :placeholder="t('noteWindow.writeNote')"
             @keydown.esc.stop.prevent="minimizeNote"
             @input="updateText"
+            @change="updateText"
+            @blur="updateText"
         ></textarea>
 
         <p v-if="saving" class="note-window__status" role="status" aria-live="polite">{{ t('noteWindow.saving') }}</p>

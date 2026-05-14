@@ -29,6 +29,7 @@ interface ICreateWorkspaceExposeDeps extends
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
     isExportingDocx: Ref<boolean>;
+    hasOpenAnnotationNotes?: Ref<boolean>;
     isFitWidthActive: Ref<boolean>;
     isFitHeightActive: Ref<boolean>;
     showSidebar: Ref<boolean>;
@@ -97,9 +98,10 @@ function clampZoomLevel(level: number) {
  */
 export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorkspaceExpose {
     async function handleSaveFromCommandSurface() {
+        const hasSaveableOpenNotes = deps.hasOpenAnnotationNotes?.value === true;
         if (
             !deps.hasPdf.value
-            || !deps.canSave.value
+            || (!deps.canSave.value && !hasSaveableOpenNotes)
             || deps.isAnySaving.value
             || deps.isHistoryBusy.value
             || deps.isDjvuMode.value
