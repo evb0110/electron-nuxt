@@ -13,7 +13,7 @@
             :viewer-class="viewerClass"
             :container-style="containerStyle"
             :pages-to-render="pagesToRender"
-            :should-show-skeleton="shouldShowSkeleton"
+            :should-show-skeleton="shouldShowPageSkeleton"
             :is-spread-single="isSpreadSingle"
             :get-page-placeholder-style="getPagePlaceholderStyle"
             :top-virtual-spacer-style="topVirtualSpacerStyle"
@@ -57,8 +57,8 @@
         />
         <PdfViewerPortalLayers
             :viewer-container="viewerContainer"
-            :markers-by-page="markersByPage"
-            :links-by-page="linksByPage"
+            :markers-by-page="visibleMarkersByPage"
+            :links-by-page="visibleLinksByPage"
             @open-note="handleMarkerOpenNote"
             @context-menu="handleMarkerContextMenu"
             @move-marker="handleMarkerMove"
@@ -762,6 +762,10 @@ const {
 watch(() => src.value, (next, previous) => {
     if (next !== previous) {
         clearPendingImagePlacement();
+        pendingMarkerMoves.clear();
+        annotationCommentsCache.value = [];
+        activeCommentStableKey.value = null;
+        emit('annotation-comments', []);
     }
 });
 
@@ -949,6 +953,23 @@ const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
 const isLocalViewerLoadingOverlayVisible = computed(() => (
     isViewerLoadingOverlayVisible.value && !suppressLoadingOverlay.value
 ));
+const emptyMarkersByPage = new Map<number, never[]>();
+const emptyLinksByPage: Record<number, never[]> = {};
+const visibleMarkersByPage = computed(() => (
+    isViewerLoadingOverlayVisible.value
+        ? emptyMarkersByPage
+        : new Map([...markersByPage.value].filter(([page]) => !shouldShowSkeleton(page)))
+));
+const visibleLinksByPage = computed(() => (
+    isViewerLoadingOverlayVisible.value
+        ? emptyLinksByPage
+        : Object.fromEntries(
+            Object.entries(linksByPage.value).filter(([page]) => !shouldShowSkeleton(Number(page))),
+        )
+));
+function shouldShowPageSkeleton(page: number) {
+    return !isViewerLoadingOverlayVisible.value && shouldShowSkeleton(page);
+}
 
 const viewerClass = computed(() => ({
     'pdfViewer--saving': isAnySaving.value,
