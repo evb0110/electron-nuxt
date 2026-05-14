@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const nulCharacter = String.fromCharCode(0);
+const escapeCharacter = String.fromCharCode(27);
+const ansiEscapePattern = new RegExp(`${escapeCharacter}\\[[0-?]*[ -/]*[@-~]`, 'gu');
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
@@ -81,7 +83,9 @@ function getWarningSignature(block) {
 }
 
 function normalizeWarningSignature(signature) {
-    return signature.replaceAll(nulCharacter, '');
+    return signature
+        .replace(ansiEscapePattern, '')
+        .replaceAll(nulCharacter, '');
 }
 
 async function main() {
