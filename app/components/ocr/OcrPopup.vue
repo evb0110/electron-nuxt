@@ -21,7 +21,7 @@
                 :aria-label="triggerTooltip"
                 type="button"
             >
-                <Icon v-if="!progress.isRunning && !showSuccessState" name="ph:scan" class="size-5" />
+                <Icon v-if="!progress.isRunning && !showSuccessState" name="ph:text-aa" class="size-5" />
                 <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
                 <Icon v-else name="ph:circle-notch" class="size-5 animate-spin" />
             </button>
@@ -360,7 +360,7 @@ const {
     showSuccessState.value = false;
 }, 3000, { immediate: false });
 
-const triggerIcon = computed(() => showSuccessState.value ? 'ph:check-circle' : 'ph:scan');
+const triggerIcon = computed(() => showSuccessState.value ? 'ph:check-circle' : 'ph:text-aa');
 const triggerTooltip = computed(() => {
     if (progress.value.isRunning) {
         return progress.value.phase === 'preparing'
