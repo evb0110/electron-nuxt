@@ -204,9 +204,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
-        restorePendingEmbeddedTextUpdates,
+        ...(restorePendingEmbeddedTextUpdates !== undefined ? { restorePendingEmbeddedTextUpdates } : {}),
         consumePendingEmbeddedAnnotationDeletes,
-        restorePendingEmbeddedAnnotationDeletes,
+        ...(restorePendingEmbeddedAnnotationDeletes !== undefined ? { restorePendingEmbeddedAnnotationDeletes } : {}),
         annotationNoteWindowsCount,
         loadRecentFiles,
         preparePostSaveReload: () => {
@@ -301,7 +301,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
         if (warmupWorkingPath) {
             // Prewarm search index and worker caches after OCR persistence and reload cache reset.
-            void getSearchCapability().warmIndex(warmupWorkingPath, {pageCount: warmupPageCountHint}).catch((error) => {
+            void getSearchCapability().warmIndex(warmupWorkingPath, {...(warmupPageCountHint !== undefined ? { pageCount: warmupPageCountHint } : {})}).catch((error) => {
                 const warmIndexError: unknown = error;
                 BrowserLogger.debug('pdf-search', 'Failed to prewarm search index after OCR', {
                     path: warmupWorkingPath,

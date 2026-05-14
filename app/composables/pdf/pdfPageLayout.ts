@@ -406,7 +406,7 @@ export function buildPageLayoutMetrics(options: {
     } = resolveSafeLayoutSpacing({
         gap,
         paddingTop,
-        paddingBottom,
+        ...(paddingBottom !== undefined ? { paddingBottom } : {}),
     });
     const {
         pageWidths,

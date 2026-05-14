@@ -212,14 +212,19 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode?: TPdfSaveMode;
         },
     ): Promise<IPdfSaveResult | null> {
+        const serializeOptions: Parameters<typeof serializePdfForSave>[1] = {
+            pendingTexts,
+            pendingDeletes,
+        };
+        if (opts?.includeShapes !== undefined) {
+            serializeOptions.includeShapes = opts.includeShapes;
+        }
+        if (opts?.rewriteShapeState !== undefined) {
+            serializeOptions.rewriteShapeState = opts.rewriteShapeState;
+        }
         const data = await timedSavePhase(
             'serialize-pdf-for-save',
-            () => serializePdfForSave(rawData, {
-                includeShapes: opts?.includeShapes,
-                rewriteShapeState: opts?.rewriteShapeState,
-                pendingTexts,
-                pendingDeletes,
-            }),
+            () => serializePdfForSave(rawData, serializeOptions),
             result => ({
                 inputBytes: rawData.byteLength,
                 outputBytes: result.byteLength,

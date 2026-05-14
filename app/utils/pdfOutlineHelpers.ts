@@ -21,10 +21,10 @@ const OUTLINE_LOG_SECTION = 'pdfOutline';
 export interface IOutlineItemRaw {
     title: string;
     dest: string | unknown[] | null;
-    bold?: boolean;
-    italic?: boolean;
-    color?: ArrayLike<number> | null;
-    items?: IOutlineItemRaw[];
+    bold?: boolean | undefined;
+    italic?: boolean | undefined;
+    color?: ArrayLike<number> | null | undefined;
+    items?: IOutlineItemRaw[] | undefined;
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {

@@ -29,11 +29,11 @@ vi.mock('@vueuse/core', () => ({ useEventListener: vi.fn((_target: unknown, even
 
     return () => {
         if (event === 'dragover') {
-            capturedListeners.dragover = undefined;
+            delete capturedListeners.dragover;
         }
 
         if (event === 'drop') {
-            capturedListeners.drop = undefined;
+            delete capturedListeners.drop;
         }
     };
 }) }));

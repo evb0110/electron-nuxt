@@ -584,7 +584,7 @@ export function mergeCommentSummaries(
         ...existing,
         text,
         author,
-        kindLabel,
+        kindLabel: kindLabel ?? null,
         modifiedAt,
         sortIndex,
         annotationId: existing.annotationId ?? incoming.annotationId,

@@ -22,14 +22,23 @@ const KNOWN_USER_DATA_DIR_NAMES = [
     'EVB-Viewer',
 ] as const;
 
+function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseSettingsPatch(raw: string): Partial<ISettingsData> | null {
+    const parsed: unknown = JSON.parse(raw);
+    return isSettingsPatch(parsed) ? parsed : null;
+}
+
 async function isPromptSuppressedInKnownSettingsFiles() {
     const appDataPath = app.getPath('appData');
     for (const dirName of KNOWN_USER_DATA_DIR_NAMES) {
         const settingsPath = join(appDataPath, dirName, 'settings.json');
         try {
             const raw = await readFile(settingsPath, 'utf-8');
-            const parsed = JSON.parse(raw) as Partial<ISettingsData>;
-            if (parsed.suppressDefaultViewerPrompt === true) {
+            const parsed = parseSettingsPatch(raw);
+            if (parsed?.suppressDefaultViewerPrompt === true) {
                 return true;
             }
         } catch {

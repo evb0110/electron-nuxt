@@ -176,7 +176,7 @@ export async function pickFiles(options: {
         try {
             const handles = await showOpenFilePicker({
                 multiple: options.multiple ?? false,
-                types: options.pickerTypes,
+                ...(options.pickerTypes ? { types: options.pickerTypes } : {}),
             });
 
             return await Promise.all(
@@ -391,15 +391,21 @@ export async function saveBytesToPickerOrDownload(
         canDownloadWithoutHandle?: boolean;
     },
 ) {
+    const fallbackOptions = {
+        ...(options.downloadFallbackLabel ? { downloadFallbackLabel: options.downloadFallbackLabel } : {}),
+        ...(options.downloadFallbackMaxBytes !== undefined
+            ? { downloadFallbackMaxBytes: options.downloadFallbackMaxBytes }
+            : {}),
+        ...(options.canDownloadWithoutHandle !== undefined
+            ? { canDownloadWithoutHandle: options.canDownloadWithoutHandle }
+            : {}),
+    };
+
     return saveBlobToPickerOrDownload(
         new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
-        {
-            downloadFallbackLabel: options.downloadFallbackLabel,
-            downloadFallbackMaxBytes: options.downloadFallbackMaxBytes,
-            canDownloadWithoutHandle: options.canDownloadWithoutHandle,
-        },
+        fallbackOptions,
     );
 }
 

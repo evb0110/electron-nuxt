@@ -102,14 +102,15 @@ export async function handleOpenPdfDirectBatch(
             .map(path => requireOpenPath(path, event.sender));
 
         const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
-        return await openInputPaths(normalizedPaths, {onCombineProgress: normalizedRequestId
-            ? (progress) => {
+        const options = normalizedRequestId
+            ? {onCombineProgress: (progress: ICreatePdfFromInputPathsProgress) => {
                 sendOpenBatchProgress(event, {
                     requestId: normalizedRequestId,
                     ...progress,
                 });
-            }
-            : undefined}, event.sender);
+            }}
+            : {};
+        return await openInputPaths(normalizedPaths, options, event.sender);
     } catch (err) {
         logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);

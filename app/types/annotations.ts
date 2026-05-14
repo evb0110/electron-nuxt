@@ -22,20 +22,20 @@ export interface IShapeAnnotation {
     y: number;
     width: number;
     height: number;
-    x2?: number;
-    y2?: number;
+    x2?: number | undefined;
+    y2?: number | undefined;
     color: string;
-    fillColor?: string;
+    fillColor?: string | undefined;
     opacity: number;
     strokeWidth: number;
-    points?: IShapePoint[];
-    strokes?: IShapePoint[][];
-    source?: 'local' | 'embedded';
-    annotationId?: string | null;
-    stableKey?: string | null;
-    pdfSubtype?: TEmbeddedPdfShapeSubtype | null;
-    lineStartStyle?: TLineEndStyle;
-    lineEndStyle?: TLineEndStyle;
+    points?: IShapePoint[] | undefined;
+    strokes?: IShapePoint[][] | undefined;
+    source?: 'local' | 'embedded' | undefined;
+    annotationId?: string | null | undefined;
+    stableKey?: string | null | undefined;
+    pdfSubtype?: TEmbeddedPdfShapeSubtype | null | undefined;
+    lineStartStyle?: TLineEndStyle | undefined;
+    lineEndStyle?: TLineEndStyle | undefined;
 }
 
 export interface IAnnotationSettings {
@@ -86,18 +86,18 @@ export interface ILinkAnnotation {
 export interface IAnnotationCommentSummary {
     id: string;
     stableKey: string;
-    sortIndex?: number | null;
+    sortIndex?: number | null | undefined;
     pageIndex: number;
     pageNumber: number;
     text: string;
-    kindLabel?: string | null;
-    subtype?: string | null;
+    kindLabel?: string | null | undefined;
+    subtype?: string | null | undefined;
     author: string | null;
     modifiedAt: number | null;
     color: string | null;
     uid: string | null;
     annotationId: string | null;
     source: 'editor' | 'pdf';
-    hasNote?: boolean;
-    markerRect?: IAnnotationMarkerRect | null;
+    hasNote?: boolean | undefined;
+    markerRect?: IAnnotationMarkerRect | null | undefined;
 }

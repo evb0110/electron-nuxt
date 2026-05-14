@@ -3,6 +3,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationSettings,
+    IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
@@ -12,8 +13,8 @@ interface IPdfViewerForAnnotationTools {
     cancelCommentPlacement: () => void;
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
-    getSelectedShape: () => {pdfSubtype?: string | null;} | null;
-    updateShape: (id: string, updates: Record<string, unknown>) => void;
+    getSelectedShape: () => (IShapeAnnotation & { pdfSubtype?: string | null | undefined }) | null;
+    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
 }
 
 interface IPageAnnotationToolsDeps {

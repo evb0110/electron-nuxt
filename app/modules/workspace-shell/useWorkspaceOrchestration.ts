@@ -93,7 +93,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({
         workingCopyPath,
-        initialViewState: deps.initialViewState,
+        ...(deps.initialViewState !== undefined ? { initialViewState: deps.initialViewState } : {}),
     });
     const {
         pdfViewerRef,
@@ -275,7 +275,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         requestDocxExport: (selectedLanguages?: string[]) => exportDocx({
             workingCopyPath: workingCopyPath.value,
             pdfDocument: pdfDocument.value,
-            selectedLanguages,
+            ...(selectedLanguages !== undefined ? { selectedLanguages } : {}),
         }),
         openOcrPopup: () => openDropdown('ocr'),
         isExportingDocx: isDocxExporting,

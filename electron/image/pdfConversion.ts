@@ -206,7 +206,7 @@ async function createPdfFromInputPathsLocal(
     options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     return createCombinedPdf(inputPaths, {
-        onProgress: options?.onProgress,
+        ...(options?.onProgress ? { onProgress: options.onProgress } : {}),
         unsupportedFileError: (sourcePath) => `Unsupported file type: ${sourcePath}`,
         appendDjvuPages: async (targetPdf, sourcePath) => {
             const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));

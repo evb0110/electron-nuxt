@@ -100,7 +100,7 @@ export function shouldBootstrapInteractiveDevProfile(options: {
 }) {
     const env = options.env ?? process.env;
     const sessionName = options.sessionName ?? getCurrentSessionName();
-    const automationWindowEnv = options.automationWindowEnv ?? resolveAutomationWindowEnv(env, { isTTY: options.isTTY });
+    const automationWindowEnv = options.automationWindowEnv ?? resolveAutomationWindowEnv(env, {...(options.isTTY === undefined ? {} : { isTTY: options.isTTY })});
 
     return env.CI !== 'true'
         && sessionName === 'default'

@@ -181,7 +181,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     async function handleOpenInNewTab(pathOrResult: TOpenDocumentTarget, groupId?: string) {
         const targetGroupId = groupId ?? activeGroupId.value ?? undefined;
         const tab = createTab({
-            groupId: targetGroupId,
+            ...(targetGroupId !== undefined ? { groupId: targetGroupId } : {}),
             activate: true,
             initial: buildPendingTabDocumentHint(pathOrResult),
         });

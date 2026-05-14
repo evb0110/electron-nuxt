@@ -353,7 +353,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                             kind: 'output',
                             retention: 'transient',
                             saveHandle: saveResult.handle ?? null,
-                            storageMode: saveResult.handle ? 'handle' : undefined,
+                            ...(saveResult.handle ? { storageMode: 'handle' as const } : {}),
                         },
                     );
                     if (saveResult.handle) {

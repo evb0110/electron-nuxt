@@ -313,7 +313,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         },
     });
 
-    registerAppWindow(window, { setAsMain: options.setAsMain });
+    registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
     const shouldShowStartupPlaceholder = !shouldWaitForInitialRendererReady;
@@ -390,7 +390,9 @@ export async function createWindow(options: { waitForInitialRendererReady?: bool
 
     createMainWindowPromise = createAppWindow({
         setAsMain: true,
-        waitForInitialRendererReady: options.waitForInitialRendererReady,
+        ...(options.waitForInitialRendererReady === undefined
+            ? {}
+            : { waitForInitialRendererReady: options.waitForInitialRendererReady }),
     });
     try {
         return await createMainWindowPromise;

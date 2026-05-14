@@ -32,8 +32,17 @@ function cloneSettings(settings: ISettingsData): ISettingsData {
     return {...settings};
 }
 
-function cacheSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
-    settingsCache = sanitizeSettings(raw);
+function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseSettingsPatch(content: string): Partial<ISettingsData> | null {
+    const parsed: unknown = JSON.parse(content);
+    return isSettingsPatch(parsed) ? parsed : null;
+}
+
+function cacheSettings(raw: unknown): ISettingsData {
+    settingsCache = sanitizeSettings(isSettingsPatch(raw) ? raw : null);
     return cloneSettings(settingsCache);
 }
 
@@ -62,7 +71,7 @@ async function readSettingsFromStorage(storagePath: string) {
 
     try {
         const content = await readFile(storagePath, 'utf-8');
-        return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
+        return cacheSettings(parseSettingsPatch(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         return cacheSettings(DEFAULT_SETTINGS);
@@ -135,7 +144,7 @@ function loadSettingsSync(): ISettingsData {
 
     try {
         const content = readFileSync(storagePath, 'utf-8');
-        return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
+        return cacheSettings(parseSettingsPatch(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         return cacheSettings(DEFAULT_SETTINGS);

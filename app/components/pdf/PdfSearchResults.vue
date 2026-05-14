@@ -108,21 +108,21 @@ interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
-    pageLabels?: string[] | null;
-    isSearching?: boolean;
-    searchError?: string | null;
+    pageLabels?: string[] | null | undefined;
+    isSearching?: boolean | undefined;
+    searchError?: string | null | undefined;
     searchProgress?: {
         processed: number;
         total: number;
-    };
-    isTruncated?: boolean;
-    minQueryLength?: number;
+    } | undefined;
+    isTruncated?: boolean | undefined;
+    minQueryLength?: number | undefined;
 }
 
 const {
     currentResultIndex,
     isSearching = undefined,
-    isTruncated: isTruncatedProp,
+    isTruncated: isTruncatedProp = false,
     minQueryLength: minQueryLengthProp = undefined,
     pageLabels = undefined,
     results,

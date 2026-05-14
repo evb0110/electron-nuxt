@@ -27,7 +27,10 @@ import {
 } from '@electron/ocr/jobManagerProtocol';
 import { createPendingResultFileStore } from '@electron/ocr/jobManagerResultFiles';
 import { createOcrWorker } from '@electron/ocr/jobManager.worker';
-import { ocrResourceGovernor } from '@electron/ocr/resourceGovernor';
+import {
+    ocrResourceGovernor,
+    type IOcrResourceRequest,
+} from '@electron/ocr/resourceGovernor';
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
@@ -399,13 +402,19 @@ function handleWorkerResourceMessage(
         return;
     }
 
-    void ocrResourceGovernor.acquire({
+    const resourceRequest: IOcrResourceRequest = {
         jobId: scopedJobId,
         pageNumber: message.pageNumber,
         requestedDpi: message.requestedDpi,
-        pageWidthIn: message.pageWidthIn,
-        pageHeightIn: message.pageHeightIn,
-    }).then((lease) => {
+    };
+    if (message.pageWidthIn !== undefined) {
+        resourceRequest.pageWidthIn = message.pageWidthIn;
+    }
+    if (message.pageHeightIn !== undefined) {
+        resourceRequest.pageHeightIn = message.pageHeightIn;
+    }
+
+    void ocrResourceGovernor.acquire(resourceRequest).then((lease) => {
         const active = activeJobs.get(scopedJobId);
         if (!active || active.completed || active.terminatedByUs) {
             ocrResourceGovernor.release(lease.token);
@@ -554,16 +563,19 @@ function startQueuedJob(job: IOcrQueuedJob) {
     });
 
     try {
+        const data: Extract<TOcrWorkerInboundMessage, { type: 'start' }>['data'] = {
+            sourcePdfPath: job.sourcePdfPath,
+            pages: job.pages,
+        };
+        if (job.renderDpi !== undefined) {
+            data.renderDpi = job.renderDpi;
+        }
         const startMessage: TOcrWorkerInboundMessage = {
             type: 'start',
             // Keep worker-visible job ids sender-agnostic so renderer callbacks
             // continue matching the requestId generated in the UI.
             jobId: job.requestId,
-            data: {
-                sourcePdfPath: job.sourcePdfPath,
-                pages: job.pages,
-                renderDpi: job.renderDpi,
-            },
+            data,
         };
         worker.postMessage(startMessage);
     } catch (error) {
@@ -711,10 +723,12 @@ function enqueuePreparedOcrJob(
         webContentsId: event.sender.id,
         sourcePdfPath,
         pages,
-        renderDpi,
         queuedAtMs: Date.now(),
         requestedBytes: requestBytes,
     };
+    if (renderDpi !== undefined) {
+        queuedJob.renderDpi = renderDpi;
+    }
     preparingJobs.delete(scopedJobId);
     queuedJobs.push(queuedJob);
     queuedJobIds.add(scopedJobId);

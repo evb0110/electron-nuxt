@@ -341,11 +341,11 @@ const {
     startSection = 'recent',
 } = defineProps<{
     recentFiles: IRecentFile[];
-    recentFilesResolved?: boolean;
-    openBatchProgress?: IOpenBatchProgress | null;
-    openInProgress?: boolean;
-    canCombineFiles?: boolean;
-    startSection?: TStartSection;
+    recentFilesResolved?: boolean | undefined;
+    openBatchProgress?: IOpenBatchProgress | null | undefined;
+    openInProgress?: boolean | undefined;
+    canCombineFiles?: boolean | undefined;
+    startSection?: TStartSection | undefined;
 }>();
 
 const emit = defineEmits<{

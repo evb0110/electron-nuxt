@@ -138,52 +138,52 @@ import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 interface IProps {
     src: TPdfSource | null;
-    sourcePdfData?: Uint8Array | null;
-    suppressLoadingOverlay?: boolean;
-    bufferPages?: number;
-    isAnySaving?: boolean;
-    zoom?: number;
-    zoomMode?: TZoomMode;
-    dragMode?: boolean;
-    fitMode?: TFitMode;
-    viewMode?: TPdfViewMode;
-    continuousScroll?: boolean;
-    isActive?: boolean;
-    isResizing?: boolean;
-    invertColors?: boolean;
-    showAnnotations?: boolean;
-    annotationTool?: TAnnotationTool;
-    annotationCursorMode?: boolean;
-    annotationKeepActive?: boolean;
-    annotationSettings?: IAnnotationSettings | null;
-    searchPageMatches?: Map<number, IPdfPageMatches>;
-    currentSearchMatch?: IPdfSearchMatch | null;
-    currentSearchMatchNavigationId?: number;
-    workingCopyPath?: string | null;
-    authorName?: string | null;
+    sourcePdfData?: Uint8Array | null | undefined;
+    suppressLoadingOverlay?: boolean | undefined;
+    bufferPages?: number | undefined;
+    isAnySaving?: boolean | undefined;
+    zoom?: number | undefined;
+    zoomMode?: TZoomMode | undefined;
+    dragMode?: boolean | undefined;
+    fitMode?: TFitMode | undefined;
+    viewMode?: TPdfViewMode | undefined;
+    continuousScroll?: boolean | undefined;
+    isActive?: boolean | undefined;
+    isResizing?: boolean | undefined;
+    invertColors?: boolean | undefined;
+    showAnnotations?: boolean | undefined;
+    annotationTool?: TAnnotationTool | undefined;
+    annotationCursorMode?: boolean | undefined;
+    annotationKeepActive?: boolean | undefined;
+    annotationSettings?: IAnnotationSettings | null | undefined;
+    searchPageMatches?: Map<number, IPdfPageMatches> | undefined;
+    currentSearchMatch?: IPdfSearchMatch | null | undefined;
+    currentSearchMatchNavigationId?: number | undefined;
+    workingCopyPath?: string | null | undefined;
+    authorName?: string | null | undefined;
 }
 
 const {
-    annotationCursorMode: annotationCursorModeProp,
-    annotationKeepActive: annotationKeepActiveProp,
+    annotationCursorMode: annotationCursorModeProp = false,
+    annotationKeepActive: annotationKeepActiveProp = true,
     annotationSettings: annotationSettingsProp = undefined,
     annotationTool: annotationToolProp = undefined,
     authorName: authorNameProp = undefined,
     bufferPages: bufferPagesProp = undefined,
-    continuousScroll: continuousScrollProp,
+    continuousScroll: continuousScrollProp = true,
     currentSearchMatch: currentSearchMatchProp = undefined,
     currentSearchMatchNavigationId: currentSearchMatchNavigationIdProp = undefined,
-    dragMode: dragModeProp,
+    dragMode: dragModeProp = false,
     fitMode: fitModeProp = undefined,
-    invertColors: invertColorsProp,
-    isActive: isActiveProp,
-    isAnySaving: isAnySavingProp,
-    isResizing: isResizingProp,
+    invertColors: invertColorsProp = false,
+    isActive: isActiveProp = true,
+    isAnySaving: isAnySavingProp = false,
+    isResizing: isResizingProp = false,
     searchPageMatches: searchPageMatchesProp = undefined,
-    showAnnotations: showAnnotationsProp,
+    showAnnotations: showAnnotationsProp = true,
     sourcePdfData: sourcePdfDataProp = undefined,
     src: srcProp,
-    suppressLoadingOverlay: suppressLoadingOverlayProp,
+    suppressLoadingOverlay: suppressLoadingOverlayProp = false,
     viewMode: viewModeProp = undefined,
     workingCopyPath: workingCopyPathProp = undefined,
     zoom: zoomProp = undefined,

@@ -172,38 +172,38 @@ interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
-    pageLabels?: string[] | null;
-    pageLabelRanges?: IPdfPageLabelRange[];
+    pageLabels?: string[] | null | undefined;
+    pageLabelRanges?: IPdfPageLabelRange[] | undefined;
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
-    submittedSearchQuery?: string;
+    submittedSearchQuery?: string | undefined;
     searchOptions: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
     totalMatches: number;
     isSearching: boolean;
-    searchError?: string | null;
-    searchFocusRequest?: number;
+    searchError?: string | null | undefined;
+    searchFocusRequest?: number | undefined;
     searchProgress?: {
         processed: number;
         total: number;
-    };
-    isTruncated?: boolean;
-    minQueryLength?: number;
-    activeTab?: TPdfSidebarTab;
-    width?: number;
+    } | undefined;
+    isTruncated?: boolean | undefined;
+    minQueryLength?: number | undefined;
+    activeTab?: TPdfSidebarTab | undefined;
+    width?: number | undefined;
     annotationTool: TAnnotationTool;
     annotationKeepActive: boolean;
     annotationSettings: IAnnotationSettings;
     annotationComments: IAnnotationCommentSummary[];
-    annotationActiveCommentStableKey?: string | null;
+    annotationActiveCommentStableKey?: string | null | undefined;
     bookmarkEditMode: boolean;
-    isPageOperationInProgress?: boolean;
-    isDjvuMode?: boolean;
+    isPageOperationInProgress?: boolean | undefined;
+    isDjvuMode?: boolean | undefined;
     selectedThumbnailPages: number[];
     thumbnailInvalidationRequest?: {
         id: number;
         pages: number[];
-    } | null;
+    } | null | undefined;
 }
 
 const { t } = useTypedI18n();
@@ -218,9 +218,9 @@ const {
     bookmarkEditMode,
     currentPage,
     currentResultIndex,
-    isDjvuMode,
+    isDjvuMode = false,
     isOpen,
-    isPageOperationInProgress,
+    isPageOperationInProgress = false,
     isSearching,
     isTruncated = undefined,
     minQueryLength = undefined,

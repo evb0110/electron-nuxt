@@ -338,20 +338,19 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         stableKey: string,
         position: IAnnotationNotePosition,
     ) {
+        const nextPosition: IAnnotationNotePosition = {
+            x: Math.round(position.x),
+            y: Math.round(position.y),
+        };
+        if (typeof position.width === 'number') {
+            nextPosition.width = Math.round(position.width);
+        }
+        if (typeof position.height === 'number') {
+            nextPosition.height = Math.round(position.height);
+        }
         annotationNotePositions.value = {
             ...annotationNotePositions.value,
-            [stableKey]: {
-                x: Math.round(position.x),
-                y: Math.round(position.y),
-                width:
-          typeof position.width === 'number'
-              ? Math.round(position.width)
-              : undefined,
-                height:
-          typeof position.height === 'number'
-              ? Math.round(position.height)
-              : undefined,
-            },
+            [stableKey]: nextPosition,
         };
     }
 

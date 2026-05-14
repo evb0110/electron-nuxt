@@ -20,6 +20,10 @@ type TAsyncResult<TMethod> = TMethod extends (...args: unknown[]) => Promise<inf
 
 let browserPlatformApiPromise: Promise<IPlatformApi> | null = null;
 
+function isRecord(value: unknown): value is Record<string | symbol, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 function loadBrowserPlatformApi() {
     browserPlatformApiPromise ??= import('@app/platform/browserApi').then(
         (module: TBrowserPlatformModule) => module.browserPlatformApi,
@@ -30,7 +34,10 @@ function loadBrowserPlatformApi() {
 async function resolveBrowserProperty(path: TPropertyPath) {
     let value: unknown = await loadBrowserPlatformApi();
     for (const key of path) {
-        value = (value as Record<string | symbol, unknown>)[key];
+        if (!isRecord(value)) {
+            throw new TypeError(`Browser platform owner for ${String(key)} is not an object`);
+        }
+        value = value[key];
     }
     return value;
 }
@@ -47,8 +54,10 @@ function splitOwnerPath(path: TPropertyPath) {
 }
 
 function getCallableBrowserMember(owner: unknown, methodKey: string | symbol) {
-    const members = owner as Record<string | symbol, unknown>;
-    const method: unknown = members[methodKey];
+    if (!isRecord(owner)) {
+        throw new TypeError(`Browser platform owner for ${String(methodKey)} is not an object`);
+    }
+    const method = owner[methodKey];
     if (typeof method !== 'function') {
         throw new TypeError(`Browser platform member ${String(methodKey)} is not callable`);
     }

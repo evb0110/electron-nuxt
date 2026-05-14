@@ -10,6 +10,7 @@ declare global {
         __openFileDirect?: (path: TDocumentRef) => Promise<void>;
         __handleSave?: () => Promise<void>;
         __appReady?: boolean;
+        __appReadyAt?: number;
         __logLevel?: unknown;
     }
 }

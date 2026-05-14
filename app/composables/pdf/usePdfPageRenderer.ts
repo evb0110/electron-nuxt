@@ -140,6 +140,14 @@ interface INormalizedRerenderOptions {
     maxCanvasPixelsOverride?: number;
 }
 
+interface IRerenderAllVisiblePagesOptionsWithExplicitUndefined extends Omit<
+    IRerenderAllVisiblePagesOptions,
+    'renderBufferOverride' | 'maxCanvasPixelsOverride'
+> {
+    renderBufferOverride?: number | undefined;
+    maxCanvasPixelsOverride?: number | undefined;
+}
+
 interface IRerenderRestoreContext extends INormalizedRerenderOptions, IRerenderRestorationContext {
     version: number;
     snapshotToRestore: IScrollSnapshot | null;
@@ -192,7 +200,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         managedAnnotationIds: options.managedAnnotationIds ?? new Set<string>(),
         annotationUiManager: options.annotationUiManager ?? null,
         annotationL10n: options.annotationL10n ?? null,
-        scrollToPage: options.scrollToPage,
+        ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
     });
 
     const renderMutex = new Mutex();
@@ -296,10 +304,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 bufferOverride: 0,
             });
         },
-        scrollToPage: options.scrollToPage,
-        suppressSnap: options.suppressSnap,
-        beginSearchNavigation: options.beginSearchNavigation,
-        endSearchNavigation: options.endSearchNavigation,
+        ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),
+        ...(options.suppressSnap ? { suppressSnap: options.suppressSnap } : {}),
+        ...(options.beginSearchNavigation ? { beginSearchNavigation: options.beginSearchNavigation } : {}),
+        ...(options.endSearchNavigation ? { endSearchNavigation: options.endSearchNavigation } : {}),
     });
 
     function cleanupTextLayer(pageNumber: number) {
@@ -513,13 +521,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         scale: number,
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
+        const canvasRenderOptions: Parameters<typeof canvasRenderer.prepareCanvasRender>[2] = {};
+        const hiddenAnnotationIds = toValue(options.hiddenAnnotationIds);
+        if (hiddenAnnotationIds !== undefined) {
+            canvasRenderOptions.hiddenAnnotationIds = hiddenAnnotationIds;
+        }
+        if (renderOptions?.maxCanvasPixelsOverride !== undefined) {
+            canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixelsOverride;
+        }
         const preparedCanvasRender = await canvasRenderer.prepareCanvasRender(
             pdfPage,
             scale,
-            {
-                hiddenAnnotationIds: toValue(options.hiddenAnnotationIds) ?? undefined,
-                maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
-            },
+            canvasRenderOptions,
         );
         if (!preparedCanvasRender) {
             return null;
@@ -1169,7 +1182,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     });
 
     function normalizeRerenderOptions(
-        rerenderOptions?: IRerenderAllVisiblePagesOptions,
+        rerenderOptions?: IRerenderAllVisiblePagesOptionsWithExplicitUndefined,
     ): INormalizedRerenderOptions {
         const {
             preserveExistingPages = false,
@@ -1182,16 +1195,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             maxCanvasPixelsOverride,
         } = rerenderOptions ?? {};
 
-        return {
+        const normalized: INormalizedRerenderOptions = {
             preserveExistingPages,
             anchorSnapshot,
             disableHorizontalAnchorRestore,
             disableVerticalAnchorRestore,
             disablePageAnchorRestore,
             rerenderSource,
-            renderBufferOverride,
-            maxCanvasPixelsOverride,
         };
+        if (renderBufferOverride !== undefined) {
+            normalized.renderBufferOverride = renderBufferOverride;
+        }
+        if (maxCanvasPixelsOverride !== undefined) {
+            normalized.maxCanvasPixelsOverride = maxCanvasPixelsOverride;
+        }
+        return normalized;
     }
 
     async function getMountedVisibleRangeAfterRestore(
@@ -1228,17 +1246,28 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         if (visibleRange === null) {
             return false;
         }
-        await renderVisiblePages(visibleRange, {
-            ...optionsOverride,
-            bufferOverride: renderBufferOverride,
-            maxCanvasPixelsOverride,
-        });
+        const renderOptions: IRenderVisiblePagesOptions = {...optionsOverride};
+        if (renderBufferOverride !== undefined) {
+            renderOptions.bufferOverride = renderBufferOverride;
+        }
+        if (maxCanvasPixelsOverride !== undefined) {
+            renderOptions.maxCanvasPixelsOverride = maxCanvasPixelsOverride;
+        }
+        await renderVisiblePages(visibleRange, renderOptions);
         return true;
     }
 
     async function reRenderAllVisiblePages(
         getVisibleRange: () => IPageRange,
+        rerenderOptions?: IRerenderAllVisiblePagesOptionsWithExplicitUndefined,
+    ): Promise<void>;
+    async function reRenderAllVisiblePages(
+        getVisibleRange: () => IPageRange,
         rerenderOptions?: IRerenderAllVisiblePagesOptions,
+    ): Promise<void>;
+    async function reRenderAllVisiblePages(
+        getVisibleRange: () => IPageRange,
+        rerenderOptions?: IRerenderAllVisiblePagesOptionsWithExplicitUndefined,
     ) {
         if (!toValue(isActive)) {
             return;

@@ -315,7 +315,7 @@ export async function handleDjvuConvertToPdf(
                 : Promise.resolve([] as IPdfBookmarkEntry[]);
 
             const convertResult = await convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
-                subsample: subsample > 1 ? subsample : undefined,
+                ...(subsample > 1 ? { subsample } : {}),
                 pageCount,
                 onProgress: (percent) => {
                     safeSendToWindow(window, 'djvu:progress', {
@@ -330,7 +330,7 @@ export async function handleDjvuConvertToPdf(
                 return {
                     success: false,
                     jobId,
-                    error: convertResult.error,
+                    error: convertResult.error ?? 'DjVu conversion failed',
                 };
             }
             throwIfCanceled(jobId);

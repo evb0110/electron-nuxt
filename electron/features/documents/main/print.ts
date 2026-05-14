@@ -205,7 +205,7 @@ function createPrintWindow(ownerWindow?: BrowserWindow) {
     return new BrowserWindow({
         show: false,
         autoHideMenuBar: true,
-        parent: ownerWindow,
+        ...(ownerWindow ? { parent: ownerWindow } : {}),
         width: PRINT_WINDOW_WIDTH_PX,
         height: PRINT_WINDOW_HEIGHT_PX,
         paintWhenInitiallyHidden: true,
@@ -260,7 +260,7 @@ async function runNativePrintDialog(
                     resolve({
                         success: false,
                         canceled: true,
-                        error: normalizedReason || undefined,
+                        ...(normalizedReason ? { error: normalizedReason } : {}),
                     });
                     return;
                 }

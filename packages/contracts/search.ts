@@ -24,16 +24,16 @@ export interface IPdfSearchProgress {
     requestId: string;
     processed: number;
     total: number;
-    results?: IPdfSearchResult[];
-    truncated?: boolean;
+    results?: IPdfSearchResult[] | undefined;
+    truncated?: boolean | undefined;
 }
 
 export interface IPdfSearchRequestOptions {
-    requestId?: string;
-    pageCount?: number;
-    matchCase?: boolean;
-    wholeWord?: boolean;
-    useRegex?: boolean;
+    requestId?: string | undefined;
+    pageCount?: number | undefined;
+    matchCase?: boolean | undefined;
+    wholeWord?: boolean | undefined;
+    useRegex?: boolean | undefined;
 }
 
 export function escapeSearchRegex(value: string) {

@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import { iterateDecodedTiffFrames } from '@contracts/tiffDecode';
 import type {
     IBrowserPdfCombineWorkerRequest,
+    TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import { appendPdfImagePage } from '@app/platform/browser-api/pdfImagePages';
@@ -141,26 +142,26 @@ async function handleCombinePdfsRequest(
     return { data };
 }
 
-self.addEventListener('message', async (event: MessageEvent<IBrowserPdfCombineWorkerRequest>) => {
+self.addEventListener('message', async (event: MessageEvent<TBrowserPdfCombineWorkerRequest>) => {
     const request = event.data;
 
     try {
         const data = await handleCombinePdfsRequest(
             request,
         );
-        const response: TBrowserPdfCombineWorkerResponse = {
+        const response = {
             id: request.id,
             type: request.type,
             ok: true,
             data: data,
-        };
+        } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response, [data.data.buffer]);
     } catch (error) {
-        const response: TBrowserPdfCombineWorkerResponse = {
+        const response = {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
-        };
+        } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response);
     }
 });

@@ -175,7 +175,8 @@ function handleSubmit() {
         return;
     }
 
-    emit('submit', { pageNumbers: resolveScopedPageNumbers() });
+    const pageNumbers = resolveScopedPageNumbers();
+    emit('submit', {...(pageNumbers !== undefined ? { pageNumbers } : {})});
     open.value = false;
 }
 

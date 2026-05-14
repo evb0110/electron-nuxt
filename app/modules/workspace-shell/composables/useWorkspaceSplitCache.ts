@@ -57,8 +57,8 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         originalPath: payload.originalPath,
         snapshotPath: payload.snapshotPath,
         isDirty: payload.isDirty,
-        currentPage: payload.currentPage,
-        totalPages: payload.totalPages,
+        ...(payload.currentPage !== undefined ? { currentPage: payload.currentPage } : {}),
+        ...(payload.totalPages !== undefined ? { totalPages: payload.totalPages } : {}),
     };
 }
 

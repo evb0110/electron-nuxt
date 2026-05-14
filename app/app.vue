@@ -319,12 +319,12 @@ async function preloadStartupContent() {
     } else {
         void loadRecentFiles();
     }
-    const routePreloadWorkspaceShell = route.meta.preloadWorkspaceShell === false ? false : undefined;
-    const shouldPreloadWorkspace = shouldPreloadWorkspaceDuringStartup({
+    const preloadSignals = {
         isDesktopRuntime: isDesktopRuntime.value,
         isDev: import.meta.dev,
-        routePreloadWorkspaceShell,
-    });
+        ...(route.meta.preloadWorkspaceShell === false ? { routePreloadWorkspaceShell: false } : {}),
+    };
+    const shouldPreloadWorkspace = shouldPreloadWorkspaceDuringStartup(preloadSignals);
     const workspacePreload = shouldPreloadWorkspace
         ? import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')
         : null;
@@ -359,7 +359,7 @@ function installViteReloadDiagnostics() {
         // sessionStorage may be unavailable or contain invalid JSON
     }
 
-    const hot = (import.meta as ImportMeta & {hot?: {on?: (event: string, callback: (payload: unknown) => void) => void;};}).hot;
+    const hot = import.meta.hot;
 
     if (typeof hot?.on !== 'function') {
         return;
@@ -417,14 +417,8 @@ onMounted(async () => {
         // Always emit readiness, even on bootstrap failure, so preload fallbacks
         // can deterministically remove startup overlays and avoid hanging UI.
         if (typeof window !== 'undefined') {
-            (window as Window & {
-                __appReady?: boolean;
-                __appReadyAt?: number
-            }).__appReady = true;
-            (window as Window & {
-                __appReady?: boolean;
-                __appReadyAt?: number
-            }).__appReadyAt = mountTime;
+            window.__appReady = true;
+            window.__appReadyAt = mountTime;
             window.dispatchEvent(new Event('evb:app-ready'));
         }
     }

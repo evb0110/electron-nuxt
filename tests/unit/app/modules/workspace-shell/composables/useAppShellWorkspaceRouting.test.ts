@@ -83,8 +83,8 @@ function createRoutingOptions(options: {
             activate?: boolean;
             initial?: Partial<ITab>;
         } = {}) => options.createTab({
-            activate,
-            initial,
+            ...(activate === undefined ? {} : { activate }),
+            ...(initial === undefined ? {} : { initial }),
         })),
         getTabById: vi.fn((tabId: string | null | undefined) => (
             tabId

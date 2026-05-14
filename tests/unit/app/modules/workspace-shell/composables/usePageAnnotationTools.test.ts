@@ -5,7 +5,10 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { IAnnotationEditorState } from '@app/types/annotations';
+import type {
+    IAnnotationEditorState,
+    IShapeAnnotation,
+} from '@app/types/annotations';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
@@ -19,12 +22,28 @@ function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAn
     };
 }
 
+function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {
+    return {
+        id: 'shape-1',
+        type: 'rectangle',
+        pageIndex: 0,
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        color: '#000000',
+        opacity: 1,
+        strokeWidth: 1,
+        ...overrides,
+    };
+}
+
 function createHarness() {
     const viewer = {
         cancelCommentPlacement: vi.fn(),
         clearSelectedShape: vi.fn(),
         selectedShapeId: null as string | null,
-        getSelectedShape: vi.fn<() => {pdfSubtype?: string | null;} | null>(() => null),
+        getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
         updateShape: vi.fn(),
     };
 
@@ -145,7 +164,7 @@ describe('usePageAnnotationTools', () => {
         } = createHarness();
 
         viewer.selectedShapeId = 'ink-shape-1';
-        viewer.getSelectedShape.mockReturnValue({ pdfSubtype: 'Ink' });
+        viewer.getSelectedShape.mockReturnValue(createShapeAnnotation({ pdfSubtype: 'Ink' }));
 
         tools.handleAnnotationSettingChange({
             key: 'inkThickness',

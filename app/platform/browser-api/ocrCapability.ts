@@ -206,24 +206,36 @@ async function installLanguages(languages: string[], requestId: string) {
         }
     }
 
-    return {
+    const result = {
         started: errors.length === 0,
         jobId: requestId,
         installed,
         errors,
-        error: errors[0],
     };
+    if (errors[0] !== undefined) {
+        return {
+            ...result,
+            error: errors[0],
+        };
+    }
+    return result;
 }
 
 export const browserOcrCapability: IOcrCapability = {
     async recognize(request) {
         const batchResult = await this.recognizeBatch([request], `browser-ocr-${request.pageNumber}`);
-        return {
+        const result = {
             pageNumber: request.pageNumber,
             success: batchResult.errors.length === 0,
             text: batchResult.results[request.pageNumber] ?? '',
-            error: batchResult.errors[0],
         };
+        const error = batchResult.errors[0];
+        return error === undefined
+            ? result
+            : {
+                ...result,
+                error,
+            };
     },
     async recognizeBatch(pages, requestId) {
         if (pages.length === 0) {
@@ -243,11 +255,16 @@ export const browserOcrCapability: IOcrCapability = {
         }
 
         const totalPixels = sumBy(pages, page => (page.imageWidth ?? 0) * (page.imageHeight ?? 0));
-        const workerCount = resolveBrowserOcrWorkerCount({
+        const workerOptions = {
             pageCount: pages.length,
-            hardwareConcurrency: getNavigatorNumber('hardwareConcurrency'),
-            deviceMemoryGb: getNavigatorNumber('deviceMemory'),
             totalPixels,
+        };
+        const hardwareConcurrency = getNavigatorNumber('hardwareConcurrency');
+        const deviceMemoryGb = getNavigatorNumber('deviceMemory');
+        const workerCount = resolveBrowserOcrWorkerCount({
+            ...workerOptions,
+            ...(hardwareConcurrency !== undefined ? { hardwareConcurrency } : {}),
+            ...(deviceMemoryGb !== undefined ? { deviceMemoryGb } : {}),
         });
 
         return runRecognitionJobs(pages, requestId, workerCount);

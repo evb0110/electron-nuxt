@@ -229,13 +229,16 @@ export function validateCreateSearchablePdfPayload(
     renderDpiPayload?: unknown,
 ): IOcrCreateSearchablePdfPayload {
     const pages = asPagesArray(pagesPayload, 'pages', asCreatePdfPageRequest);
-
-    return {
+    const payload: IOcrCreateSearchablePdfPayload = {
         sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),
         pages,
         requestId: asRequestId(requestIdPayload, 'requestId'),
-        renderDpi: asOptionalDpi(renderDpiPayload, 'renderDpi'),
     };
+    const renderDpi = asOptionalDpi(renderDpiPayload, 'renderDpi');
+    if (renderDpi !== undefined) {
+        payload.renderDpi = renderDpi;
+    }
+    return payload;
 }
 
 export function validateCancelRequestId(requestIdPayload: unknown): string {
@@ -268,13 +271,16 @@ export function buildOcrErrorEnvelope(
         details?: string;
     } = {},
 ): IOcrErrorEnvelope {
-    return {
+    const envelope: IOcrErrorEnvelope = {
         code,
         message,
         retryable: options.retryable ?? false,
         timestamp: Date.now(),
-        details: options.details ? trimErrorDetails(options.details) : undefined,
     };
+    if (options.details) {
+        envelope.details = trimErrorDetails(options.details);
+    }
+    return envelope;
 }
 
 export function toOcrErrorEnvelope(
@@ -286,10 +292,14 @@ export function toOcrErrorEnvelope(
         return buildOcrErrorEnvelope(error.code, error.message, {retryable: false});
     }
     if (error instanceof Error) {
-        return buildOcrErrorEnvelope(fallbackCode, error.message || 'Unknown OCR error', {
-            retryable,
-            details: error.stack,
-        });
+        const options: {
+            retryable: boolean;
+            details?: string;
+        } = { retryable };
+        if (error.stack !== undefined) {
+            options.details = error.stack;
+        }
+        return buildOcrErrorEnvelope(fallbackCode, error.message || 'Unknown OCR error', options);
     }
     return buildOcrErrorEnvelope(fallbackCode, 'Unknown OCR error', {
         retryable,

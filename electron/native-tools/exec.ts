@@ -1,4 +1,7 @@
-import { runNativeCommand } from '@electron/native-tools/commandRunner';
+import {
+    runNativeCommand,
+    type IRunCommandOptions,
+} from '@electron/native-tools/commandRunner';
 import type { IProcessResult } from '@electron/native-tools/processResult';
 
 interface IRunNativeToolCommandOptions {
@@ -24,16 +27,30 @@ export async function runNativeToolCommand(
         log,
     } = options;
 
-    return runNativeCommand(command, args, {
-        cwd,
-        env,
-        timeoutMs,
-        allowedExitCodes,
-        commandLabel,
-        log,
+    const commandOptions: IRunCommandOptions = {
         defaultCwdToCommandDir: true,
         prependCommandDirToPath: true,
         includeProcessEnv: true,
         windowsHide: true,
-    });
+    };
+    if (cwd !== undefined) {
+        commandOptions.cwd = cwd;
+    }
+    if (env !== undefined) {
+        commandOptions.env = env;
+    }
+    if (timeoutMs !== undefined) {
+        commandOptions.timeoutMs = timeoutMs;
+    }
+    if (allowedExitCodes !== undefined) {
+        commandOptions.allowedExitCodes = allowedExitCodes;
+    }
+    if (commandLabel !== undefined) {
+        commandOptions.commandLabel = commandLabel;
+    }
+    if (log !== undefined) {
+        commandOptions.log = log;
+    }
+
+    return runNativeCommand(command, args, commandOptions);
 }

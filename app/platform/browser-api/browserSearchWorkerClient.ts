@@ -106,7 +106,7 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
             browserSearchWorkerClient.pendingRequests.set(request.id, {
                 resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
                 reject,
-                onProgress,
+                ...(onProgress ? { onProgress } : {}),
             });
 
             try {

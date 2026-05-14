@@ -278,8 +278,9 @@ function handleSubmit() {
         return;
     }
 
+    const pageNumbers = resolveScopedPageNumbers();
     emit('submit', {
-        pageNumbers: resolveScopedPageNumbers(),
+        ...(pageNumbers !== undefined ? { pageNumbers } : {}),
         viewMode: viewMode.value,
         orientation: orientation.value,
     });

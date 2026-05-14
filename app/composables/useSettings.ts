@@ -30,10 +30,14 @@ export const useSettings = () => {
             || localeCookie.value != null
             || themeCookie.value != null,
     );
-    const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, {
-        locale: localeCookie.value as TAppLocale | undefined,
-        theme: themeCookie.value as TAppTheme | undefined,
-    });
+    const fallbackSettings: Partial<ISettingsData> = {};
+    if (localeCookie.value !== null && localeCookie.value !== undefined) {
+        fallbackSettings.locale = localeCookie.value as TAppLocale;
+    }
+    if (themeCookie.value !== null && themeCookie.value !== undefined) {
+        fallbackSettings.theme = themeCookie.value as TAppTheme;
+    }
+    const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, fallbackSettings);
 
     function syncSettingsCookies(nextSettings: ISettingsData) {
         const serializedSettings = serializeBrowserSettingsPayload(nextSettings);

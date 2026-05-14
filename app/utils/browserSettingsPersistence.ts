@@ -14,12 +14,16 @@ export const BROWSER_LOCALE_COOKIE_KEY = 'i18n_redirected';
 type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'theme' | 'locale'>;
 const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
 
+function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | null {
     if (!raw) {
         return null;
     }
 
-    if (typeof raw === 'object') {
+    if (isSettingsPatch(raw)) {
         return raw;
     }
 
@@ -28,7 +32,8 @@ function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | 
     }
 
     try {
-        return JSON.parse(raw) as Partial<ISettingsData>;
+        const parsed: unknown = JSON.parse(raw);
+        return isSettingsPatch(parsed) ? parsed : null;
     } catch {
         return null;
     }
@@ -62,11 +67,13 @@ export function parseBrowserSettingsPayload(
     fallback: Partial<ISettingsData> | null = null,
 ) {
     const parsed = omitCookieBackedSettingsFields(parseRawBrowserSettingsPayload(raw));
-    const normalizedFallback = fallback ? {
-        ...fallback,
-        locale: isAppLocale(fallback.locale) ? fallback.locale : undefined,
-        theme: isAppTheme(fallback.theme) ? fallback.theme : undefined,
-    } : null;
+    const normalizedFallback = fallback ? { ...fallback } : null;
+    if (normalizedFallback && !isAppLocale(normalizedFallback.locale)) {
+        delete normalizedFallback.locale;
+    }
+    if (normalizedFallback && !isAppTheme(normalizedFallback.theme)) {
+        delete normalizedFallback.theme;
+    }
     return sanitizeSettings({
         ...parsed,
         ...normalizedFallback,
@@ -84,8 +91,12 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
         defaultAnnotationColor: sanitized.defaultAnnotationColor,
         uiScale: sanitized.uiScale,
         tabMemoryPolicy: sanitized.tabMemoryPolicy,
-        suppressDefaultViewerPrompt: sanitized.suppressDefaultViewerPrompt,
-        skippedUpdateVersion: sanitized.skippedUpdateVersion,
     };
+    if (sanitized.suppressDefaultViewerPrompt !== undefined) {
+        payload.suppressDefaultViewerPrompt = sanitized.suppressDefaultViewerPrompt;
+    }
+    if (sanitized.skippedUpdateVersion !== undefined) {
+        payload.skippedUpdateVersion = sanitized.skippedUpdateVersion;
+    }
     return JSON.stringify(payload);
 }

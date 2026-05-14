@@ -139,7 +139,7 @@ function getResizeHandleStyle(handle: TImagePlacementResizeHandle) {
 
 interface IActiveInteraction {
     mode: 'move' | 'resize' | 'rotate';
-    handle?: TImagePlacementResizeHandle;
+    handle?: TImagePlacementResizeHandle | undefined;
     pointerId: number;
     captureElement: HTMLElement | null;
     originRectPx: IImagePlacementRectPx;
@@ -316,7 +316,7 @@ function startInteraction(
 
     activeInteraction = {
         mode,
-        handle,
+        ...(handle !== undefined ? { handle } : {}),
         pointerId: event.pointerId,
         captureElement,
         originRectPx: getOriginRectPx(containerRect, placement),

@@ -29,7 +29,7 @@ export function resolveResizeAnchorPage(input: {
     mostVisiblePage: number | null;
     snapshotAnchorPage: number | null;
     currentPage: number;
-    preferSnapshotAnchorPage?: boolean;
+    preferSnapshotAnchorPage?: boolean | undefined;
 }) {
     const currentPage = normalizeResizeAnchorPage(
         input.currentPage,

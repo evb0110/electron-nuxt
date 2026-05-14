@@ -20,8 +20,8 @@ const SCHEDULED_KEY = '__evbHighlightCompositeScheduled';
 const EPSILON = 0.5;
 
 type THighlightCompositeHost = HTMLElement & {
-    [OBSERVER_KEY]?: MutationObserver;
-    [SCHEDULED_KEY]?: boolean;
+    [OBSERVER_KEY]?: MutationObserver | undefined;
+    [SCHEDULED_KEY]?: boolean | undefined;
 };
 
 function overlapRect(left: IHighlightRect, right: IHighlightRect): IHighlightRect | null {

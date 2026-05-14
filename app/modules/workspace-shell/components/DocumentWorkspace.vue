@@ -559,13 +559,13 @@ const {
 } = defineProps<{
     tabId: string;
     isActive: boolean;
-    isRenderActive?: boolean;
+    isRenderActive?: boolean | undefined;
     isTabTransitionBusy: boolean;
     isFullscreen: boolean;
     fullscreenSupported: boolean;
-    initialViewState?: ITabViewSessionState | null;
-    pendingDocumentOpen?: boolean;
-    startSection?: TStartSection;
+    initialViewState?: ITabViewSessionState | null | undefined;
+    pendingDocumentOpen?: boolean | undefined;
+    startSection?: TStartSection | undefined;
 }>();
 
 const canTeleportToolbar = computed(() => (

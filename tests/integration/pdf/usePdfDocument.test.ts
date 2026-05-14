@@ -240,7 +240,7 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {
-        pdfjsState.PDFDataRangeTransport = undefined;
+        delete pdfjsState.PDFDataRangeTransport;
         electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,

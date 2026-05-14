@@ -157,7 +157,7 @@ export async function estimateSizes(
                     samplePage,
                     `${estimateJobIdPrefix}-${preset.subsample}`,
                     {
-                        subsample: preset.subsample > 1 ? preset.subsample : undefined,
+                        ...(preset.subsample > 1 ? { subsample: preset.subsample } : {}),
                         format: 'ppm',
                     },
                 );

@@ -52,7 +52,7 @@ interface IToolValidationResult {
             found: boolean;
             path: string 
         };
-        popplerRuntime?: {
+        popplerRuntime: {
             dataDirFound: boolean;
             dataDir?: string;
             fontConfigDirFound: boolean;
@@ -265,17 +265,27 @@ export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     // unpaper (optional, currently in tesseract dir alongside tesseract)
     const unpaper = getBinaryPath(tesseractPlatformDir, 'unpaper', true) || undefined;
 
-    return createAwaitablePaths({
+    const paths: IOcrToolPaths = {
         tesseract,
         tessdata,
         pdftoppm,
         pdftotext,
-        pdfimages,
-        popplerDataDir,
-        popplerFontConfigDir,
         qpdf,
-        unpaper,
-    });
+    };
+    if (pdfimages !== undefined) {
+        paths.pdfimages = pdfimages;
+    }
+    if (popplerDataDir !== undefined) {
+        paths.popplerDataDir = popplerDataDir;
+    }
+    if (popplerFontConfigDir !== undefined) {
+        paths.popplerFontConfigDir = popplerFontConfigDir;
+    }
+    if (unpaper !== undefined) {
+        paths.unpaper = unpaper;
+    }
+
+    return createAwaitablePaths(paths);
 }
 
 async function checkToolExists(path: string): Promise<boolean> {
@@ -324,10 +334,14 @@ async function validateTesseractTool(path: string, errors: string[]) {
         toolPath => `Tesseract binary not found: ${toolPath}`,
     );
     const version = found ? await getToolVersion(path) : undefined;
-    return {
-        found,
-        version,
-    };
+    const result: {
+        found: boolean;
+        version?: string;
+    } = {found};
+    if (version !== undefined) {
+        result.version = version;
+    }
+    return result;
 }
 
 function validateTessdata(path: string, errors: string[]) {
@@ -338,10 +352,14 @@ function validateTessdata(path: string, errors: string[]) {
     } else if (languages && languages.length === 0) {
         errors.push(`No language models found in tessdata: ${path}`);
     }
-    return {
-        found,
-        languages,
-    };
+    const result: {
+        found: boolean;
+        languages?: string[];
+    } = {found};
+    if (languages !== undefined) {
+        result.languages = languages;
+    }
+    return result;
 }
 
 function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
@@ -350,13 +368,24 @@ function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     if (process.platform === 'win32' && !dataDirFound) {
         errors.push(`Poppler data directory not found: ${paths.popplerDataDir || '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
     }
-    return {
+    const result: {
+        dataDirFound: boolean;
+        dataDir?: string;
+        fontConfigDirFound: boolean;
+        fontConfigDir?: string;
+        valid: boolean;
+    } = {
         dataDirFound,
-        dataDir: paths.popplerDataDir,
         fontConfigDirFound,
-        fontConfigDir: paths.popplerFontConfigDir,
         valid: process.platform !== 'win32' || dataDirFound,
     };
+    if (paths.popplerDataDir !== undefined) {
+        result.dataDir = paths.popplerDataDir;
+    }
+    if (paths.popplerFontConfigDir !== undefined) {
+        result.fontConfigDir = paths.popplerFontConfigDir;
+    }
+    return result;
 }
 
 export async function validateOcrTools(): Promise<IToolValidationResult> {
@@ -385,39 +414,48 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
         path => `qpdf not found: ${path} (install qpdf or bundle it)`,
     );
     const valid = tesseract.found && tessdata.found && pdftoppmFound && qpdfFound && popplerRuntime.valid;
+    const tools: IToolValidationResult['tools'] = {
+        tesseract: {
+            found: tesseract.found,
+            path: paths.tesseract,
+        },
+        tessdata: {
+            found: tessdata.found,
+            path: paths.tessdata,
+        },
+        pdftoppm: {
+            found: pdftoppmFound,
+            path: paths.pdftoppm,
+        },
+        pdftotext: {
+            found: pdftotextFound,
+            path: paths.pdftotext,
+        },
+        popplerRuntime: {
+            dataDirFound: popplerRuntime.dataDirFound,
+            fontConfigDirFound: popplerRuntime.fontConfigDirFound,
+        },
+        qpdf: {
+            found: qpdfFound,
+            path: paths.qpdf,
+        },
+    };
+    if (tesseract.version !== undefined) {
+        tools.tesseract.version = tesseract.version;
+    }
+    if (tessdata.languages !== undefined) {
+        tools.tessdata.languages = tessdata.languages;
+    }
+    if (popplerRuntime.dataDir !== undefined) {
+        tools.popplerRuntime.dataDir = popplerRuntime.dataDir;
+    }
+    if (popplerRuntime.fontConfigDir !== undefined) {
+        tools.popplerRuntime.fontConfigDir = popplerRuntime.fontConfigDir;
+    }
 
     return {
         valid,
-        tools: {
-            tesseract: {
-                found: tesseract.found,
-                path: paths.tesseract,
-                version: tesseract.version,
-            },
-            tessdata: {
-                found: tessdata.found,
-                path: paths.tessdata,
-                languages: tessdata.languages,
-            },
-            pdftoppm: {
-                found: pdftoppmFound,
-                path: paths.pdftoppm,
-            },
-            pdftotext: {
-                found: pdftotextFound,
-                path: paths.pdftotext,
-            },
-            popplerRuntime: {
-                dataDirFound: popplerRuntime.dataDirFound,
-                dataDir: popplerRuntime.dataDir,
-                fontConfigDirFound: popplerRuntime.fontConfigDirFound,
-                fontConfigDir: popplerRuntime.fontConfigDir,
-            },
-            qpdf: {
-                found: qpdfFound,
-                path: paths.qpdf,
-            },
-        },
+        tools,
         errors,
     };
 }

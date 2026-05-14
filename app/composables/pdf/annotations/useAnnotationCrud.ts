@@ -742,15 +742,19 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const commentSync = getSync();
 
         const summary = commentSync.toEditorSummary(match.editor, match.pageIndex, getCommentText(match.editor));
+        const stableKeyParams = {
+            id: summary.id,
+            pageIndex: summary.pageIndex,
+            source: summary.source,
+            annotationId: summary.annotationId ?? match.targetAnnotationId,
+        };
+        const summaryUid = summary.uid ?? undefined;
         const normalizedSummary = {
             ...identity.hydrateSummaryFromMemory(summary),
             annotationId: summary.annotationId ?? match.targetAnnotationId,
             stableKey: identity.computeSummaryStableKey({
-                id: summary.id,
-                pageIndex: summary.pageIndex,
-                source: summary.source,
-                uid: summary.uid ?? undefined,
-                annotationId: summary.annotationId ?? match.targetAnnotationId,
+                ...stableKeyParams,
+                ...(summaryUid !== undefined ? { uid: summaryUid } : {}),
             }),
         };
         const candidateIds = [

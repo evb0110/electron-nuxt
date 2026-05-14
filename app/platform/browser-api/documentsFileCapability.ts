@@ -164,7 +164,10 @@ export function createBrowserDocumentsFileCapability(
             }
         },
         async openPdfDirectBatch(paths, requestId) {
-            return openDocumentPaths(paths, { requestId });
+            return openDocumentPaths(
+                paths,
+                requestId ? { requestId } : undefined,
+            );
         },
         async savePdfAs(workingCopyPath) {
             const saveTarget =
@@ -398,10 +401,9 @@ export function createBrowserDocumentsFileCapability(
                 fileName,
                 data: decryptedData,
                 mimeType: 'application/pdf',
-                sourceRef:
-                    originalPath && isBrowserDocumentRef(originalPath)
-                        ? originalPath
-                        : undefined,
+                ...(originalPath && isBrowserDocumentRef(originalPath)
+                    ? { sourceRef: originalPath }
+                    : {}),
             });
         },
         async createWorkingCopyFromPath(sourcePath, originalPath) {
@@ -430,10 +432,9 @@ export function createBrowserDocumentsFileCapability(
                     fileName: sourceEntry.fileName,
                     kind: 'working',
                     retention: 'transient',
-                    sourceRef:
-                        sourceRef && isBrowserDocumentRef(sourceRef)
-                            ? sourceRef
-                            : undefined,
+                    ...(sourceRef && isBrowserDocumentRef(sourceRef)
+                        ? { sourceRef }
+                        : {}),
                     saveKind: 'pdf',
                     saveHandle: null,
                 },

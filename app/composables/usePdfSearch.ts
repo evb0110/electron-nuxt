@@ -28,12 +28,18 @@ export type {
     TSearchDirection,
 };
 
+type TResolvedSearchOptions = {
+    matchCase: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+};
+
 export const usePdfSearch = () => {
     const { t } = useTypedI18n();
     const analytics = useAnalytics();
     const searchQuery = ref('');
     const submittedSearchQuery = ref('');
-    const searchOptions = ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>({
+    const searchOptions = ref<TResolvedSearchOptions>({
         matchCase: false,
         wholeWord: false,
         useRegex: false,
@@ -109,21 +115,26 @@ export const usePdfSearch = () => {
     function applySearchResponse(
         response: IPdfSearchResponse,
         query: string,
-        options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>,
+        options: TResolvedSearchOptions,
         searchId: string,
     ) {
         const mergedResults: IPdfSearchMatch[] = [];
         const matchesMap = new Map<number, IPdfPageMatches>();
 
         response.results.forEach((result, idx) => {
-            mergedResults.push({
+            const mergedResult: IPdfSearchMatch = {
                 pageIndex: result.pageNumber - 1,
-                pageMatchIndex: result.pageMatchIndex,
                 matchIndex: result.matchIndex,
                 startOffset: result.startOffset,
                 endOffset: result.endOffset,
-                excerpt: result.excerpt,
-            });
+            };
+            if (result.pageMatchIndex !== undefined) {
+                mergedResult.pageMatchIndex = result.pageMatchIndex;
+            }
+            if (result.excerpt !== undefined) {
+                mergedResult.excerpt = result.excerpt;
+            }
+            mergedResults.push(mergedResult);
 
             const pageIndex = result.pageNumber - 1;
             if (!matchesMap.has(pageIndex)) {
@@ -184,7 +195,7 @@ export const usePdfSearch = () => {
         query: string;
         pdfPath: string;
         pageCount?: number;
-        options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
+        options: TResolvedSearchOptions;
         requestedAt: number;
     }) => {
         const resolver = scheduledResolve;
@@ -246,7 +257,7 @@ export const usePdfSearch = () => {
         query: string,
         pdfPath: string,
         pageCount?: number,
-        options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>> = searchOptions.value,
+        options: TResolvedSearchOptions = searchOptions.value,
         requestedAt = Date.now(),
     ) {
         if (!query.trim()) {
@@ -296,11 +307,15 @@ export const usePdfSearch = () => {
                 }
             });
 
-            const response: IPdfSearchResponse = await api.run(pdfPath, query, {
+            const requestOptions: IPdfSearchRequestOptions = {
                 requestId,
-                pageCount,
                 ...options,
-            });
+            };
+            if (pageCount !== undefined) {
+                requestOptions.pageCount = pageCount;
+            }
+
+            const response: IPdfSearchResponse = await api.run(pdfPath, query, requestOptions);
 
             if (runId !== searchRunId) {
                 return;
@@ -375,14 +390,21 @@ export const usePdfSearch = () => {
 
         return new Promise<boolean>((resolve) => {
             scheduledResolve = resolve;
-            void debouncedPerformSearch({
+            const payload = {
                 runId,
                 query: trimmedQuery,
                 pdfPath,
-                pageCount,
                 options: { ...searchOptions.value },
                 requestedAt: Date.now(),
-            });
+            };
+            if (pageCount !== undefined) {
+                void debouncedPerformSearch({
+                    ...payload,
+                    pageCount,
+                });
+                return;
+            }
+            void debouncedPerformSearch(payload);
         });
     }
 

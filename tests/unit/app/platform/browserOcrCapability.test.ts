@@ -251,8 +251,8 @@ describe('browser OCR capability', () => {
         }> = [];
         const unsubscribe = browserOcrCapability.onProgress((progress) => {
             progressEvents.push({
-                languageCode: progress.languageCode,
-                phase: progress.phase,
+                ...(progress.languageCode === undefined ? {} : { languageCode: progress.languageCode }),
+                ...(progress.phase === undefined ? {} : { phase: progress.phase }),
             });
         });
 

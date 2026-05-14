@@ -20,9 +20,9 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;
     reRenderVisiblePagesAndSyncCurrentPage: (syncOptions?: ICurrentPageSyncOptions) => Promise<void>;
     buildResizeAnchorContext: () => IResizeAnchorContext;
-    isZoomInteractionLocked?: () => boolean;
-    isZoomGestureSessionLocked?: () => boolean;
-    setZoomRerenderBusy?: (busy: boolean) => void;
+    isZoomInteractionLocked?: (() => boolean) | undefined;
+    isZoomGestureSessionLocked?: (() => boolean) | undefined;
+    setZoomRerenderBusy?: ((busy: boolean) => void) | undefined;
 }
 
 export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerenderQueueOptions) => {

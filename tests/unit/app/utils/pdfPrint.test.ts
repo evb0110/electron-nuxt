@@ -48,7 +48,7 @@ async function createSourcePdf(pageSizes: Array<[number, number]>) {
 
 describe('pdfPrint', () => {
     beforeEach(() => {
-        pdfjsModule.GlobalWorkerOptions.workerSrc = undefined;
+        delete (pdfjsModule.GlobalWorkerOptions as Partial<typeof pdfjsModule.GlobalWorkerOptions>).workerSrc;
         pdfjsModule.getDocument.mockReset();
     });
 

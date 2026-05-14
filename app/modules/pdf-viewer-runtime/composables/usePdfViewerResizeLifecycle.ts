@@ -22,13 +22,13 @@ export interface IBuildResizeAnchorContextOptions {
     anchorViewportY?: number | null;
     preferredAnchorPage?: number | null;
     trustPreferredAnchorPage?: boolean;
-    preferSnapshotAnchorPage?: boolean;
+    preferSnapshotAnchorPage?: boolean | undefined;
 }
 
 interface IUsePdfViewerResizeLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;
-    isActive?: Ref<boolean>;
+    isActive?: Ref<boolean> | undefined;
     isResizing: Ref<boolean>;
     pdfDocument: Ref<unknown | null>;
     currentPage: Ref<number>;
@@ -45,12 +45,12 @@ interface IUsePdfViewerResizeLifecycleOptions {
         stage: string,
         syncOptions?: ICurrentPageSyncOptions,
     ) => void;
-    setResizeTransitionVisible?: (payload: {
+    setResizeTransitionVisible?: ((payload: {
         active: boolean;
         source: string;
         token: number;
         anchorPage: number | null;
-    }) => void;
+    }) => void) | undefined;
 }
 
 export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycleOptions) => {

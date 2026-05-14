@@ -339,7 +339,7 @@ function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessag
 function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
     finishTransfer(message.ack.transferId, {
         success: message.ack.success,
-        error: message.ack.error,
+        ...(message.ack.error ? { error: message.ack.error } : {}),
     });
 }
 

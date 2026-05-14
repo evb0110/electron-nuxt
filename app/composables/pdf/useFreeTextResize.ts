@@ -22,7 +22,7 @@ type TFreeTextResizableEditor = IPdfjsEditor & {
 type TFreeTextResizeHookEditor = IPdfjsEditor & {
     __freeTextResizeHookPatched?: boolean;
     __freeTextFontToWidthRatio?: number;
-    __freeTextResizeSyncRaf?: number;
+    __freeTextResizeSyncRaf?: number | undefined;
     __freeTextIsResizeSync?: boolean;
 };
 
@@ -413,7 +413,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
 
     function syncInternalFontSize(
         editor: IPdfjsEditor,
-        tagged: IPdfjsEditor & { __freeTextIsResizeSync?: boolean },
+        tagged: IPdfjsEditor & { __freeTextIsResizeSync?: boolean | undefined },
         targetFont: number,
     ) {
         const uiManager = getAnnotationUiManager();
@@ -439,10 +439,18 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 tagged.__freeTextIsResizeSync = false;
             }
 
-            editor.x = savedX;
-            editor.y = savedY;
-            editor.width = savedW;
-            editor.height = savedH;
+            if (savedX !== undefined) {
+                editor.x = savedX;
+            }
+            if (savedY !== undefined) {
+                editor.y = savedY;
+            }
+            if (savedW !== undefined) {
+                editor.width = savedW;
+            }
+            if (savedH !== undefined) {
+                editor.height = savedH;
+            }
             editor.setDims?.();
             editor.fixAndSetPosition?.();
 
