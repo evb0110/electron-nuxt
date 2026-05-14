@@ -137,8 +137,8 @@ import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/a
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
-import { compact } from 'es-toolkit/array';
 import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
+import { isMarkerEligibleComment } from '@app/composables/pdf/annotations/useAnnotationMarkerViewModel';
 
 const INLINE_NOTE_SUBTYPES = new Set([
     'text',
@@ -183,8 +183,10 @@ const {
     annotationViewportRoot = undefined,
     annotationZoom = undefined,
     sortedAnnotationNoteWindows,
+    annotationComments,
 } = defineProps<{
     sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
+    annotationComments: IAnnotationCommentSummary[];
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
     annotationViewportRoot?: HTMLElement | null;
     annotationZoom?: number;
@@ -212,7 +214,6 @@ const visibleAnnotationNoteWindows = computed(() =>
     sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
 );
 const openNoteAnchors = computed(() => {
-    void indicatorDomTick.value;
     return visibleAnnotationNoteWindows.value.filter((note) =>
         isFloatingIndicatorEligible(note.comment)
         && Boolean(getNoteMarkerRect(note)),
@@ -222,31 +223,23 @@ const viewportDomSnapshot = computed<IViewportDomSnapshot | null>(() => {
     void indicatorDomTick.value;
     return collectViewportDomSnapshot(annotationViewportRoot);
 });
+const inlineAnchorIdentity = computed<IInlineTriggerIdentity>(() =>
+    collectInlineAnchorIdentity(annotationComments));
 const openAnchorHiddenKeys = computed<Set<string>>(() => {
-    void indicatorDomTick.value;
-    const snapshot = viewportDomSnapshot.value;
     const hidden = new Set<string>();
-    if (!snapshot) {
-        return hidden;
-    }
     for (const note of openNoteAnchors.value) {
-        if (inlineIdentityMatchesNote(snapshot.inlineIdentity, note)) {
+        if (inlineIdentityMatchesNote(inlineAnchorIdentity.value, note)) {
             hidden.add(note.comment.stableKey);
         }
     }
     return hidden;
 });
 const anchoredAnnotationNoteWindows = computed(() => {
-    void indicatorDomTick.value;
-    const snapshot = viewportDomSnapshot.value;
-    if (!snapshot) {
-        return [];
-    }
     return sortedAnnotationNoteWindows.filter((note) => (
         note.isMinimized
         && isFloatingIndicatorEligible(note.comment)
         && Boolean(getNoteMarkerRect(note))
-        && !inlineIdentityMatchesNote(snapshot.inlineIdentity, note)
+        && !inlineIdentityMatchesNote(inlineAnchorIdentity.value, note)
     ));
 });
 const indicatorDomTick = ref(0);
@@ -262,15 +255,6 @@ function refreshIndicatorDom() {
     indicatorDomTick.value += 1;
 }
 
-function parseStableKeysAttr(value: string | null | undefined) {
-    if (!value) {
-        return [];
-    }
-    return compact(value
-        .split('|')
-        .map(entry => entry.trim()));
-}
-
 interface IInlineTriggerIdentity {
     stableKeys: Set<string>;
     annotationIds: Set<string>;
@@ -282,11 +266,7 @@ interface IInlineTriggerIdentity {
     }>;
 }
 
-interface IViewportDomSnapshot {
-    inlineIdentity: IInlineTriggerIdentity;
-    pageContainers: Map<number, HTMLElement>;
-    markerButtonsByStableKey: Map<string, HTMLElement>;
-}
+interface IViewportDomSnapshot { pageContainers: Map<number, HTMLElement> }
 
 function parseStableKeyIdentity(stableKey: string) {
     const [
@@ -336,90 +316,6 @@ function isFloatingIndicatorEligible(comment: IAnnotationCommentSummary) {
     return comment.source === 'editor' && !comment.annotationId;
 }
 
-function toPageNormalizedPoint(element: HTMLElement) {
-    const pageContainer = element.closest<HTMLElement>('.page_container');
-    if (!pageContainer) {
-        return null;
-    }
-    const pageNumberRaw = Number(pageContainer.dataset.page ?? '');
-    if (!Number.isFinite(pageNumberRaw) || pageNumberRaw <= 0) {
-        return null;
-    }
-    const pageRect = pageContainer.getBoundingClientRect();
-    if (pageRect.width <= 0 || pageRect.height <= 0) {
-        return null;
-    }
-    const rect = element.getBoundingClientRect();
-    return {
-        pageNumber: pageNumberRaw,
-        x: clamp(((rect.left + (rect.width / 2)) - pageRect.left) / pageRect.width, 0, 1),
-        y: clamp(((rect.top + (rect.height / 2)) - pageRect.top) / pageRect.height, 0, 1),
-    };
-}
-
-function collectDirectStableKeys(
-    marker: HTMLElement,
-    identity: IInlineTriggerIdentity,
-    markerButtonsByStableKey: Map<string, HTMLElement>,
-) {
-    const directStableKey = marker.dataset.commentStableKey?.trim()
-        || marker.dataset.stableKey?.trim();
-    if (directStableKey) {
-        identity.stableKeys.add(directStableKey);
-        markerButtonsByStableKey.set(directStableKey, marker);
-    }
-    parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys')).forEach((stableKey) => {
-        identity.stableKeys.add(stableKey);
-    });
-}
-
-function collectMarkerAnnotationId(marker: HTMLElement, identity: IInlineTriggerIdentity) {
-    const annotationId = marker.dataset.annotationId?.trim()
-        ?? marker.getAttribute('data-annotation-id')?.trim()
-        ?? marker.closest<HTMLElement>('[data-annotation-id]')?.getAttribute('data-annotation-id')?.trim()
-        ?? '';
-    if (annotationId) {
-        identity.annotationIds.add(annotationId);
-    }
-}
-
-function collectMarkerPoint(marker: HTMLElement, identity: IInlineTriggerIdentity) {
-    const point = toPageNormalizedPoint(marker);
-    if (point) {
-        identity.markerPoints.push(point);
-    }
-}
-
-function collectClosestStableKeys(
-    marker: HTMLElement,
-    identity: IInlineTriggerIdentity,
-    markerButtonsByStableKey: Map<string, HTMLElement>,
-) {
-    const fromTarget = marker.closest<HTMLElement>('[data-comment-stable-keys], [data-comment-stable-key]');
-    if (!fromTarget) {
-        return;
-    }
-    const stableKey = fromTarget.dataset.commentStableKey?.trim();
-    if (stableKey) {
-        identity.stableKeys.add(stableKey);
-        markerButtonsByStableKey.set(stableKey, marker);
-    }
-    parseStableKeysAttr(fromTarget.getAttribute('data-comment-stable-keys')).forEach((nextStableKey) => {
-        identity.stableKeys.add(nextStableKey);
-    });
-}
-
-function collectMarkerIdentity(
-    marker: HTMLElement,
-    identity: IInlineTriggerIdentity,
-    markerButtonsByStableKey: Map<string, HTMLElement>,
-) {
-    collectDirectStableKeys(marker, identity, markerButtonsByStableKey);
-    collectMarkerAnnotationId(marker, identity);
-    collectMarkerPoint(marker, identity);
-    collectClosestStableKeys(marker, identity, markerButtonsByStableKey);
-}
-
 function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined): IViewportDomSnapshot | null {
     if (!viewportRoot) {
         return null;
@@ -434,7 +330,25 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined
         pageContainers.set(pageNumberRaw, pageContainer);
     });
 
-    const markerButtonsByStableKey = new Map<string, HTMLElement>();
+    return { pageContainers };
+}
+
+function addStableKeyIdentity(identity: IInlineTriggerIdentity, stableKey: string) {
+    identity.stableKeys.add(stableKey);
+    const parsed = parseStableKeyIdentity(stableKey);
+    if (!parsed.id) {
+        return;
+    }
+    if (parsed.kind === 'ann') {
+        identity.annotationIds.add(parsed.id);
+        return;
+    }
+    if (parsed.kind === 'uid') {
+        identity.uids.add(parsed.id);
+    }
+}
+
+function collectInlineAnchorIdentity(comments: IAnnotationCommentSummary[]): IInlineTriggerIdentity {
     const identity: IInlineTriggerIdentity = {
         stableKeys: new Set<string>(),
         annotationIds: new Set<string>(),
@@ -442,11 +356,22 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined
         markerPoints: [],
     };
 
-    const markers = viewportRoot.querySelectorAll<HTMLElement>(
-        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .annotationCommentButton, .popupTriggerArea, [data-comment-stable-keys], [data-comment-stable-key], [data-stable-key]',
-    );
-    markers.forEach((marker) => {
-        collectMarkerIdentity(marker, identity, markerButtonsByStableKey);
+    comments.filter(isMarkerEligibleComment).forEach((comment) => {
+        addStableKeyIdentity(identity, comment.stableKey);
+        if (comment.annotationId) {
+            identity.annotationIds.add(comment.annotationId);
+        }
+        if (comment.uid) {
+            identity.uids.add(comment.uid);
+        }
+        const rect = normalizeMarkerRect(comment.markerRect);
+        if (rect) {
+            identity.markerPoints.push({
+                pageNumber: comment.pageNumber,
+                x: clamp(rect.left + rect.width / 2, 0, 1),
+                y: clamp(rect.top + rect.height / 2, 0, 1),
+            });
+        }
     });
 
     identity.stableKeys.forEach((stableKey) => {
@@ -463,11 +388,7 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined
         }
     });
 
-    return {
-        inlineIdentity: identity,
-        pageContainers,
-        markerButtonsByStableKey,
-    };
+    return identity;
 }
 
 function hasStringInSet(value: string | null | undefined, set: Set<string>) {
@@ -566,17 +487,6 @@ interface IConnectorLine {
 
 const connectorLines = shallowRef<IConnectorLine[]>([]);
 
-function getElementCenter(element: HTMLElement) {
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-        return null;
-    }
-    return {
-        cx: rect.left + rect.width / 2,
-        cy: rect.top + rect.height / 2,
-    };
-}
-
 function getRectCenterInPage(pageContainer: HTMLElement, note: IAnnotationNoteWindowEntry) {
     const markerRect = getNoteMarkerRect(note);
     if (!markerRect) {
@@ -593,7 +503,6 @@ function getRectCenterInPage(pageContainer: HTMLElement, note: IAnnotationNoteWi
 }
 
 function getMarkerCenter(
-    stableKey: string,
     note: IAnnotationNoteWindowEntry,
     snapshot: IViewportDomSnapshot,
 ): {
@@ -603,14 +512,6 @@ function getMarkerCenter(
     const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber) ?? null;
     if (!pageContainer) {
         return null;
-    }
-
-    const markerEl = snapshot.markerButtonsByStableKey.get(stableKey) ?? null;
-    if (markerEl) {
-        const elementCenter = getElementCenter(markerEl);
-        if (elementCenter) {
-            return elementCenter;
-        }
     }
 
     return getRectCenterInPage(pageContainer, note);
@@ -629,7 +530,7 @@ function computeConnectorLines(): IConnectorLine[] {
             continue;
         }
 
-        const marker = getMarkerCenter(stableKey, note, snapshot);
+        const marker = getMarkerCenter(note, snapshot);
         if (!marker) {
             continue;
         }
@@ -652,7 +553,6 @@ function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
 }
 
 function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
-    void indicatorDomTick.value;
     void annotationZoom;
 
     const markerRect = getNoteMarkerRect(note);
@@ -694,19 +594,19 @@ function reconnectViewportObservers() {
         return;
     }
 
-    const scheduleViewportRefresh = () => {
-        scheduleOverlayRefreshBurst(4);
+    const scheduleConnectorRefresh = () => {
+        scheduleConnectorRefreshFrame();
     };
 
-    viewportRoot.addEventListener('scroll', scheduleViewportRefresh, {passive: true});
+    viewportRoot.addEventListener('scroll', scheduleConnectorRefresh, {passive: true});
     viewportScrollCleanup = () => {
-        viewportRoot.removeEventListener('scroll', scheduleViewportRefresh);
+        viewportRoot.removeEventListener('scroll', scheduleConnectorRefresh);
     };
 
     if (typeof window !== 'undefined') {
-        window.addEventListener('resize', scheduleViewportRefresh, {passive: true});
+        window.addEventListener('resize', scheduleConnectorRefresh, {passive: true});
         viewportResizeCleanup = () => {
-            window.removeEventListener('resize', scheduleViewportRefresh);
+            window.removeEventListener('resize', scheduleConnectorRefresh);
         };
     }
 
@@ -717,11 +617,6 @@ function reconnectViewportObservers() {
         viewportMutationObserver.observe(viewportRoot, {
             childList: true,
             subtree: true,
-            attributes: true,
-            attributeFilter: [
-                'style',
-                'class',
-            ],
         });
     }
 }
@@ -857,13 +752,21 @@ function handleShapeDelete() {
     emit('shape-delete');
 }
 
-const overlayRefreshScheduler = createRafBurstScheduler(() => {
+const indicatorDomRefreshScheduler = createRafBurstScheduler(() => {
     refreshIndicatorDom();
     connectorLines.value = computeConnectorLines();
 });
 
+const connectorRefreshScheduler = createRafBurstScheduler(() => {
+    connectorLines.value = computeConnectorLines();
+});
+
 function scheduleOverlayRefreshBurst(frames = 6) {
-    overlayRefreshScheduler.request(frames);
+    indicatorDomRefreshScheduler.request(frames);
+}
+
+function scheduleConnectorRefreshFrame() {
+    connectorRefreshScheduler.request(1);
 }
 
 onMounted(() => {
@@ -872,7 +775,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    overlayRefreshScheduler.cancel();
+    indicatorDomRefreshScheduler.cancel();
+    connectorRefreshScheduler.cancel();
     connectorLines.value = [];
     viewportMutationObserver?.disconnect();
     viewportMutationObserver = null;
@@ -893,7 +797,7 @@ watch(
 watch(
     () => annotationZoom,
     () => {
-        scheduleOverlayRefreshBurst(12);
+        scheduleConnectorRefreshFrame();
     },
 );
 
@@ -914,7 +818,7 @@ watch(
 watch(
     () => annotationNotePositions,
     () => {
-        scheduleOverlayRefreshBurst(3);
+        scheduleConnectorRefreshFrame();
     },
 );
 

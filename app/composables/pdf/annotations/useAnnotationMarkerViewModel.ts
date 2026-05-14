@@ -54,7 +54,7 @@ function pickPrimaryComment(
     return maxBy(comments, comment => comment.modifiedAt ?? 0)!;
 }
 
-function isMarkerEligibleComment(comment: IAnnotationCommentSummary) {
+export function isMarkerEligibleComment(comment: IAnnotationCommentSummary) {
     if (comment.hasNote !== true) {
         return false;
     }
