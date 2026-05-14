@@ -126,6 +126,13 @@ export function attachShowLifecycle(
         stabilityCheckTimeout = setTimeout(checkStabilityAndShow, remaining + 50);
     };
 
+    const scheduleDevStabilityCheck = () => {
+        if (stabilityCheckTimeout) {
+            clearTimeout(stabilityCheckTimeout);
+        }
+        stabilityCheckTimeout = setTimeout(checkStabilityAndShow, STABILITY_WINDOW_MS);
+    };
+
     const scheduleShow = () => {
         if (hasShownWindow || window.isDestroyed()) {
             return;
@@ -166,10 +173,7 @@ export function attachShowLifecycle(
         }
 
         if (options.isDev) {
-            if (stabilityCheckTimeout) {
-                clearTimeout(stabilityCheckTimeout);
-            }
-            stabilityCheckTimeout = setTimeout(checkStabilityAndShow, STABILITY_WINDOW_MS);
+            scheduleDevStabilityCheck();
             return;
         }
 
@@ -179,16 +183,21 @@ export function attachShowLifecycle(
     const onStartNavigation = (
         _event: unknown,
         url: string,
-        _isInPlace: boolean,
+        isInPlace: boolean,
         isMainFrame: boolean,
     ) => {
         if (!isMainFrame || isStartupPlaceholderUrl(url)) {
             return;
         }
 
-        mainFrameLoadFinished = false;
+        if (!isInPlace) {
+            mainFrameLoadFinished = false;
+        }
         lastNavigationTime = Date.now();
-        logNavEvent('navigation-start', { url });
+        logNavEvent('navigation-start', {
+            url,
+            isInPlace,
+        });
 
         if (hasShownWindow) {
             return;
@@ -200,6 +209,9 @@ export function attachShowLifecycle(
         if (stabilityCheckTimeout) {
             clearTimeout(stabilityCheckTimeout);
             stabilityCheckTimeout = null;
+        }
+        if (isInPlace && rendererReadyForShow && mainFrameLoadFinished && options.isDev) {
+            scheduleDevStabilityCheck();
         }
     };
 
@@ -221,10 +233,7 @@ export function attachShowLifecycle(
         }
 
         if (options.isDev) {
-            if (stabilityCheckTimeout) {
-                clearTimeout(stabilityCheckTimeout);
-            }
-            stabilityCheckTimeout = setTimeout(checkStabilityAndShow, STABILITY_WINDOW_MS);
+            scheduleDevStabilityCheck();
             return;
         }
 

@@ -316,7 +316,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     registerAppWindow(window, { setAsMain: options.setAsMain });
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
-    const shouldShowStartupPlaceholder = !shouldWaitForInitialRendererReady || config.isDev;
+    const shouldShowStartupPlaceholder = !shouldWaitForInitialRendererReady;
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
     attachShowLifecycle(window, {

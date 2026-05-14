@@ -7,6 +7,8 @@ import {
     hasDocumentMountHint,
     resolveWorkspaceRequestedState,
     shouldAutoRequestWorkspace,
+    shouldPreloadWorkspaceDuringStartup,
+    shouldPreloadWorkspaceOnHostMount,
 } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 
 describe('hasDocumentMountHint', () => {
@@ -84,5 +86,61 @@ describe('workspace host mount request state', () => {
             isActive: false,
         });
         expect(requested).toBe(false);
+    });
+});
+
+describe('workspace preload policy', () => {
+    it('respects route-level startup workspace preload opt-out outside dev desktop', () => {
+        expect(shouldPreloadWorkspaceDuringStartup({
+            isDesktopRuntime: true,
+            isDev: false,
+            routePreloadWorkspaceShell: false,
+        })).toBe(false);
+        expect(shouldPreloadWorkspaceDuringStartup({
+            isDesktopRuntime: false,
+            isDev: true,
+            routePreloadWorkspaceShell: false,
+        })).toBe(false);
+    });
+
+    it('keeps dev desktop workspace warmup inside startup even when the route opts out', () => {
+        expect(shouldPreloadWorkspaceDuringStartup({
+            isDesktopRuntime: true,
+            isDev: true,
+            routePreloadWorkspaceShell: false,
+        })).toBe(true);
+    });
+
+    it('preloads during startup when the route does not opt out', () => {
+        expect(shouldPreloadWorkspaceDuringStartup({
+            isDesktopRuntime: false,
+            isDev: false,
+        })).toBe(true);
+    });
+
+    it('skips empty host mount preload in dev after startup warmup', () => {
+        expect(shouldPreloadWorkspaceOnHostMount({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: false,
+            isDev: true,
+        })).toBe(false);
+    });
+
+    it('keeps host mount preload for production empty tabs and real document work', () => {
+        expect(shouldPreloadWorkspaceOnHostMount({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: false,
+            isDev: false,
+        })).toBe(true);
+        expect(shouldPreloadWorkspaceOnHostMount({
+            hasQueuedSplitRestore: true,
+            hasDocumentHint: false,
+            isDev: true,
+        })).toBe(true);
+        expect(shouldPreloadWorkspaceOnHostMount({
+            hasQueuedSplitRestore: false,
+            hasDocumentHint: true,
+            isDev: true,
+        })).toBe(true);
     });
 });

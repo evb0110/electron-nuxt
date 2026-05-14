@@ -256,6 +256,41 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold-start.pdf');
     });
 
+    it('opens in a new tab when a reusable placeholder reports a failed direct open', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        initialWorkspace.openPath.mockResolvedValueOnce(false);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        let createdCount = 1;
+        const createdWorkspaces = new Map<string, IWorkspaceRecord>();
+
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
+                createdCount += 1;
+                const tabId = `tab-${createdCount}`;
+                const record = createWorkspace(false);
+                createdWorkspaces.set(tabId, record);
+                workspaceRefs.value.set(tabId, record.workspace);
+                if (activate !== false) {
+                    activeTabId.value = tabId;
+                }
+                return createTabStub(tabId);
+            },
+        }));
+
+        await routing.openPathInAppropriateTab('/docs/retry-in-new-tab.pdf');
+
+        expect(initialWorkspace.openPath).toHaveBeenCalledTimes(1);
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/retry-in-new-tab.pdf');
+        expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/retry-in-new-tab.pdf');
+    });
+
     it('reuses the active placeholder tab during startup even before its workspace ref is registered', async () => {
         const activeGroupId = ref('group-1');
         const activeTabId = ref('tab-1');
@@ -397,7 +432,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
-        initialWorkspace.openPath.mockImplementation(async (_path: string) => {});
+        initialWorkspace.openPath.mockImplementation(async (_path: string) => true);
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
 
         let createdCount = 1;
@@ -542,6 +577,32 @@ describe('useAppShellWorkspaceRouting', () => {
             }) }),
         );
         expect(createdWorkspaces.get('tab-2')?.openResult).toHaveBeenCalledWith(result);
+    });
+
+    it('removes a startup-created tab when its direct open reports failure', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        const routingOptions = createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                const tabId = 'tab-2';
+                const record = createWorkspace(false);
+                record.openPath.mockResolvedValueOnce(false);
+                workspaceRefs.value.set(tabId, record.workspace);
+                return createTabStub(tabId);
+            },
+        });
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await routing.beginOpenPathsInAppropriateTab(['/docs/startup-failed.pdf']);
+
+        expect(routingOptions.removeTabFromState).toHaveBeenCalledWith('tab-2');
     });
 
     it('keeps startup path opening pending until the active placeholder open settles', async () => {

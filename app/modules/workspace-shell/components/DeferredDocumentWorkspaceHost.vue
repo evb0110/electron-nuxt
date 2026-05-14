@@ -102,7 +102,10 @@ import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/work
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import {
+    resolveWorkspaceRequestedState,
+    shouldPreloadWorkspaceOnHostMount,
+} from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 import {
     buildPendingTabDocumentHint,
     hasDocumentHintUpdate,
@@ -846,7 +849,13 @@ async function handleOpenFileFromUi() {
 
 onMounted(() => {
     isHostUnmounted = false;
-    void preloadWorkspaceComponent('workspace-host-mounted');
+    if (shouldPreloadWorkspaceOnHostMount({
+        hasQueuedSplitRestore: hasQueuedSplitRestore.value,
+        hasDocumentHint: hasDocumentHint === true,
+        isDev: import.meta.dev,
+    })) {
+        void preloadWorkspaceComponent('workspace-host-mounted');
+    }
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: tabId});
     void loadRecentFiles().finally(() => {

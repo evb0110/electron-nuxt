@@ -156,8 +156,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         if (!openOptions.documentHintAlreadySeeded) {
             seedTabDocumentHint(tabId, pathOrResult);
         }
-        await openDocumentInWorkspace(workspace, pathOrResult);
-        return true;
+        return openDocumentInWorkspace(workspace, pathOrResult);
     }
 
     async function handleFallbackToolbarOpenFile() {
@@ -189,31 +188,39 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         const workspace = await waitForWorkspace(tab.id);
         if (!workspace) {
             removeTabFromState(tab.id);
-            return;
+            return false;
         }
 
-        await openDocumentInWorkspace(workspace, pathOrResult);
+        const opened = await openDocumentInWorkspace(workspace, pathOrResult);
+        if (!opened) {
+            removeTabFromState(tab.id);
+        }
+        return opened;
     }
 
     async function openDocumentInAppropriateTab(pathOrResult: TOpenDocumentTarget) {
         const tabId = activeTabId.value;
         const tab = getTabById(tabId);
         const workspace = activeWorkspace.value;
+        let attemptedExistingTabId: string | null = null;
         if (tab && canReuseTabForDocument(tab, workspace)) {
+            attemptedExistingTabId = tab.id;
             const opened = await openInExistingTab(tab.id, pathOrResult);
             if (opened) {
-                return;
+                return true;
             }
         }
 
         const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
-        if (resolvedWorkspace && !workspaceOccupiesTab(resolvedWorkspace)) {
+        if (resolvedWorkspace && tabId !== attemptedExistingTabId && !workspaceOccupiesTab(resolvedWorkspace)) {
             seedTabDocumentHint(tabId, pathOrResult);
-            await openDocumentInWorkspace(resolvedWorkspace, pathOrResult);
-            return;
+            const opened = await openDocumentInWorkspace(resolvedWorkspace, pathOrResult);
+            if (opened) {
+                return true;
+            }
         }
 
-        await handleOpenInNewTab(pathOrResult, activeGroupId.value ?? undefined);
+        return handleOpenInNewTab(pathOrResult, activeGroupId.value ?? undefined);
     }
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
@@ -240,8 +247,8 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         ] of normalizedPaths.entries()) {
             try {
                 if (canReuseActiveTab) {
-                    await openPathInAppropriateTab(path);
-                    canReuseActiveTab = false;
+                    const opened = await openDocumentInAppropriateTab(path);
+                    canReuseActiveTab = !opened;
                     continue;
                 }
 
@@ -302,7 +309,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     removeTabFromState(tab.id);
                     return;
                 }
-                await workspace.handleOpenFileDirectWithPersist(path);
+                const opened = await workspace.handleOpenFileDirectWithPersist(path);
+                if (!opened) {
+                    removeTabFromState(tab.id);
+                    throw new Error('Startup tab document open did not complete');
+                }
             })());
         }
 

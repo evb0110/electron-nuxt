@@ -230,6 +230,58 @@ describe('window runtime readiness', () => {
         expect(window?.isVisible()).toBe(true);
     });
 
+    it('keeps dev strict startup hidden instead of showing the startup placeholder', async () => {
+        mocks.config.automation.hideWindow = false;
+        mocks.config.isDev = true;
+        const { createAppWindow } = await import('@electron/window');
+        const { markWindowRendererReady } = await import('@electron/window/rendererReady');
+
+        const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+        await vi.waitFor(() => {
+            expect(mocks.BrowserWindow.windows).toHaveLength(1);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        expect(mocks.loadURL).not.toHaveBeenCalledWith('about:blank');
+        expect(window?.maximize).not.toHaveBeenCalled();
+        expect(window?.isVisible()).toBe(false);
+
+        markWindowRendererReady(1);
+        await createPromise;
+        expect(window?.isVisible()).toBe(false);
+
+        window?.destroy();
+    });
+
+    it('shows dev strict startup after in-place navigations settle', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            mocks.config.isDev = true;
+            const { createAppWindow } = await import('@electron/window');
+            const { markWindowRendererReady } = await import('@electron/window/rendererReady');
+
+            const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window).toBeDefined();
+            expect(mocks.loadURL).not.toHaveBeenCalledWith('about:blank');
+
+            window?.emitWebContents('did-finish-load');
+            window?.emitWebContents('did-start-navigation', {}, mocks.config.renderer.url, true, true);
+            markWindowRendererReady(1);
+            await createPromise;
+
+            expect(window?.maximize).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(200);
+
+            expect(window?.maximize).toHaveBeenCalledTimes(1);
+            expect(window?.isVisible()).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('creates the startup window before the renderer load completes', async () => {
         mocks.config.automation.hideWindow = false;
         let resolveLoad: () => void = () => {
