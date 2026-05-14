@@ -865,6 +865,7 @@ onMounted(() => {
     if (shouldPreloadWorkspaceOnHostMount({
         hasQueuedSplitRestore: hasQueuedSplitRestore.value,
         hasDocumentHint: hasDocumentHint === true,
+        isActive,
         isDev: import.meta.dev,
     })) {
         void preloadWorkspaceComponent('workspace-host-mounted');

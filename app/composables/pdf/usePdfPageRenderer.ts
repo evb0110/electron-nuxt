@@ -61,6 +61,7 @@ interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
     document: ReturnType<typeof usePdfDocument>;
     currentPage: Ref<number>;
+    isActive?: MaybeRefOrGetter<boolean>;
     effectiveScale: MaybeRefOrGetter<number>;
 
     bufferPages?: MaybeRefOrGetter<number>;
@@ -169,6 +170,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const currentSearchMatch = options.currentSearchMatch ?? null;
     const currentSearchMatchNavigationId = options.currentSearchMatchNavigationId ?? 0;
     const workingCopyPath = options.workingCopyPath ?? null;
+    const isActive = options.isActive ?? true;
 
     const outputScale =
         options.outputScale ??
@@ -1104,6 +1106,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         visibleRange: IPageRange,
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
+        if (!toValue(isActive)) {
+            return;
+        }
         const request = getRenderVisiblePagesRequest(visibleRange, renderOptions);
         if (!request) {
             return;
@@ -1235,6 +1240,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         getVisibleRange: () => IPageRange,
         rerenderOptions?: IRerenderAllVisiblePagesOptions,
     ) {
+        if (!toValue(isActive)) {
+            return;
+        }
         const normalizedOptions = normalizeRerenderOptions(rerenderOptions);
         const { preserveExistingPages } = normalizedOptions;
         const version = bumpRenderVersion();
@@ -1387,6 +1395,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             ] as const;
         },
         () => {
+            if (!toValue(isActive)) {
+                return;
+            }
             if (isLoading.value) {
                 return;
             }
@@ -1404,6 +1415,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             ,
             navigationId,
         ]) => {
+            if (!toValue(isActive)) {
+                return;
+            }
             if (navigationId <= 0 || navigationId === lastHandledSearchNavigationId) {
                 return;
             }

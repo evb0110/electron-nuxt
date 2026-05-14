@@ -149,6 +149,7 @@ interface IProps {
     fitMode?: TFitMode;
     viewMode?: TPdfViewMode;
     continuousScroll?: boolean;
+    isActive?: boolean;
     isResizing?: boolean;
     invertColors?: boolean;
     showAnnotations?: boolean;
@@ -176,6 +177,7 @@ const {
     dragMode: dragModeProp,
     fitMode: fitModeProp = undefined,
     invertColors: invertColorsProp,
+    isActive: isActiveProp,
     isAnySaving: isAnySavingProp,
     isResizing: isResizingProp,
     searchPageMatches: searchPageMatchesProp = undefined,
@@ -214,6 +216,7 @@ const currentSearchMatch = computed(() => currentSearchMatchProp ?? null);
 const currentSearchMatchNavigationId = computed(() => currentSearchMatchNavigationIdProp ?? 0);
 const workingCopyPath = computed(() => workingCopyPathProp ?? null);
 const continuousScroll = computed(() => continuousScrollProp ?? true);
+const isActive = computed(() => isActiveProp ?? true);
 const authorName = computed(() => authorNameProp);
 const { t } = useTypedI18n();
 
@@ -531,6 +534,7 @@ const {
     container: viewerContainer,
     document: pdfDocumentResult,
     currentPage,
+    isActive,
     effectiveScale,
     bufferPages,
     showAnnotations,
@@ -778,6 +782,7 @@ const {
     fitMode,
     viewMode,
     isResizing,
+    isActive,
     continuousScroll,
     annotationTool,
     annotationCursorMode,

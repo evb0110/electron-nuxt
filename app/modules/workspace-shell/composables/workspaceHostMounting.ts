@@ -16,6 +16,7 @@ interface IStartupWorkspacePreloadSignals {
 interface IWorkspaceHostPreloadSignals {
     hasQueuedSplitRestore: boolean;
     hasDocumentHint: boolean;
+    isActive: boolean;
     isDev: boolean;
 }
 
@@ -34,18 +35,19 @@ export function shouldPreloadWorkspaceDuringStartup(signals: IStartupWorkspacePr
 }
 
 export function shouldPreloadWorkspaceOnHostMount(signals: IWorkspaceHostPreloadSignals) {
-    if (signals.hasQueuedSplitRestore || signals.hasDocumentHint) {
+    if (signals.hasQueuedSplitRestore || (signals.isActive && signals.hasDocumentHint)) {
         return true;
     }
 
-    return !signals.isDev;
+    return signals.isActive && !signals.isDev;
 }
 
 export function shouldAutoRequestWorkspace(signals: IWorkspaceHostSignals) {
     // Keep empty tabs on the lightweight placeholder so the prerendered shell
-    // paints quickly. Real workspaces still mount eagerly when there is document
-    // state or split-restore work to recover.
-    return signals.hasQueuedSplitRestore || signals.hasDocumentHint;
+    // paints quickly. Split restore still needs an eager workspace because its
+    // payload lives in the workspace instance, while document hints wait for
+    // activation so hidden tabs do not inflate the full PDF runtime.
+    return signals.hasQueuedSplitRestore || (signals.isActive && signals.hasDocumentHint);
 }
 
 export function resolveWorkspaceRequestedState(
