@@ -49,7 +49,7 @@
             class="fixed bottom-4 right-4 z-40 w-[min(32rem,calc(100vw-2rem))]"
         >
             <div
-                class="rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-4 shadow-[var(--shadow-popup)]"
+                class="max-h-[min(32rem,calc(100vh-2rem))] overflow-hidden rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-4 shadow-[var(--shadow-popup)]"
             >
                 <div class="flex items-start gap-3">
                     <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
@@ -71,7 +71,7 @@
                         </p>
                         <div
                             v-if="showRuntimeErrorDetails"
-                            class="mt-3 space-y-3"
+                            class="mt-3 max-h-[min(22rem,calc(100vh-12rem))] space-y-3 overflow-y-auto pr-1"
                         >
                             <div
                                 v-for="report in runtimeErrorReports"
@@ -79,7 +79,7 @@
                                 class="rounded-md bg-[color:var(--ui-bg-elevated)] p-3"
                             >
                                 <div class="flex items-center gap-2">
-                                    <p class="truncate text-xs font-medium text-[color:var(--ui-text)]">
+                                    <p class="min-w-0 flex-1 truncate text-xs font-medium text-[color:var(--ui-text)]">
                                         {{ report.title }}
                                     </p>
                                     <UBadge
@@ -90,6 +90,16 @@
                                     >
                                         {{ report.count }}
                                     </UBadge>
+                                    <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
+                                        <UButton
+                                            color="neutral"
+                                            variant="ghost"
+                                            size="xs"
+                                            icon="i-ph-x"
+                                            :aria-label="t('errors.runtime.dismiss')"
+                                            @click="dismissRuntimeErrorReport(report.id)"
+                                        />
+                                    </AppTooltip>
                                 </div>
                                 <p class="mt-1 text-xs text-[color:var(--ui-text-dimmed)]">
                                     {{ report.source }}
@@ -192,6 +202,7 @@ const {
 } = useFatalRuntimeError();
 const {
     reports: runtimeErrorReports,
+    dismissRuntimeErrorReport,
     clearRuntimeErrorReports,
 } = useRuntimeErrorReports();
 const showRuntimeErrorDetails = ref(false);

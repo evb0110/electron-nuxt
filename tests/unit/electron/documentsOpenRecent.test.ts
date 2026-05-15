@@ -102,6 +102,39 @@ describe('document direct-open recent authorization', () => {
         expect(mocks.logRejectedOpenPath).not.toHaveBeenCalled();
     });
 
+    it('opens paths granted to the requesting renderer without consulting recents', async () => {
+        const grantedPath = '/tmp/direct-granted.pdf';
+        const event = createEvent(42);
+        mocks.allowedPathsByOwner.set(42, new Set([grantedPath]));
+        mocks.openInputPaths.mockResolvedValue({
+            kind: 'pdf',
+            originalPath: grantedPath,
+            workingPath: '/tmp/direct-granted-working.pdf',
+        });
+        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+
+        await expect(handleOpenPdfDirect(event, grantedPath)).resolves.toEqual({
+            kind: 'pdf',
+            originalPath: grantedPath,
+            workingPath: '/tmp/direct-granted-working.pdf',
+        });
+
+        expect(mocks.getRecentFiles).not.toHaveBeenCalled();
+        expect(mocks.openInputPaths).toHaveBeenCalledWith([grantedPath], {}, event.sender);
+        expect(mocks.logRejectedOpenPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects paths granted only to a different owner', async () => {
+        const wronglyGrantedPath = '/tmp/wrong-owner.pdf';
+        mocks.allowedPathsByOwner.set(0, new Set([wronglyGrantedPath]));
+        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+
+        await expect(handleOpenPdfDirect(createEvent(42), wronglyGrantedPath)).rejects.toThrow('errors.file.invalid');
+
+        expect(mocks.openInputPaths).not.toHaveBeenCalled();
+        expect(mocks.logRejectedOpenPath).toHaveBeenCalledWith(wronglyGrantedPath);
+    });
+
     it('still rejects a direct-open path that is neither capability-granted nor recent', async () => {
         const unknownPath = '/tmp/not-recent.pdf';
         const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');

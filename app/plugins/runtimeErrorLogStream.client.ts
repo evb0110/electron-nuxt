@@ -52,6 +52,7 @@ export default defineNuxtPlugin((nuxtApp) => {
                     : t('errors.runtime.streamWarning'),
                 source: entry.source,
                 error: `${entry.timestamp}\n${entry.message}`,
+                dedupeKey: `${entry.source}\n${entry.message}`,
             });
         });
     });

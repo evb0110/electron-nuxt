@@ -35,16 +35,18 @@ export const useRuntimeErrorReports = () => {
         title: string;
         source: string;
         error: unknown;
+        dedupeKey?: string;
     }) {
         const detail = stringifyErrorForReport(options.error);
         if (!detail) {
             return;
         }
 
-        const key = createReportKey(options.source, options.title, detail);
+        const key = options.dedupeKey?.trim() || createReportKey(options.source, options.title, detail);
         const existing = reports.value.find(report => report.id === key);
         if (existing) {
             existing.count += 1;
+            existing.detail = detail;
             existing.occurredAt = Date.now();
             return;
         }
