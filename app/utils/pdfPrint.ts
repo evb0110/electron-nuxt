@@ -68,6 +68,8 @@ interface IBrowserPrintPageContainer {
     style: Record<string, string>;
 }
 
+interface IBrowserPrintStyleElement {textContent: string;}
+
 interface IBrowserPrintCanvas {
     getContext: (
         contextId: '2d',
@@ -80,7 +82,10 @@ interface IBrowserPrintCanvas {
 
 export interface IBrowserPrintDocument {
     querySelector(selector: string): IBrowserPrintRoot | null;
-    createElement(tag: 'section' | 'canvas'): IBrowserPrintPageContainer | IBrowserPrintCanvas;
+    createElement(tag: 'section' | 'canvas' | 'style'):
+        | IBrowserPrintPageContainer
+        | IBrowserPrintCanvas
+        | IBrowserPrintStyleElement;
 }
 
 export function buildBrowserPrintFrameMarkup() {
@@ -94,20 +99,10 @@ export function buildBrowserPrintFrameMarkup() {
             margin: 0;
         }
 
-        @page browser-print-portrait {
-            size: A4 portrait;
-            margin: 0;
-        }
-
-        @page browser-print-landscape {
-            size: A4 landscape;
-            margin: 0;
-        }
-
         html, body {
             margin: 0;
             width: 100%;
-            min-height: 100%;
+            height: 100%;
             background: #ffffff;
         }
 
@@ -117,46 +112,43 @@ export function buildBrowserPrintFrameMarkup() {
         }
 
         .browser-print-page {
-            break-after: page;
-            page-break-after: always;
             break-inside: avoid;
             page-break-inside: avoid;
-            display: block;
+            break-before: page;
+            page-break-before: always;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             box-sizing: border-box;
             background: #ffffff;
             overflow: hidden;
+            width: 100%;
+            height: 100%;
         }
 
-        .browser-print-page-portrait {
-            page: browser-print-portrait;
-        }
-
-        .browser-print-page-landscape {
-            page: browser-print-landscape;
-        }
-
-        .browser-print-page:last-child {
-            break-after: auto;
-            page-break-after: auto;
+        .browser-print-page:first-child {
+            break-before: auto;
+            page-break-before: auto;
         }
 
         .browser-print-page canvas {
             display: block;
             margin: 0 auto;
-            max-width: none;
-            max-height: none;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
             break-inside: avoid;
             page-break-inside: avoid;
         }
 
         @media print {
             html, body {
-                min-height: 0;
-                height: auto;
+                height: 100%;
             }
 
             ${BROWSER_PRINT_ROOT_SELECTOR} {
                 display: block;
+                width: 100%;
             }
         }
     </style>
@@ -216,6 +208,30 @@ function formatPdfPointSizeAsCssInches(sizeInPoints: number) {
     return `${Number(sizeInInches.toFixed(4))}in`;
 }
 
+function formatPdfPointSizeAsCssPoints(sizeInPoints: number) {
+    return `${Number(Math.max(1, sizeInPoints).toFixed(2))}pt`;
+}
+
+function setBrowserPrintPageSize(
+    targetDocument: IBrowserPrintDocument,
+    width: number,
+    height: number,
+) {
+    const head = (targetDocument as IBrowserPrintDocument & {head?: { appendChild?: (node: IBrowserPrintStyleElement) => unknown } | null;}).head;
+    if (!head || typeof head.appendChild !== 'function') {
+        return;
+    }
+
+    const style = targetDocument.createElement('style') as IBrowserPrintStyleElement;
+    style.textContent = `
+        @page {
+            size: ${formatPdfPointSizeAsCssPoints(width)} ${formatPdfPointSizeAsCssPoints(height)};
+            margin: 0;
+        }
+    `;
+    head.appendChild(style);
+}
+
 export async function renderPdfPagesForBrowserPrint(
     targetDocument: IBrowserPrintDocument,
     printablePdf: Blob | Uint8Array,
@@ -245,14 +261,13 @@ export async function renderPdfPagesForBrowserPrint(
 
             try {
                 const displayViewport = page.getViewport({ scale: 1 });
+                if (pageNumber === 1) {
+                    setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
+                }
+
                 const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
-                const printOrientationClass = displayViewport.width > displayViewport.height
-                    ? 'browser-print-page-landscape'
-                    : 'browser-print-page-portrait';
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
-                pageContainer.className = `browser-print-page ${printOrientationClass}`;
-                pageContainer.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
-                pageContainer.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
+                pageContainer.className = 'browser-print-page';
 
                 const canvas = createBrowserPrintCanvas(targetDocument);
                 canvas.width = Math.max(1, Math.ceil(renderViewport.width));
