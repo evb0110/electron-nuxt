@@ -115,6 +115,14 @@ jobs:
       - name: Build (Nuxt + Electron)
         run: pnpm run build:strict
 
+      - name: Upload strict build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-log-${{ matrix.platform }}-${{ matrix.arch }}
+          path: .tmp/build.log
+          if-no-files-found: ignore
+
       - name: Configure optional macOS signing and notarization
         if: runner.os == 'macOS'
         shell: bash
