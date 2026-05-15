@@ -457,6 +457,77 @@ describe('pdfPrint', () => {
         expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
     });
 
+    it('renders print bitmaps on host-document canvases before appending them to the print frame', async () => {
+        const root = {
+            append: vi.fn(),
+            replaceChildren: vi.fn(),
+        };
+        const hostCanvas = {
+            height: 0,
+            width: 0,
+            style: {},
+            getContext: vi.fn(),
+        };
+        hostCanvas.getContext.mockReturnValue({ canvas: hostCanvas });
+        const printSection = {
+            append: vi.fn(),
+            className: '',
+            style: {},
+        };
+        const targetDocument: IBrowserPrintDocument = {
+            createElement: vi.fn((tag: 'canvas' | 'section') => {
+                if (tag === 'section') {
+                    return printSection;
+                }
+
+                throw new Error('Print-frame canvases should not be used for PDF.js rendering');
+            }),
+            querySelector: () => root,
+        };
+        vi.stubGlobal('document', { createElement: vi.fn((tag: string) => {
+            if (tag !== 'canvas') {
+                throw new Error(`Unexpected host element: ${tag}`);
+            }
+
+            return hostCanvas;
+        })});
+        const page = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
+                ? {
+                    width: 100,
+                    height: 200,
+                }
+                : {
+                    width: 200,
+                    height: 400,
+                }),
+            render: vi.fn(() => ({ promise: Promise.resolve() })),
+        };
+        const loadingTaskDestroy = vi.fn(async () => {});
+        const pdfDocumentDestroy = vi.fn(async () => {});
+        pdfjsModule.getDocument.mockReturnValue({
+            destroy: loadingTaskDestroy,
+            promise: Promise.resolve({
+                destroy: pdfDocumentDestroy,
+                getPage: vi.fn(async () => page),
+                numPages: 1,
+            }),
+        });
+
+        await renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3));
+
+        expect(document.createElement).toHaveBeenCalledWith('canvas');
+        expect(targetDocument.createElement).toHaveBeenCalledWith('section');
+        expect(targetDocument.createElement).not.toHaveBeenCalledWith('canvas');
+        expect(page.render).toHaveBeenCalledWith(expect.objectContaining({
+            canvas: hostCanvas,
+            canvasContext: expect.any(Object),
+        }));
+        expect(printSection.append).toHaveBeenCalledWith(hostCanvas);
+        expect(root.append).toHaveBeenCalledWith(printSection);
+    });
+
     it('builds a browser-print frame shell with a dedicated print root', () => {
         expect(buildBrowserPrintFrameMarkup()).toContain('data-browser-print-root');
         expect(buildBrowserPrintFrameMarkup()).toContain('.browser-print-page');
