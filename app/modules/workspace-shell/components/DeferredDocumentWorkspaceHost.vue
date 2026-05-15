@@ -1,5 +1,5 @@
 <template>
-    <div class="workspace-host">
+    <div ref="workspaceHostRef" class="workspace-host">
         <div
             v-if="workspaceRequested && DocumentWorkspace"
             v-show="!isPlaceholderVisible"
@@ -46,6 +46,22 @@
                 @combine-files="handleOpenCombine"
                 @open-combine-result="handleOpenCombineResultFromPlaceholder"
             />
+        </div>
+
+        <div
+            v-if="isOpeningDocumentSkeletonVisible"
+            class="workspace-host__opening-skeleton"
+            aria-hidden="true"
+        >
+            <div
+                class="workspace-host__opening-skeleton-page"
+                :style="openingDocumentSkeletonPageStyle"
+            >
+                <PdfPageSkeleton
+                    :padding="openingDocumentSkeletonPadding"
+                    :content-height="openingDocumentSkeletonContentHeight"
+                />
+            </div>
         </div>
 
         <div
@@ -107,6 +123,7 @@ import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/work
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
+import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import {
     resolveWorkspaceRequestedState,
@@ -122,6 +139,7 @@ import {
     createTabViewSessionState,
     type ITabViewSessionState,
 } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import type { IContentInsets } from '@app/types/pdf';
 
 const {
     hasDocumentHint = false,
@@ -201,6 +219,11 @@ function handleToggleFullscreen() {
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
 const DOCUMENT_OPEN_SETTLE_TIMEOUT_MS = 4_000;
+const OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX = 960;
+const OPENING_DOCUMENT_SKELETON_FALLBACK_HEIGHT_PX = 720;
+const OPENING_DOCUMENT_SKELETON_MIN_WIDTH_PX = 320;
+const OPENING_DOCUMENT_SKELETON_MIN_HEIGHT_PX = 420;
+const OPENING_DOCUMENT_SKELETON_ASPECT_RATIO = 4 / 3;
 
 interface IDocumentOpenTransaction {
     id: number;
@@ -214,9 +237,17 @@ interface IDocumentOpenIntent {
     target?: TTabUpdate | null;
 }
 
+interface IOpeningDocumentSkeletonFrame {
+    transactionId: number;
+    width: number;
+    height: number;
+    padding: IContentInsets;
+}
+
 const loadDocumentWorkspace = () => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue');
 const workspaceChunkLoadError = ref<unknown>(null);
 const workspaceRenderNonce = ref(0);
+const workspaceHostRef = ref<HTMLElement | null>(null);
 const chunkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
 const DocumentWorkspace = import.meta.client
@@ -260,6 +291,7 @@ const activeDocumentOpenTransaction = ref<IDocumentOpenTransaction | null>(null)
 const documentOpenInFlightCount = ref(0);
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
+const openingDocumentSkeletonFrame = shallowRef<IOpeningDocumentSkeletonFrame | null>(null);
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
 const restoredDocumentPaths = new Set<string>();
@@ -352,19 +384,14 @@ const isDocumentOpenInFlight = computed(() => (
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
 let documentOpenQueue: Promise<unknown> = Promise.resolve();
-const shouldShowWorkspaceMountLoader = computed(() => isDocumentOpenInFlight.value);
 const isHostErrorVisible = computed(() => (
     hasWorkspaceChunkLoadError.value
     && workspaceRequested.value
     && !hasMountedWorkspace.value
 ));
 const isHostLoaderVisible = computed(() => (
-    !isHostErrorVisible.value && (
-        isStartupOpenClaimPending === true
-    || isDocumentOpenInFlight.value
-    || (workspaceRequested.value && hasPendingDocumentHint.value)
-    || (workspaceRequested.value && !hasMountedWorkspace.value && shouldShowWorkspaceMountLoader.value)
-    )
+    !isHostErrorVisible.value
+    && isStartupOpenClaimPending === true
 ));
 const loaderVariant = computed(() => {
     if (isHostErrorVisible.value) {
@@ -375,30 +402,30 @@ const loaderVariant = computed(() => {
         return 'none';
     }
 
-    if (isStartupOpenClaimPending === true) {
+    if (isStartupOpenClaimPending) {
         return 'startup-open:claiming';
     }
 
-    if (hasPendingDocumentHint.value && workspaceRequested.value && !isDocumentOpenInFlight.value) {
-        return hasMountedWorkspace.value
-            ? 'document-hint:awaiting-open'
-            : 'document-hint:mounting-workspace';
-    }
-
-    if (isDocumentOpenInFlight.value && workspaceRequested.value && !hasMountedWorkspace.value) {
-        return 'placeholder-open:mounting-workspace';
-    }
-
-    if (isDocumentOpenInFlight.value && !workspaceRequested.value) {
-        return 'placeholder-open:awaiting-mount-request';
-    }
-
-    if (workspaceRequested.value && !hasMountedWorkspace.value) {
-        return 'workspace-mount';
-    }
-
-    return 'document-open';
+    return 'none';
 });
+const isOpeningDocumentSkeletonVisible = computed(() => (
+    !isHostErrorVisible.value
+    && isDocumentOpenInFlight.value
+    && openingDocumentSkeletonFrame.value !== null
+));
+const openingDocumentSkeletonPageStyle = computed<Record<string, string>>(() => {
+    const frame = openingDocumentSkeletonFrame.value;
+    return {
+        width: `${frame?.width ?? OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX}px`,
+        height: `${frame?.height ?? OPENING_DOCUMENT_SKELETON_FALLBACK_HEIGHT_PX}px`,
+    };
+});
+const openingDocumentSkeletonPadding = computed<IContentInsets | null>(() => (
+    openingDocumentSkeletonFrame.value?.padding ?? null
+));
+const openingDocumentSkeletonContentHeight = computed(() => (
+    openingDocumentSkeletonFrame.value?.height ?? null
+));
 
 watch(
     [
@@ -559,6 +586,8 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
         emit('update-tab', target);
     }
 
+    openingDocumentSkeletonFrame.value = captureOpeningDocumentSkeletonFrame(transaction.id);
+
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
         tabId: tabId,
         transactionId: transaction.id,
@@ -631,6 +660,10 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, op
         activeDocumentOpenTransaction.value = null;
     }
 
+    if (openingDocumentSkeletonFrame.value?.transactionId === transaction.id) {
+        openingDocumentSkeletonFrame.value = null;
+    }
+
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
         tabId: tabId,
         transactionId: transaction.id,
@@ -638,6 +671,46 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, op
         opened,
         hasTerminalDocumentState: workspaceHasDocumentOrOpenError(),
     });
+}
+
+function clampOpeningDocumentSkeletonDimension(value: number, min: number, max: number) {
+    return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function buildOpeningDocumentSkeletonPadding(width: number, height: number): IContentInsets {
+    const horizontal = clampOpeningDocumentSkeletonDimension(width * 0.08, 24, width / 3);
+    const vertical = clampOpeningDocumentSkeletonDimension(height * 0.1, 32, height / 3);
+
+    return {
+        top: vertical,
+        right: horizontal,
+        bottom: vertical,
+        left: horizontal,
+    };
+}
+
+function captureOpeningDocumentSkeletonFrame(transactionId: number): IOpeningDocumentSkeletonFrame {
+    const host = workspaceHostRef.value;
+    const hostWidth = host?.clientWidth ?? OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX;
+    const framePadding = 24;
+    const width = Math.max(
+        OPENING_DOCUMENT_SKELETON_MIN_WIDTH_PX,
+        hostWidth - framePadding * 2,
+    );
+    const height = Math.max(
+        OPENING_DOCUMENT_SKELETON_MIN_HEIGHT_PX,
+        width / OPENING_DOCUMENT_SKELETON_ASPECT_RATIO,
+    );
+
+    const roundedWidth = Math.round(width);
+    const roundedHeight = Math.round(height);
+
+    return {
+        transactionId,
+        width: roundedWidth,
+        height: roundedHeight,
+        padding: buildOpeningDocumentSkeletonPadding(roundedWidth, roundedHeight),
+    };
 }
 
 async function runWithDocumentOpenInFlight<T>(
@@ -1160,6 +1233,7 @@ defineExpose(workspaceExpose);
 .workspace-host {
     position: relative;
     display: flex;
+    isolation: isolate;
     width: 100%;
     height: 100%;
     min-width: 0;
@@ -1167,6 +1241,8 @@ defineExpose(workspaceExpose);
 }
 
 .workspace-host__placeholder {
+    position: relative;
+    z-index: 0;
     display: flex;
     width: 100%;
     height: 100%;
@@ -1175,6 +1251,8 @@ defineExpose(workspaceExpose);
 }
 
 .workspace-host__workspace {
+    position: relative;
+    z-index: 0;
     display: flex;
     width: 100%;
     height: 100%;
@@ -1182,10 +1260,31 @@ defineExpose(workspaceExpose);
     min-height: 0;
 }
 
+.workspace-host__opening-skeleton {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 1.5rem;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--app-pdf-viewer-bg, var(--app-window-bg));
+}
+
+.workspace-host__opening-skeleton-page {
+    position: relative;
+    flex: 0 0 auto;
+    overflow: hidden;
+    box-shadow: var(--pdf-page-shadow);
+}
+
 .workspace-host__loading {
     position: absolute;
     inset: 0;
-    z-index: 5;
+    z-index: 20;
     display: flex;
     align-items: center;
     justify-content: center;

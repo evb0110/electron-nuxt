@@ -55,6 +55,7 @@ import {
     type IPageRenderStallPayload,
     type IPageRenderTimeoutError,
 } from '@app/composables/pdf/pdfPageRenderTimeout';
+import { collectPreservedRenderPageNumbers } from '@app/composables/pdf/pdfPageRenderPreservation';
 
 export type { IPageRenderStallPayload } from '@app/composables/pdf/pdfPageRenderTimeout';
 
@@ -1339,6 +1340,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
         const normalizedOptions = normalizeRerenderOptions(rerenderOptions);
         const { preserveExistingPages } = normalizedOptions;
+        const pagesWithPreservedContent = preserveExistingPages
+            ? collectPreservedRenderPageNumbers({
+                renderedPages,
+                pageCanvases,
+            })
+            : null;
+        pagesWithPreservedContent?.forEach(page => staleRenderedPages.add(page));
         const version = bumpRenderVersion();
         const containerAtCapture = options.container.value;
         const snapshot = captureScrollSnapshot(containerAtCapture);
@@ -1364,7 +1372,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
 
             if (preserveExistingPages) {
-                renderedPages.forEach((page) => staleRenderedPages.add(page));
+                pagesWithPreservedContent?.forEach(page => staleRenderedPages.add(page));
 
                 setupPagePlaceholders();
 

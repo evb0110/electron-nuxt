@@ -30,9 +30,12 @@ const { usePdfViewerResizeLifecycle } = await import(
     '@app/modules/pdf-viewer-runtime/composables/usePdfViewerResizeLifecycle'
 );
 
-function createResizeLifecycle(isActive = ref(true)) {
+function createResizeLifecycle(
+    isActive = ref(true),
+    options?: { computeFitWidthScale?: () => boolean; },
+) {
     const getMostVisiblePage = vi.fn(() => 2);
-    const computeFitWidthScale = vi.fn(() => true);
+    const computeFitWidthScale = vi.fn(options?.computeFitWidthScale ?? (() => true));
     const scheduleResizeAwareRerender = vi.fn();
     const setResizeTransitionVisible = vi.fn();
     const lifecycle = usePdfViewerResizeLifecycle({
@@ -120,5 +123,22 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
             token: 1,
             anchorPage: 4,
         });
+    });
+
+    it('does not schedule a resize rerender when fit geometry is unchanged', async () => {
+        vi.useFakeTimers();
+        const {
+            computeFitWidthScale,
+            scheduleResizeAwareRerender,
+            setResizeTransitionVisible,
+        } = createResizeLifecycle(ref(true), { computeFitWidthScale: () => false });
+
+        resizeObserverMock.callback?.();
+
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(computeFitWidthScale).toHaveBeenCalledOnce();
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+        expect(setResizeTransitionVisible).not.toHaveBeenCalled();
     });
 });

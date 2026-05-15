@@ -284,6 +284,9 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 void debouncedRenderOnResizeWithAnchor();
                 return;
             }
+            if (!updated) {
+                return;
+            }
             const transitionToken = beginResizeTransition('resize-observer', resizeAnchor.page);
             const anchoredResizeContext: IResizeAnchorContext = {
                 ...resizeAnchor,

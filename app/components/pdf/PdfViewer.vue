@@ -4,10 +4,6 @@
         class="relative h-full w-full"
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
-        <AppLoaderOverlay
-            :visible="isLocalViewerLoadingOverlayVisible"
-            :label="t('common.loading')"
-        />
         <PdfViewerViewport
             :set-viewer-container="handleViewerContainerRef"
             :viewer-class="viewerClass"
@@ -70,7 +66,6 @@
 
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
-import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import PdfViewerPortalLayers from '@app/components/pdf/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/components/pdf/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
@@ -98,6 +93,7 @@ import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer-runtime/compos
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerMouseInteractions';
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerReloadTransition';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom';
+import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerDelayedSkeleton';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
@@ -265,7 +261,7 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
-const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
+const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 140;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 const {
@@ -282,6 +278,7 @@ function settleViewerLoadSettledWithManagedShapes(token: number) {
 }
 
 function handlePageRendered(pageNumber: number) {
+    delayedSkeleton.markPageRendered(pageNumber);
     managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
 
     if (pendingInitialVisualReadyToken === null) {
@@ -379,8 +376,7 @@ watch(
         BrowserLogger.debug('loader', 'PDF viewer loader state changed', {
             hasSrc,
             loading,
-            overlayVisible: hasSrc && loading,
-            iconSizePx: PDF_VIEWER_LOADER_ICON_SIZE_PX,
+            overlayVisible: false,
             label: t('common.loading'),
             hostWidth: hostRect ? Math.round(hostRect.width) : null,
             hostHeight: hostRect ? Math.round(hostRect.height) : null,
@@ -427,6 +423,7 @@ watch(
     { immediate: true },
 );
 const {
+    skeletonContentInsets,
     computeSkeletonInsets,
     resetInsets,
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
@@ -954,8 +951,28 @@ const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
     holdOverlayVisible: isVisualReloadTransitionActive,
 });
 const isLocalViewerLoadingOverlayVisible = computed(() => (
-    isViewerLoadingOverlayVisible.value && !suppressLoadingOverlay.value
+    isViewerLoadingOverlayVisible.value
+    && isVisualReloadTransitionActive.value
+    && !suppressLoadingOverlay.value
 ));
+const isInitialSkeletonGeometryPending = computed(() => (
+    Boolean(src.value)
+    && Boolean(pdfDocument.value)
+    && isViewerLoadingOverlayVisible.value
+    && skeletonContentInsets.value === null
+));
+const shouldBlockPageSkeletons = computed(() => (
+    isLocalViewerLoadingOverlayVisible.value
+    || suppressLoadingOverlay.value
+    || isInitialSkeletonGeometryPending.value
+));
+
+const delayedSkeleton = usePdfViewerDelayedSkeleton({
+    delayMs: PDF_VIEWER_PAGE_SKELETON_DELAY_MS,
+    trackedPages: pagesToRender,
+    blockSkeletons: shouldBlockPageSkeletons,
+    shouldShowSkeletonNow: shouldShowSkeleton,
+});
 const emptyMarkersByPage = new Map<number, never[]>();
 const emptyLinksByPage: Record<number, never[]> = {};
 const visibleMarkersByPage = computed(() => (
@@ -971,7 +988,7 @@ const visibleLinksByPage = computed(() => (
         )
 ));
 function shouldShowPageSkeleton(page: number) {
-    return !isViewerLoadingOverlayVisible.value && shouldShowSkeleton(page);
+    return delayedSkeleton.shouldShowSkeleton(page);
 }
 
 const isActiveSpreadHorizontalScrollLocked = computed(() => {
@@ -1007,7 +1024,6 @@ const viewerClass = computed(() => ({
     'pdfViewer--mode-single': viewMode.value === 'single',
     'pdfViewer--mode-facing': viewMode.value === 'facing',
     'pdfViewer--mode-facing-first-single': viewMode.value === 'facing-first-single',
-    'pdfViewer--hidden': isLocalViewerLoadingOverlayVisible.value,
     'pdfViewer--fit-width': zoomMode.value === 'fit-width',
     'pdfViewer--fit-width-page-fits': fitWidthHorizontalScrollLocked.value,
     'pdfViewer--fit-height': fitMode.value === 'height',
