@@ -95,12 +95,12 @@ export function buildBrowserPrintFrameMarkup() {
         }
 
         @page browser-print-portrait {
-            size: portrait;
+            size: A4 portrait;
             margin: 0;
         }
 
         @page browser-print-landscape {
-            size: landscape;
+            size: A4 landscape;
             margin: 0;
         }
 

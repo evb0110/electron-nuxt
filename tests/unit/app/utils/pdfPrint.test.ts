@@ -535,5 +535,7 @@ describe('pdfPrint', () => {
         expect(buildBrowserPrintFrameMarkup()).toContain('.browser-print-page');
         expect(buildBrowserPrintFrameMarkup()).toContain('@page browser-print-portrait');
         expect(buildBrowserPrintFrameMarkup()).toContain('@page browser-print-landscape');
+        expect(buildBrowserPrintFrameMarkup()).toContain('size: A4 portrait');
+        expect(buildBrowserPrintFrameMarkup()).toContain('size: A4 landscape');
     });
 });
