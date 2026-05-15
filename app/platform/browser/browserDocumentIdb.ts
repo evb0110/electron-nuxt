@@ -52,15 +52,44 @@ export async function withObjectStore<T>(
     }
 
     return new Promise<T | null>((resolve) => {
-        const transaction = database.transaction(storeName, mode);
-        const store = transaction.objectStore(storeName);
-        const request = run(store);
+        let requestResult: T | null = null;
+        let requestSucceeded = false;
+        let transactionCompleted = false;
+        let settled = false;
 
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
-        transaction.onabort = () => resolve(null);
-        transaction.onerror = () => resolve(null);
-        transaction.oncomplete = () => database.close();
+        const cleanup = (result: T | null) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            database.close();
+            resolve(result);
+        };
+
+        try {
+            const transaction = database.transaction(storeName, mode);
+            const store = transaction.objectStore(storeName);
+            const request = run(store);
+
+            request.onsuccess = () => {
+                requestResult = request.result;
+                requestSucceeded = true;
+                if (transactionCompleted) {
+                    cleanup(requestResult);
+                }
+            };
+            request.onerror = () => cleanup(null);
+            transaction.onabort = () => cleanup(null);
+            transaction.onerror = () => cleanup(null);
+            transaction.oncomplete = () => {
+                transactionCompleted = true;
+                if (requestSucceeded) {
+                    cleanup(requestResult);
+                }
+            };
+        } catch {
+            cleanup(null);
+        }
     });
 }
 

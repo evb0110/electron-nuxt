@@ -2,7 +2,7 @@ import { decodeDocumentRefSegment } from '@app/utils/documentRef';
 
 const BROWSER_REF_PREFIX = 'browser://documents/';
 
-export function getDocumentFileName(ref: string) {
+function getDocumentFileName(ref: string) {
     const trimmed = ref.startsWith(BROWSER_REF_PREFIX)
         ? ref.slice(BROWSER_REF_PREFIX.length)
         : ref;

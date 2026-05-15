@@ -340,6 +340,10 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('bounds the cached PDF pages with an LRU policy', async () => {
+        const loadedPages = new Map<number, Array<{
+            cleanup: ReturnType<typeof vi.fn>;
+            pageNumber: number;
+        }>>();
         const getPage = vi.fn(async (pageNumber: number) => ({
             getViewport: vi.fn(() => ({
                 width: 200,
@@ -347,7 +351,21 @@ describe('usePdfDocument range loading', () => {
             })),
             cleanup: vi.fn(),
             pageNumber,
-        }));
+        })).mockImplementation(async (pageNumber: number) => {
+            const page = {
+                getViewport: vi.fn(() => ({
+                    width: 200,
+                    height: 400,
+                })),
+                cleanup: vi.fn(),
+                pageNumber,
+            };
+            loadedPages.set(pageNumber, [
+                ...(loadedPages.get(pageNumber) ?? []),
+                page,
+            ]);
+            return page;
+        });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
                 numPages: MAX_CACHED_PDF_PAGES + 5,
@@ -385,5 +403,6 @@ describe('usePdfDocument range loading', () => {
         await documentState.getPage(MAX_CACHED_PDF_PAGES + 1);
 
         expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 2);
+        expect(loadedPages.get(2)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
     });
 });

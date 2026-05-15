@@ -4,6 +4,7 @@ import {
 } from '@electron/djvu/paths';
 import { runNativeCommand } from '@electron/native-tools/commandRunner';
 import { createLogger } from '@electron/utils/logger';
+import { isAbortError } from '@electron/utils/abort';
 
 const logger = createLogger('djvu-metadata');
 
@@ -42,9 +43,11 @@ const DJVU_MAX_PAGES = (() => {
     return Math.min(parsed, 100_000);
 })();
 
-async function runDjvused(args: string[]): Promise<IRunResult> {
+interface IDjvuMetadataOptions {signal?: AbortSignal;}
+
+async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): Promise<IRunResult> {
     const { djvused } = getDjvuToolPaths();
-    const result = await runNativeCommand(djvused, args, {
+    const commandOptions = {
         env: buildDjvuRuntimeEnv(),
         timeoutMs: DJVU_METADATA_TIMEOUT_MS,
         maxStdoutBytes: DJVU_METADATA_MAX_STDOUT_BYTES,
@@ -54,7 +57,9 @@ async function runDjvused(args: string[]): Promise<IRunResult> {
         prependCommandDirToPath: true,
         includeProcessEnv: true,
         windowsHide: true,
-    });
+        ...(options.signal ? { signal: options.signal } : {}),
+    };
+    const result = await runNativeCommand(djvused, args, commandOptions);
 
     return {
         stdout: result.stdout,
@@ -63,12 +68,12 @@ async function runDjvused(args: string[]): Promise<IRunResult> {
     };
 }
 
-export async function getDjvuPageCount(filePath: string): Promise<number> {
+export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataOptions = {}): Promise<number> {
     const result = await runDjvused([
         filePath,
         '-e',
         'n',
-    ]);
+    ], options);
     const count = parseInt(result.stdout.trim(), 10);
     if (!Number.isFinite(count) || count <= 0) {
         throw new Error(`Invalid page count from djvused: ${result.stdout.trim()}`);
@@ -79,27 +84,33 @@ export async function getDjvuPageCount(filePath: string): Promise<number> {
     return count;
 }
 
-export async function getDjvuOutline(filePath: string): Promise<string> {
+export async function getDjvuOutline(filePath: string, options: IDjvuMetadataOptions = {}): Promise<string> {
     try {
         const result = await runDjvused([
             filePath,
             '-e',
             'print-outline',
-        ]);
+        ], options);
         return result.stdout.trim();
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         logger.debug(`Failed to read DjVu outline for ${filePath}: ${String(error)}`);
         return '';
     }
 }
 
-export async function getDjvuMetadata(filePath: string): Promise<Record<string, string>> {
+export async function getDjvuMetadata(
+    filePath: string,
+    options: IDjvuMetadataOptions = {},
+): Promise<Record<string, string>> {
     try {
         const result = await runDjvused([
             filePath,
             '-e',
             'print-meta',
-        ]);
+        ], options);
         const metadata: Record<string, string> = {};
         const lines = result.stdout.trim().split('\n');
         for (const line of lines) {
@@ -110,35 +121,44 @@ export async function getDjvuMetadata(filePath: string): Promise<Record<string, 
         }
         return metadata;
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         logger.debug(`Failed to read DjVu metadata for ${filePath}: ${String(error)}`);
         return {};
     }
 }
 
-export async function getDjvuResolution(filePath: string): Promise<number> {
+export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}): Promise<number> {
     try {
         const result = await runDjvused([
             filePath,
             '-e',
             'select 1; print-dpi',
-        ]);
+        ], options);
         const dpi = parseInt(result.stdout.trim(), 10);
         return Number.isFinite(dpi) && dpi > 0 ? dpi : 300;
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         logger.debug(`Failed to read DjVu resolution for ${filePath}: ${String(error)}`);
         return 300;
     }
 }
 
-export async function getDjvuHasText(filePath: string): Promise<boolean> {
+export async function getDjvuHasText(filePath: string, options: IDjvuMetadataOptions = {}): Promise<boolean> {
     try {
         const result = await runDjvused([
             filePath,
             '-e',
             'select 1; print-txt',
-        ]);
+        ], options);
         return result.stdout.trim().length > 0;
     } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
+        }
         logger.debug(`Failed to detect DjVu text layer for ${filePath}: ${String(error)}`);
         return false;
     }

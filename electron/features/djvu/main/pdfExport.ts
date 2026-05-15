@@ -34,11 +34,13 @@ import {
     DjvuPdfWorkerStartupError,
 } from '@electron/features/djvu/main/pdfWorkerClient';
 import { getErrorMessage } from '@electron/utils/error';
+import { createAbortError } from '@electron/utils/abort';
 
 const logger = createLogger('djvu-pdfExport');
 const canceledJobIds = new Set<string>();
 const activeJobIds = new Set<string>();
 const activeJobOwnerById = new Map<string, number>();
+const activeJobAbortControllerById = new Map<string, AbortController>();
 const activePdfWorkerByJobId = new Map<string, Worker>();
 const queuedConversionJobIds: string[] = [];
 const queuedConversionResolvers = new Map<string, {
@@ -185,6 +187,8 @@ function requestDjvuCancel(jobId: string): boolean {
 
     canceledJobIds.add(normalizedJobId);
     const removedQueuedJob = removeQueuedConversionJob(normalizedJobId);
+    const activeAbortController = activeJobAbortControllerById.get(normalizedJobId);
+    activeAbortController?.abort(createAbortError('DjVu conversion canceled'));
     const canceledProcess = cancelConversion(normalizedJobId);
     const activePdfWorker = activePdfWorkerByJobId.get(normalizedJobId);
     if (activePdfWorker) {
@@ -296,10 +300,12 @@ export async function handleDjvuConvertToPdf(
     canceledJobIds.delete(jobId);
     activeJobIds.add(jobId);
     activeJobOwnerById.set(jobId, event.sender.id);
+    const abortController = new AbortController();
+    activeJobAbortControllerById.set(jobId, abortController);
 
     try {
         return await runDjvuConversionJobWithSlot(jobId, async () => {
-            const [pageCount] = await Promise.all([getDjvuPageCount(djvuPath)]);
+            const [pageCount] = await Promise.all([getDjvuPageCount(djvuPath, { signal: abortController.signal })]);
 
             const subsample = resolveSubsample(options.subsample);
             throwIfCanceled(jobId);
@@ -311,7 +317,9 @@ export async function handleDjvuConvertToPdf(
             });
 
             const outlinePromise = (options.preserveBookmarks !== false)
-                ? getDjvuOutline(djvuPath).then(sexp => parseDjvuOutline(sexp)).catch(() => [] as IPdfBookmarkEntry[])
+                ? getDjvuOutline(djvuPath, { signal: abortController.signal })
+                    .then(sexp => parseDjvuOutline(sexp))
+                    .catch(() => [] as IPdfBookmarkEntry[])
                 : Promise.resolve([] as IPdfBookmarkEntry[]);
 
             const convertResult = await convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
@@ -371,12 +379,13 @@ export async function handleDjvuConvertToPdf(
         return {
             success: false,
             jobId,
-            error: getErrorMessage(error),
+            error: canceledJobIds.has(jobId) ? 'DjVu conversion canceled' : getErrorMessage(error),
         };
     } finally {
         canceledJobIds.delete(jobId);
         activeJobIds.delete(jobId);
         activeJobOwnerById.delete(jobId);
+        activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         try {
             await rm(tempPdfPath, { force: true });
@@ -430,6 +439,8 @@ export async function shutdownDjvuConversions() {
     for (const jobId of jobIds) {
         canceledJobIds.add(jobId);
         removeQueuedConversionJob(jobId);
+        const activeAbortController = activeJobAbortControllerById.get(jobId);
+        activeAbortController?.abort(createAbortError('DjVu conversion canceled'));
         cancelConversion(jobId);
         const activePdfWorker = activePdfWorkerByJobId.get(jobId);
         if (activePdfWorker) {
@@ -442,6 +453,7 @@ export async function shutdownDjvuConversions() {
     queuedConversionResolvers.clear();
     activeJobIds.clear();
     activeJobOwnerById.clear();
+    activeJobAbortControllerById.clear();
     activePdfWorkerByJobId.clear();
     activeConversionSlots = 0;
 

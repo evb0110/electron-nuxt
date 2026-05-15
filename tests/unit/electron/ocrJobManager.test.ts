@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
         isFile: () => true,
     })),
     unlink: vi.fn(async () => {}),
+    sendToLiveWindow: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -83,6 +84,7 @@ vi.mock('fs/promises', () => ({
 vi.mock('@electron/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/ipcWindow', () => ({sendToLiveWindow: mocks.sendToLiveWindow}));
 
 function createEvent(senderId: number) {
     return {sender: {
@@ -98,6 +100,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.stubEnv('EVB_OCR_QUEUE_MAX_SIZE', '1');
+        vi.stubEnv('EVB_OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS', '0');
         mocks.ensureTessdataLanguages.mockReset();
         mocks.workerInstances.length = 0;
         mocks.stat.mockResolvedValue({
@@ -274,5 +277,102 @@ describe('ocr job manager preparing-stage robustness', () => {
         await vi.advanceTimersByTimeAsync(1_251);
         expect(worker?.terminate).toHaveBeenCalledTimes(1);
         vi.useRealTimers();
+    });
+
+    it('ignores progress and completion messages emitted after active cancellation', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/ocr/jobManager');
+
+        const event = createEvent(66);
+        const result = await handleOcrCreateSearchablePdfAsync(
+            event as never,
+            '/tmp/work-6.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-6',
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-6',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+
+        expect(handleOcrCancel(event as never, 'job-6')).toEqual({ canceled: true });
+
+        worker?.emit('message', {
+            type: 'progress',
+            jobId: 'job-6',
+            progress: {
+                requestId: 'job-6',
+                currentPage: 1,
+                processedCount: 1,
+                totalPages: 1,
+            },
+        });
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-6',
+            result: {
+                success: false,
+                errors: ['cancelled'],
+            },
+        });
+
+        expect(mocks.sendToLiveWindow).not.toHaveBeenCalled();
+    });
+
+    it('still forwards completion from the current active worker', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+
+        const result = await handleOcrCreateSearchablePdfAsync(
+            createEvent(77) as never,
+            '/tmp/work-7.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-7',
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-7',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-7',
+            result: {
+                success: true,
+                pdfPath: '/tmp/work-7-ocr.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        });
+
+        expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(
+            undefined,
+            'ocr:complete',
+            [{
+                requestId: 'job-7',
+                success: true,
+                pdfPath: '/tmp/work-7-ocr.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            }],
+            expect.any(Function),
+        );
     });
 });

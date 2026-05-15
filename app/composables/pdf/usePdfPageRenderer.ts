@@ -28,6 +28,7 @@ import { CONCURRENT_RENDERS } from '@app/constants/pdfLayout';
 import {
     PDF_PAGE_LOAD_TIMEOUT_MS,
     PDF_PAGE_RENDER_TIMEOUT_MS,
+    PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
 } from '@app/constants/timeouts';
 import {
     isRenderingCancelledError,
@@ -216,6 +217,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }>();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
     const textLayerCleanupFns = new Map<number, () => void>();
+    const activeTextLayerAbortControllers = new Map<number, {
+        version: number;
+        controller: AbortController;
+    }>();
 
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
 
@@ -238,9 +243,25 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    function cancelActiveTextLayerRender(pageNumber: number) {
+        const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
+        if (!activeTextLayer) {
+            return;
+        }
+        activeTextLayerAbortControllers.delete(pageNumber);
+        activeTextLayer.controller.abort();
+    }
+
+    function cancelAllActiveTextLayerRenders() {
+        for (const pageNumber of Array.from(activeTextLayerAbortControllers.keys())) {
+            cancelActiveTextLayerRender(pageNumber);
+        }
+    }
+
     function bumpRenderVersion() {
         renderVersion += 1;
         cancelAllActiveRenderTasks();
+        cancelAllActiveTextLayerRenders();
         return renderVersion;
     }
 
@@ -321,6 +342,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     function cleanupPage(pageNumber: number) {
         const containerRoot = options.container.value;
         cancelActiveRenderTask(pageNumber);
+        cancelActiveTextLayerRender(pageNumber);
 
         cleanupTextLayer(pageNumber);
 
@@ -599,6 +621,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         if (!textLayerDiv) {
             return true;
         }
+        if (renderVersion !== version) {
+            cleanupPageIfCurrentRender(pageNumber, version);
+            return false;
+        }
 
         const {
             canvas,
@@ -611,25 +637,64 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         } = renderResult;
 
         cleanupTextLayer(pageNumber);
+        cancelActiveTextLayerRender(pageNumber);
         let isTextLayerRendered = false;
 
         try {
-            await textLayerRenderer.renderTextLayer(
-                pdfPage,
-                textLayerDiv,
-                viewport,
-                scale,
-                userUnit,
-                totalScaleFactor,
+            const controller = new AbortController();
+            activeTextLayerAbortControllers.set(pageNumber, {
+                version,
+                controller,
+            });
+            await withPageStageTimeout(
+                textLayerRenderer.renderTextLayer(
+                    pdfPage,
+                    textLayerDiv,
+                    viewport,
+                    scale,
+                    userUnit,
+                    totalScaleFactor,
+                    controller.signal,
+                ),
+                {
+                    pageNumber,
+                    stage: 'text-layer',
+                    timeoutMs: PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
+                },
+                () => renderVersion === version,
+                () => {
+                    cancelActiveTextLayerRender(pageNumber);
+                },
+                options.onRenderStall,
             );
             isTextLayerRendered = true;
         } catch (textLayerError) {
+            if (isPageRenderTimeoutError(textLayerError)) {
+                throw textLayerError;
+            }
+            if (
+                renderVersion !== version
+                || (
+                    textLayerError
+                    && typeof textLayerError === 'object'
+                    && (textLayerError as { name?: unknown }).name === 'AbortError'
+                )
+            ) {
+                textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+                cleanupPageIfCurrentRender(pageNumber, version);
+                return false;
+            }
             logNonCriticalStageError(
                 pageNumber,
                 'text layer',
                 textLayerError,
             );
             textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+        } finally {
+            const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
+            if (activeTextLayer?.version === version) {
+                activeTextLayerAbortControllers.delete(pageNumber);
+            }
         }
 
         if (renderVersion !== version) {

@@ -61,6 +61,10 @@ interface IAnnotationLayerWithEditableAnnotations {
 
 let annotationEditorLayerSafetyPatched = false;
 let destroyedEditorLayerFallbackDiv: HTMLDivElement | null = null;
+const hiddenAnnotationGuardQueues = new WeakMap<
+    AnnotationEditorUIManager,
+    Promise<unknown>
+>();
 
 function getDestroyedEditorLayerFallbackDiv() {
     if (destroyedEditorLayerFallbackDiv) {
@@ -337,63 +341,83 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return render();
         }
 
-        const mutableUiManager =
-            annotationUiManager as AnnotationEditorUIManager & IAnnotationUiManagerWithAnnotationRenderGuards;
-        const originalRenderAnnotationElement = getOptionalFunction<[unknown], unknown>(
-            annotationUiManager,
-            'renderAnnotationElement',
-        );
-        const originalSetMissingCanvas = getOptionalFunction<
-            [string, string, HTMLCanvasElement],
-            unknown
-        >(
-            annotationUiManager,
-            'setMissingCanvas',
-        );
+        const previousGuard = hiddenAnnotationGuardQueues.get(annotationUiManager)
+            ?? Promise.resolve();
+        const queuedGuard = (async () => {
+            try {
+                await previousGuard;
+            } catch {
+                // Previous guarded renders report their own errors.
+            }
 
-        if (!originalRenderAnnotationElement && !originalSetMissingCanvas) {
-            return render();
-        }
+            const mutableUiManager =
+                annotationUiManager as AnnotationEditorUIManager & IAnnotationUiManagerWithAnnotationRenderGuards;
+            const originalRenderAnnotationElement = getOptionalFunction<[unknown], unknown>(
+                annotationUiManager,
+                'renderAnnotationElement',
+            );
+            const originalSetMissingCanvas = getOptionalFunction<
+                [string, string, HTMLCanvasElement],
+                unknown
+            >(
+                annotationUiManager,
+                'setMissingCanvas',
+            );
 
-        if (originalRenderAnnotationElement) {
-            mutableUiManager.renderAnnotationElement = (annotation: unknown) => {
-                if (isHiddenEditableAnnotationId(getEditableAnnotationId(annotation))) {
-                    return undefined;
-                }
+            if (!originalRenderAnnotationElement && !originalSetMissingCanvas) {
+                return render();
+            }
 
-                return originalRenderAnnotationElement.call(annotationUiManager, annotation);
-            };
-        }
-
-        if (originalSetMissingCanvas) {
-            mutableUiManager.setMissingCanvas = (
-                annotationId: string,
-                annotationElementId: string,
-                canvas: HTMLCanvasElement,
-            ) => {
-                if (isHiddenEditableAnnotationId(annotationId)) {
-                    return undefined;
-                }
-
-                return originalSetMissingCanvas.call(
-                    annotationUiManager,
-                    annotationId,
-                    annotationElementId,
-                    canvas,
-                );
-            };
-        }
-
-        try {
-            return await render();
-        } finally {
             if (originalRenderAnnotationElement) {
-                mutableUiManager.renderAnnotationElement = originalRenderAnnotationElement.bind(annotationUiManager);
+                mutableUiManager.renderAnnotationElement = (annotation: unknown) => {
+                    if (isHiddenEditableAnnotationId(getEditableAnnotationId(annotation))) {
+                        return undefined;
+                    }
+
+                    return originalRenderAnnotationElement.call(annotationUiManager, annotation);
+                };
             }
+
             if (originalSetMissingCanvas) {
-                mutableUiManager.setMissingCanvas = originalSetMissingCanvas.bind(annotationUiManager);
+                mutableUiManager.setMissingCanvas = (
+                    annotationId: string,
+                    annotationElementId: string,
+                    canvas: HTMLCanvasElement,
+                ) => {
+                    if (isHiddenEditableAnnotationId(annotationId)) {
+                        return undefined;
+                    }
+
+                    return originalSetMissingCanvas.call(
+                        annotationUiManager,
+                        annotationId,
+                        annotationElementId,
+                        canvas,
+                    );
+                };
+            }
+
+            try {
+                return await render();
+            } finally {
+                if (originalRenderAnnotationElement) {
+                    mutableUiManager.renderAnnotationElement = originalRenderAnnotationElement;
+                }
+                if (originalSetMissingCanvas) {
+                    mutableUiManager.setMissingCanvas = originalSetMissingCanvas;
+                }
+            }
+        })();
+        const queueTail = queuedGuard.catch(() => {});
+        hiddenAnnotationGuardQueues.set(annotationUiManager, queueTail);
+        try {
+            return await queuedGuard;
+        } finally {
+            if (hiddenAnnotationGuardQueues.get(annotationUiManager) === queueTail) {
+                hiddenAnnotationGuardQueues.delete(annotationUiManager);
             }
         }
+
     }
 
     function applyHiddenEditableAnnotationFilter(annotationLayerInstance: TAnnotationLayer | null) {

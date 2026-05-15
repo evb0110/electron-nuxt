@@ -63,6 +63,18 @@ interface IHighlightDebugRects {
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 
+function createAbortError() {
+    const error = new Error('Text layer rendering was cancelled');
+    error.name = 'AbortError';
+    return error;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw createAbortError();
+    }
+}
+
 export const usePdfTextLayerRenderer = (deps: {
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
@@ -559,7 +571,9 @@ export const usePdfTextLayerRenderer = (deps: {
         scale: number,
         userUnit: number,
         totalScaleFactor: number,
+        signal?: AbortSignal,
     ) {
+        throwIfAborted(signal);
         clearTextLayerIndexCache(textLayerDiv);
         textLayerDiv.innerHTML = '';
         textLayerDiv.style.setProperty('--scale-factor', String(scale));
@@ -576,27 +590,47 @@ export const usePdfTextLayerRenderer = (deps: {
                     pdfPage.pageNumber,
                     viewport,
                 );
+                throwIfAborted(signal);
                 if (ocrTextContent) {
                     textContent = ocrTextContent;
                 }
             } catch (ocrError) {
+                if (signal?.aborted) {
+                    throw ocrError;
+                }
                 BrowserLogger.warn('pdf-text-layer', 'OCR text content failed', ocrError);
             }
         }
 
-        if (!textContent) {
-            textContent = await pdfPage.getTextContent({
-                includeMarkedContent: true,
-                disableNormalization: true,
-            });
-        }
+        const textContentSource = textContent
+            ?? (
+                typeof pdfPage.streamTextContent === 'function'
+                    ? pdfPage.streamTextContent({
+                        includeMarkedContent: true,
+                        disableNormalization: true,
+                    })
+                    : await pdfPage.getTextContent({
+                        includeMarkedContent: true,
+                        disableNormalization: true,
+                    })
+            );
+        throwIfAborted(signal);
 
         const textLayer = new TextLayer({
-            textContentSource: textContent,
+            textContentSource,
             container: textLayerDiv,
             viewport,
         });
-        await textLayer.render();
+        const abortTextLayer = () => {
+            textLayer.cancel();
+        };
+        signal?.addEventListener('abort', abortTextLayer, { once: true });
+        try {
+            await textLayer.render();
+        } finally {
+            signal?.removeEventListener('abort', abortTextLayer);
+        }
+        throwIfAborted(signal);
         textLayerDiv.style.width = '';
         textLayerDiv.style.height = '';
     }

@@ -9,13 +9,7 @@ import {
     copyFile,
     rm,
 } from 'fs/promises';
-import {
-    join,
-    relative,
-    resolve,
-    sep,
-    isAbsolute,
-} from 'path';
+import {join} from 'path';
 
 export function createWorkingDirectory() {
     const tempDir = app.getPath('temp');
@@ -26,18 +20,6 @@ export function createWorkingDirectory() {
 
 export function isWorkingCopyDirectoryName(name: string) {
     return name.startsWith('pdf-work-');
-}
-
-export function isManagedWorkingCopyDirectory(workDir: string) {
-    const tempDir = resolve(app.getPath('temp'));
-    const resolvedWorkDir = resolve(workDir);
-    const relativePath = relative(tempDir, resolvedWorkDir);
-    return (
-        relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath)
-        && isWorkingCopyDirectoryName(resolvedWorkDir.split(/[\\/]/u).pop() ?? '')
-    );
 }
 
 export async function safeRemoveDirectory(path: string) {

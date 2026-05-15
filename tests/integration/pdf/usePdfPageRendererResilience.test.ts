@@ -109,6 +109,7 @@ vi.mock('@app/composables/pdf/usePdfTextLayerRenderer', () => ({usePdfTextLayerR
 vi.mock('@app/composables/pdf/usePdfAnnotationLayerRenderer', () => ({usePdfAnnotationLayerRenderer: () => annotationLayerRendererMock}));
 
 const { usePdfPageRenderer } = await import('@app/composables/pdf/usePdfPageRenderer');
+const { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } = await import('@app/constants/timeouts');
 
 function createClassList(): IClassList {
     return {
@@ -394,6 +395,70 @@ describe('usePdfPageRenderer resilience', () => {
             expect.stringContaining('Failed to render text layer for page 1'),
             expect.any(Error),
         );
+    });
+
+    it('times out and aborts stalled text layer rendering', async () => {
+        vi.useFakeTimers();
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const onRenderStall = vi.fn();
+        let textLayerSignal: AbortSignal | null = null;
+        let didAbortTextLayer = false;
+
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockImplementation((...args: unknown[]) => {
+            textLayerSignal = args.at(-1) as AbortSignal;
+            textLayerSignal.addEventListener('abort', () => {
+                didAbortTextLayer = true;
+            });
+            return new Promise(() => {});
+        });
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+            onRenderStall,
+        });
+
+        const renderPromise = renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(textLayerSignal).not.toBeNull();
+        await vi.advanceTimersByTimeAsync(PDF_PAGE_TEXT_LAYER_TIMEOUT_MS);
+        await renderPromise;
+
+        expect(didAbortTextLayer).toBe(true);
+        expect(onRenderStall).toHaveBeenCalledWith({
+            pageNumber: 1,
+            stage: 'text-layer',
+            timeoutMs: PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
+        });
+        expect(renderer.isPageRendered(1)).toBe(false);
+        expect(annotationLayerRendererMock.renderAnnotationLayer).not.toHaveBeenCalled();
     });
 
     it('keeps page rendered when annotation layer rendering fails', async () => {

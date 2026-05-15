@@ -113,6 +113,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
 
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
+            currentPage.value = 1;
             resetAnnotationTracking();
             annotationComments.value = [];
             bookmarkItems.value = [];

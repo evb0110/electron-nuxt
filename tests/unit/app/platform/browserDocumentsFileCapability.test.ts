@@ -92,6 +92,7 @@ function createMockElement(tagName: string) {
 }
 
 interface ILoadBrowserDocumentsFileCapabilityOptions {
+    clearSearchCaches?: (pdfPath?: string) => void;
     inputFiles?: File[];
     windowOverrides?: Record<string, unknown>;
 }
@@ -151,7 +152,7 @@ async function loadBrowserDocumentsFileCapability(options?: ILoadBrowserDocument
 
     return {
         BROWSER_MAX_FULL_READ_BYTES,
-        capability: createBrowserDocumentsFileCapability({ clearSearchCaches: () => {} }),
+        capability: createBrowserDocumentsFileCapability({clearSearchCaches: options?.clearSearchCaches ?? (() => {})}),
         browserDocumentStore,
     };
 }
@@ -172,10 +173,11 @@ describe('createBrowserDocumentsFileCapability', () => {
     });
 
     it('cleans up transient source refs via cleanupFile', async () => {
+        const clearSearchCaches = vi.fn();
         const {
             capability,
             browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        } = await loadBrowserDocumentsFileCapability({ clearSearchCaches });
         const ref = await browserDocumentStore.createStoredDocument(
             'picked-image.png',
             new Uint8Array([
@@ -194,6 +196,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         await capability.cleanupFile(ref);
 
         await expect(browserDocumentStore.exists(ref)).resolves.toBe(false);
+        expect(clearSearchCaches).toHaveBeenCalledWith(ref);
     });
 
     it('exposes DjVu files in the browser combine picker', async () => {

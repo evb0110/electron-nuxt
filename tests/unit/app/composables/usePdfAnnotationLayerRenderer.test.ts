@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -32,10 +33,12 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
 vi.mock('@app/utils/platformShell', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
 
 describe('usePdfAnnotationLayerRenderer', () => {
-    it('passes the shared annotation canvas map to PDF.js so stamp appearances can render after reload', async () => {
+    beforeEach(() => {
         annotationLayerCtor.mockClear();
         annotationLayerRender.mockClear();
+    });
 
+    it('passes the shared annotation canvas map to PDF.js so stamp appearances can render after reload', async () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
@@ -87,5 +90,78 @@ describe('usePdfAnnotationLayerRenderer', () => {
             page: pdfPage,
             viewport,
         }));
+    });
+
+    it('serializes hidden annotation UI manager guards and restores original methods', async () => {
+        const firstRender = Promise.withResolvers<undefined>();
+        const secondRender = Promise.withResolvers<undefined>();
+        const originalRenderAnnotationElement = vi.fn();
+        const originalSetMissingCanvas = vi.fn();
+        const annotationUiManager = {
+            renderAnnotationElement: originalRenderAnnotationElement,
+            setMissingCanvas: originalSetMissingCanvas,
+        };
+        annotationLayerRender
+            .mockImplementationOnce(async () => {
+                annotationUiManager.renderAnnotationElement({ data: { id: 'hidden-1' } });
+                await firstRender.promise;
+            })
+            .mockImplementationOnce(async () => {
+                annotationUiManager.renderAnnotationElement({ data: { id: 'visible-1' } });
+                await secondRender.promise;
+            });
+
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(3),
+            currentPage: ref(1),
+            pdfDocument: ref({ annotationStorage: {} } as never),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['hidden-1'])),
+            annotationUiManager: ref(annotationUiManager as never),
+            annotationL10n: ref(null),
+        });
+        const viewport = {
+            width: 200,
+            height: 300,
+            rotation: 0,
+        };
+        const pdfPage = {getAnnotations: vi.fn(async () => [])} as never;
+        const annotationLayerDiv = {
+            innerHTML: '',
+            querySelectorAll: vi.fn(() => []),
+        };
+
+        const firstPromise = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            1,
+        );
+        const secondPromise = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            2,
+        );
+
+        await vi.waitFor(() => {
+            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
+        });
+        expect(originalRenderAnnotationElement).not.toHaveBeenCalled();
+
+        firstRender.resolve(undefined);
+        await vi.waitFor(() => {
+            expect(annotationLayerRender).toHaveBeenCalledTimes(2);
+        });
+        secondRender.resolve(undefined);
+        await Promise.all([
+            firstPromise,
+            secondPromise,
+        ]);
+
+        expect(originalRenderAnnotationElement).toHaveBeenCalledTimes(1);
+        expect(originalRenderAnnotationElement).toHaveBeenCalledWith({ data: { id: 'visible-1' } });
+        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
+        expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
     });
 });

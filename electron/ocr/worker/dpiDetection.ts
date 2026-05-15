@@ -1,7 +1,7 @@
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import {
     runOcrCommand,
-    type IRunCommandOptions,
+    type IOcrRunCommandOptions,
 } from '@electron/ocr/worker/runCommand';
 import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';
@@ -19,7 +19,7 @@ export async function detectSourceDpi(
     }
 
     try {
-        const commandOptions: IRunCommandOptions = {
+        const commandOptions: IOcrRunCommandOptions = {
             commandLabel: 'pdfimages(-list)',
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
             log,

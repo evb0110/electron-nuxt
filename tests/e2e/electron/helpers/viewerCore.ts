@@ -422,7 +422,7 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
 }
 
 export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
-    const point = await page.evaluate((args: {
+    const clicked = await evaluateInPage(page, (args: {
         label: string;
         iconHints: string[];
     }) => {
@@ -452,21 +452,18 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         });
 
         if (!target) {
-            return null;
+            return false;
         }
 
-        const rect = target.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
+        target.click();
+        return true;
     }, {
         label: ariaLabel,
         iconHints: getToolbarActionIconHints(ariaLabel),
     });
 
-    if (!point) {
-        const overflowPoint = await page.evaluate(() => {
+    if (!clicked) {
+        const overflowPoint = await evaluateInPage(page, () => {
             const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], .toolbar-icon-button'))
                 .find((candidate) => {
                     const element = candidate as HTMLElement;
@@ -659,7 +656,6 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         return;
     }
 
-    await page.mouse.click(point.x, point.y);
 }
 
 export async function clickToolbarButtonWhenEnabled(

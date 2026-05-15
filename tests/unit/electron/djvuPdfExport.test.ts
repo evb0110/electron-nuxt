@@ -164,6 +164,8 @@ describe('handleDjvuConvertToPdf', () => {
             pdfPath: '/tmp/output.pdf',
             jobId: 'djvu-convert-convert-123',
         });
+        expect(mocks.getDjvuPageCount).toHaveBeenCalledWith(trustedDjvuPath, {signal: expect.any(AbortSignal)});
+        expect(mocks.getDjvuOutline).toHaveBeenCalledWith(trustedDjvuPath, {signal: expect.any(AbortSignal)});
         expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         expect(mocks.embedBookmarksIntoPdfFile).toHaveBeenCalledTimes(1);
@@ -211,6 +213,45 @@ describe('handleDjvuConvertToPdf', () => {
 
         expect(cancelResult).toEqual({canceled: true});
         expect(mocks.bookmarkTaskState.workerTerminate).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: 'DjVu conversion canceled',
+        });
+    });
+
+    it('aborts pending metadata commands when cancel is requested', async () => {
+        mocks.getDjvuPageCount.mockImplementationOnce((
+            _filePath: string,
+            options?: { signal?: AbortSignal },
+        ) => new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+                const error = new Error('DjVu conversion canceled');
+                error.name = 'AbortError';
+                reject(error);
+            });
+        }));
+
+        const convertPromise = handleDjvuConvertToPdf(
+            {sender: {id: 7}} as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {preserveBookmarks: true},
+        );
+
+        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
+        const cancelResult = handleDjvuCancel(
+            {sender: {id: 7}} as never,
+            'djvu-convert-convert-123',
+        );
+        const result = await convertPromise;
+
+        expect(cancelResult).toEqual({canceled: true});
+        expect(metadataOptions?.signal?.aborted).toBe(true);
+        expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
         expect(result).toEqual({
             success: false,
             jobId: 'djvu-convert-convert-123',

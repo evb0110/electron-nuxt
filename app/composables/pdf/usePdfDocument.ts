@@ -97,7 +97,7 @@ export const usePdfDocument = () => {
             if (typeof oldestPageNumber !== 'number') {
                 break;
             }
-            pdfPageCache.delete(oldestPageNumber);
+            evictPage(oldestPageNumber);
         }
     }
 

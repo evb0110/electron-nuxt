@@ -126,10 +126,19 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             await options.restoreSplitPayload(payload);
             options.workspaceSplitCache.consume(options.tabId, cached.id);
         } catch (error) {
+            const consumedPayload = options.workspaceSplitCache.consume(options.tabId, cached.id) ?? payload;
             BrowserLogger.warn('workspace', 'Failed to restore cached split payload', {
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 error,
+            });
+            await cleanupSplitPayloadSnapshot(consumedPayload, {
+                logSection: 'workspace',
+                context: 'failed-cached-split-restore',
+                metadata: {
+                    tabId: options.tabId,
+                    payloadKind: payload.kind,
+                },
             });
         } finally {
             options.isRestoringSplitPayload.value = false;

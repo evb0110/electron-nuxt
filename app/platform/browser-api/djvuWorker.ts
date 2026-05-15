@@ -1,10 +1,12 @@
-import type { TDocumentRef } from '@contracts/platformApi';
+import type {
+    IDocumentsCapability,
+    TDocumentRef,
+} from '@contracts/platformApi';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
 import { loadDjvuJs } from '@app/platform/browser-api/djvujsLoader';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -45,8 +47,24 @@ async function readBrowserDocumentBytes(path: TDocumentRef) {
     return offset === size ? output : output.slice(0, offset);
 }
 
+function getDesktopDocumentsCapability(path: TDocumentRef) {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const documents = (window as Window & {electronAPI?: { documents?: IDocumentsCapability };}).electronAPI?.documents;
+    if (!documents) {
+        throw new Error(`Browser document not found: ${path}`);
+    }
+    return documents;
+}
+
 async function readDesktopDocumentBytes(path: TDocumentRef) {
-    const documents = getDocumentsCapability();
+    const documents = getDesktopDocumentsCapability(path);
+    if (!documents) {
+        return readBrowserDocumentBytes(path);
+    }
+
     const { size } = await documents.statFile(path);
     if (size <= 0) {
         return new Uint8Array();

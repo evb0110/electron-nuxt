@@ -47,7 +47,7 @@ import { stripPdfEncryption } from '@app/utils/pdfDecrypt';
 export { createCombinedPdfFromPaths };
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {
-    clearSearchCaches: () => void;
+    clearSearchCaches: (pdfPath?: string) => void;
     errorMessageProvider?: { largeSaveHandleHint: () => string; };
 }
 const defaultBrowserLargeSaveHandleHintProvider = () => (
@@ -460,10 +460,13 @@ export function createBrowserDocumentsFileCapability(
             if (sourceRef !== path) {
                 await browserDocumentStore.remove(path);
                 await browserDocumentStore.cleanupDetachedDocument(sourceRef);
+                clearSearchCaches(path);
+                clearSearchCaches(sourceRef);
                 return;
             }
 
             await browserDocumentStore.cleanupDetachedDocument(path);
+            clearSearchCaches(path);
         },
         async cleanupOcrTemp(_path) {},
         setWindowTitle(title) {
@@ -496,9 +499,11 @@ export function createBrowserDocumentsFileCapability(
             },
             async remove(path) {
                 await browserDocumentStore.removeRecentFile(path);
+                clearSearchCaches(path);
             },
             async clear() {
                 await browserDocumentStore.clearRecentFiles();
+                clearSearchCaches();
             },
         },
         getPathForFile(file) {
