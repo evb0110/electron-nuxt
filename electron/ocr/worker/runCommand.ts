@@ -4,7 +4,7 @@ import {
 } from '@electron/native-tools/commandRunner';
 import type { IRunCommandResult } from '@electron/ocr/worker/types';
 
-export interface IRunCommandOptions {
+export interface IOcrRunCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
@@ -17,7 +17,7 @@ export interface IRunCommandOptions {
 export async function runOcrCommand(
     command: string,
     args: string[],
-    options: IRunCommandOptions = {},
+    options: IOcrRunCommandOptions = {},
 ): Promise<IRunCommandResult> {
     const {
         cwd,

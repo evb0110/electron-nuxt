@@ -416,7 +416,7 @@ function handleWorkerResourceMessage(
 
     void ocrResourceGovernor.acquire(resourceRequest).then((lease) => {
         const active = activeJobs.get(scopedJobId);
-        if (!active || active.completed || active.terminatedByUs) {
+        if (!active || active.worker !== worker || active.completed || active.terminatedByUs) {
             ocrResourceGovernor.release(lease.token);
             return;
         }
@@ -438,6 +438,7 @@ function handleWorkerMessage(
     scopedJobId: string,
     requestId: string,
     webContentsId: number,
+    worker: Worker,
     message: TOcrWorkerManagerMessage,
 ) {
     const window = getJobWindow(webContentsId);
@@ -457,11 +458,19 @@ function handleWorkerMessage(
                 log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${requestId}")`);
                 return;
             }
+            if (!isCurrentActiveWorker(scopedJobId, worker)) {
+                log.debug(`Ignoring late OCR progress for inactive job "${requestId}"`);
+                return;
+            }
             safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, message.progress);
             return;
         case 'complete': {
             if (message.jobId !== requestId) {
                 log.warn(`Ignoring OCR completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
+                return;
+            }
+            if (!isCurrentActiveWorker(scopedJobId, worker)) {
+                log.debug(`Ignoring late OCR completion for inactive job "${requestId}"`);
                 return;
             }
             if (message.result.success) {
@@ -480,6 +489,11 @@ function handleWorkerMessage(
         default:
             assertNever(message);
     }
+}
+
+function isCurrentActiveWorker(scopedJobId: string, worker: Worker) {
+    const activeJob = activeJobs.get(scopedJobId);
+    return Boolean(activeJob && activeJob.worker === worker && !activeJob.completed && !activeJob.terminatedByUs);
 }
 
 function startQueuedJob(job: IOcrQueuedJob) {
@@ -519,7 +533,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
             log.warn(`Ignoring malformed OCR worker message for job ${job.requestId}`);
             return;
         }
-        handleWorkerMessage(job.scopedJobId, job.requestId, job.webContentsId, parsedMessage);
+        handleWorkerMessage(job.scopedJobId, job.requestId, job.webContentsId, worker, parsedMessage);
     });
 
     worker.on('error', (err: Error) => {

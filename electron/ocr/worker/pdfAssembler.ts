@@ -6,7 +6,7 @@ import { join } from 'path';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import {
     runOcrCommand,
-    type IRunCommandOptions,
+    type IOcrRunCommandOptions,
 } from '@electron/ocr/worker/runCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 
@@ -36,7 +36,7 @@ export async function getPageCount(
     signal?: AbortSignal,
 ): Promise<number> {
     try {
-        const commandOptions: IRunCommandOptions = {
+        const commandOptions: IOcrRunCommandOptions = {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(show-npages)',
         };
@@ -137,7 +137,7 @@ export async function assembleSearchablePdf(
     await writeQpdfArgFile(argFilePath, args);
     throwIfAborted(signal);
 
-    const commandOptions: IRunCommandOptions = {
+    const commandOptions: IOcrRunCommandOptions = {
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(ocr-assemble)',

@@ -685,7 +685,6 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
                     'vendor-vueuse': [
                         '@vueuse/core',
                         '@vueuse/math',
-                        '@vueuse/router',
                     ],
                 }},
             },
@@ -694,7 +693,6 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             include: [
                 '@vueuse/core',
                 '@vueuse/math',
-                '@vueuse/router',
                 'devalue',
                 'unhead',
                 '@unhead/vue',

@@ -6,6 +6,7 @@ import type {
 import type { TPdfViewMode } from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { ZOOM } from '@app/constants/pdfLayout';
 import {
     normalizePageMetrics,
     resolveCurrentSpreadBaseWidth,
@@ -177,7 +178,7 @@ export const usePdfScale = (
 
         rememberFitDimensions(rawSize, baseDimension);
 
-        const newScale = availableSize / baseDimension;
+        const newScale = Math.min(availableSize / baseDimension, ZOOM.MAX);
 
         if (Math.abs(newScale - fitWidthScale.value) < 0.001) {
             BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
@@ -238,7 +239,7 @@ export const usePdfScale = (
         const baseDimension = mode === 'height'
             ? resolveFitHeightBaseDimension(normalizedPageMetrics, height)
             : width;
-        const expectedScale = availableSize / baseDimension;
+        const expectedScale = Math.min(availableSize / baseDimension, ZOOM.MAX);
 
         return Math.abs(expectedScale - fitWidthScale.value) < 0.001;
     }

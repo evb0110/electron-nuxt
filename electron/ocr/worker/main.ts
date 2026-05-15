@@ -61,7 +61,7 @@ import {
 } from '@electron/ocr/worker/indexWriter';
 import {
     runOcrCommand,
-    type IRunCommandOptions,
+    type IOcrRunCommandOptions,
 } from '@electron/ocr/worker/runCommand';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -283,7 +283,7 @@ async function renderPdfPageToPng(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
 ) {
-    const commandOptions: IRunCommandOptions = {
+    const commandOptions: IOcrRunCommandOptions = {
         commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
         timeoutMs: PDFTOPPM_TIMEOUT_MS,
         log,
@@ -318,7 +318,7 @@ async function preparePdfForPoppler(
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
-        const commandOptions: IRunCommandOptions = {
+        const commandOptions: IOcrRunCommandOptions = {
             commandLabel: 'qpdf(poppler-preflight)',
             allowedExitCodes: [
                 0,

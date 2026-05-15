@@ -38,6 +38,7 @@
     ],
     "ignoreDependencies": [
         "@iconify-json/circle-flags",
+        "@iconify-json/ph",
         "@iconify-json/lucide",
         "@iconify/utils",
         "@intlify/core",

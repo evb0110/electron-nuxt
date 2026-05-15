@@ -29,7 +29,7 @@ import {
     normalizeTranslationParams,
 } from '@i18n-core';
 
-interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: () => void;}
+interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void;}
 
 function getBrowserLocale(): TLocale {
     const cookieMatch = typeof document !== 'undefined'

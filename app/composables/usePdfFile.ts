@@ -245,6 +245,9 @@ export const usePdfFile = () => {
                     workingPath: result.workingPath,
                 },
             );
+            if (pdfSrc.value) {
+                pdfSrc.value = null;
+            }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
             if (workingCopyPath.value !== result.workingPath) {
                 BrowserLogger.debug(

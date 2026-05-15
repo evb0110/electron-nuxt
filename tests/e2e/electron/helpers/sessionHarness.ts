@@ -55,6 +55,14 @@ async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEO
     }, { timeout: timeoutMs });
 }
 
+async function installPageEvaluationShims(page: Page) {
+    const install = () => {
+        (window as Window & { __name?: <TFunction extends (...args: never[]) => unknown>(fn: TFunction) => TFunction }).__name = fn => fn;
+    };
+    await page.evaluateOnNewDocument(install);
+    await page.evaluate(install);
+}
+
 async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY_TIMEOUT_MS) {
     const start = Date.now();
 
@@ -141,6 +149,7 @@ async function connectToSessionPage(sessionName: string) {
         await page.goto(`http://127.0.0.1:${nuxtPort}/`, {waitUntil: 'domcontentloaded'});
     }
 
+    await installPageEvaluationShims(page);
     await waitForRendererReady(page);
 
     return {

@@ -18,6 +18,7 @@ import {
     openPdfInApp,
     waitForPdfLoaded,
 } from './helpers/viewerHelpers';
+import { waitForFunctionInPage } from './helpers/pageRuntime';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -88,6 +89,7 @@ async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
         viewer.scrollTop = Math.max(0, firstPage.offsetTop + firstPage.offsetHeight - viewer.clientHeight);
         viewer.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
+    await new Promise(resolve => setTimeout(resolve, 500));
 }
 
 describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
@@ -117,13 +119,13 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
         expect(initial.visiblePages).toContain(1);
 
         await scrollToBottomOfPageOne(session);
-        await session.page.waitForFunction(() => {
+        await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
             return Boolean(viewer && viewer.scrollTop > 100);
         }, { timeout: 5_000 });
 
         await clickVisibleToolbarButton(session.page, 'Next Page');
-        await session.page.waitForFunction(() => {
+        await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
             if (!viewer) {
                 return false;
@@ -142,13 +144,13 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
 
         const beforeZoom = await readViewerSmokeSnapshot(session);
         await clickVisibleToolbarButton(session.page, 'Zoom In');
-        await session.page.waitForFunction((previousWidth: number) => {
+        await waitForFunctionInPage(session.page, (previousWidth: number) => {
             const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
             return Boolean(pageElement && pageElement.getBoundingClientRect().width > previousWidth + 5);
         }, { timeout: 5_000 }, beforeZoom.firstPageWidth);
 
         await clickVisibleToolbarButton(session.page, 'Fit Height');
-        await session.page.waitForFunction((previousHeight: number) => {
+        await waitForFunctionInPage(session.page, (previousHeight: number) => {
             const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
             return Boolean(pageElement && Math.abs(pageElement.getBoundingClientRect().height - previousHeight) > 5);
         }, { timeout: 5_000 }, beforeZoom.firstPageHeight);
@@ -158,6 +160,9 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
         if (!session) {
             throw new Error('Viewer smoke session was not initialized');
         }
+
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-viewer-smoke-image-${Date.now()}`);
 
         const pngPath = createPngFixture(`viewer-smoke-image-${Date.now()}.png`);
         await openPdfInApp(session.page, pngPath);

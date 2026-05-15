@@ -1,4 +1,4 @@
-export type TPageRenderStallStage = 'page-load' | 'canvas-render';
+export type TPageRenderStallStage = 'page-load' | 'canvas-render' | 'text-layer';
 
 export interface IPageRenderStallPayload {
     pageNumber: number;

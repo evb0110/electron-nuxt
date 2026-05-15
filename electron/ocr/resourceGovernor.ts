@@ -35,6 +35,7 @@ interface IOcrResourceLease {
 interface IQueuedResourceRequest {
     request: IOcrResourceRequest;
     resolve: (lease: IOcrResourceLease & { effectiveDpi: number }) => void;
+    reject: (error: Error) => void;
 }
 
 function parsePositiveInt(value: string | undefined): number | null {
@@ -132,13 +133,14 @@ class OcrResourceGovernor {
             };
         }
 
-        return new Promise<IOcrResourceLease & { effectiveDpi: number }>((resolve) => {
+        return new Promise<IOcrResourceLease & { effectiveDpi: number }>((resolve, reject) => {
             this.queue.push({
                 request: {
                     ...request,
                     requestedDpi: effectiveDpi,
                 },
                 resolve,
+                reject,
             });
             log.debug(
                 `[${request.jobId}] Queued OCR resource request for page ${request.pageNumber}; active=${this.activeLeases.size}/${this.currentSlotLimit}, queued=${this.queue.length}`,
@@ -163,13 +165,19 @@ class OcrResourceGovernor {
             }
         }
 
-        this.queue = this.queue.filter(item => item.request.jobId !== jobId);
+        this.settleQueuedRequests(
+            item => item.request.jobId === jobId,
+            `OCR resource request cancelled for job ${jobId}`,
+        );
         this.dispatch();
     }
 
     reset() {
         this.activeLeases.clear();
-        this.queue = [];
+        this.settleQueuedRequests(
+            () => true,
+            'OCR resource governor reset',
+        );
         this.currentSlotLimit = NORMAL_PAGE_SLOTS;
     }
 
@@ -199,6 +207,21 @@ class OcrResourceGovernor {
         if (this.activeLeases.size === 0 && this.queue.length === 0) {
             this.currentSlotLimit = NORMAL_PAGE_SLOTS;
         }
+    }
+
+    private settleQueuedRequests(
+        predicate: (item: IQueuedResourceRequest) => boolean,
+        reason: string,
+    ) {
+        const remaining: IQueuedResourceRequest[] = [];
+        for (const item of this.queue) {
+            if (predicate(item)) {
+                item.reject(new Error(reason));
+            } else {
+                remaining.push(item);
+            }
+        }
+        this.queue = remaining;
     }
 }
 

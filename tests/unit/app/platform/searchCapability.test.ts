@@ -53,6 +53,25 @@ class FakeObjectStore {
         return cast<IDBRequest<unknown>>(request);
     }
 
+    public clear() {
+        const request = new FakeIdbRequest<undefined>();
+        queueMicrotask(() => {
+            this.records.clear();
+            request.result = undefined;
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<undefined>>(request);
+    }
+
+    public getAll() {
+        const request = new FakeIdbRequest<unknown[]>();
+        queueMicrotask(() => {
+            request.result = Array.from(this.records.values());
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<unknown[]>>(request);
+    }
+
     public getAllKeys() {
         const request = new FakeIdbRequest<IDBValidKey[]>();
         queueMicrotask(() => {
@@ -64,9 +83,16 @@ class FakeObjectStore {
 }
 
 class FakeTransaction {
+    public onabort: (() => void) | null = null;
+    public onerror: (() => void) | null = null;
+    public oncomplete: (() => void) | null = null;
+
     public constructor(private readonly store: FakeObjectStore) {}
 
     public objectStore(_name: string) {
+        queueMicrotask(() => {
+            this.oncomplete?.();
+        });
         return cast<IDBObjectStore>(this.store);
     }
 }
@@ -99,6 +125,11 @@ class FakeDatabase {
         return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store.records, store.keyPath)));
     }
 
+    public getStoreRecords(name: string) {
+        const store = this.storesByName.get(name);
+        return store?.records ?? new Map<string, unknown>();
+    }
+
     public close() {}
 }
 
@@ -122,6 +153,10 @@ class FakeIndexedDbFactory {
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBOpenDBRequest>(request);
+    }
+
+    public getDatabase(name: string) {
+        return this.databases.get(name) ?? null;
     }
 }
 
@@ -255,6 +290,41 @@ describe('createBrowserSearchCapability', () => {
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
     });
 
+    it('prunes persisted browser page text indexes by LRU record limit', async () => {
+        let documentIndex = 0;
+        pdfjsModule.getDocument.mockImplementation(() => {
+            documentIndex += 1;
+            const pageText = `document ${documentIndex} foo`;
+            return { promise: Promise.resolve({
+                numPages: 1,
+                getPage: vi.fn(async () => ({
+                    getTextContent: vi.fn(async () => ({items: [{str: pageText}]})),
+                    cleanup: vi.fn(async () => {}),
+                })),
+                destroy: vi.fn(async () => {}),
+            }) };
+        });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        for (let index = 1; index <= 13; index += 1) {
+            await capability.warmIndex(`/tmp/lru-${index}.pdf`);
+        }
+
+        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
+        expect(database?.getStoreRecords('document-text').size).toBe(12);
+        expect(database?.getStoreRecords('document-text').has('/tmp/lru-1.pdf')).toBe(false);
+        expect(database?.getStoreRecords('document-text').has('/tmp/lru-13.pdf')).toBe(true);
+    });
+
     it('rejects browser search for oversized documents before loading PDF.js', async () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
 
@@ -317,6 +387,35 @@ describe('createBrowserSearchCapability', () => {
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
         expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('assigns page match indexes without scanning prior results', async () => {
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'foo foo foo'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const result = await capability.run('/tmp/test.pdf', 'foo');
+
+        expect(result.results.map((match) => match.pageMatchIndex)).toEqual([
+            0,
+            1,
+            2,
+        ]);
     });
 
     it('cancels active direct browser extraction when search is canceled', async () => {
