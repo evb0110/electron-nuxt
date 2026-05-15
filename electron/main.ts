@@ -194,7 +194,6 @@ const externalOpenManager = createExternalOpenManager({
         readyWindowIds.clear();
         await createWindow();
     },
-    grantOpenPaths: allowOpenPaths,
     dispatchOpenPaths: (paths) => {
         const window = resolveExternalOpenDispatchWindow({
             mainWindow: getMainWindow(),
@@ -204,6 +203,7 @@ const externalOpenManager = createExternalOpenManager({
             return false;
         }
 
+        allowOpenPaths(paths, window.webContents);
         return sendToWindow(window, 'menu:openExternalPaths', paths);
     },
 });
