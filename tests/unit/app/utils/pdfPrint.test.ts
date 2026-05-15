@@ -389,8 +389,8 @@ describe('pdfPrint', () => {
                     height: 200,
                 }
                 : {
-                    width: 200,
-                    height: 400,
+                    width: 416.6666666666667,
+                    height: 833.3333333333334,
                 }),
             render: vi.fn(() => ({ promise: Promise.resolve() })),
         };
@@ -402,8 +402,8 @@ describe('pdfPrint', () => {
                     height: 180,
                 }
                 : {
-                    width: 240,
-                    height: 360,
+                    width: 500,
+                    height: 750,
                 }),
             render: vi.fn(() => ({ promise: Promise.resolve() })),
         };
@@ -432,16 +432,16 @@ describe('pdfPrint', () => {
             canvas: firstCanvas,
             canvasContext: expect.any(Object),
             viewport: {
-                width: 200,
-                height: 400,
+                width: 416.6666666666667,
+                height: 833.3333333333334,
             },
         }));
         expect(secondPage.render).toHaveBeenCalledWith(expect.objectContaining({
             canvas: secondCanvas,
             canvasContext: expect.any(Object),
             viewport: {
-                width: 240,
-                height: 360,
+                width: 500,
+                height: 750,
             },
         }));
         expect(firstCanvas.style).toEqual({
@@ -506,8 +506,8 @@ describe('pdfPrint', () => {
                     height: 200,
                 }
                 : {
-                    width: 200,
-                    height: 400,
+                    width: 416.6666666666667,
+                    height: 833.3333333333334,
                 }),
             render: vi.fn(() => ({ promise: Promise.resolve() })),
         };
