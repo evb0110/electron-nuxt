@@ -419,6 +419,8 @@ describe('pdfPrint', () => {
         expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getPdfjsWorkerUrl());
         expect(root.replaceChildren).toHaveBeenCalledTimes(1);
         expect(root.append).toHaveBeenCalledTimes(2);
+        expect(createdSections[0]?.className).toBe('browser-print-page browser-print-page-portrait');
+        expect(createdSections[1]?.className).toBe('browser-print-page browser-print-page-portrait');
         expect(firstPage.render).toHaveBeenCalledWith(expect.objectContaining({
             canvas: firstCanvas,
             canvasContext: expect.any(Object),
@@ -531,5 +533,7 @@ describe('pdfPrint', () => {
     it('builds a browser-print frame shell with a dedicated print root', () => {
         expect(buildBrowserPrintFrameMarkup()).toContain('data-browser-print-root');
         expect(buildBrowserPrintFrameMarkup()).toContain('.browser-print-page');
+        expect(buildBrowserPrintFrameMarkup()).toContain('@page browser-print-portrait');
+        expect(buildBrowserPrintFrameMarkup()).toContain('@page browser-print-landscape');
     });
 });

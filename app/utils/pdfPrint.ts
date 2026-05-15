@@ -94,6 +94,16 @@ export function buildBrowserPrintFrameMarkup() {
             margin: 0;
         }
 
+        @page browser-print-portrait {
+            size: portrait;
+            margin: 0;
+        }
+
+        @page browser-print-landscape {
+            size: landscape;
+            margin: 0;
+        }
+
         html, body {
             margin: 0;
             width: 100%;
@@ -115,6 +125,14 @@ export function buildBrowserPrintFrameMarkup() {
             box-sizing: border-box;
             background: #ffffff;
             overflow: hidden;
+        }
+
+        .browser-print-page-portrait {
+            page: browser-print-portrait;
+        }
+
+        .browser-print-page-landscape {
+            page: browser-print-landscape;
         }
 
         .browser-print-page:last-child {
@@ -228,8 +246,11 @@ export async function renderPdfPagesForBrowserPrint(
             try {
                 const displayViewport = page.getViewport({ scale: 1 });
                 const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
+                const printOrientationClass = displayViewport.width > displayViewport.height
+                    ? 'browser-print-page-landscape'
+                    : 'browser-print-page-portrait';
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
-                pageContainer.className = 'browser-print-page';
+                pageContainer.className = `browser-print-page ${printOrientationClass}`;
                 pageContainer.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
                 pageContainer.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
 
