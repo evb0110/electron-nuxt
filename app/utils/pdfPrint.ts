@@ -182,6 +182,14 @@ function createBrowserPrintPageContainer(targetDocument: IBrowserPrintDocument) 
 }
 
 function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
+    if (
+        typeof document !== 'undefined'
+        && document !== targetDocument
+        && typeof document.createElement === 'function'
+    ) {
+        return document.createElement('canvas') as unknown as IBrowserPrintCanvas;
+    }
+
     return targetDocument.createElement('canvas') as IBrowserPrintCanvas;
 }
 
