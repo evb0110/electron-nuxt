@@ -104,7 +104,10 @@ import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
 import { useViewerLoadSettle } from '@app/composables/pdf/useViewerLoadSettle';
 import { useViewportPagePin } from '@app/composables/pdf/useViewportPagePin';
 import { usePdfViewerScrollSnapshot } from '@app/composables/pdf/usePdfViewerScrollSnapshot';
-import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/composables/pdf/pdfHorizontalScrollClamp';
+import {
+    getCurrentSpreadRenderedBoundsFromMetrics,
+    resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp,
+} from '@app/composables/pdf/pdfHorizontalScrollClamp';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
 import type {
@@ -971,6 +974,29 @@ function shouldShowPageSkeleton(page: number) {
     return !isViewerLoadingOverlayVisible.value && shouldShowSkeleton(page);
 }
 
+const isActiveSpreadHorizontalScrollLocked = computed(() => {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+
+    const renderedSpreadBounds = getCurrentSpreadRenderedBoundsFromMetrics({
+        container,
+        basePageWidth: basePageWidth.value,
+        basePageHeight: basePageHeight.value,
+        numPages: numPages.value,
+        pageMetrics: pageMetrics.value,
+        currentPage: currentPage.value,
+        viewMode: viewMode.value,
+        effectiveScale: effectiveScale.value,
+        scaledMargin: scaledMargin.value,
+    });
+
+    return renderedSpreadBounds
+        ? renderedSpreadBounds.width <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+        : container.scrollWidth <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX;
+});
+
 const viewerClass = computed(() => ({
     'pdfViewer--saving': isAnySaving.value,
     'is-dragging': isDragging.value,
@@ -985,9 +1011,24 @@ const viewerClass = computed(() => ({
     'pdfViewer--fit-width': zoomMode.value === 'fit-width',
     'pdfViewer--fit-width-page-fits': fitWidthHorizontalScrollLocked.value,
     'pdfViewer--fit-height': fitMode.value === 'height',
+    'pdfViewer--active-spread-fits-width': isActiveSpreadHorizontalScrollLocked.value,
     'pdfViewer--resize-transition': resizeTransitionVisible.value,
     'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed.value,
 }));
+
+function resolveActiveSpreadHorizontalScrollLock() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+
+    const shouldLock = isActiveSpreadHorizontalScrollLocked.value;
+    if (shouldLock && container.scrollLeft !== 0) {
+        container.scrollLeft = 0;
+    }
+
+    return shouldLock;
+}
 
 function resolveHorizontalScrollClampForActiveSpread() {
     const container = viewerContainer.value;
@@ -1030,6 +1071,10 @@ function syncHorizontalScrollForZoomMode() {
             container.scrollLeft = scrollClamp.scrollLeft;
         }
         return scrollClamp.shouldLock;
+    }
+
+    if (resolveActiveSpreadHorizontalScrollLock()) {
+        return true;
     }
 
     if (
@@ -1456,6 +1501,11 @@ defineExpose({
 
     &.pdfViewer--fit-height {
         overflow-x: auto;
+    }
+
+    &.pdfViewer--active-spread-fits-width {
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
     }
 
     &.pdfViewer--fit-width-page-fits {
