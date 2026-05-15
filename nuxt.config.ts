@@ -428,6 +428,13 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
 
     devServer: {port: 3235},
 
+    ignore: [
+        'resources/djvulibre/**',
+        'resources/poppler/**',
+        'resources/qpdf/**',
+        'resources/tesseract/**',
+    ],
+
     colorMode: {
         preference: 'light',
         storage: 'cookie',
