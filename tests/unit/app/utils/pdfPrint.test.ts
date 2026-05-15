@@ -349,11 +349,16 @@ describe('pdfPrint', () => {
             className: string;
             style: Record<string, string>;
         }> = [];
+        const head = {appendChild: vi.fn()};
         const createdCanvases = [
             firstCanvas,
             secondCanvas,
         ];
-        function createElement(tag: 'canvas' | 'section') {
+        function createElement(tag: 'canvas' | 'section' | 'style') {
+            if (tag === 'style') {
+                return { textContent: '' };
+            }
+
             if (tag === 'section') {
                 const section = {
                     append: vi.fn(),
@@ -371,10 +376,11 @@ describe('pdfPrint', () => {
             return canvas;
         }
 
-        const targetDocument: IBrowserPrintDocument = {
+        const targetDocument = {
             createElement,
+            head,
             querySelector: () => root,
-        };
+        } as IBrowserPrintDocument & { head: typeof head };
         const firstPage = {
             cleanup: vi.fn(),
             getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
@@ -419,8 +425,9 @@ describe('pdfPrint', () => {
         expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getPdfjsWorkerUrl());
         expect(root.replaceChildren).toHaveBeenCalledTimes(1);
         expect(root.append).toHaveBeenCalledTimes(2);
-        expect(createdSections[0]?.className).toBe('browser-print-page browser-print-page-portrait');
-        expect(createdSections[1]?.className).toBe('browser-print-page browser-print-page-portrait');
+        expect(head.appendChild).toHaveBeenCalledWith(expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));
+        expect(createdSections[0]?.className).toBe('browser-print-page');
+        expect(createdSections[1]?.className).toBe('browser-print-page');
         expect(firstPage.render).toHaveBeenCalledWith(expect.objectContaining({
             canvas: firstCanvas,
             canvasContext: expect.any(Object),
@@ -445,14 +452,8 @@ describe('pdfPrint', () => {
             height: '2.5in',
             width: '1.6667in',
         });
-        expect(createdSections[0]?.style).toEqual({
-            height: '2.7778in',
-            width: '1.3889in',
-        });
-        expect(createdSections[1]?.style).toEqual({
-            height: '2.5in',
-            width: '1.6667in',
-        });
+        expect(createdSections[0]?.style).toEqual({});
+        expect(createdSections[1]?.style).toEqual({});
         expect(firstPage.cleanup).toHaveBeenCalledTimes(1);
         expect(secondPage.cleanup).toHaveBeenCalledTimes(1);
         expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
@@ -477,7 +478,11 @@ describe('pdfPrint', () => {
             style: {},
         };
         const targetDocument: IBrowserPrintDocument = {
-            createElement: vi.fn((tag: 'canvas' | 'section') => {
+            createElement: vi.fn((tag: 'canvas' | 'section' | 'style') => {
+                if (tag === 'style') {
+                    return { textContent: '' };
+                }
+
                 if (tag === 'section') {
                     return printSection;
                 }
@@ -533,9 +538,7 @@ describe('pdfPrint', () => {
     it('builds a browser-print frame shell with a dedicated print root', () => {
         expect(buildBrowserPrintFrameMarkup()).toContain('data-browser-print-root');
         expect(buildBrowserPrintFrameMarkup()).toContain('.browser-print-page');
-        expect(buildBrowserPrintFrameMarkup()).toContain('@page browser-print-portrait');
-        expect(buildBrowserPrintFrameMarkup()).toContain('@page browser-print-landscape');
-        expect(buildBrowserPrintFrameMarkup()).toContain('size: A4 portrait');
-        expect(buildBrowserPrintFrameMarkup()).toContain('size: A4 landscape');
+        expect(buildBrowserPrintFrameMarkup()).toContain('break-before: page');
+        expect(buildBrowserPrintFrameMarkup()).toContain('max-height: 100%');
     });
 });
