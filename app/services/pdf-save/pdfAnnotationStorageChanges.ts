@@ -34,6 +34,26 @@ function getExistingPdfAnnotationIdFromStorageValue(value: unknown) {
     return null;
 }
 
+function isDeletedEditorOnlyStorageValue(value: unknown) {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    return (value as Record<string, unknown>).deleted === true
+        && !getExistingPdfAnnotationIdFromStorageValue(value);
+}
+
+function resetCachedModifiedIds(storage: unknown) {
+    if (!storage || typeof storage !== 'object') {
+        return;
+    }
+
+    const resetModifiedIds = (storage as { resetModifiedIds?: unknown }).resetModifiedIds;
+    if (typeof resetModifiedIds === 'function') {
+        resetModifiedIds.call(storage);
+    }
+}
+
 export function collectLivePdfJsAnnotationChangeIds(
     document: PDFDocumentProxy | null | undefined,
 ): IPdfLiveAnnotationChangeSummary {
@@ -47,13 +67,24 @@ export function collectLivePdfJsAnnotationChangeIds(
 
     try {
         const storage = document.annotationStorage;
+        resetCachedModifiedIds(storage);
         const ids = new Set<string>();
         const serializableRuntimeIdsMappedToPdfRefs = new Set<string>();
+        const deletedEditorOnlyRuntimeIds = new Set<string>();
         const serializableMap = storage?.serializable?.map;
+        let hasSerializableChanges = false;
 
         if (serializableMap instanceof Map && serializableMap.size > 0) {
             serializableMap.forEach((value: unknown, key: unknown) => {
                 const keyId = normalizePdfJsAnnotationId(typeof key === 'string' ? key : String(key));
+                if (isDeletedEditorOnlyStorageValue(value)) {
+                    if (keyId) {
+                        deletedEditorOnlyRuntimeIds.add(keyId);
+                    }
+                    return;
+                }
+
+                hasSerializableChanges = true;
                 const existingPdfAnnotationId = getExistingPdfAnnotationIdFromStorageValue(value);
                 if (existingPdfAnnotationId) {
                     ids.add(existingPdfAnnotationId);
@@ -73,7 +104,11 @@ export function collectLivePdfJsAnnotationChangeIds(
         if (typeof modifiedIds?.size === 'number' && modifiedIds.size > 0) {
             modifiedIds.forEach((id: unknown) => {
                 const normalized = normalizePdfJsAnnotationId(typeof id === 'string' ? id : String(id));
-                if (normalized && !serializableRuntimeIdsMappedToPdfRefs.has(normalized)) {
+                if (
+                    normalized
+                    && !serializableRuntimeIdsMappedToPdfRefs.has(normalized)
+                    && !deletedEditorOnlyRuntimeIds.has(normalized)
+                ) {
                     ids.add(normalized);
                 }
             });
@@ -81,8 +116,8 @@ export function collectLivePdfJsAnnotationChangeIds(
 
         return {
             ids,
-            hasChanges: ids.size > 0 || (serializableMap instanceof Map && serializableMap.size > 0),
-            hasUnknownChanges: ids.size === 0 && serializableMap instanceof Map && serializableMap.size > 0,
+            hasChanges: ids.size > 0 || hasSerializableChanges,
+            hasUnknownChanges: ids.size === 0 && hasSerializableChanges,
         };
     } catch (error) {
         BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
