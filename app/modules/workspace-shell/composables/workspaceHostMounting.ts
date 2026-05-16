@@ -20,6 +20,18 @@ interface IWorkspaceHostPreloadSignals {
     isDev: boolean;
 }
 
+interface IWorkspaceHostPlaceholderSignals {
+    hasQueuedSplitRestore: boolean;
+    hasPendingDocumentHint: boolean;
+    hasVisibleDocument: boolean;
+    isDocumentOpenInFlight: boolean;
+}
+
+interface IWorkspaceHostLoaderSignals extends IWorkspaceHostPlaceholderSignals {
+    hasHostError: boolean;
+    isStartupOpenClaimPending: boolean;
+}
+
 export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath' | 'isDjvu'>) {
     return tabHasDocumentHint(tab);
 }
@@ -59,4 +71,25 @@ export function resolveWorkspaceRequestedState(
     }
 
     return shouldAutoRequestWorkspace(signals);
+}
+
+export function shouldShowWorkspacePlaceholder(signals: IWorkspaceHostPlaceholderSignals) {
+    // Keep empty tabs on the SSR/prerendered start surface during startup claim.
+    // Only suppress it when there is real restore/open/document work to show.
+    return (
+        !signals.isDocumentOpenInFlight
+        && !signals.hasQueuedSplitRestore
+        && !signals.hasPendingDocumentHint
+        && !signals.hasVisibleDocument
+    );
+}
+
+export function shouldShowWorkspaceHostLoader(signals: IWorkspaceHostLoaderSignals) {
+    // Startup claim may be slow on desktop refresh, but it should not dim the
+    // empty start surface unless that surface is already suppressed.
+    return (
+        !signals.hasHostError
+        && signals.isStartupOpenClaimPending
+        && !shouldShowWorkspacePlaceholder(signals)
+    );
 }

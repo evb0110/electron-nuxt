@@ -127,6 +127,8 @@ import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import {
     resolveWorkspaceRequestedState,
+    shouldShowWorkspaceHostLoader,
+    shouldShowWorkspacePlaceholder,
     shouldPreloadWorkspaceOnHostMount,
 } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 import {
@@ -321,11 +323,12 @@ const workspaceVisibleDocument = computed(() => {
 });
 const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
 const isPlaceholderVisible = computed(() => (
-    !isDocumentOpenInFlight.value
-    && isStartupOpenClaimPending !== true
-    && !hasQueuedSplitRestore.value
-    && !hasPendingDocumentHint.value
-    && !workspaceVisibleDocument.value
+    shouldShowWorkspacePlaceholder({
+        hasQueuedSplitRestore: hasQueuedSplitRestore.value,
+        hasPendingDocumentHint: hasPendingDocumentHint.value,
+        hasVisibleDocument: workspaceVisibleDocument.value,
+        isDocumentOpenInFlight: isDocumentOpenInFlight.value,
+    })
 ));
 const workspaceLoadErrorDescription = computed(() => {
     const message = getAsyncChunkLoadErrorMessage(workspaceChunkLoadError.value).trim();
@@ -382,7 +385,12 @@ const isDocumentOpenInFlight = computed(() => (
     || activeDocumentOpenTransaction.value !== null
 ));
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
-const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
+// Startup open-claim is a background probe. Mark the open UI busy only once the
+// user or restore flow is actually opening a document.
+const isOpenUiBusy = computed(() => (
+    isDocumentOpenInFlight.value
+    || isFilePickerInFlight.value
+));
 let documentOpenQueue: Promise<unknown> = Promise.resolve();
 const isHostErrorVisible = computed(() => (
     hasWorkspaceChunkLoadError.value
@@ -390,8 +398,14 @@ const isHostErrorVisible = computed(() => (
     && !hasMountedWorkspace.value
 ));
 const isHostLoaderVisible = computed(() => (
-    !isHostErrorVisible.value
-    && isStartupOpenClaimPending === true
+    shouldShowWorkspaceHostLoader({
+        hasHostError: isHostErrorVisible.value,
+        hasQueuedSplitRestore: hasQueuedSplitRestore.value,
+        hasPendingDocumentHint: hasPendingDocumentHint.value,
+        hasVisibleDocument: workspaceVisibleDocument.value,
+        isDocumentOpenInFlight: isDocumentOpenInFlight.value,
+        isStartupOpenClaimPending,
+    })
 ));
 const loaderVariant = computed(() => {
     if (isHostErrorVisible.value) {

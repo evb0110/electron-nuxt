@@ -9,6 +9,8 @@ import {
     shouldAutoRequestWorkspace,
     shouldPreloadWorkspaceDuringStartup,
     shouldPreloadWorkspaceOnHostMount,
+    shouldShowWorkspaceHostLoader,
+    shouldShowWorkspacePlaceholder,
 } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
 
 describe('hasDocumentMountHint', () => {
@@ -177,6 +179,55 @@ describe('workspace preload policy', () => {
             hasDocumentHint: false,
             isActive: false,
             isDev: false,
+        })).toBe(false);
+    });
+});
+
+describe('workspace host startup visibility', () => {
+    const emptyPlaceholderSignals = {
+        hasQueuedSplitRestore: false,
+        hasPendingDocumentHint: false,
+        hasVisibleDocument: false,
+        isDocumentOpenInFlight: false,
+    };
+
+    it('shows the lightweight empty placeholder while startup open claim is pending', () => {
+        expect(shouldShowWorkspacePlaceholder(emptyPlaceholderSignals)).toBe(true);
+        expect(shouldShowWorkspaceHostLoader({
+            ...emptyPlaceholderSignals,
+            hasHostError: false,
+            isStartupOpenClaimPending: true,
+        })).toBe(false);
+    });
+
+    it('keeps the host loader for pending startup work that suppresses the placeholder', () => {
+        expect(shouldShowWorkspacePlaceholder({
+            ...emptyPlaceholderSignals,
+            hasPendingDocumentHint: true,
+        })).toBe(false);
+        expect(shouldShowWorkspaceHostLoader({
+            ...emptyPlaceholderSignals,
+            hasHostError: false,
+            hasPendingDocumentHint: true,
+            isStartupOpenClaimPending: true,
+        })).toBe(true);
+    });
+
+    it('hides the startup loader once startup open claim settles', () => {
+        expect(shouldShowWorkspaceHostLoader({
+            ...emptyPlaceholderSignals,
+            hasHostError: false,
+            hasPendingDocumentHint: true,
+            isStartupOpenClaimPending: false,
+        })).toBe(false);
+    });
+
+    it('does not place the startup loader over host errors', () => {
+        expect(shouldShowWorkspaceHostLoader({
+            ...emptyPlaceholderSignals,
+            hasHostError: true,
+            hasPendingDocumentHint: true,
+            isStartupOpenClaimPending: true,
         })).toBe(false);
     });
 });
