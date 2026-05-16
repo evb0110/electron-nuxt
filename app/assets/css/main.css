@@ -140,6 +140,7 @@
     --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg) 96%, var(--ui-primary) 4%);
     --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
     --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 93%, var(--ui-text) 7%);
+    --app-start-row-action-hover-bg: color-mix(in oklab, var(--ui-bg) 86%, var(--ui-text) 14%);
     --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
     --app-start-row-remove-fg: var(--ui-text-dimmed);
     --app-start-row-remove-hover-fg: var(--ui-text);
@@ -393,6 +394,7 @@
     --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg-elevated) 78%, var(--ui-primary) 8%);
     --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
     --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-text) 12%);
+    --app-start-row-action-hover-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-text) 20%);
     --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 30%);
     --app-start-row-remove-fg: var(--ui-text-dimmed);
     --app-start-row-remove-hover-fg: var(--ui-text);
