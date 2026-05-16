@@ -497,8 +497,9 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
         },
         '/': { prerender: true },
         '/workspace': {
-            prerender: true,
-            ssr: false,
+            // Compatibility entry only. Keep the browser workspace SSR/SSG surface
+            // canonical at `/` so refresh does not hit a SPA-only shell.
+            redirect: { to: '/', statusCode: 302 },
             headers: { 'X-Robots-Tag': 'noindex, nofollow' },
         },
         '/mobile-reader-proof': { prerender: true },
