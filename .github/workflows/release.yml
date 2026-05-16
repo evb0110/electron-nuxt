@@ -20,7 +20,8 @@ permissions:
   contents: write
 
 env:
-  NODE_VERSION: '24'
+  # Pin exact Node 24 patch level so release orchestration matches build jobs.
+  NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
