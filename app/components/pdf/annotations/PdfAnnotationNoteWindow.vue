@@ -3,6 +3,7 @@
         ref="noteWindowRef"
         class="note-window"
         :style="windowStyle"
+        :data-stable-key="comment.stableKey"
         @mousedown="focusNote"
         @focusin="focusNote"
     >

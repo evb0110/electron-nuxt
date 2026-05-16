@@ -186,6 +186,16 @@ function getRectNumbers(dict: PDFDict) {
     return values;
 }
 
+function getRectSize(rect: number[] | null) {
+    if (!rect || rect.length !== 4) {
+        return null;
+    }
+    return {
+        width: Math.abs(rect[2]! - rect[0]!),
+        height: Math.abs(rect[3]! - rect[1]!),
+    };
+}
+
 function getNestedNumberArrays(dict: PDFDict, key: string) {
     const outer = dict.lookupMaybe(PDFName.of(key), PDFArray);
     if (!(outer instanceof PDFArray)) {
@@ -883,7 +893,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
 });
 
 describe('serializePdfEdits free-text note rect application', () => {
-    it('applies a comment marker rect onto a matching FreeText annotation', async () => {
+    it('normalizes a large comment marker rect before applying it to a FreeText note', async () => {
         const {
             bytes,
             noteRefs,
@@ -916,9 +926,12 @@ describe('serializePdfEdits free-text note rect application', () => {
         const doc = await PDFDocument.load(result, { updateMetadata: false });
         const dict = getAnnotDict(doc, noteRef);
         const rect = getRectNumbers(dict!);
+        const rectSize = getRectSize(rect);
 
         expect(rect).not.toBeNull();
         expect(rect!.length).toBe(4);
+        expect(rectSize?.width).toBeLessThanOrEqual(2);
+        expect(rectSize?.height).toBeLessThanOrEqual(2);
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
     });
 
@@ -1136,8 +1149,8 @@ describe('serializePdfEdits free-text note rect application', () => {
             markerRect: {
                 left: 0.1,
                 top: 0.2,
-                width: 0.02,
-                height: 0.02,
+                width: 0.3,
+                height: 0.1,
             },
         })];
 
@@ -1172,7 +1185,11 @@ describe('serializePdfEdits free-text note rect application', () => {
             0.8,
             0,
         ]);
-        expect(getRectNumbers(freeTextDict!)).not.toBeNull();
+        const freeTextRect = getRectNumbers(freeTextDict!);
+        const freeTextRectSize = getRectSize(freeTextRect);
+        expect(freeTextRect).not.toBeNull();
+        expect(freeTextRectSize?.width).toBeLessThanOrEqual(2);
+        expect(freeTextRectSize?.height).toBeLessThanOrEqual(2);
         expect(getRectNumbers(popupDict!)).toEqual(getRectNumbers(freeTextDict!));
     });
 
