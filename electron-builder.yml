@@ -88,6 +88,15 @@ win:
 
 linux:
   icon: resources/icon.png
+  maintainer: Eugene Barsky <34789976+evb0110@users.noreply.github.com>
+  vendor: Eugene Barsky
+  synopsis: PDF and DjVu document viewer
+  description: EVB Viewer is a desktop document viewer for PDF and DjVu files with OCR, annotations, page operations, export tools, and multi-tab viewing.
+  category: Office
+  desktop:
+    entry:
+      Keywords: PDF;DjVu;Document;Viewer;OCR;
+      X-AppStream-DeveloperName: Eugene Barsky
   target:
     - AppImage
     - deb
