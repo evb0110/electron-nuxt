@@ -45,4 +45,32 @@ describe('buildDjvuRuntimeEnv', () => {
         expect(env.LD_LIBRARY_PATH).toBe('/opt/evb/djvu/lib:/usr/lib');
         expect(env.DYLD_LIBRARY_PATH).toBe('/opt/evb/djvu/lib:/opt/lib');
     });
+
+    it('adds a deterministic UTF-8 locale for Unix DjVuLibre filename decoding', () => {
+        const env = buildDjvuRuntimeEnv({
+            platform: 'darwin',
+            baseEnv: {},
+            libDir: '/opt/evb/djvu/lib',
+        });
+
+        expect(env.LC_ALL).toBe('C.UTF-8');
+        expect(env.LC_CTYPE).toBe('C.UTF-8');
+        expect(env.LANG).toBe('C.UTF-8');
+    });
+
+    it('overrides inherited Unix locale settings for DjVuLibre filename decoding', () => {
+        const env = buildDjvuRuntimeEnv({
+            platform: 'darwin',
+            baseEnv: {
+                LC_ALL: 'UTF-8',
+                LC_CTYPE: 'en_US.UTF-8',
+                LANG: 'en_US.UTF-8',
+            },
+            libDir: '/opt/evb/djvu/lib',
+        });
+
+        expect(env.LC_ALL).toBe('C.UTF-8');
+        expect(env.LC_CTYPE).toBe('C.UTF-8');
+        expect(env.LANG).toBe('C.UTF-8');
+    });
 });

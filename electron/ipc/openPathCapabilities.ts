@@ -1,10 +1,7 @@
-import { realpathSync } from 'fs';
 import type { WebContents } from 'electron';
-import {
-    resolve,
-    sep,
-} from 'path';
+import { sep } from 'path';
 import { createLogger } from '@electron/utils/logger';
+import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
 
 declare const __openPathBrand: unique symbol;
 export type TOpenPath = string & { readonly [__openPathBrand]: true };
@@ -25,11 +22,7 @@ function normalizeOpenPath(filePath: string) {
         return null;
     }
 
-    try {
-        return realpathSync.native(resolve(normalizedPath));
-    } catch {
-        return null;
-    }
+    return normalizePossiblyEncodedExistingPath(normalizedPath);
 }
 
 function pruneAllowedOpenPaths() {
