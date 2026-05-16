@@ -13,7 +13,7 @@ import {
 } from '@i18n-core';
 
 function isUiReportableLog(entry: IDebugLogEntry) {
-    return entry.message.startsWith('[WARN]') || entry.message.startsWith('[ERROR]');
+    return entry.message.startsWith('[ERROR]');
 }
 
 function createPluginTranslate(): TTranslateFn {
@@ -47,9 +47,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             }
 
             reportRuntimeError({
-                title: entry.message.startsWith('[ERROR]')
-                    ? t('errors.runtime.streamError')
-                    : t('errors.runtime.streamWarning'),
+                title: t('errors.runtime.streamError'),
                 source: entry.source,
                 error: `${entry.timestamp}\n${entry.message}`,
                 dedupeKey: `${entry.source}\n${entry.message}`,
