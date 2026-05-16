@@ -532,7 +532,6 @@ onClickOutside(contextMenuRef, () => {
     background: transparent;
     color: var(--ui-text-dimmed);
     font-size: 0.75rem;
-    cursor: pointer;
     position: relative;
     touch-action: none;
     -webkit-app-region: no-drag;
@@ -591,7 +590,6 @@ onClickOutside(contextMenuRef, () => {
     border-radius: 0.25rem;
     background: transparent;
     color: var(--ui-text-dimmed);
-    cursor: pointer;
     opacity: 0;
     transition: opacity 0.1s ease, background-color 0.1s ease;
 }
@@ -649,20 +647,22 @@ onClickOutside(contextMenuRef, () => {
 .tab-new {
     display: flex;
     align-items: center;
+    align-self: center;
     justify-content: center;
-    width: var(--app-tab-min-padding-x, 1.875rem);
-    min-width: var(--app-tab-min-padding-x, 1.875rem);
-    height: 100%;
-    margin: 0 0 0 0.25rem;
+    width: var(--app-tab-new-width, 3rem);
+    min-width: var(--app-tab-new-width, 3rem);
+    height: calc(var(--app-tabbar-height, 2.375rem) - (var(--app-tab-new-block-inset, 0.125rem) * 2));
+    margin: var(--app-tab-new-block-inset, 0.125rem) 0.25rem;
     border: none;
+    border-radius: var(--app-tab-new-radius, 0.75rem);
     background: transparent;
     color: var(--ui-text-dimmed);
-    cursor: pointer;
     -webkit-app-region: no-drag;
-    transition: color 0.12s ease;
+    transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .tab-new:hover {
+    background: var(--app-chrome-subtle-hover);
     color: var(--ui-text);
 }
 
