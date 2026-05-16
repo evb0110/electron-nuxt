@@ -39,6 +39,7 @@ import type {
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
+import { useEventListener } from '@vueuse/core';
 
 const DRAG_THRESHOLD = 5;
 const DEFAULT_POINT_MARKER_SIZE = 0.0016;
@@ -64,6 +65,7 @@ const emit = defineEmits<{
 }>();
 
 const buttonRef = ref<HTMLButtonElement | null>(null);
+const activePointerTarget = ref<HTMLButtonElement | null>(null);
 const isDragging = ref(false);
 const dragOffsetX = ref(0);
 const dragOffsetY = ref(0);
@@ -131,9 +133,7 @@ function handlePointerDown(event: PointerEvent) {
     suppressClick = false;
 
     button.setPointerCapture(event.pointerId);
-    button.addEventListener('pointermove', handlePointerMove);
-    button.addEventListener('pointerup', handlePointerUp);
-    button.addEventListener('lostpointercapture', handleLostCapture);
+    activePointerTarget.value = button;
 }
 
 function handlePointerMove(event: PointerEvent) {
@@ -203,10 +203,9 @@ function commitDrag(clientX: number, clientY: number) {
 
 function cleanup(pointerId?: number) {
     const button = buttonRef.value;
+    activePointerTarget.value = null;
+
     if (button) {
-        button.removeEventListener('pointermove', handlePointerMove);
-        button.removeEventListener('pointerup', handlePointerUp);
-        button.removeEventListener('lostpointercapture', handleLostCapture);
         if (typeof pointerId === 'number' && button.hasPointerCapture(pointerId)) {
             button.releasePointerCapture(pointerId);
         }
@@ -222,6 +221,10 @@ function cleanup(pointerId?: number) {
         dragOffsetY.value = 0;
     }
 }
+
+useEventListener(activePointerTarget, 'pointermove', handlePointerMove);
+useEventListener(activePointerTarget, 'pointerup', handlePointerUp);
+useEventListener(activePointerTarget, 'lostpointercapture', handleLostCapture);
 
 onBeforeUnmount(() => {
     // Unmount can interrupt an active drag path before pointerup/lostcapture.

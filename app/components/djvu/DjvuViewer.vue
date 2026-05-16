@@ -102,6 +102,7 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
+import { useResizeObserver } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
@@ -605,7 +606,6 @@ const effectiveZoom = computed(() => {
 });
 
 let activeWorker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>> | null = null;
-let resizeObserver: ResizeObserver | null = null;
 let scrollRafId = 0;
 let loadGeneration = 0;
 let activeRenderPromise: Promise<void> | null = null;
@@ -1297,30 +1297,23 @@ watch(
     { flush: 'post' },
 );
 
-onMounted(() => {
-    measureContainer();
-
-    resizeObserver = new ResizeObserver(() => {
-        if (!isActive.value) {
-            return;
-        }
-        measureContainer();
-        scheduleViewportSync();
-    });
-
-    if (viewerContainer.value) {
-        resizeObserver.observe(viewerContainer.value);
+function handleContainerResize() {
+    if (!isActive.value) {
+        return;
     }
-});
+    measureContainer();
+    scheduleViewportSync();
+}
+
+onMounted(measureContainer);
+
+useResizeObserver(viewerContainer, handleContainerResize);
 
 onBeforeUnmount(() => {
     if (scrollRafId !== 0) {
         window.cancelAnimationFrame(scrollRafId);
         scrollRafId = 0;
     }
-
-    resizeObserver?.disconnect();
-    resizeObserver = null;
     stopWorker();
 });
 

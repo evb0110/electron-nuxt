@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { useMutationObserver } from '@vueuse/core';
 import type { TPdfSource } from '@app/types/pdf';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -23,12 +24,21 @@ export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptio
     } = options;
 
     const hasCompletedInitialRenderForCurrentSource = ref(false);
-    let initialRenderObserver: MutationObserver | null = null;
+    const mutationObserverWindow = typeof window !== 'undefined'
+        ? window
+        : globalThis as Window & typeof globalThis;
+    const initialRenderObserverTarget = computed(() => {
+        if (
+            !src.value
+            || isLoading.value
+            || !pdfDocument.value
+            || hasCompletedInitialRenderForCurrentSource.value
+        ) {
+            return null;
+        }
 
-    function stopInitialRenderObserver() {
-        initialRenderObserver?.disconnect();
-        initialRenderObserver = null;
-    }
+        return viewerContainer.value;
+    });
 
     function hasRenderedCanvasInDom() {
         const container = viewerContainer.value;
@@ -49,25 +59,20 @@ export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptio
         }
 
         hasCompletedInitialRenderForCurrentSource.value = true;
-        stopInitialRenderObserver();
         return true;
     }
 
-    function ensureInitialRenderObserver() {
-        if (initialRenderObserver || hasCompletedInitialRenderForCurrentSource.value || !viewerContainer.value) {
-            return;
-        }
-
-        initialRenderObserver = new MutationObserver(() => {
-            markInitialRenderCompleteIfReady();
-        });
-        initialRenderObserver.observe(viewerContainer.value, {
+    useMutationObserver(
+        initialRenderObserverTarget,
+        markInitialRenderCompleteIfReady,
+        {
             childList: true,
             subtree: true,
             attributes: true,
             attributeFilter: ['class'],
-        });
-    }
+            window: mutationObserverWindow,
+        },
+    );
 
     watch(
         [
@@ -82,14 +87,11 @@ export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptio
         ]) => {
             if (!hasSrc || loading || !document) {
                 hasCompletedInitialRenderForCurrentSource.value = false;
-                stopInitialRenderObserver();
                 return;
             }
 
             await nextTick();
-            if (!markInitialRenderCompleteIfReady()) {
-                ensureInitialRenderObserver();
-            }
+            markInitialRenderCompleteIfReady();
         },
         { immediate: true },
     );
@@ -101,17 +103,10 @@ export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptio
             || !pdfDocument.value
             || hasCompletedInitialRenderForCurrentSource.value
         ) {
-            stopInitialRenderObserver();
             return;
         }
 
-        if (!markInitialRenderCompleteIfReady()) {
-            ensureInitialRenderObserver();
-        }
-    });
-
-    onScopeDispose(() => {
-        stopInitialRenderObserver();
+        markInitialRenderCompleteIfReady();
     });
 
     const isViewerLoadingOverlayVisible = computed(() => (

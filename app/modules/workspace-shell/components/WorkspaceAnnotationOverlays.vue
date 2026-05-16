@@ -145,6 +145,10 @@ import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/a
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
+import {
+    useEventListener,
+    useMutationObserver,
+} from '@vueuse/core';
 import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
 import { escapeCssAttr } from '@app/composables/pdf/annotationCssUtils';
 
@@ -250,9 +254,7 @@ const anchoredAnnotationNoteWindows = computed(() => {
     ));
 });
 const indicatorDomTick = ref(0);
-let viewportMutationObserver: MutationObserver | null = null;
-let viewportScrollCleanup: (() => void) | null = null;
-let viewportResizeCleanup: (() => void) | null = null;
+const annotationViewportRootElement = computed(() => annotationViewportRoot ?? null);
 
 function logAnchor(message: string, payload: Record<string, unknown>) {
     BrowserLogger.debug('note-anchor', message, payload);
@@ -753,47 +755,6 @@ function getMinimizedNotePreview(note: IAnnotationNoteWindowEntry) {
     return `${text.slice(0, 177)}...`;
 }
 
-function reconnectViewportObservers() {
-    viewportMutationObserver?.disconnect();
-    viewportMutationObserver = null;
-
-    viewportScrollCleanup?.();
-    viewportScrollCleanup = null;
-    viewportResizeCleanup?.();
-    viewportResizeCleanup = null;
-
-    const viewportRoot = annotationViewportRoot;
-    if (!viewportRoot) {
-        return;
-    }
-
-    const scheduleConnectorRefresh = () => {
-        scheduleConnectorRefreshFrame();
-    };
-
-    viewportRoot.addEventListener('scroll', scheduleConnectorRefresh, {passive: true});
-    viewportScrollCleanup = () => {
-        viewportRoot.removeEventListener('scroll', scheduleConnectorRefresh);
-    };
-
-    if (typeof window !== 'undefined') {
-        window.addEventListener('resize', scheduleConnectorRefresh, {passive: true});
-        viewportResizeCleanup = () => {
-            window.removeEventListener('resize', scheduleConnectorRefresh);
-        };
-    }
-
-    if (typeof MutationObserver !== 'undefined') {
-        viewportMutationObserver = new MutationObserver(() => {
-            scheduleOverlayRefreshBurst(4);
-        });
-        viewportMutationObserver.observe(viewportRoot, {
-            childList: true,
-            subtree: true,
-        });
-    }
-}
-
 function handleAnchorPointerEvent(
     eventName: 'mouseenter' | 'mouseleave' | 'focus' | 'blur',
     note: IAnnotationNoteWindowEntry,
@@ -947,8 +908,11 @@ function scheduleConnectorRefreshBurst(frames = 2) {
     connectorRefreshScheduler.request(frames);
 }
 
+function scheduleViewportMutationRefresh() {
+    scheduleOverlayRefreshBurst(4);
+}
+
 onMounted(() => {
-    reconnectViewportObservers();
     scheduleOverlayRefreshBurst(10);
 });
 
@@ -956,18 +920,34 @@ onBeforeUnmount(() => {
     indicatorDomRefreshScheduler.cancel();
     connectorRefreshScheduler.cancel();
     connectorLines.value = [];
-    viewportMutationObserver?.disconnect();
-    viewportMutationObserver = null;
-    viewportScrollCleanup?.();
-    viewportScrollCleanup = null;
-    viewportResizeCleanup?.();
-    viewportResizeCleanup = null;
 });
+
+useEventListener(
+    annotationViewportRootElement,
+    'scroll',
+    scheduleConnectorRefreshFrame,
+    { passive: true },
+);
+
+useEventListener(
+    import.meta.client ? window : undefined,
+    'resize',
+    scheduleConnectorRefreshFrame,
+    { passive: true },
+);
+
+useMutationObserver(
+    annotationViewportRootElement,
+    scheduleViewportMutationRefresh,
+    {
+        childList: true,
+        subtree: true,
+    },
+);
 
 watch(
     () => annotationViewportRoot,
     () => {
-        reconnectViewportObservers();
         scheduleOverlayRefreshBurst(12);
     },
 );

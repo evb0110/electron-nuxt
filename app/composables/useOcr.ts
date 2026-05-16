@@ -1,5 +1,6 @@
 
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
 import type {
@@ -92,7 +93,7 @@ export const useOcr = () => {
 
     let progressCleanup: (() => void) | null = null;
     let completeCleanup: (() => void) | null = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let timeoutRunToken: symbol | null = null;
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
     let cancelGeneration = 0;
     let activeRunToken: symbol | null = null;
@@ -109,11 +110,23 @@ export const useOcr = () => {
     }
 
     function clearOcrTimeout() {
-        if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-        }
+        stopOcrTimeout();
+        timeoutRunToken = null;
     }
+
+    const {
+        start: startOcrTimeout,
+        stop: stopOcrTimeout,
+    } = useTimeoutFn(() => {
+        const runToken = timeoutRunToken;
+        if (activeRunToken !== runToken) {
+            return;
+        }
+        const rejectPending = pendingOcrReject;
+        pendingOcrReject = null;
+        timeoutRunToken = null;
+        rejectPending?.(new Error(t('errors.ocr.timeout')));
+    }, OCR_TIMEOUT_MS, { immediate: false });
 
     async function loadLanguages() {
         try {
@@ -167,16 +180,8 @@ export const useOcr = () => {
     }
 
     function resetOcrTimeout(runToken: symbol) {
-        clearOcrTimeout();
-        timeoutId = setTimeout(() => {
-            if (activeRunToken !== runToken) {
-                return;
-            }
-            const rejectPending = pendingOcrReject;
-            pendingOcrReject = null;
-            timeoutId = null;
-            rejectPending?.(new Error(t('errors.ocr.timeout')));
-        }, OCR_TIMEOUT_MS);
+        timeoutRunToken = runToken;
+        startOcrTimeout();
     }
 
     function registerProgressListener(

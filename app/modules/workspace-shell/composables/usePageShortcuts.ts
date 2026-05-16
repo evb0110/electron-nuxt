@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import {
+    useEventListener,
     useMagicKeys,
-    tryOnScopeDispose,
     whenever,
 } from '@vueuse/core';
 import type { TAnnotationTool } from '@app/types/annotations';
@@ -309,12 +309,9 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
     }
 
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-        window.addEventListener('pointerdown', handleGlobalPointerDown);
-        window.addEventListener('keydown', handleCapturedWebMenuAccelerator, { capture: true });
-        tryOnScopeDispose(() => {
-            window.removeEventListener('pointerdown', handleGlobalPointerDown);
-            window.removeEventListener('keydown', handleCapturedWebMenuAccelerator, { capture: true });
-        });
-    }
+    const windowTarget = typeof window !== 'undefined' && typeof window.addEventListener === 'function'
+        ? window
+        : null;
+    useEventListener(windowTarget, 'pointerdown', handleGlobalPointerDown);
+    useEventListener(windowTarget, 'keydown', handleCapturedWebMenuAccelerator, { capture: true });
 };

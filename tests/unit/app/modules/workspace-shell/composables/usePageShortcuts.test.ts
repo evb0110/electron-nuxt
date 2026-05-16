@@ -81,6 +81,15 @@ describe('usePageShortcuts', () => {
         capturedPointerDown = undefined;
         capturedKeyDown = undefined;
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
+        mocks.useEventListener.mockImplementation((
+            target: { addEventListener?: (...args: unknown[]) => void } | null,
+            event: string,
+            listener: EventListener,
+            options?: AddEventListenerOptions,
+        ) => {
+            target?.addEventListener?.(event, listener, options);
+            return vi.fn();
+        });
 
         mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
             capturedOnEventFired = opts?.onEventFired;
@@ -92,10 +101,11 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(createDeps());
 
-        expect(window.addEventListener).toHaveBeenCalledWith(
-            'pointerdown', expect.any(Function),
+        expect(mocks.useEventListener).toHaveBeenCalledWith(
+            window, 'pointerdown', expect.any(Function),
         );
-        expect(window.addEventListener).toHaveBeenCalledWith(
+        expect(mocks.useEventListener).toHaveBeenCalledWith(
+            window,
             'keydown', expect.any(Function), { capture: true },
         );
     });
@@ -105,7 +115,12 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(createDeps());
 
-        expect(mocks.useEventListener).not.toHaveBeenCalled();
+        expect(mocks.useEventListener).toHaveBeenCalledWith(
+            null, 'pointerdown', expect.any(Function),
+        );
+        expect(mocks.useEventListener).toHaveBeenCalledWith(
+            null, 'keydown', expect.any(Function), { capture: true },
+        );
     });
 
     it('handles zoom shortcuts via onEventFired when not Electron', async () => {
