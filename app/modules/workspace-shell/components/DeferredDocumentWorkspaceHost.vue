@@ -841,6 +841,9 @@ function scheduleOpeningDocumentSkeletonFrameSettleRefreshes(transactionId: numb
         return;
     }
 
+    // Finder cold-start opens can reach the renderer while Electron is still
+    // applying maximize/layout. Keep the opening skeleton tied to settled host
+    // geometry instead of preserving the first pre-resize measurement.
     void nextTick().then(() => {
         refreshOpeningDocumentSkeletonFrame(transactionId);
         queueOpeningDocumentSkeletonSettleFrame(
