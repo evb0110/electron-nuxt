@@ -62,7 +62,11 @@ import {
 } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
-import { clamp } from 'es-toolkit/math';
+import {
+    clampAnnotationNoteWindowPosition,
+    clampAnnotationNoteWindowSize,
+    type IAnnotationNoteWindowBounds,
+} from '@app/composables/pdf/annotationNoteWindowBounds';
 
 interface IAnnotationNotePosition {
     x: number;
@@ -78,6 +82,7 @@ interface IProps {
     error?: string | null;
     position?: IAnnotationNotePosition | null;
     zIndex?: number;
+    boundsRoot?: HTMLElement | null;
 }
 
 const {
@@ -87,6 +92,7 @@ const {
     error = null,
     position = null,
     zIndex = 55,
+    boundsRoot = null,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -154,6 +160,12 @@ const windowStyle = computed(() => ({
     height: `${height.value}px`,
     zIndex: String(zIndex),
 }));
+const boundsRootElement = computed(() => boundsRoot ?? null);
+const documentElement = computed(() => (
+    typeof document !== 'undefined'
+        ? document.documentElement
+        : null
+));
 
 async function focusTextInput() {
     await nextTick();
@@ -258,6 +270,12 @@ function startFocusGuard(durationMs = 1200) {
 }
 
 function syncPosition(position: IAnnotationNotePosition | null) {
+    const previous = {
+        x: offsetX.value,
+        y: offsetY.value,
+        width: width.value,
+        height: height.value,
+    };
     const nextSize = clampSize(
         position?.width ?? width.value ?? NOTE_WINDOW.DEFAULT_WIDTH,
         position?.height ?? height.value ?? NOTE_WINDOW.DEFAULT_HEIGHT,
@@ -273,6 +291,12 @@ function syncPosition(position: IAnnotationNotePosition | null) {
     );
     offsetX.value = clamped.x;
     offsetY.value = clamped.y;
+    return (
+        previous.x !== offsetX.value
+        || previous.y !== offsetY.value
+        || previous.width !== width.value
+        || previous.height !== height.value
+    );
 }
 
 function emitPositionUpdate() {
@@ -285,37 +309,38 @@ function emitPositionUpdate() {
 }
 
 function clampSize(nextWidth: number, nextHeight: number) {
+    return clampAnnotationNoteWindowSize(nextWidth, nextHeight, getWindowBounds());
+}
+
+function getWindowBounds(): IAnnotationNoteWindowBounds | null {
     if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const rootRect = boundsRoot?.getBoundingClientRect();
+    if (rootRect && rootRect.width > 0 && rootRect.height > 0) {
         return {
-            width: Math.max(NOTE_WINDOW.MIN_WIDTH, Math.round(nextWidth)),
-            height: Math.max(NOTE_WINDOW.MIN_HEIGHT, Math.round(nextHeight)),
+            left: rootRect.left,
+            top: rootRect.top,
+            right: rootRect.right,
+            bottom: rootRect.bottom,
+            width: rootRect.width,
+            height: rootRect.height,
         };
     }
 
-    const maxWidth = Math.max(NOTE_WINDOW.MIN_WIDTH, window.innerWidth - (NOTE_WINDOW.MARGIN * 2));
-    const maxHeight = Math.max(NOTE_WINDOW.MIN_HEIGHT, window.innerHeight - (NOTE_WINDOW.MARGIN * 2));
-
     return {
-        width: clamp(Math.round(nextWidth), NOTE_WINDOW.MIN_WIDTH, maxWidth),
-        height: clamp(Math.round(nextHeight), NOTE_WINDOW.MIN_HEIGHT, maxHeight),
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
     };
 }
 
 function clampPosition(x: number, y: number, nextWidth: number, nextHeight: number) {
-    if (typeof window === 'undefined') {
-        return {
-            x,
-            y,
-        };
-    }
-
-    const maxX = Math.max(NOTE_WINDOW.MARGIN, window.innerWidth - nextWidth - NOTE_WINDOW.MARGIN);
-    const maxY = Math.max(NOTE_WINDOW.MARGIN, window.innerHeight - nextHeight - NOTE_WINDOW.MARGIN);
-
-    return {
-        x: Math.round(clamp(x, NOTE_WINDOW.MARGIN, maxX)),
-        y: Math.round(clamp(y, NOTE_WINDOW.MARGIN, maxY)),
-    };
+    return clampAnnotationNoteWindowPosition(x, y, nextWidth, nextHeight, getWindowBounds());
 }
 
 function handlePointerMove(event: MouseEvent) {
@@ -418,8 +443,18 @@ useResizeObserver(noteWindowRef, (entries) => {
     emitPositionUpdate();
 }, { box: 'border-box' });
 
+useResizeObserver(boundsRootElement, () => {
+    handleViewportResize();
+});
+
+useResizeObserver(documentElement, () => {
+    handleViewportResize();
+});
+
 onMounted(() => {
-    syncPosition(position);
+    if (syncPosition(position)) {
+        emitPositionUpdate();
+    }
     void focusTextInput();
     startFocusGuard();
 });
@@ -436,14 +471,18 @@ watch(
         if (isDragging.value) {
             return;
         }
-        syncPosition(nextPosition);
+        if (syncPosition(nextPosition)) {
+            emitPositionUpdate();
+        }
     },
 );
 
 watch(
     () => comment.stableKey,
     () => {
-        syncPosition(position);
+        if (syncPosition(position)) {
+            emitPositionUpdate();
+        }
         void focusTextInput();
         startFocusGuard();
     },
@@ -458,6 +497,13 @@ watch(
         if (focusGuardTimer !== null) {
             void focusTextInput();
         }
+    },
+);
+
+watch(
+    () => boundsRoot,
+    () => {
+        handleViewportResize();
     },
 );
 </script>
