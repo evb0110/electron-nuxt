@@ -37,7 +37,7 @@ interface ITesseractLanguageConfig {
     hasRtl: boolean;
 }
 
-export function isRtlOcrLanguage(code: string): boolean {
+function isRtlOcrLanguage(code: string): boolean {
     return RTL_LANGUAGE_CODES.has(code);
 }
 
