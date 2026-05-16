@@ -202,15 +202,12 @@
                                     class="recent-col recent-col--location"
                                     role="cell"
                                 >
-                                    <template v-if="!isBrowserDocumentRef(file.originalPath)">
-                                        {{ getParentFolder(file.originalPath) }}
-                                    </template>
-                                    <template v-else>{{ t('emptyState.locationBrowser') }}</template>
-                                </span>
-                                <span class="recent-col recent-col--time" role="cell">
-                                    {{ formatRelativeTimeLocalized(file.timestamp) }}
-                                </span>
-                                <span class="recent-col recent-col--actions" role="cell">
+                                    <span class="recent-col--location-path">
+                                        <template v-if="!isBrowserDocumentRef(file.originalPath)">
+                                            {{ getParentFolder(file.originalPath) }}
+                                        </template>
+                                        <template v-else>{{ t('emptyState.locationBrowser') }}</template>
+                                    </span>
                                     <AppTooltip
                                         v-if="canRevealInFolder(file)"
                                         :text="t('status.showInFolder')"
@@ -228,6 +225,11 @@
                                             <UIcon name="i-ph-folder-open" />
                                         </span>
                                     </AppTooltip>
+                                </span>
+                                <span class="recent-col recent-col--time" role="cell">
+                                    {{ formatRelativeTimeLocalized(file.timestamp) }}
+                                </span>
+                                <span class="recent-col recent-col--actions" role="cell">
                                     <AppTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
                                         <span
                                             class="recent-action recent-action--remove"
@@ -914,7 +916,7 @@ watch(() => startSection, (section) => {
     color: var(--ui-text);
 }
 
-.recent-row--data:hover:not(.is-disabled, :disabled) {
+.recent-row--data:hover:not(.is-disabled, :disabled, :has(.recent-action:hover)) {
     background: var(--app-start-row-hover-bg);
 }
 
@@ -940,6 +942,15 @@ watch(() => startSection, (section) => {
 }
 
 .recent-col--location {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.recent-col--location-path {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -948,6 +959,10 @@ watch(() => startSection, (section) => {
 .recent-row--data .recent-col--location {
     color: var(--ui-text-muted);
     font-size: 0.8rem;
+}
+
+.recent-col--location .recent-action--reveal {
+    flex: 0 0 auto;
 }
 
 .recent-col--time {
@@ -1036,15 +1051,14 @@ watch(() => startSection, (section) => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 2.1rem;
+    height: 2.1rem;
     border: 0;
-    border-radius: 0.375rem;
+    border-radius: 0.4rem;
     background: transparent;
     color: var(--ui-text-dimmed);
-    opacity: 0;
     cursor: pointer;
-    transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
+    transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .recent-action :deep(.iconify) {
@@ -1052,20 +1066,14 @@ watch(() => startSection, (section) => {
     height: 1rem;
 }
 
-.recent-row--data:hover .recent-action,
-.recent-row--data:focus-within .recent-action {
-    opacity: 1;
-}
-
 .recent-action:hover {
-    background: var(--app-start-row-remove-hover-bg);
+    background: var(--app-start-row-action-hover-bg);
     color: var(--app-start-row-remove-hover-fg);
 }
 
 .recent-action:focus-visible {
     outline: 2px solid var(--app-toolbar-focus-ring);
     outline-offset: 1px;
-    opacity: 1;
 }
 
 .recent-action--remove {
