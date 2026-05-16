@@ -16,7 +16,8 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: '24'
+  # Pin exact Node 24 patch level so supplemental release builds do not drift under tags.
+  NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   LEGACY_ELECTRON_VERSION: 22.3.27
 
