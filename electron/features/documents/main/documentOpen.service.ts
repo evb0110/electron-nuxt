@@ -20,6 +20,7 @@ import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { addRecentInputs } from '@electron/features/documents/main/recentInputs.service';
+import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
 
 const logger = createLogger('documents-open-service');
 
@@ -51,7 +52,8 @@ export async function openInputPaths(
     options: IOpenInputPathsOptions = {},
     owner?: TOpenPathOwner,
 ): Promise<IOpenFileResult | null> {
-    const normalizedPaths = normalizeNonEmptyStringPaths(paths);
+    const normalizedPaths = normalizeNonEmptyStringPaths(paths)
+        .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
     logger.info(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
     if (normalizedPaths.length === 0) {
         return null;

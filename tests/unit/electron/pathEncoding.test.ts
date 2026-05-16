@@ -1,0 +1,47 @@
+import {
+    mkdtempSync,
+    realpathSync,
+    rmSync,
+    writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
+
+let tempRoot = '';
+
+describe('path encoding recovery', () => {
+    beforeEach(() => {
+        tempRoot = mkdtempSync(join(tmpdir(), 'evb-path-encoding-test-'));
+    });
+
+    afterEach(() => {
+        rmSync(tempRoot, {
+            force: true,
+            recursive: true,
+        });
+    });
+
+    it('recovers URI-encoded Unicode file paths', () => {
+        const filePath = join(tempRoot, 'Гиргас.djvu');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+    });
+
+    it('recovers percent-encoded UTF-8 bytes decoded as Latin-1', () => {
+        const fileName = 'Гиргас - Словарь.djvu';
+        const filePath = join(tempRoot, fileName);
+        writeFileSync(filePath, new Uint8Array([1]));
+        const mojibakePath = join(tempRoot, Buffer.from(fileName, 'utf8').toString('latin1'));
+
+        expect(normalizePossiblyEncodedExistingPath(encodeURIComponent(mojibakePath))).toBe(realpathSync.native(filePath));
+    });
+});

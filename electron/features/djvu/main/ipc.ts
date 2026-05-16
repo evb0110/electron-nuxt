@@ -31,6 +31,7 @@ import {
     requireOpenPath,
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
+import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
 
 const logger = createLogger('djvu-ipc');
 
@@ -39,7 +40,10 @@ function requireDjvuOpenPath(
     owner?: WebContents,
     options: { requireExists?: boolean } = {},
 ): TOpenPath {
-    const normalizedPath = typeof path === 'string' ? path.trim() : '';
+    const rawPath = typeof path === 'string' ? path.trim() : '';
+    const normalizedPath = rawPath
+        ? (normalizePossiblyEncodedExistingPath(rawPath) ?? rawPath)
+        : '';
     if (!normalizedPath) {
         throw new Error('Invalid DjVu path');
     }

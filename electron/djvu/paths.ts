@@ -20,6 +20,7 @@ interface IBuildDjvuRuntimeEnvOptions {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const DJVU_UTF8_LOCALE = 'C.UTF-8';
 
 function getResourcesBase(): string {
     if (app.isPackaged) {
@@ -101,6 +102,13 @@ function normalizeWindowsPathEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     return normalizedEnv;
 }
 
+function ensureUtf8Locale(env: NodeJS.ProcessEnv) {
+    // DjVuLibre decodes argv through the process locale; LaunchServices may omit UTF-8 locale vars.
+    env.LC_ALL = DJVU_UTF8_LOCALE;
+    env.LC_CTYPE = DJVU_UTF8_LOCALE;
+    env.LANG = DJVU_UTF8_LOCALE;
+}
+
 export function buildDjvuRuntimeEnv(options: IBuildDjvuRuntimeEnvOptions = {}): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {...(options.baseEnv ?? process.env)};
     const platform = options.platform ?? process.platform;
@@ -119,5 +127,6 @@ export function buildDjvuRuntimeEnv(options: IBuildDjvuRuntimeEnvOptions = {}): 
 
     prependEnvPath(env, [libDir], 'DYLD_LIBRARY_PATH', envDelimiter);
     prependEnvPath(env, [libDir], 'LD_LIBRARY_PATH', envDelimiter);
+    ensureUtf8Locale(env);
     return env;
 }
