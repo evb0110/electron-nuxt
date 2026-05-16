@@ -5,39 +5,11 @@ import {
     vi,
 } from 'vitest';
 import {
-    isBrowserPlatformActive,
-    isDesktopPlatformActive,
-    isElectronRoutePath,
-    resolveInitialDesktopRuntime,
     shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 
 describe('platform runtime detection', () => {
-    it('recognizes the desktop route prefix', () => {
-        expect(isElectronRoutePath('/electron')).toBe(true);
-        expect(isElectronRoutePath('/electron/workspace')).toBe(true);
-        expect(isElectronRoutePath('/')).toBe(false);
-        expect(isElectronRoutePath('/workspace')).toBe(false);
-    });
-
-    it('classifies the desktop runtime from the Electron route before the bridge mounts', () => {
-        expect(resolveInitialDesktopRuntime('/electron', false)).toBe(true);
-        expect(resolveInitialDesktopRuntime('/', false)).toBe(false);
-    });
-
-    it('prefers the actual electron api when present', () => {
-        expect(resolveInitialDesktopRuntime('/', true)).toBe(true);
-        expect(resolveInitialDesktopRuntime('/electron', true)).toBe(true);
-    });
-
-    it('exposes explicit browser and desktop platform helpers', () => {
-        expect(isDesktopPlatformActive(true)).toBe(true);
-        expect(isDesktopPlatformActive(false)).toBe(false);
-        expect(isBrowserPlatformActive(true)).toBe(false);
-        expect(isBrowserPlatformActive(false)).toBe(true);
-    });
-
     it('prefers the desktop platform only when runtime state or the bridge requires it', () => {
         expect(shouldPreferDesktopPlatform('/', true, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(true);

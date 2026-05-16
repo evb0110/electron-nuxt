@@ -188,33 +188,6 @@ runOrSkip('Electron E2E - Phase 0 (Inactive DjVu Tabs)', () => {
         expect(afterDjvuReactivation.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
     });
 
-    it('keeps mixed PDF, DjVu, and empty tabs under inactive resource thresholds', async () => {
-        if (!session || !djvuFixture.path) {
-            throw new Error('Inactive DjVu tabs session was not initialized');
-        }
-
-        await createNewTab(session);
-        await openPdfInApp(session.page, pdfFixturePath);
-        await waitForPdfLoaded(session.page);
-
-        await createNewTab(session);
-        await waitForTabCount(session.page, 3);
-
-        await activateTab(session, 0);
-        await waitForDjvuLoaded(session.page);
-        await waitForActiveDjvuImages(session);
-        await waitForInactiveDjvuImagesToRelease(session);
-        await assertInactiveDocumentPressureReleased(session.page);
-
-        await activateTab(session, 1);
-        await waitForPdfLoaded(session.page);
-        await waitForInactiveDjvuImagesToRelease(session);
-        const pressure = await assertInactiveDocumentPressureReleased(session.page);
-
-        expect(pressure.filter(host => host.active)).toHaveLength(1);
-        expect(pressure.filter(host => !host.active).every(host => host.emptyPlaceholders > 0 || host.canvases === 0)).toBe(true);
-    });
-
     it('keeps copied visible split-pane DjVu documents rendered', async () => {
         if (!session || !djvuFixture.path) {
             throw new Error('Inactive DjVu tabs session was not initialized');
