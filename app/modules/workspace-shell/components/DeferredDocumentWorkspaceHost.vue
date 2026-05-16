@@ -109,6 +109,10 @@ import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
+import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
@@ -226,6 +230,8 @@ const OPENING_DOCUMENT_SKELETON_FALLBACK_HEIGHT_PX = 720;
 const OPENING_DOCUMENT_SKELETON_MIN_WIDTH_PX = 320;
 const OPENING_DOCUMENT_SKELETON_MIN_HEIGHT_PX = 420;
 const OPENING_DOCUMENT_SKELETON_ASPECT_RATIO = 4 / 3;
+const OPENING_DOCUMENT_SKELETON_FRAME_PADDING_PX = 24;
+const OPENING_DOCUMENT_SKELETON_SETTLE_FRAME_COUNT = 4;
 
 interface IDocumentOpenTransaction {
     id: number;
@@ -289,6 +295,8 @@ let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
 let isHostUnmounted = false;
 let nextDocumentOpenTransactionId = 0;
+let openingDocumentSkeletonRefreshRaf: number | null = null;
+let openingDocumentSkeletonSettleRafIds: number[] = [];
 const activeDocumentOpenTransaction = ref<IDocumentOpenTransaction | null>(null);
 const documentOpenInFlightCount = ref(0);
 const filePickerInFlightCount = ref(0);
@@ -600,7 +608,9 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
         emit('update-tab', target);
     }
 
+    cancelOpeningDocumentSkeletonFrameRefreshes();
     openingDocumentSkeletonFrame.value = captureOpeningDocumentSkeletonFrame(transaction.id);
+    scheduleOpeningDocumentSkeletonFrameSettleRefreshes(transaction.id);
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
         tabId: tabId,
@@ -675,6 +685,7 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, op
     }
 
     if (openingDocumentSkeletonFrame.value?.transactionId === transaction.id) {
+        cancelOpeningDocumentSkeletonFrameRefreshes();
         openingDocumentSkeletonFrame.value = null;
     }
 
@@ -703,13 +714,49 @@ function buildOpeningDocumentSkeletonPadding(width: number, height: number): ICo
     };
 }
 
+function isOpeningDocumentSkeletonFrameEqual(
+    current: IOpeningDocumentSkeletonFrame,
+    next: IOpeningDocumentSkeletonFrame,
+) {
+    return current.transactionId === next.transactionId
+        && current.width === next.width
+        && current.height === next.height
+        && current.padding.top === next.padding.top
+        && current.padding.right === next.padding.right
+        && current.padding.bottom === next.padding.bottom
+        && current.padding.left === next.padding.left;
+}
+
+function resolveOpeningDocumentSkeletonHostWidth(host: HTMLElement | null) {
+    const measuredHostWidth = host
+        ? Math.max(host.clientWidth, host.getBoundingClientRect().width)
+        : 0;
+    if (measuredHostWidth > 0) {
+        return measuredHostWidth;
+    }
+
+    if (!import.meta.client) {
+        return OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX;
+    }
+
+    const documentElementWidth = document.documentElement?.clientWidth ?? 0;
+    const viewportWidth = window.visualViewport?.width ?? 0;
+    const windowWidth = window.innerWidth;
+
+    return Math.max(
+        documentElementWidth,
+        viewportWidth,
+        windowWidth,
+        OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX,
+    );
+}
+
 function captureOpeningDocumentSkeletonFrame(transactionId: number): IOpeningDocumentSkeletonFrame {
     const host = workspaceHostRef.value;
-    const hostWidth = host?.clientWidth ?? OPENING_DOCUMENT_SKELETON_FALLBACK_WIDTH_PX;
-    const framePadding = 24;
+    const hostWidth = resolveOpeningDocumentSkeletonHostWidth(host);
     const width = Math.max(
         OPENING_DOCUMENT_SKELETON_MIN_WIDTH_PX,
-        hostWidth - framePadding * 2,
+        hostWidth - OPENING_DOCUMENT_SKELETON_FRAME_PADDING_PX * 2,
     );
     const height = Math.max(
         OPENING_DOCUMENT_SKELETON_MIN_HEIGHT_PX,
@@ -726,6 +773,102 @@ function captureOpeningDocumentSkeletonFrame(transactionId: number): IOpeningDoc
         padding: buildOpeningDocumentSkeletonPadding(roundedWidth, roundedHeight),
     };
 }
+
+function refreshOpeningDocumentSkeletonFrame(transactionId: number) {
+    const currentFrame = openingDocumentSkeletonFrame.value;
+    if (!currentFrame || currentFrame.transactionId !== transactionId) {
+        return;
+    }
+
+    const nextFrame = captureOpeningDocumentSkeletonFrame(transactionId);
+    if (isOpeningDocumentSkeletonFrameEqual(currentFrame, nextFrame)) {
+        return;
+    }
+
+    openingDocumentSkeletonFrame.value = nextFrame;
+}
+
+function requestOpeningDocumentSkeletonFrameRefresh(transactionId = openingDocumentSkeletonFrame.value?.transactionId ?? null) {
+    if (!import.meta.client || transactionId === null || isHostUnmounted) {
+        return;
+    }
+    if (openingDocumentSkeletonRefreshRaf !== null) {
+        return;
+    }
+
+    openingDocumentSkeletonRefreshRaf = window.requestAnimationFrame(() => {
+        openingDocumentSkeletonRefreshRaf = null;
+        refreshOpeningDocumentSkeletonFrame(transactionId);
+    });
+}
+
+function cancelOpeningDocumentSkeletonFrameRefreshes() {
+    if (!import.meta.client) {
+        return;
+    }
+
+    if (openingDocumentSkeletonRefreshRaf !== null) {
+        window.cancelAnimationFrame(openingDocumentSkeletonRefreshRaf);
+        openingDocumentSkeletonRefreshRaf = null;
+    }
+
+    for (const rafId of openingDocumentSkeletonSettleRafIds) {
+        window.cancelAnimationFrame(rafId);
+    }
+    openingDocumentSkeletonSettleRafIds = [];
+}
+
+function queueOpeningDocumentSkeletonSettleFrame(transactionId: number, framesRemaining: number) {
+    if (
+        !import.meta.client
+        || framesRemaining <= 0
+        || isHostUnmounted
+        || openingDocumentSkeletonFrame.value?.transactionId !== transactionId
+    ) {
+        return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+        openingDocumentSkeletonSettleRafIds = openingDocumentSkeletonSettleRafIds.filter(id => id !== rafId);
+        refreshOpeningDocumentSkeletonFrame(transactionId);
+        queueOpeningDocumentSkeletonSettleFrame(transactionId, framesRemaining - 1);
+    });
+    openingDocumentSkeletonSettleRafIds.push(rafId);
+}
+
+function scheduleOpeningDocumentSkeletonFrameSettleRefreshes(transactionId: number) {
+    if (!import.meta.client) {
+        return;
+    }
+
+    void nextTick().then(() => {
+        refreshOpeningDocumentSkeletonFrame(transactionId);
+        queueOpeningDocumentSkeletonSettleFrame(
+            transactionId,
+            OPENING_DOCUMENT_SKELETON_SETTLE_FRAME_COUNT,
+        );
+    });
+}
+
+function scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction() {
+    requestOpeningDocumentSkeletonFrameRefresh();
+}
+
+watch(workspaceHostRef, scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction, {flush: 'post'});
+
+useResizeObserver(workspaceHostRef, scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction);
+
+useEventListener(
+    import.meta.client ? window : undefined,
+    'resize',
+    scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction,
+);
+
+useEventListener(
+    import.meta.client ? window.visualViewport : undefined,
+    'resize',
+    scheduleOpeningDocumentSkeletonFrameRefreshForCurrentTransaction,
+);
 
 async function runWithDocumentOpenInFlight<T>(
     intent: IDocumentOpenIntent,
@@ -1048,6 +1191,7 @@ onUnmounted(() => {
     isHostUnmounted = true;
     workspaceLoadPromise = null;
     workspacePreloadPromise = null;
+    cancelOpeningDocumentSkeletonFrameRefreshes();
     for (const timer of chunkRetryTimers) {
         clearTimeout(timer);
     }
