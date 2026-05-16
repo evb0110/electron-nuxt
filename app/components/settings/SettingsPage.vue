@@ -2,7 +2,6 @@
     <AppToolPageShell
         :title="t('settings.title')"
         :eyebrow="t('settings.pageEyebrow')"
-        :description="settingsPageDescription"
         icon="i-ph-gear"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
@@ -32,11 +31,7 @@ const {
     showEyebrow?: boolean;
 }>();
 
-const { isDesktopRuntime } = useRuntimeEnvironment();
 const { t } = useTypedI18n();
-const settingsPageDescription = computed(() => isDesktopRuntime
-    ? t('settings.dialogDescription')
-    : t('settings.browserDialogDescription'));
 </script>
 
 <style scoped>
