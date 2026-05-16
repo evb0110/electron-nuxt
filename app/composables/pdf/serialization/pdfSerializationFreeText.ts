@@ -34,6 +34,7 @@ import { toPdfDateString } from '@app/utils/pdfDate';
 import {
     appendAnnotationRefToPage,
     isAnnotationMarkerRect,
+    toFreeTextNoteMarkerRect,
 } from './pdfSerializationShared';
 import { setRgbColor } from './pdfSerializationColors';
 import { resolveShapePageContext } from './pdfSerializationGeometry';
@@ -171,12 +172,15 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
                 context.pageView,
                 context.pageRotation,
             );
-            if (!matchedComment || !isAnnotationMarkerRect(matchedComment.markerRect)) {
+            const markerRect = matchedComment
+                ? toFreeTextNoteMarkerRect(matchedComment.markerRect)
+                : null;
+            if (!markerRect) {
                 continue;
             }
 
             const pdfRect = toPdfRectFromMarkerRect(
-                matchedComment.markerRect,
+                markerRect,
                 context.pageView,
                 context.pageRotation,
             );
@@ -275,12 +279,13 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
         }
 
         pageComments.forEach((comment) => {
-            if (!isAnnotationMarkerRect(comment.markerRect)) {
+            const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
+            if (!markerRect) {
                 return;
             }
 
             const pdfRect = toPdfRectFromMarkerRect(
-                comment.markerRect,
+                markerRect,
                 context.pageView,
                 context.pageRotation,
             );

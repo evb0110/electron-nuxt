@@ -46,13 +46,19 @@ const emit = defineEmits<{
     'move-marker': [comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect];
 }>();
 
-const markerLayerTargets = computed(() =>
-    resolvePageTargets(viewerContainer, [...markersByPage.keys()]),
-);
+const portalTargetRefreshTick = ref(0);
+let portalTargetObserver: MutationObserver | null = null;
+let portalTargetRefreshFrame: number | null = null;
 
-const linkLayerTargets = computed(() =>
-    resolvePageTargets(viewerContainer, Object.keys(linksByPage).map(Number)),
-);
+const markerLayerTargets = computed(() => {
+    void portalTargetRefreshTick.value;
+    return resolvePageTargets(viewerContainer, [...markersByPage.keys()]);
+});
+
+const linkLayerTargets = computed(() => {
+    void portalTargetRefreshTick.value;
+    return resolvePageTargets(viewerContainer, Object.keys(linksByPage).map(Number));
+});
 
 function handleOpenNote(comment: IAnnotationCommentSummary) {
     emit('open-note', comment);
@@ -65,4 +71,98 @@ function handleContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent
 function handleMoveMarker(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
     emit('move-marker', comment, markerRect);
 }
+
+function refreshPortalTargets() {
+    portalTargetRefreshTick.value += 1;
+}
+
+function cancelPortalTargetRefreshFrame() {
+    if (portalTargetRefreshFrame === null || typeof window === 'undefined') {
+        portalTargetRefreshFrame = null;
+        return;
+    }
+    window.cancelAnimationFrame(portalTargetRefreshFrame);
+    portalTargetRefreshFrame = null;
+}
+
+function schedulePortalTargetRefresh() {
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+        refreshPortalTargets();
+        return;
+    }
+    if (portalTargetRefreshFrame !== null) {
+        return;
+    }
+    portalTargetRefreshFrame = window.requestAnimationFrame(() => {
+        portalTargetRefreshFrame = null;
+        refreshPortalTargets();
+    });
+}
+
+function elementContainsPageContainer(element: Element) {
+    return element.matches('.page_container')
+        || Boolean(element.querySelector('.page_container'));
+}
+
+function mutationTouchesPortalTargets(records: MutationRecord[]) {
+    return records.some((record) => {
+        if (record.type === 'attributes') {
+            return record.target instanceof Element
+                && record.target.matches('.page_container');
+        }
+
+        return [
+            ...record.addedNodes,
+            ...record.removedNodes,
+        ].some(node => node instanceof Element && elementContainsPageContainer(node));
+    });
+}
+
+function reconnectPortalTargetObserver() {
+    portalTargetObserver?.disconnect();
+    portalTargetObserver = null;
+    cancelPortalTargetRefreshFrame();
+
+    if (!viewerContainer) {
+        refreshPortalTargets();
+        return;
+    }
+
+    refreshPortalTargets();
+    if (typeof MutationObserver === 'undefined') {
+        return;
+    }
+
+    portalTargetObserver = new MutationObserver((records) => {
+        if (mutationTouchesPortalTargets(records)) {
+            schedulePortalTargetRefresh();
+        }
+    });
+    portalTargetObserver.observe(viewerContainer, {
+        attributes: true,
+        attributeFilter: [
+            'class',
+            'data-page',
+        ],
+        childList: true,
+        subtree: true,
+    });
+}
+
+onMounted(() => {
+    reconnectPortalTargetObserver();
+});
+
+onBeforeUnmount(() => {
+    portalTargetObserver?.disconnect();
+    portalTargetObserver = null;
+    cancelPortalTargetRefreshFrame();
+});
+
+watch(
+    () => viewerContainer,
+    () => {
+        reconnectPortalTargetObserver();
+    },
+);
 </script>

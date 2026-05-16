@@ -89,6 +89,8 @@ export interface IMarkupSubtypeOverrideRegistration {
 const NOTE_INVISIBLE_CHAR_REGEX = /[\u200B\uFEFF]/g;
 const FREE_TEXT_SUBTYPE_LOWER = 'freetext';
 const PENDING_ANCHOR_DISTANCE_THRESHOLD = 0.14;
+const POINT_NOTE_MARKER_SIZE = 0.0016;
+const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
 const MARKUP_SUBTYPE_OVERRIDE_BLOCKLIST: ReadonlySet<string> = new Set([
     'Highlight',
     'Ink',
@@ -153,10 +155,16 @@ export function resolveEditorMarkerRect(editor: IPdfjsEditor): IEditorMarkerRect
         : toMarkerRectFromEditor(editor);
     const pendingAnchorRect = normalizeMarkerRect(editor.__evbPendingAnchorRect ?? null);
     const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
+    const hasPointSizedPendingAnchor = Boolean(
+        pendingAnchorRect
+        && pendingAnchorRect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
+        && pendingAnchorRect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE,
+    );
     const shouldUsePendingAnchor = Boolean(
         pendingAnchorRect
         && (
-            !markerRectFromEditor
+            hasPointSizedPendingAnchor
+            || !markerRectFromEditor
             || markerDistanceFromPending > PENDING_ANCHOR_DISTANCE_THRESHOLD
         ),
     );
@@ -171,6 +179,44 @@ export function resolveEditorMarkerRect(editor: IPdfjsEditor): IEditorMarkerRect
         markerDistanceFromPending,
         shouldUsePendingAnchor,
     };
+}
+
+function isFreeTextNoteMarkerRect(
+    subtype: string | null | undefined,
+    hasLinkedPopup: boolean,
+    rect: IAnnotationMarkerRect | null,
+): rect is IAnnotationMarkerRect {
+    if (!rect || !hasLinkedPopup) {
+        return false;
+    }
+    const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
+    return normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER;
+}
+
+function toPointMarkerRectFromTopLeft(rect: IAnnotationMarkerRect) {
+    return normalizeMarkerRect({
+        left: rect.left,
+        top: rect.top,
+        width: POINT_NOTE_MARKER_SIZE,
+        height: POINT_NOTE_MARKER_SIZE,
+    });
+}
+
+function resolvePdfCommentMarkerRect(
+    subtype: string | null | undefined,
+    hasLinkedPopup: boolean,
+    rawMarkerRect: IAnnotationMarkerRect | null,
+) {
+    if (!isFreeTextNoteMarkerRect(subtype, hasLinkedPopup, rawMarkerRect)) {
+        return rawMarkerRect;
+    }
+    if (
+        rawMarkerRect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
+        && rawMarkerRect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE
+    ) {
+        return rawMarkerRect;
+    }
+    return toPointMarkerRectFromTopLeft(rawMarkerRect);
 }
 
 export function resolveCombinedAnnotationText(
@@ -304,6 +350,11 @@ export function buildPdfAnnotationCommentSummary(
         annotationId,
     } = resolvePdfCommentIds(annotation, pageNumber, annotationIndex);
     const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
+    const rawMarkerRect = toMarkerRectFromPdfRect(
+        annotation.rect ?? popupAnnotation?.rect,
+        pageView,
+        pageRotation,
+    );
 
     return {
         id,
@@ -327,11 +378,7 @@ export function buildPdfAnnotationCommentSummary(
         annotationId,
         source: 'pdf',
         hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text),
-        markerRect: toMarkerRectFromPdfRect(
-            annotation.rect ?? popupAnnotation?.rect,
-            pageView,
-            pageRotation,
-        ),
+        markerRect: resolvePdfCommentMarkerRect(subtype, hasLinkedPopup, rawMarkerRect),
     };
 }
 

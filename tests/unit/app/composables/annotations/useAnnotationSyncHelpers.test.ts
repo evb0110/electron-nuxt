@@ -446,6 +446,74 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.hasNote).toBe(true);
     });
 
+    it('shrinks large FreeText popup rects into point-like note anchors', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'freetext-1',
+                subtype: 'FreeText',
+                rect: [
+                    100,
+                    500,
+                    220,
+                    620,
+                ],
+                contents: 'note',
+                popupRef: 'popup-1',
+            },
+            {
+                id: 'popup-1',
+                subtype: 'Popup',
+                contents: 'note',
+            },
+            1,
+            0,
+            [
+                0,
+                0,
+                600,
+                800,
+            ],
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.hasNote).toBe(true);
+        expect(summary.markerRect?.width).toBeLessThanOrEqual(0.02);
+        expect(summary.markerRect?.height).toBeLessThanOrEqual(0.02);
+        expect(summary.markerRect?.left).toBeCloseTo(100 / 600, 5);
+        expect(summary.markerRect?.top).toBeCloseTo(1 - (620 / 800), 5);
+    });
+
+    it('keeps regular FreeText rects when there is no linked popup', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'freetext-1',
+                subtype: 'FreeText',
+                rect: [
+                    100,
+                    500,
+                    220,
+                    620,
+                ],
+                contents: 'visible text',
+            },
+            null,
+            1,
+            0,
+            [
+                0,
+                0,
+                600,
+                800,
+            ],
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.markerRect?.width).toBeGreaterThan(0.02);
+        expect(summary.markerRect?.height).toBeGreaterThan(0.02);
+    });
+
     it('marks hasNote=false for FreeText without popup link or text', () => {
         const summary = __test__.buildPdfAnnotationCommentSummary(
             {
@@ -663,5 +731,28 @@ describe('useAnnotationSync helpers / resolveEditorMarkerRect', () => {
         const result = __test__.resolveEditorMarkerRect(editor);
         expect(result.shouldUsePendingAnchor).toBe(false);
         expect(result.markerRect?.left).toBeCloseTo(0.2, 5);
+    });
+
+    it('uses point-sized pending anchors even when they are close to the editor rect', () => {
+        const editor: IPdfjsEditor = {
+            x: 0.2,
+            y: 0.3,
+            width: 0.1,
+            height: 0.1,
+            __evbPendingAnchorRect: {
+                left: 0.21,
+                top: 0.31,
+                width: 0.0016,
+                height: 0.0016,
+            },
+        };
+        const result = __test__.resolveEditorMarkerRect(editor);
+        expect(result.shouldUsePendingAnchor).toBe(true);
+        expect(result.markerRect).toEqual({
+            left: 0.21,
+            top: 0.31,
+            width: 0.0016,
+            height: 0.0016,
+        });
     });
 });
