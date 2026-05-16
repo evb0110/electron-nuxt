@@ -131,12 +131,19 @@
                         <div
                             v-if="shouldShowRecentTable"
                             class="recent-table"
+                            :class="{ 'recent-table--compact': !shouldShowRecentLocationColumn }"
                             role="table"
                             :aria-busy="!recentFilesResolved"
                         >
                             <div class="recent-row recent-row--head" role="row">
                                 <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
-                                <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
+                                <span
+                                    v-if="shouldShowRecentLocationColumn"
+                                    role="columnheader"
+                                    class="recent-col recent-col--location"
+                                >
+                                    {{ t('emptyState.columnLocation') }}
+                                </span>
                                 <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
                                 <span class="recent-col recent-col--actions" aria-hidden="true" />
                             </div>
@@ -154,7 +161,11 @@
                                             aria-hidden="true"
                                         />
                                     </span>
-                                    <span class="recent-col recent-col--location" role="cell">
+                                    <span
+                                        v-if="shouldShowRecentLocationColumn"
+                                        class="recent-col recent-col--location"
+                                        role="cell"
+                                    >
                                         <span
                                             class="recent-skeleton-line recent-skeleton-line--location"
                                             aria-hidden="true"
@@ -186,7 +197,11 @@
                                     </span>
                                     <span class="recent-file-name">{{ file.fileName }}</span>
                                 </span>
-                                <span class="recent-col recent-col--location" role="cell">
+                                <span
+                                    v-if="shouldShowRecentLocationColumn"
+                                    class="recent-col recent-col--location"
+                                    role="cell"
+                                >
                                     <template v-if="!isBrowserDocumentRef(file.originalPath)">
                                         {{ getParentFolder(file.originalPath) }}
                                     </template>
@@ -313,6 +328,7 @@ import {
     formatEtaDuration,
 } from '@app/utils/progressFormatting';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
+import { isBrowserPlatformActive } from '@app/utils/platform';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
@@ -380,6 +396,7 @@ const filteredRecentFiles = computed(() => {
     });
 });
 const shouldShowRecentTable = computed(() => !recentFilesResolved || filteredRecentFiles.value.length > 0);
+const shouldShowRecentLocationColumn = computed(() => !isBrowserPlatformActive());
 const recentItemsLabel = computed(() => (
     recentFilesResolved
         ? t('emptyState.itemsCount', { count: filteredRecentFiles.value.length })
@@ -850,6 +867,10 @@ watch(() => startSection, (section) => {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+}
+
+.recent-table--compact {
+    grid-template-columns: minmax(0, 1fr) auto 5.5rem;
 }
 
 .recent-row {
