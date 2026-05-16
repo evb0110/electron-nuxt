@@ -8,6 +8,7 @@
         :error="note.error"
         :position="annotationNotePositions[note.comment.stableKey] ?? null"
         :z-index="90 + note.order"
+        :bounds-root="annotationViewportRoot ?? null"
         @update:text="handleNoteTextUpdate(note.comment.stableKey, $event)"
         @update:position="handleNotePositionUpdate(note.comment.stableKey, $event)"
         @minimize="handleMinimizeNote(note.comment.stableKey)"
