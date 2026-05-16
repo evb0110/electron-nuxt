@@ -19,6 +19,7 @@ tests/fixtures/electron/large-pdf-fixtures/
 landing/
 
 # IDE / tooling
+.cache/
 .idea/
 .vscode/
 .claude/

@@ -54,7 +54,7 @@ export interface IBeginSerializedPdfSaveAsResult {
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
 
-export function getPdfPersistencePortMessageData(messageEvent: unknown) {
+function getPdfPersistencePortMessageData(messageEvent: unknown) {
     const data = messageEvent && typeof messageEvent === 'object' && 'data' in messageEvent
         ? messageEvent.data
         : null;
