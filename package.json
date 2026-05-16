@@ -3,7 +3,12 @@
   "productName": "EVB Viewer",
   "version": "0.1.269",
   "author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>",
-  "description": "EVB Viewer — a PDF and DjVu document viewer",
+  "description": "EVB Viewer - a PDF and DjVu document viewer",
+  "homepage": "https://github.com/evb0110/evb-viewer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/evb0110/evb-viewer.git"
+  },
   "license": "MIT",
   "type": "module",
   "engines": {
