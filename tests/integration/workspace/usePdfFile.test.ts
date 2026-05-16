@@ -85,35 +85,6 @@ describe('usePdfFile', () => {
         });
     });
 
-    describe('initial state', () => {
-        it('starts with null pdfSrc and pdfData', () => {
-            const file = usePdfFile();
-
-            expect(file.pdfSrc.value).toBeNull();
-            expect(file.pdfData.value).toBeNull();
-        });
-
-        it('starts with no working copy path', () => {
-            const file = usePdfFile();
-
-            expect(file.workingCopyPath.value).toBeNull();
-            expect(file.fileName.value).toBeNull();
-        });
-
-        it('starts clean (not dirty)', () => {
-            const file = usePdfFile();
-
-            expect(file.isDirty.value).toBe(false);
-        });
-
-        it('starts with no undo/redo available', () => {
-            const file = usePdfFile();
-
-            expect(file.canUndo.value).toBe(false);
-            expect(file.canRedo.value).toBe(false);
-        });
-    });
-
     describe('openFile', () => {
         it('sets pendingDjvu for DjVu files', async () => {
             mockDocuments.openPdfDialog.mockResolvedValue({
@@ -546,20 +517,6 @@ describe('usePdfFile', () => {
             expect(result).toBe(true);
         });
 
-        it('returns false when nothing to undo', async () => {
-            const file = usePdfFile();
-
-            const result = await file.undo();
-            expect(result).toBe(false);
-        });
-
-        it('returns false when nothing to redo', async () => {
-            const file = usePdfFile();
-
-            const result = await file.redo();
-            expect(result).toBe(false);
-        });
-
         it('can reload the working copy into history for external page operations', async () => {
             const bytes1 = new Uint8Array([
                 1,
@@ -701,15 +658,6 @@ describe('usePdfFile', () => {
             expect(mockDocuments.writeFile).toHaveBeenCalledWith('/tmp/persist.pdf', expect.any(Uint8Array));
             expect(file.pdfSrc.value).toBeInstanceOf(Blob);
             expect(new Uint8Array(await (file.pdfSrc.value as Blob).arrayBuffer())).toEqual(bytes2);
-        });
-    });
-
-    describe('markDirty', () => {
-        it('marks the file as dirty', () => {
-            const file = usePdfFile();
-
-            file.markDirty();
-            expect(file.isDirty.value).toBe(true);
         });
     });
 

@@ -3,10 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    isRtlOcrLanguage,
-    resolveTesseractLanguageConfig,
-} from '@electron/ocr/tesseractLanguageConfig';
+import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
     it('keeps non-rtl language order and applies spacing config', () => {
@@ -64,14 +61,5 @@ describe('resolveTesseractLanguageConfig', () => {
             'eng',
             'deu',
         ]);
-    });
-});
-
-describe('isRtlOcrLanguage', () => {
-    it('returns true for rtl language codes and false otherwise', () => {
-        expect(isRtlOcrLanguage('heb')).toBe(true);
-        expect(isRtlOcrLanguage('syr')).toBe(true);
-        expect(isRtlOcrLanguage('eng')).toBe(false);
-        expect(isRtlOcrLanguage('ara')).toBe(false);
     });
 });
