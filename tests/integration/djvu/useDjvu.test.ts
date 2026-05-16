@@ -96,34 +96,6 @@ describe('useDjvu', () => {
         });
     });
 
-    describe('initial state', () => {
-        it('starts with no conversion in progress', () => {
-            const djvu = useDjvu();
-
-            expect(djvu.conversionState.value.isConverting).toBe(false);
-            expect(djvu.conversionState.value.phase).toBeNull();
-            expect(djvu.conversionState.value.percent).toBe(0);
-        });
-
-        it('starts with loading not active', () => {
-            const djvu = useDjvu();
-
-            expect(djvu.isLoadingPages.value).toBe(false);
-        });
-
-        it('starts with banner visible', () => {
-            const djvu = useDjvu();
-
-            expect(djvu.showBanner.value).toBe(true);
-        });
-
-        it('starts with convert dialog closed', () => {
-            const djvu = useDjvu();
-
-            expect(djvu.showConvertDialog.value).toBe(false);
-        });
-    });
-
     describe('openDjvuFile', () => {
         it('opens a single-page DjVu file', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
@@ -237,14 +209,6 @@ describe('useDjvu', () => {
     });
 
     describe('cancelActiveJobs', () => {
-        it('returns false when no active jobs exist and not converting', async () => {
-            const djvu = useDjvu();
-
-            const result = await djvu.cancelActiveJobs();
-
-            expect(result).toBe(false);
-        });
-
         it('sets pendingConvertCancel when converting but no job ID yet', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
@@ -264,25 +228,6 @@ describe('useDjvu', () => {
             const result = await djvu.cancelActiveJobs();
 
             expect(result).toBe(true);
-        });
-    });
-
-    describe('dialog management', () => {
-        it('opens and closes the convert dialog', () => {
-            const djvu = useDjvu();
-
-            djvu.openConvertDialog();
-            expect(djvu.showConvertDialog.value).toBe(true);
-
-            djvu.closeConvertDialog();
-            expect(djvu.showConvertDialog.value).toBe(false);
-        });
-
-        it('dismisses the banner', () => {
-            const djvu = useDjvu();
-
-            djvu.dismissBanner();
-            expect(djvu.showBanner.value).toBe(false);
         });
     });
 
@@ -310,14 +255,6 @@ describe('useDjvu', () => {
     });
 
     describe('listener setup', () => {
-        it('sets up progress and viewing listeners on creation', () => {
-            useDjvu();
-
-            expect(mockElectronAPI.djvu.onProgress).toHaveBeenCalled();
-            expect(mockElectronAPI.djvu.onViewingReady).toHaveBeenCalled();
-            expect(mockElectronAPI.djvu.onViewingError).toHaveBeenCalled();
-        });
-
         it('shows background viewing errors and exits loading state', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,

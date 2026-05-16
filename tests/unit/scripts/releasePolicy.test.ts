@@ -135,20 +135,32 @@ describe('release policy', () => {
     });
 
     it('keeps release checks focused on static checks and release-critical tests', () => {
-        const commands = getLocalReleaseCheckCommands()
-            .map((command: { args: string[] }) => command.args.join(' '));
+        const commandArgs: string[][] = getLocalReleaseCheckCommands()
+            .map((command: { args: string[] }) => command.args);
+        const scriptNames = commandArgs
+            .filter(args => args[0] === 'run')
+            .map(args => args[1]);
 
-        expect(commands).toEqual([
-            'run lint',
-            'run typecheck',
-            'run check:electron:install',
-            'run test:release',
+        expect(commandArgs).toEqual([
+            [
+                'run',
+                'lint',
+            ],
+            [
+                'run',
+                'typecheck',
+            ],
+            [
+                'run',
+                'check:electron:install',
+            ],
+            [
+                'run',
+                'test:release',
+            ],
         ]);
-        expect(commands.join('\n')).not.toContain('validate');
-        expect(commands.join('\n')).not.toContain('build:strict');
-        expect(commands.join('\n')).not.toContain('fallow');
-        expect(commands.join('\n')).not.toContain('typecheck:coverage');
-        expect(commands.join('\n')).not.toContain('check:architecture');
+        expect(scriptNames).not.toContain('validate');
+        expect(scriptNames).not.toContain('build:strict');
     });
 
     it('runs release checks under the supplied CI-mode environment', () => {

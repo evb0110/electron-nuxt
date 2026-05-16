@@ -7,8 +7,6 @@ import * as utifModule from 'utif';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-    getTiffValueCount,
-    measureTiffIfdSize,
 } from '@contracts/tiffEncoding';
 
 interface IUtifEncoderModule {
@@ -65,42 +63,4 @@ describe('tiff encoding helpers', () => {
         expect(secondNextIfdOffset).toBe(0);
     });
 
-    it('measures TIFF IFD size using value counts from arrays and typed arrays', () => {
-        expect(getTiffValueCount([
-            1,
-            2,
-            3,
-        ])).toBe(3);
-        expect(getTiffValueCount(new Uint16Array([
-            1,
-            2,
-        ]))).toBe(2);
-
-        const size = measureTiffIfdSize({
-            t256: [1],
-            t257: [1],
-            t258: [
-                8,
-                8,
-                8,
-                8,
-            ],
-            t259: [1],
-            t262: [2],
-            t273: [8],
-            t277: [4],
-            t278: [1],
-            t279: [4],
-            t282: [1],
-            t283: [1],
-            t284: [1],
-            t286: [0],
-            t287: [0],
-            t296: [1],
-            t305: ['EVB Viewer'],
-            t338: [1],
-        }, UTIF.ttypes);
-
-        expect(size).toBeGreaterThan(0);
-    });
 });

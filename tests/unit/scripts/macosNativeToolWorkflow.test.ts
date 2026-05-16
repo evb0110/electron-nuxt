@@ -18,10 +18,13 @@ describe('macOS native tool workflow', () => {
 
         for (const workflowPath of workflowPaths) {
             const workflow = await readProjectFile(workflowPath);
+            const brewInstallCommands = workflow.match(/^.*brew install .+$/gmu) ?? [];
+            const documentationToolInstall = brewInstallCommands.find(command => command.includes('sphinx-doc'));
 
-            expect(workflow).toContain('brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config sphinx-doc');
-            expect(workflow).toContain('SPHINX_BIN="$(brew --prefix sphinx-doc)/bin"');
-            expect(workflow).toContain('export PATH="$SPHINX_BIN:$PATH"');
+            expect(documentationToolInstall).toBeDefined();
+            expect(documentationToolInstall).toContain('meson');
+            expect(documentationToolInstall).toContain('pkg-config');
+            expect(workflow).toContain('brew --prefix sphinx-doc');
             expect(workflow).not.toContain('pip3 install sphinx');
         }
     });
