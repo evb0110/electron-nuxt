@@ -1,5 +1,9 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platformApi';
+import {
+    useClipboard,
+    useEventListener,
+} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import { deleteEmbeddedAnnotationOffThread } from '@app/composables/pdf/pdfSerializationWorkerClient';
@@ -119,6 +123,7 @@ interface IPageAnnotationActionsDeps {
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { t } = useTypedI18n();
     const { clampToViewport } = useContextMenuPosition();
+    const { copy: copyClipboardText } = useClipboard();
 
     const {
         pdfViewerRef,
@@ -170,6 +175,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             ? selectedShape.value
             : null,
     );
+    const viewerContainer = computed(() => pdfViewerRef.value?.getViewerContainer() ?? null);
+    const windowTarget = computed(() => (
+        typeof window !== 'undefined' && typeof window.addEventListener === 'function'
+            ? window
+            : null
+    ));
 
     function updateShapePropertiesPopoverPosition(shape: IShapeAnnotation) {
         const viewerContainer = pdfViewerRef.value?.getViewerContainer();
@@ -565,29 +576,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         },
     );
 
-    watch(
-        () => pdfViewerRef.value?.getViewerContainer() ?? null,
-        (container, _previous, onCleanup) => {
-            if (!container) {
-                return;
-            }
+    function handleViewportChange() {
+        if (selectedShape.value && shapePropertiesPopover.value.visible) {
+            updateShapePropertiesPopoverPosition(selectedShape.value);
+        }
+    }
 
-            const handleViewportChange = () => {
-                if (selectedShape.value && shapePropertiesPopover.value.visible) {
-                    updateShapePropertiesPopoverPosition(selectedShape.value);
-                }
-            };
-
-            container.addEventListener('scroll', handleViewportChange, { passive: true });
-            window.addEventListener('resize', handleViewportChange);
-
-            onCleanup(() => {
-                container.removeEventListener('scroll', handleViewportChange);
-                window.removeEventListener('resize', handleViewportChange);
-            });
-        },
-        { immediate: true },
-    );
+    useEventListener(viewerContainer, 'scroll', handleViewportChange, { passive: true });
+    useEventListener(windowTarget, 'resize', handleViewportChange);
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;
@@ -715,7 +711,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
         try {
-            await navigator.clipboard.writeText(text);
+            await copyClipboardText(text);
         } catch (error) {
             BrowserLogger.debug('annotations', 'Failed to copy selected text to clipboard', error);
         }
@@ -821,7 +817,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
         try {
-            await navigator.clipboard.writeText(text);
+            await copyClipboardText(text);
         } catch (error) {
             BrowserLogger.debug('annotations', 'Failed to copy annotation comment text to clipboard', error);
         }

@@ -1,7 +1,10 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/platformApi';
-import { useIntervalFn } from '@vueuse/core';
+import {
+    useEventListener,
+    useIntervalFn,
+} from '@vueuse/core';
 import { getDocumentPathForFile } from '@app/utils/platformDocuments';
 import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
 
@@ -42,8 +45,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     let startY = 0;
     let startPage = 0;
     let clickSkip = false;
-    let mouseMoveListener: ((event: MouseEvent) => void) | null = null;
-    let mouseUpListener: (() => void) | null = null;
+    const isWindowDragListenerActive = ref(false);
     let dragReorderContext: IDragReorderContext | null = null;
     const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
@@ -229,14 +231,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function cleanupWindowDragListeners() {
-        if (typeof window !== 'undefined' && mouseMoveListener) {
-            window.removeEventListener('mousemove', mouseMoveListener);
-        }
-        if (typeof window !== 'undefined' && mouseUpListener) {
-            window.removeEventListener('mouseup', mouseUpListener);
-        }
-        mouseMoveListener = null;
-        mouseUpListener = null;
+        isWindowDragListenerActive.value = false;
     }
 
     function onMove(e: MouseEvent) {
@@ -299,11 +294,16 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         if (typeof window === 'undefined') {
             return;
         }
-        mouseMoveListener = onMove;
-        mouseUpListener = onUp;
-        window.addEventListener('mousemove', mouseMoveListener);
-        window.addEventListener('mouseup', mouseUpListener);
+        isWindowDragListenerActive.value = true;
     }
+
+    const windowDragTarget = computed(() => (
+        isWindowDragListenerActive.value && typeof window !== 'undefined'
+            ? window
+            : null
+    ));
+    useEventListener(windowDragTarget, 'mousemove', onMove);
+    useEventListener(windowDragTarget, 'mouseup', onUp);
 
     function consumeClickSkip() {
         if (clickSkip) {

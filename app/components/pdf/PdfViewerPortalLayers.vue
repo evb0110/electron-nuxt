@@ -18,6 +18,7 @@
 </template>
 
 <script setup lang="ts">
+import { useMutationObserver } from '@vueuse/core';
 import PdfCommentMarkerLayer from '@app/components/pdf/annotations/PdfCommentMarkerLayer.vue';
 import PdfLinkOverlayLayer from '@app/components/pdf/annotations/PdfLinkOverlayLayer.vue';
 import { resolvePageTargets } from '@app/components/pdf/pdfViewerPortalTargets';
@@ -47,7 +48,6 @@ const emit = defineEmits<{
 }>();
 
 const portalTargetRefreshTick = ref(0);
-let portalTargetObserver: MutationObserver | null = null;
 let portalTargetRefreshFrame: number | null = null;
 
 const markerLayerTargets = computed(() => {
@@ -118,27 +118,24 @@ function mutationTouchesPortalTargets(records: MutationRecord[]) {
     });
 }
 
-function reconnectPortalTargetObserver() {
-    portalTargetObserver?.disconnect();
-    portalTargetObserver = null;
+function handlePortalTargetMutations(records: MutationRecord[]) {
+    if (mutationTouchesPortalTargets(records)) {
+        schedulePortalTargetRefresh();
+    }
+}
+
+function handleViewerContainerChange() {
     cancelPortalTargetRefreshFrame();
-
-    if (!viewerContainer) {
-        refreshPortalTargets();
-        return;
-    }
-
     refreshPortalTargets();
-    if (typeof MutationObserver === 'undefined') {
-        return;
-    }
+}
 
-    portalTargetObserver = new MutationObserver((records) => {
-        if (mutationTouchesPortalTargets(records)) {
-            schedulePortalTargetRefresh();
-        }
-    });
-    portalTargetObserver.observe(viewerContainer, {
+onMounted(refreshPortalTargets);
+onBeforeUnmount(cancelPortalTargetRefreshFrame);
+
+useMutationObserver(
+    () => viewerContainer,
+    handlePortalTargetMutations,
+    {
         attributes: true,
         attributeFilter: [
             'class',
@@ -146,23 +143,11 @@ function reconnectPortalTargetObserver() {
         ],
         childList: true,
         subtree: true,
-    });
-}
-
-onMounted(() => {
-    reconnectPortalTargetObserver();
-});
-
-onBeforeUnmount(() => {
-    portalTargetObserver?.disconnect();
-    portalTargetObserver = null;
-    cancelPortalTargetRefreshFrame();
-});
+    },
+);
 
 watch(
     () => viewerContainer,
-    () => {
-        reconnectPortalTargetObserver();
-    },
+    handleViewerContainerChange,
 );
 </script>

@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { useEventListener } from '@vueuse/core';
 
 interface ISlot {
     left: number;
@@ -23,7 +24,7 @@ export const useTabDragReorder = (
     let targetIndex = -1;
     let pointerStartX = 0;
     let tabElements: HTMLElement[] = [];
-    let activeElement: HTMLElement | null = null;
+    const activePointerTarget = ref<HTMLElement | null>(null);
     let lastDragEndTime = 0;
 
     function captureSlots() {
@@ -139,12 +140,7 @@ export const useTabDragReorder = (
     }
 
     function detachListeners() {
-        if (activeElement) {
-            activeElement.removeEventListener('pointermove', onPointerMove);
-            activeElement.removeEventListener('pointerup', onPointerUp);
-            activeElement.removeEventListener('lostpointercapture', onLostCapture);
-            activeElement = null;
-        }
+        activePointerTarget.value = null;
     }
 
     function resolveOutsideMoveDirection(pointerX: number | null, wasDragging: boolean) {
@@ -227,17 +223,18 @@ export const useTabDragReorder = (
         const el = e.currentTarget as HTMLElement;
         el.setPointerCapture(e.pointerId);
 
-        activeElement = el;
         pointerStartX = e.clientX;
         dragIndex.value = index;
         targetIndex = index;
 
         captureSlots();
 
-        el.addEventListener('pointermove', onPointerMove);
-        el.addEventListener('pointerup', onPointerUp);
-        el.addEventListener('lostpointercapture', onLostCapture);
+        activePointerTarget.value = el;
     }
+
+    useEventListener(activePointerTarget, 'pointermove', onPointerMove);
+    useEventListener(activePointerTarget, 'pointerup', onPointerUp);
+    useEventListener(activePointerTarget, 'lostpointercapture', onLostCapture);
 
     function shouldSuppressClick() {
         return Date.now() - lastDragEndTime < CLICK_SUPPRESS_MS;

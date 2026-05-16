@@ -1,4 +1,5 @@
 import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtimeLib';
+import { useEventListener } from '@vueuse/core';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationSettings } from '@app/types/annotations';
@@ -45,6 +46,19 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         emitAnnotationSetting,
         scheduleAnnotationCommentsSync,
     } = options;
+    const resizeCursorCleanupTarget = ref<Window | null>(null);
+    let activeResizeCursorClass: string | null = null;
+
+    function cleanupResizeCursor() {
+        if (activeResizeCursorClass) {
+            document.documentElement.classList.remove(activeResizeCursorClass);
+            activeResizeCursorClass = null;
+        }
+        resizeCursorCleanupTarget.value = null;
+    }
+
+    useEventListener(resizeCursorCleanupTarget, 'pointerup', cleanupResizeCursor);
+    useEventListener(resizeCursorCleanupTarget, 'blur', cleanupResizeCursor);
 
     function parseEditorInlineFontSizePx(value: string) {
         const calcMatch = value.match(/calc\(([\d.]+)px\s*\*/);
@@ -143,14 +157,10 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 const isNWSE = resizer.classList.contains('topLeft')
                     || resizer.classList.contains('bottomRight');
                 const cursorClass = isNWSE ? 'pdf-resizing-nwse' : 'pdf-resizing-nesw';
+                cleanupResizeCursor();
                 document.documentElement.classList.add(cursorClass);
-                const cleanup = () => {
-                    document.documentElement.classList.remove(cursorClass);
-                    window.removeEventListener('pointerup', cleanup);
-                    window.removeEventListener('blur', cleanup);
-                };
-                window.addEventListener('pointerup', cleanup);
-                window.addEventListener('blur', cleanup);
+                activeResizeCursorClass = cursorClass;
+                resizeCursorCleanupTarget.value = window;
             });
         }
     }

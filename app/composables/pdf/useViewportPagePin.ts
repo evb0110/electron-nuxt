@@ -1,4 +1,5 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useTimeoutFn } from '@vueuse/core';
 
 interface IViewportPagePin {
     page: number;
@@ -8,13 +9,10 @@ interface IViewportPagePin {
 
 export function useViewportPagePin(options: { summarizeViewerStateForLog: () => unknown }) {
     const viewportPagePin = ref<IViewportPagePin | null>(null);
-    let viewportPagePinTimer: ReturnType<typeof setTimeout> | null = null;
+    const viewportPagePinDurationMs = ref(900);
 
     function clearPinnedViewportPage(reason = 'cleared') {
-        if (viewportPagePinTimer !== null) {
-            clearTimeout(viewportPagePinTimer);
-            viewportPagePinTimer = null;
-        }
+        stopViewportPagePinTimer();
 
         const existingPin = viewportPagePin.value;
         if (!existingPin) {
@@ -29,6 +27,13 @@ export function useViewportPagePin(options: { summarizeViewerStateForLog: () => 
             viewer: options.summarizeViewerStateForLog(),
         });
     }
+
+    const {
+        start: startViewportPagePinTimer,
+        stop: stopViewportPagePinTimer,
+    } = useTimeoutFn(() => {
+        clearPinnedViewportPage('expired-timer');
+    }, viewportPagePinDurationMs, { immediate: false });
 
     function getPinnedViewportPage() {
         const existingPin = viewportPagePin.value;
@@ -55,18 +60,15 @@ export function useViewportPagePin(options: { summarizeViewerStateForLog: () => 
         const durationMs = Math.max(120, pinOptions?.durationMs ?? 900);
         const reason = pinOptions?.reason ?? 'reload-recovery';
 
-        if (viewportPagePinTimer !== null) {
-            clearTimeout(viewportPagePinTimer);
-        }
+        stopViewportPagePinTimer();
 
         viewportPagePin.value = {
             page: normalizedPage,
             untilMs: Date.now() + durationMs,
             reason,
         };
-        viewportPagePinTimer = setTimeout(() => {
-            clearPinnedViewportPage('expired-timer');
-        }, durationMs);
+        viewportPagePinDurationMs.value = durationMs;
+        startViewportPagePinTimer();
 
         BrowserLogger.warn('pdf-nav', `[viewer-page-pin] pinned page=${normalizedPage} reason=${reason}`, {
             page: normalizedPage,

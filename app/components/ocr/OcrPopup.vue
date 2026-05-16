@@ -275,7 +275,10 @@
 </template>
 
 <script setup lang="ts">
-import { useTimeoutFn } from '@vueuse/core';
+import {
+    useClipboard,
+    useTimeoutFn,
+} from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IDebugLogEntry,
@@ -287,6 +290,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/platformSettings';
 
 const { t } = useTypedI18n();
+const { copy: copyClipboardText } = useClipboard();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
 
 interface IProps {
@@ -444,14 +448,6 @@ function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
     ];
 }
 
-function getClipboardWriter() {
-    const writeText = globalThis.navigator?.clipboard?.writeText;
-    if (typeof writeText !== 'function') {
-        throw new Error('Clipboard API is unavailable');
-    }
-    return writeText.bind(globalThis.navigator.clipboard);
-}
-
 async function handleCopyLogs() {
     if (!effectiveError.value || isCopyingLogs.value) {
         return;
@@ -462,8 +458,7 @@ async function handleCopyLogs() {
 
     try {
         const debugLogs = await getSettingsCapability().getDebugLogs();
-        const writeClipboardText = getClipboardWriter();
-        await writeClipboardText(buildOcrDiagnosticsLog(debugLogs).join('\n'));
+        await copyClipboardText(buildOcrDiagnosticsLog(debugLogs).join('\n'));
         copyLogsState.value = 'copied';
     } catch (copyErr) {
         copyLogsState.value = 'failed';

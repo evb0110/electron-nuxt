@@ -156,6 +156,7 @@
 import {
     useEventListener,
     useLocalStorage,
+    useTimeoutFn,
 } from '@vueuse/core';
 import { guardAsync } from '@app/utils/asyncGuard';
 import {
@@ -870,6 +871,11 @@ watch(windowTitle, (nextTitle) => {
 }, { immediate: true });
 
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
+const { start: startBrowserInstallHintAutoDismiss } = useTimeoutFn(
+    () => dismissBrowserInstallHint('auto'),
+    BROWSER_INSTALL_HINT_AUTO_DISMISS_MS,
+    { immediate: false },
+);
 
 onMounted(() => {
     isBrowserInstallHintClientReady.value = true;
@@ -886,8 +892,7 @@ onMounted(() => {
         return;
     }
 
-    const timer = window.setTimeout(() => dismissBrowserInstallHint('auto'), BROWSER_INSTALL_HINT_AUTO_DISMISS_MS);
-    onScopeDispose(() => window.clearTimeout(timer));
+    startBrowserInstallHintAutoDismiss();
 });
 
 watch(showBrowserInstallHint, (isVisible) => {

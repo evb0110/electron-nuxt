@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import { useTimeoutFn } from '@vueuse/core';
+import {
+    useEventListener,
+    useTimeoutFn,
+} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import type {
@@ -40,7 +43,12 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
 
     let dragStartPoint: IClientPoint | null = null;
     let pendingResolver: ((result: boolean) => void) | null = null;
-    let escapeKeyListener: ((event: KeyboardEvent) => void) | null = null;
+    const isEscapeCancelActive = ref(false);
+    const escapeKeyTarget = computed(() => (
+        isEscapeCancelActive.value && typeof window !== 'undefined'
+            ? window
+            : null
+    ));
     const {
         start: startSuccessTimer,
         stop: stopSuccessTimer,
@@ -54,10 +62,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     }
 
     function detachEscapeListener() {
-        if (typeof window !== 'undefined' && escapeKeyListener) {
-            window.removeEventListener('keydown', escapeKeyListener, true);
-        }
-        escapeKeyListener = null;
+        isEscapeCancelActive.value = false;
     }
 
     function resolveSession(result: boolean) {
@@ -96,20 +101,19 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     }
 
     function attachEscapeCancel() {
-        if (typeof window === 'undefined') {
+        detachEscapeListener();
+        isEscapeCancelActive.value = true;
+    }
+
+    function handleEscapeKey(event: KeyboardEvent) {
+        if (event.key !== 'Escape') {
             return;
         }
-
-        detachEscapeListener();
-        escapeKeyListener = (event: KeyboardEvent) => {
-            if (event.key !== 'Escape') {
-                return;
-            }
-            event.preventDefault();
-            cancelCapture();
-        };
-        window.addEventListener('keydown', escapeKeyListener, true);
+        event.preventDefault();
+        cancelCapture();
     }
+
+    useEventListener(escapeKeyTarget, 'keydown', handleEscapeKey, { capture: true });
 
     function updateSelectionFromPointer(
         payload: ISnipPointerPayload,
