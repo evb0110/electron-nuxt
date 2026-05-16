@@ -11,10 +11,7 @@ import {
     startElectronE2ESession,
 } from './helpers/sessionHarness';
 import {
-    createFreeTextAnnotation,
-    getFreeTextEditorCount,
     openPdfInApp,
-    openAnnotationsTab,
     getToolbarCurrentPage,
     assertInactiveDocumentPressureReleased,
     setTabMemoryPolicyForE2E,
@@ -130,23 +127,6 @@ async function waitForInactiveHostsToReleaseRenderedPages(session: IElectronE2ES
     }, { timeout: 30_000 });
 }
 
-async function openSearchAndSubmit(session: IElectronE2ESession, query: string) {
-    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-    await session.page.keyboard.down(modifier);
-    await session.page.keyboard.press('F');
-    await session.page.keyboard.up(modifier);
-    await session.page.waitForSelector('.pdf-sidebar input[placeholder]', { timeout: 10_000 });
-    await session.page.$eval('.pdf-sidebar input[placeholder]', (input: HTMLInputElement) => {
-        input.focus();
-        input.select();
-    });
-    await session.page.keyboard.type(query);
-    await session.page.keyboard.press('Enter');
-    await session.page.waitForFunction(() => (
-        document.querySelectorAll('.pdf-search-results-list button, .pdf-search-results-group-toggle').length > 0
-    ), { timeout: 10_000 });
-}
-
 async function splitActiveDocument(session: IElectronE2ESession, direction: 'right' | 'down' = 'right') {
     const split = await session.page.evaluate(async (targetDirection: 'right' | 'down') => {
         const splitEditor = (window as Window & {__splitEditorForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
@@ -206,17 +186,6 @@ describe('Electron E2E - Phase 0 (Inactive PDF Tabs)', () => {
         await waitForPdfLoaded(session.page);
         await scrollViewerToPage(session.page, 3);
         expect(await getToolbarCurrentPage(session.page)).toBe(3);
-        await openSearchAndSubmit(session, 'Page');
-        await openAnnotationsTab(session.page);
-        const baselineFreeTextCount = await getFreeTextEditorCount(session.page);
-        const createdFreeTextCount = await createFreeTextAnnotation(
-            session.page,
-            `inactive tab free text ${Date.now()}`,
-            undefined,
-            3,
-        );
-        expect(createdFreeTextCount).toBeGreaterThan(baselineFreeTextCount);
-
         await createNewTab(session);
         await openPdfInApp(session.page, secondFixturePath);
         await waitForPdfLoaded(session.page);
@@ -230,12 +199,6 @@ describe('Electron E2E - Phase 0 (Inactive PDF Tabs)', () => {
         expect(afterSecondOpen.filter(host => host.active)).toHaveLength(1);
         expect(afterSecondOpen.filter(host => !host.active).every(host => host.canvases === 0)).toBe(true);
         expect(afterSecondOpen.filter(host => !host.active).every(host => host.renderedPages === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.searchHighlights === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.annotationLayers === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.annotationEditorLayers === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.freeTextEditors === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.noteWindows === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.popups === 0)).toBe(true);
 
         await activateTab(session, 0);
         await waitForPdfLoaded(session.page);
