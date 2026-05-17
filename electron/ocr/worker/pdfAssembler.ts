@@ -3,6 +3,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
+import { sortBy } from 'es-toolkit/array';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import {
     runOcrCommand,
@@ -75,9 +76,11 @@ function buildReplacementPageArgs(
 ) {
     const args: string[] = [];
     let nextOriginalPage = 1;
-    const replacementPages = Array.from(ocrPdfMap.entries())
-        .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount)
-        .sort(([a], [b]) => a - b);
+    const replacementPages = sortBy(
+        Array.from(ocrPdfMap.entries())
+            .filter(([pageNumber]) => pageNumber >= 1 && pageNumber <= pageCount),
+        [([pageNumber]) => pageNumber],
+    );
 
     for (const [
         pageNumber,

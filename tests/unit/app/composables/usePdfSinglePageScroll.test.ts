@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { clamp } from 'es-toolkit/math';
 import {
     ref,
     shallowRef,
@@ -105,7 +106,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     Object.defineProperty(container, 'scrollTop', {
         get: () => scrollTop,
         set: (value: number) => {
-            scrollTop = Math.max(0, Math.min(value, maxScrollTop));
+            scrollTop = clamp(value, 0, maxScrollTop);
         },
     });
 

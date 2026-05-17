@@ -6,6 +6,7 @@ import {
     dirname,
     resolve,
 } from 'node:path';
+import { sumBy } from 'es-toolkit/math';
 import { sendCommand } from '../electron-run/client';
 import { setCurrentSessionName } from '../electron-run/electronRunSessionPaths';
 
@@ -289,12 +290,12 @@ function buildSnapshotWarnings(dom: IDomPressureSnapshot) {
     const warnings: string[] = [];
     const inactiveHostsWithCanvases = dom.hosts.filter(host => !host.active && host.canvases > 0);
     if (inactiveHostsWithCanvases.length > 0) {
-        warnings.push(`Inactive hosts still have ${inactiveHostsWithCanvases.reduce((total, host) => total + host.canvases, 0)} canvas element(s).`);
+        warnings.push(`Inactive hosts still have ${sumBy(inactiveHostsWithCanvases, host => host.canvases)} canvas element(s).`);
     }
 
     const inactiveHostsWithRenderedPages = dom.hosts.filter(host => !host.active && host.renderedPages > 0);
     if (inactiveHostsWithRenderedPages.length > 0) {
-        warnings.push(`Inactive hosts still have ${inactiveHostsWithRenderedPages.reduce((total, host) => total + host.renderedPages, 0)} rendered page(s).`);
+        warnings.push(`Inactive hosts still have ${sumBy(inactiveHostsWithRenderedPages, host => host.renderedPages)} rendered page(s).`);
     }
 
     return warnings;
@@ -306,10 +307,10 @@ function buildSnapshotFailures(
 ) {
     const failures: string[] = [];
     const inactiveHosts = dom.hosts.filter(host => !host.active);
-    const inactiveCanvases = inactiveHosts.reduce((total, host) => total + host.canvases, 0);
-    const inactiveRenderedPages = inactiveHosts.reduce((total, host) => total + host.renderedPages, 0);
-    const inactiveDjvuImages = inactiveHosts.reduce((total, host) => total + host.djvuImages, 0);
-    const inactiveCanvasPixels = inactiveHosts.reduce((total, host) => total + host.canvasPixels, 0);
+    const inactiveCanvases = sumBy(inactiveHosts, host => host.canvases);
+    const inactiveRenderedPages = sumBy(inactiveHosts, host => host.renderedPages);
+    const inactiveDjvuImages = sumBy(inactiveHosts, host => host.djvuImages);
+    const inactiveCanvasPixels = sumBy(inactiveHosts, host => host.canvasPixels);
 
     if (inactiveCanvases > options.maxInactiveCanvases) {
         failures.push(`Inactive canvas count ${inactiveCanvases} exceeded threshold ${options.maxInactiveCanvases}.`);

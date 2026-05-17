@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron';
+import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/logger';
 
 interface IRendererLogEntry {
@@ -285,9 +286,9 @@ function consumeRendererLogRateToken(webContentsId: number) {
         lastDropNoticeAt: 0,
     };
 
-    const elapsedMs = Math.max(0, now - state.lastRefillAt);
+    const elapsedMs = clamp(now - state.lastRefillAt, 0, Number.POSITIVE_INFINITY);
     const refill = (elapsedMs / 1_000) * RENDERER_LOG_RATE_LIMIT_PER_SECOND;
-    state.tokens = Math.min(RENDERER_LOG_RATE_LIMIT_BURST, state.tokens + refill);
+    state.tokens = clamp(state.tokens + refill, 0, RENDERER_LOG_RATE_LIMIT_BURST);
     state.lastRefillAt = now;
 
     if (state.tokens >= 1) {

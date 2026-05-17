@@ -7,6 +7,10 @@ import {
     BrowserWindow,
     Menu,
 } from 'electron';
+import {
+    countBy,
+    sortBy,
+} from 'es-toolkit/array';
 import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import { config } from '@electron/config';
@@ -87,9 +91,9 @@ function getWindowTabCount(window: BrowserWindow | null) {
     return menuTabCountByWindow.get(window.id) ?? 0;
 }
 
-function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Map<string, number>) {
+function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Record<string, number>) {
     const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
-    const duplicateCount = duplicateCountByTitle.get(title) ?? 0;
+    const duplicateCount = duplicateCountByTitle[title] ?? 0;
     if (duplicateCount <= 1) {
         return title;
     }
@@ -98,18 +102,14 @@ function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Map
 }
 
 function getOtherWindows(sourceWindowId: number) {
-    const windows = getAllAppWindows().filter(window => window.id !== sourceWindowId);
-    windows.sort((left, right) => left.id - right.id);
-    return windows;
+    return sortBy(
+        getAllAppWindows().filter(window => window.id !== sourceWindowId),
+        [window => window.id],
+    );
 }
 
 function buildDuplicateWindowTitleMap(windows: BrowserWindow[]) {
-    const counts = new Map<string, number>();
-    for (const window of windows) {
-        const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
-        counts.set(title, (counts.get(title) ?? 0) + 1);
-    }
-    return counts;
+    return countBy(windows, window => (window.getTitle() || te('app.title')).trim() || te('app.title'));
 }
 
 function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabsAction) {

@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import electronUpdater from 'electron-updater';
+import { clamp } from 'es-toolkit/math';
 import type {
     ProgressInfo,
     UpdateDownloadedEvent,
@@ -266,9 +267,9 @@ function scheduleNextPoll() {
         pollTimer = null;
     }
 
-    const baseInterval = Math.max(config.updates.pollIntervalMs, MIN_POLL_INTERVAL_MS);
+    const baseInterval = clamp(config.updates.pollIntervalMs, MIN_POLL_INTERVAL_MS, Number.POSITIVE_INFINITY);
     const jitter = Math.round(baseInterval * ((Math.random() * 2 * MAX_JITTER_RATIO) - MAX_JITTER_RATIO));
-    const delay = Math.max(MIN_POLL_INTERVAL_MS, baseInterval + jitter);
+    const delay = clamp(baseInterval + jitter, MIN_POLL_INTERVAL_MS, Number.POSITIVE_INFINITY);
 
     pollTimer = schedulePollTimer(delay, 'Automatic update poll failed');
 }

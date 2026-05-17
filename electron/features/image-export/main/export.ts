@@ -18,7 +18,10 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { uniq } from 'es-toolkit/array';
+import {
+    sortBy,
+    uniq,
+} from 'es-toolkit/array';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
@@ -197,13 +200,19 @@ async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat)
         });
 
         const fileNames = await readdir(tempDir);
-        const pageFiles = fileNames
-            .filter(fileName => fileName.startsWith('page-'))
-            .filter(fileName => isExpectedPageFile(fileName, format))
-            .sort((left, right) => parsePageNumber(left) - parsePageNumber(right))
-            .map((fileName) => ({
-                page: parsePageNumber(fileName),
-                path: join(tempDir, fileName),
+        const pageFiles = sortBy(
+            fileNames
+                .filter(fileName => fileName.startsWith('page-'))
+                .filter(fileName => isExpectedPageFile(fileName, format))
+                .map(fileName => ({
+                    fileName,
+                    page: parsePageNumber(fileName),
+                })),
+            ['page'],
+        )
+            .map((file) => ({
+                page: file.page,
+                path: join(tempDir, file.fileName),
             }));
 
         if (pageFiles.length === 0) {

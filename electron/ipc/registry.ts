@@ -3,6 +3,10 @@ import {
     ipcMain,
     shell,
 } from 'electron';
+import {
+    countBy,
+    sortBy,
+} from 'es-toolkit/array';
 import type { IIpcMainRegistrar } from '@contracts/ipcMain';
 import type { ISettingsData } from '@contracts/shared';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
@@ -173,19 +177,15 @@ function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar): IIpcMain
 }
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
-    const otherWindows = getAllAppWindows()
-        .filter(window => window.id !== sourceWindowId)
-        .sort((left, right) => left.id - right.id);
-
-    const titleCountByLabel = new Map<string, number>();
-    for (const window of otherWindows) {
-        const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
-        titleCountByLabel.set(title, (titleCountByLabel.get(title) ?? 0) + 1);
-    }
+    const otherWindows = sortBy(
+        getAllAppWindows().filter(window => window.id !== sourceWindowId),
+        [window => window.id],
+    );
+    const titleCountByLabel = countBy(otherWindows, window => (window.getTitle() || te('app.title')).trim() || te('app.title'));
 
     return otherWindows.map((window) => {
         const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
-        const duplicateCount = titleCountByLabel.get(title) ?? 0;
+        const duplicateCount = titleCountByLabel[title] ?? 0;
         return {
             windowId: window.id,
             label: duplicateCount > 1 ? `${title} (${window.id})` : title,

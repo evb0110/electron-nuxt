@@ -13,7 +13,10 @@ import {
     parseExpression,
     type ParserPlugin,
 } from '@babel/parser';
-import { uniq } from 'es-toolkit/array';
+import {
+    sortBy,
+    uniq,
+} from 'es-toolkit/array';
 import {
     NodeTypes,
     parse as parseVueTemplate,
@@ -103,7 +106,10 @@ function toRelative(filePath: string): string {
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
-    return uniq(Array.from(values)).sort((left, right) => left.localeCompare(right));
+    return sortBy(
+        uniq(Array.from(values)).map(value => ({ value })),
+        ['value'],
+    ).map(item => item.value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

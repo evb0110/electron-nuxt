@@ -1,3 +1,5 @@
+import { range } from 'es-toolkit/math';
+
 export function formatPageRange(pages: number[]) {
     const sorted = [...pages].sort((a, b) => a - b);
     const parts: string[] = [];
@@ -57,7 +59,7 @@ export function validatePageNumbers(
 export function validateReorderPermutation(newOrder: number[]) {
     const maxPage = newOrder.length;
     const pageSet = new Set(newOrder);
-    for (let pageNumber = 1; pageNumber <= maxPage; pageNumber += 1) {
+    for (const pageNumber of range(1, maxPage + 1)) {
         if (!pageSet.has(pageNumber)) {
             throw new Error(`reorderPages: missing page ${pageNumber} in reorder payload`);
         }

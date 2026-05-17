@@ -10,7 +10,10 @@ import {
     basename,
 } from 'path';
 import { app } from 'electron';
-import { uniq } from 'es-toolkit/array';
+import {
+    uniq,
+    uniqBy,
+} from 'es-toolkit/array';
 import type { IRecentFile } from '@contracts/shared';
 import {
     CACHE_TTL_MS,
@@ -107,12 +110,7 @@ function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
 function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
     let removedMissingCount = 0;
     let unreadableCount = 0;
-    const seenPaths = new Set<string>();
-    const checks = files.map((file) => {
-        if (seenPaths.has(file.originalPath)) {
-            return null;
-        }
-
+    const checks = uniqBy(files, file => file.originalPath).map((file) => {
         const status = inspectPath(file.originalPath);
         if (status === 'missing') {
             removedMissingCount += 1;
@@ -121,7 +119,6 @@ function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
         if (status === 'unreadable') {
             unreadableCount += 1;
         }
-        seenPaths.add(file.originalPath);
         return file;
     });
 

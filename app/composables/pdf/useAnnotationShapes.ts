@@ -3,6 +3,7 @@ import type {
     Ref,
     ComputedRef,
 } from 'vue';
+import { groupBy } from 'es-toolkit/array';
 import type {
     IShapeAnnotation,
     IShapePoint,
@@ -115,13 +116,16 @@ export const useAnnotationShapes = () => {
     }
 
     function groupShapesByPage(input: IShapeAnnotation[]) {
-        const grouped = new Map<number, IShapeAnnotation[]>();
-        for (const shape of input) {
-            const pageShapes = grouped.get(shape.pageIndex) ?? [];
-            pageShapes.push(shape);
-            grouped.set(shape.pageIndex, pageShapes);
-        }
-        return grouped;
+        return new Map(
+            Object.entries(groupBy(input, shape => shape.pageIndex))
+                .map(([
+                    pageIndex,
+                    shapes,
+                ]) => ([
+                    Number(pageIndex),
+                    shapes,
+                ])),
+        );
     }
 
     function replaceShapeState(

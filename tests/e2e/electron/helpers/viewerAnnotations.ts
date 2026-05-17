@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import { clamp } from 'es-toolkit/math';
 import {
     DEFAULT_TIMEOUT_MS,
     findVisiblePointInActiveHost,
@@ -202,7 +203,7 @@ async function getLatestFreeTextHitPoints(page: Page) {
 
         const overlay = editor.querySelector<HTMLElement>('.overlay');
         const targetRect = (overlay ?? editor).getBoundingClientRect();
-        const clampInset = (size: number, inset: number) => Math.max(4, Math.min(size - 4, inset));
+        const clampInset = (size: number, inset: number) => clamp(inset, 4, size - 4);
         const candidates = [
             {
                 x: Math.round(targetRect.left + clampInset(targetRect.width, 8)),

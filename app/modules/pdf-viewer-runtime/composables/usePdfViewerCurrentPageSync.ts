@@ -1,4 +1,8 @@
 import type { Ref } from 'vue';
+import {
+    countBy,
+    maxBy,
+} from 'es-toolkit/array';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
@@ -102,22 +106,11 @@ export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyn
     }
 
     function pickMostFrequentPage(pages: number[]) {
-        const counts = new Map<number, number>();
-        for (const page of pages) {
-            counts.set(page, (counts.get(page) ?? 0) + 1);
-        }
-        let winner: number | null = null;
-        let maxCount = 0;
-        for (const page of pages) {
-            const count = counts.get(page) ?? 0;
-            if (count > maxCount) {
-                winner = page;
-                maxCount = count;
-            }
-        }
+        const counts = countBy(pages, page => page);
+        const winner = maxBy(pages, page => counts[page] ?? 0) ?? null;
         return {
             page: winner,
-            count: maxCount,
+            count: winner === null ? 0 : (counts[winner] ?? 0),
         };
     }
 
