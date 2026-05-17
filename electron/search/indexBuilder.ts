@@ -468,28 +468,21 @@ async function buildIndexFromOcrTexts(
 }
 
 function seedFromExistingIndex(
-    pagesByNumber: Map<number, IPageIndex>,
     existing: IPdfSearchIndex | null,
-): void {
+): Map<number, IPageIndex> {
     if (!existing?.pages?.length) {
-        return;
+        return new Map();
     }
-    existing.pages.forEach((page) => {
-        const seededPage: IPageIndex = {
+    return new Map(existing.pages.map((page) => [
+        page.pageNumber,
+        {
             pageNumber: page.pageNumber,
             text: page.text ?? '',
-        };
-        if (page.pageWidth !== undefined) {
-            seededPage.pageWidth = page.pageWidth;
-        }
-        if (page.pageHeight !== undefined) {
-            seededPage.pageHeight = page.pageHeight;
-        }
-        if (STORE_WORD_BOXES && page.words !== undefined) {
-            seededPage.words = page.words;
-        }
-        pagesByNumber.set(page.pageNumber, seededPage);
-    });
+            ...(page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
+            ...(page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
+            ...(STORE_WORD_BOXES && page.words !== undefined ? { words: page.words } : {}),
+        },
+    ]));
 }
 
 function shouldExtractPdfText(
@@ -514,22 +507,37 @@ function applyExtractedTexts(
     pagesByNumber: Map<number, IPageIndex>,
     pageTexts: IExtractedPageText[],
     signal?: AbortSignal,
-): void {
-    for (const pt of pageTexts) {
+): Map<number, IPageIndex> {
+    return pageTexts.reduce((nextPages, pt) => {
         throwIfAborted(signal);
-        const entry = pagesByNumber.get(pt.pageNumber);
+        const entry = nextPages.get(pt.pageNumber);
         if (!entry) {
-            pagesByNumber.set(pt.pageNumber, {
-                pageNumber: pt.pageNumber,
-                text: pt.text,
-            });
-            continue;
+            return new Map([
+                ...nextPages,
+                [
+                    pt.pageNumber,
+                    {
+                        pageNumber: pt.pageNumber,
+                        text: pt.text,
+                    },
+                ],
+            ]);
         }
 
         if (!entry.text && pt.text) {
-            entry.text = pt.text;
+            return new Map([
+                ...nextPages,
+                [
+                    pt.pageNumber,
+                    {
+                        ...entry,
+                        text: pt.text,
+                    },
+                ],
+            ]);
         }
-    }
+        return nextPages;
+    }, pagesByNumber);
 }
 
 async function seedFromPdfjs(
@@ -538,16 +546,20 @@ async function seedFromPdfjs(
     expectedCount: number | undefined,
     signal?: AbortSignal,
     onPageIndexed?: (page: IPageIndex) => void,
-): Promise<boolean> {
+): Promise<{
+    pagesByNumber: Map<number, IPageIndex>;
+    hasText: boolean;
+}> {
     try {
         log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
         let hasText = false;
+        let nextPagesByNumber = pagesByNumber;
         const extractOptions: Parameters<typeof extractTextWithPdfjs>[1] = {
             collectPages: false,
             onPageText: (pageText) => {
                 hasText ||= pageText.text.length > 0;
-                applyExtractedTexts(pagesByNumber, [pageText], signal);
-                const page = pagesByNumber.get(pageText.pageNumber);
+                nextPagesByNumber = applyExtractedTexts(nextPagesByNumber, [pageText], signal);
+                const page = nextPagesByNumber.get(pageText.pageNumber);
                 if (page) {
                     onPageIndexed?.(page);
                 }
@@ -557,14 +569,20 @@ async function seedFromPdfjs(
             extractOptions.signal = signal;
         }
         await extractTextWithPdfjs(pdfPath, extractOptions);
-        return hasText;
+        return {
+            pagesByNumber: nextPagesByNumber,
+            hasText,
+        };
     } catch (pdfjsErr) {
         if (isAbortError(pdfjsErr)) {
             throw pdfjsErr;
         }
         const errMsg = getErrorMessage(pdfjsErr);
         log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
-        return false;
+        return {
+            pagesByNumber,
+            hasText: false,
+        };
     }
 }
 
@@ -574,7 +592,7 @@ async function seedFromPdftotext(
     expectedCount: number | undefined,
     signal?: AbortSignal,
     onPageIndexed?: (page: IPageIndex) => void,
-): Promise<void> {
+): Promise<Map<number, IPageIndex>> {
     try {
         log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
         const extractOptions: Parameters<typeof extractTextFromPdf>[1] = {};
@@ -585,19 +603,21 @@ async function seedFromPdftotext(
             extractOptions.signal = signal;
         }
         const pageTexts = await extractTextFromPdf(pdfPath, extractOptions);
-        applyExtractedTexts(pagesByNumber, pageTexts, signal);
+        const nextPagesByNumber = applyExtractedTexts(pagesByNumber, pageTexts, signal);
         pageTexts.forEach((pageText) => {
-            const page = pagesByNumber.get(pageText.pageNumber);
+            const page = nextPagesByNumber.get(pageText.pageNumber);
             if (page) {
                 onPageIndexed?.(page);
             }
         });
+        return nextPagesByNumber;
     } catch (pdfTextErr) {
         if (isAbortError(pdfTextErr)) {
             throw pdfTextErr;
         }
         const errMsg = getErrorMessage(pdfTextErr);
         log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
+        return pagesByNumber;
     }
 }
 
@@ -607,31 +627,38 @@ async function seedPagesFromPdfText(
     expectedCount: number | undefined,
     signal?: AbortSignal,
     onPageIndexed?: (page: IPageIndex) => void,
-): Promise<void> {
+): Promise<Map<number, IPageIndex>> {
     const seeded = await seedFromPdfjs(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed);
-    if (seeded) {
-        return;
+    if (seeded.hasText) {
+        return seeded.pagesByNumber;
     }
-    await seedFromPdftotext(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed);
+    return seedFromPdftotext(pdfPath, seeded.pagesByNumber, expectedCount, signal, onPageIndexed);
 }
 
 function padMissingPages(
     pagesByNumber: Map<number, IPageIndex>,
     expectedCount: number | undefined,
     signal?: AbortSignal,
-): void {
+): Map<number, IPageIndex> {
     if (!isPositiveInteger(expectedCount)) {
-        return;
+        return pagesByNumber;
     }
-    for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
+    return Array.from({ length: expectedCount }, (_, index) => index + 1).reduce((nextPages, pageNumber) => {
         throwIfAborted(signal);
-        if (!pagesByNumber.has(pageNumber)) {
-            pagesByNumber.set(pageNumber, {
-                pageNumber,
-                text: '',
-            });
+        if (nextPages.has(pageNumber)) {
+            return nextPages;
         }
-    }
+        return new Map([
+            ...nextPages,
+            [
+                pageNumber,
+                {
+                    pageNumber,
+                    text: '',
+                },
+            ],
+        ]);
+    }, pagesByNumber);
 }
 
 function mergePageData(
@@ -639,18 +666,18 @@ function mergePageData(
     pageData: IPageDataInput[] | undefined,
     signal?: AbortSignal,
     onPageIndexed?: (page: IPageIndex) => void,
-): void {
+): Map<number, IPageIndex> {
     if (!pageData?.length) {
-        return;
+        return pagesByNumber;
     }
-    pageData.forEach((page) => {
+    return pageData.reduce((nextPages, page) => {
         throwIfAborted(signal);
         const textFromWords = page.words.length > 0
             ? buildOcrTextLayerIndexText(page.words)
             : '';
         const textFromOcr = page.text?.trim() ?? '';
         const text = textFromWords || textFromOcr;
-        const previous = pagesByNumber.get(page.pageNumber);
+        const previous = nextPages.get(page.pageNumber);
         const indexedPage: IPageIndex = {
             pageNumber: page.pageNumber,
             text: text || previous?.text || '',
@@ -664,9 +691,15 @@ function mergePageData(
         if (STORE_WORD_BOXES) {
             indexedPage.words = page.words;
         }
-        pagesByNumber.set(page.pageNumber, indexedPage);
         onPageIndexed?.(indexedPage);
-    });
+        return new Map([
+            ...nextPages,
+            [
+                page.pageNumber,
+                indexedPage,
+            ],
+        ]);
+    }, pagesByNumber);
 }
 
 function assembleIndex(
@@ -715,19 +748,18 @@ export async function buildSearchIndex(
         return buildIndexFromOcrTexts(pdfPath, ocrTexts, expectedCount, signal);
     }
 
-    const pagesByNumber = new Map<number, IPageIndex>();
     throwIfAborted(signal);
     const existing = await loadSearchIndex(pdfPath);
     throwIfAborted(signal);
 
-    seedFromExistingIndex(pagesByNumber, existing);
+    let pagesByNumber = seedFromExistingIndex(existing);
 
     if (shouldExtractPdfText(pagesByNumber, existing, expectedCount)) {
-        await seedPagesFromPdfText(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed);
+        pagesByNumber = await seedPagesFromPdfText(pdfPath, pagesByNumber, expectedCount, signal, onPageIndexed);
     }
 
-    padMissingPages(pagesByNumber, expectedCount, signal);
-    mergePageData(pagesByNumber, pageData, signal, onPageIndexed);
+    pagesByNumber = padMissingPages(pagesByNumber, expectedCount, signal);
+    pagesByNumber = mergePageData(pagesByNumber, pageData, signal, onPageIndexed);
 
     if (pagesByNumber.size === 0) {
         throw new Error('No pages available to build search index');

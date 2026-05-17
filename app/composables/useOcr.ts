@@ -572,16 +572,17 @@ export const useOcr = () => {
     }
 
     function toggleLanguage(code: string, selected: boolean) {
-        if (selected) {
-            if (!settings.value.selectedLanguages.includes(code)) {
-                settings.value.selectedLanguages.push(code);
-            }
-        } else {
-            const index = settings.value.selectedLanguages.indexOf(code);
-            if (index !== -1) {
-                settings.value.selectedLanguages.splice(index, 1);
-            }
-        }
+        const selectedLanguages = selected
+            ? Array.from(new Set([
+                ...settings.value.selectedLanguages,
+                code,
+            ]))
+            : settings.value.selectedLanguages.filter(languageCode => languageCode !== code);
+
+        settings.value = {
+            ...settings.value,
+            selectedLanguages,
+        };
     }
 
     if (isBrowserPlatformActive()) {

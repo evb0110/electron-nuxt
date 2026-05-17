@@ -205,9 +205,14 @@ function removeQueuedJob(scopedJobId: string) {
         return null;
     }
 
-    const [job] = queuedJobs.splice(index, 1);
+    const job = queuedJobs[index] ?? null;
+    queuedJobs.splice(
+        0,
+        queuedJobs.length,
+        ...queuedJobs.filter(candidate => candidate.scopedJobId !== scopedJobId),
+    );
     queuedJobIds.delete(scopedJobId);
-    return job ?? null;
+    return job;
 }
 
 function clearJobWatchdog(scopedJobId: string) {
@@ -739,12 +744,10 @@ function enqueuePreparedOcrJob(
         pages,
         queuedAtMs: Date.now(),
         requestedBytes: requestBytes,
+        ...(renderDpi !== undefined ? { renderDpi } : {}),
     };
-    if (renderDpi !== undefined) {
-        queuedJob.renderDpi = renderDpi;
-    }
     preparingJobs.delete(scopedJobId);
-    queuedJobs.push(queuedJob);
+    queuedJobs.splice(queuedJobs.length, 0, queuedJob);
     queuedJobIds.add(scopedJobId);
     logQueueDepth(`OCR job ${requestId} queued`);
     dispatchQueuedJobs();
@@ -922,7 +925,7 @@ export function handleOcrCancel(
 }
 
 export async function shutdownOcrJobManager() {
-    queuedJobs.length = 0;
+    queuedJobs.splice(0, queuedJobs.length);
     queuedJobIds.clear();
     for (const preparingJob of preparingJobs.values()) {
         if (!preparingJob.abortController.signal.aborted) {

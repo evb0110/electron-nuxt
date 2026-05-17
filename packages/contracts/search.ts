@@ -105,32 +105,24 @@ export function findPdfSearchMatches(
         useRegex: boolean;
     },
 ) {
-    const matcher = typeof matcherOrQuery === 'string'
+    const sourceMatcher = typeof matcherOrQuery === 'string'
         ? buildPdfSearchRegex(matcherOrQuery, options ?? {
             matchCase: false,
             wholeWord: false,
             useRegex: false,
         })
         : matcherOrQuery;
-    const results: Array<{
-        startOffset: number;
-        endOffset: number;
-    }> = [];
-    let match = matcher.exec(text);
-    while (match) {
-        const matchedText = match[0] ?? '';
-        if (matchedText.length === 0) {
-            matcher.lastIndex = match.index + 1;
-            match = matcher.exec(text);
-            continue;
-        }
-        results.push({
+    const flags = sourceMatcher.flags.includes('g')
+        ? sourceMatcher.flags
+        : `${sourceMatcher.flags}g`;
+    const matcher = new RegExp(sourceMatcher.source, flags);
+
+    return Array.from(text.matchAll(matcher))
+        .filter(match => (match[0] ?? '').length > 0)
+        .map(match => ({
             startOffset: match.index,
-            endOffset: match.index + matchedText.length,
-        });
-        match = matcher.exec(text);
-    }
-    return results;
+            endOffset: match.index + (match[0]?.length ?? 0),
+        }));
 }
 
 export function buildPdfSearchExcerpt(text: string, startOffset: number, endOffset: number, contextChars: number) {

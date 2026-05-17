@@ -301,29 +301,62 @@ function toCombineFile(file: File): ICombineFile {
     };
 }
 
-function addFiles(fileList: FileList | File[]) {
-    combineError.value = null;
-    const existingSignatures = new Set(files.value.map(file => file.signature));
-    const nextFiles = [...files.value];
-    let rejected = 0;
-
-    for (const file of Array.from(fileList)) {
+function mergeCombineFiles(currentFiles: readonly ICombineFile[], fileList: FileList | File[]) {
+    return Array.from(fileList).reduce<{
+        files: ICombineFile[];
+        signatures: Set<string>;
+        rejected: number;
+    }>((result, file) => {
         if (!isSupportedCombineFile(file)) {
-            rejected += 1;
-            continue;
+            return {
+                ...result,
+                rejected: result.rejected + 1,
+            };
         }
 
         const signature = createFileSignature(file);
-        if (existingSignatures.has(signature)) {
-            continue;
+        if (result.signatures.has(signature)) {
+            return result;
         }
 
-        existingSignatures.add(signature);
-        nextFiles.push(toCombineFile(file));
+        return {
+            files: [
+                ...result.files,
+                toCombineFile(file),
+            ],
+            signatures: new Set([
+                ...result.signatures,
+                signature,
+            ]),
+            rejected: result.rejected,
+        };
+    }, {
+        files: [...currentFiles],
+        signatures: new Set(currentFiles.map(file => file.signature)),
+        rejected: 0,
+    });
+}
+
+function reorderFile(filesToReorder: readonly ICombineFile[], index: number, targetIndex: number) {
+    const file = filesToReorder[index];
+    if (!file) {
+        return [...filesToReorder];
     }
 
-    lastRejectedCount.value = rejected;
-    files.value = nextFiles;
+    const withoutFile = filesToReorder.filter((_, fileIndex) => fileIndex !== index);
+    return [
+        ...withoutFile.slice(0, targetIndex),
+        file,
+        ...withoutFile.slice(targetIndex),
+    ];
+}
+
+function addFiles(fileList: FileList | File[]) {
+    combineError.value = null;
+    const merged = mergeCombineFiles(files.value, fileList);
+
+    lastRejectedCount.value = merged.rejected;
+    files.value = merged.files;
 }
 
 function openFileInput() {
@@ -383,13 +416,7 @@ function moveFile(index: number, delta: -1 | 1) {
         return;
     }
 
-    const nextFiles = [...files.value];
-    const [file] = nextFiles.splice(index, 1);
-    if (!file) {
-        return;
-    }
-    nextFiles.splice(targetIndex, 0, file);
-    files.value = nextFiles;
+    files.value = reorderFile(files.value, index, targetIndex);
 }
 
 function buildOutputName() {

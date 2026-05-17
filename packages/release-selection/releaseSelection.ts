@@ -4,7 +4,10 @@ import type {
     TReleaseArch,
     TReleasePlatform,
 } from '@contracts';
-import { orderBy } from 'es-toolkit/array';
+import {
+    groupBy,
+    orderBy,
+} from 'es-toolkit/array';
 
 const INSTALLER_EXTENSIONS = new Set([
     'appimage',
@@ -395,38 +398,15 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
     }
 
     const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform] || PREFERRED_EXTENSION_ORDER.unknown;
-    const assetsByArch = new Map<TReleaseArch, IReleaseInstaller[]>();
+    const assetsByArch = groupBy(assets, effectiveArch);
 
-    for (const asset of assets) {
-        const arch = effectiveArch(asset);
-        const existing = assetsByArch.get(arch);
-        if (existing) {
-            existing.push(asset);
-        } else {
-            assetsByArch.set(arch, [asset]);
-        }
-    }
-
-    const result: IReleaseInstaller[] = [];
-    for (const archAssets of assetsByArch.values()) {
-        let preferredAsset: IReleaseInstaller | null = null;
-        let preferredRank = Number.POSITIVE_INFINITY;
-
-        for (const asset of archAssets) {
-            const index = formatOrder.indexOf(asset.extension);
-            const rank = index === -1 ? Number.POSITIVE_INFINITY : index;
-            if (rank < preferredRank) {
-                preferredRank = rank;
-                preferredAsset = asset;
-            }
-        }
-
-        if (preferredAsset) {
-            result.push(preferredAsset);
-        }
-    }
-
-    return result;
+    return Object.values(assetsByArch)
+        .map(archAssets => orderBy(
+            archAssets,
+            [asset => extensionRank(asset.extension, formatOrder)],
+            ['asc'],
+        )[0])
+        .filter((asset): asset is IReleaseInstaller => Boolean(asset));
 }
 
 export function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller): number {

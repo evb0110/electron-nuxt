@@ -93,6 +93,40 @@ export const useEditorGroupsManager = () => {
         };
     }
 
+    function withGroupUpdate(
+        groupId: string,
+        update: (group: IEditorGroupState) => IEditorGroupState,
+    ) {
+        groups.value = groups.value.map(group => (
+            group.id === groupId ? update(group) : group
+        ));
+        return getGroupById(groupId);
+    }
+
+    function setGroupActiveTab(groupId: string, activeTabIdValue: string | null) {
+        return withGroupUpdate(groupId, group => ({
+            ...group,
+            activeTabId: activeTabIdValue,
+        }));
+    }
+
+    function updateGroupTabIds(
+        groupId: string,
+        update: (tabIds: string[]) => string[],
+        activeTabIdUpdate?: (group: IEditorGroupState, nextTabIds: string[]) => string | null,
+    ) {
+        return withGroupUpdate(groupId, (group) => {
+            const nextTabIds = update(group.tabIds);
+            return {
+                ...group,
+                tabIds: nextTabIds,
+                activeTabId: activeTabIdUpdate
+                    ? activeTabIdUpdate(group, nextTabIds)
+                    : group.activeTabId,
+            };
+        });
+    }
+
     function isManagerStateNormalized() {
         return isEditorGroupsStateNormalized({
             groups: groups.value,
@@ -202,7 +236,7 @@ export const useEditorGroupsManager = () => {
                 activeGroupId.value = activeGroup.id;
                 touchGroupMru(activeGroup.id);
                 if (!activeGroup.activeTabId && activeGroup.tabIds.length > 0) {
-                    activeGroup.activeTabId = activeGroup.tabIds[0] ?? null;
+                    setGroupActiveTab(activeGroup.id, activeGroup.tabIds[0] ?? null);
                 }
             }
             normalizeManagerState();
@@ -226,7 +260,7 @@ export const useEditorGroupsManager = () => {
         touchGroupMru(group.id);
 
         if (!group.activeTabId && group.tabIds.length > 0) {
-            group.activeTabId = group.tabIds[0] ?? null;
+            setGroupActiveTab(group.id, group.tabIds[0] ?? null);
         }
         normalizeManagerState();
     }
@@ -237,7 +271,7 @@ export const useEditorGroupsManager = () => {
             return;
         }
 
-        group.activeTabId = tabId;
+        setGroupActiveTab(groupId, tabId);
         activateGroup(groupId);
         normalizeManagerState();
     }
@@ -252,7 +286,10 @@ export const useEditorGroupsManager = () => {
         }
         if (!group) {
             group = createGroup();
-            groups.value.push(group);
+            groups.value = [
+                ...groups.value,
+                group,
+            ];
             if (!layout.value) {
                 layout.value = {
                     type: 'leaf',
@@ -262,12 +299,21 @@ export const useEditorGroupsManager = () => {
         }
 
         const tab = createEmptyTab(options.initial);
-        tabs.value.push(tab);
-        group.tabIds.push(tab.id);
+        tabs.value = [
+            ...tabs.value,
+            tab,
+        ];
 
-        if (options.activate !== false || !group.activeTabId) {
-            group.activeTabId = tab.id;
-        }
+        updateGroupTabIds(
+            group.id,
+            tabIds => [
+                ...tabIds,
+                tab.id,
+            ],
+            currentGroup => options.activate !== false || !currentGroup.activeTabId
+                ? tab.id
+                : currentGroup.activeTabId,
+        );
 
         if (options.activate !== false) {
             activateGroup(group.id);
@@ -293,11 +339,18 @@ export const useEditorGroupsManager = () => {
             return;
         }
 
-        const [tabId] = group.tabIds.splice(fromIndex, 1);
+        const tabId = group.tabIds[fromIndex];
         if (!tabId) {
             return;
         }
-        group.tabIds.splice(toIndex, 0, tabId);
+        updateGroupTabIds(groupId, (tabIds) => {
+            const withoutMoved = tabIds.filter((_, index) => index !== fromIndex);
+            return [
+                ...withoutMoved.slice(0, toIndex),
+                tabId,
+                ...withoutMoved.slice(toIndex),
+            ];
+        });
         normalizeManagerState();
     }
 
@@ -327,7 +380,7 @@ export const useEditorGroupsManager = () => {
         if (nextActiveGroup) {
             touchGroupMru(nextActiveGroup.id);
             if (!nextActiveGroup.activeTabId && nextActiveGroup.tabIds.length > 0) {
-                nextActiveGroup.activeTabId = nextActiveGroup.tabIds[0] ?? null;
+                setGroupActiveTab(nextActiveGroup.id, nextActiveGroup.tabIds[0] ?? null);
             }
         }
 
@@ -353,16 +406,18 @@ export const useEditorGroupsManager = () => {
         }
 
         const tab = getTabById(tabId);
-        group.tabIds.splice(tabIndex, 1);
+        const nextTabIds = group.tabIds.filter(candidate => candidate !== tabId);
         tabs.value = tabs.value.filter(candidate => candidate.id !== tabId);
 
-        if (group.activeTabId === tabId) {
-            const replacement = group.tabIds[tabIndex] ?? group.tabIds[tabIndex - 1] ?? null;
-            group.activeTabId = replacement;
-        }
+        const replacement = nextTabIds[tabIndex] ?? nextTabIds[tabIndex - 1] ?? null;
+        updateGroupTabIds(
+            group.id,
+            () => nextTabIds,
+            currentGroup => currentGroup.activeTabId === tabId ? replacement : currentGroup.activeTabId,
+        );
 
         let removedGroupId: string | null = null;
-        if (group.tabIds.length === 0) {
+        if (nextTabIds.length === 0) {
             if (groups.value.length > 1) {
                 removedGroupId = group.id;
                 closeGroup(group.id);
@@ -371,7 +426,7 @@ export const useEditorGroupsManager = () => {
                     groupId: group.id,
                     activate: true,
                 });
-                group.activeTabId = replacement.id;
+                setGroupActiveTab(group.id, replacement.id);
             }
         }
 
@@ -404,7 +459,10 @@ export const useEditorGroupsManager = () => {
         }
 
         const newGroup = createGroup();
-        groups.value.push(newGroup);
+        groups.value = [
+            ...groups.value,
+            newGroup,
+        ];
 
         const sourceLeaf: IEditorLayoutLeafNode = {
             type: 'leaf',
@@ -475,15 +533,24 @@ export const useEditorGroupsManager = () => {
             return true;
         }
 
-        sourceGroup.tabIds = sourceGroup.tabIds.filter(candidate => candidate !== tabId);
-        targetGroup.tabIds.push(tabId);
-        targetGroup.activeTabId = tabId;
+        const nextSourceTabIds = sourceGroup.tabIds.filter(candidate => candidate !== tabId);
+        updateGroupTabIds(
+            sourceGroup.id,
+            () => nextSourceTabIds,
+            currentGroup => currentGroup.activeTabId === tabId
+                ? nextSourceTabIds[nextSourceTabIds.length - 1] ?? null
+                : currentGroup.activeTabId,
+        );
+        updateGroupTabIds(
+            targetGroup.id,
+            tabIds => [
+                ...tabIds,
+                tabId,
+            ],
+            () => tabId,
+        );
 
-        if (sourceGroup.activeTabId === tabId) {
-            sourceGroup.activeTabId = sourceGroup.tabIds[sourceGroup.tabIds.length - 1] ?? null;
-        }
-
-        if (sourceGroup.tabIds.length === 0) {
+        if (nextSourceTabIds.length === 0) {
             closeGroup(sourceGroup.id);
         }
 
