@@ -49,7 +49,7 @@ describe('page-ops insert service', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         randomUuidMock.mockReturnValue('fixed-output-id');
-        ensureWorkingCopyDirectoryMock.mockResolvedValue(false);
+        ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
         createPdfFromInputPathsMock.mockResolvedValue(Buffer.from('%PDF-1.7\nmerged'));
     });
 

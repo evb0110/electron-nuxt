@@ -82,6 +82,7 @@ describe('getPageRowBoundsForViewMode', () => {
 
 function createVirtualizationHarness(viewMode: TPdfViewMode) {
     const numPages = ref(20);
+    const currentPage = ref(9);
     const pageMetrics = ref(Array.from({ length: 20 }, () => ({
         width: 300,
         height: 100,
@@ -91,6 +92,8 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
         bufferPages: computed(() => 0),
         viewMode: computed(() => viewMode),
         numPages,
+        currentPage,
+        continuousScroll: computed(() => true),
         basePageWidth: ref(300),
         basePageHeight: ref(100),
         pageMetrics,
@@ -109,12 +112,15 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
 
 function createPagedHarness(options?: {
     viewMode?: TPdfViewMode;
+    currentPage?: number;
+    searchNavigationTargetPage?: number | null;
     visibleRange?: {
         start: number;
         end: number;
     };
 }) {
     const numPages = ref(20);
+    const currentPage = ref(options?.currentPage ?? 9);
     const pageMetrics = ref(Array.from({ length: 20 }, () => ({
         width: 300,
         height: 100,
@@ -124,6 +130,8 @@ function createPagedHarness(options?: {
         bufferPages: computed(() => 0),
         viewMode: computed(() => options?.viewMode ?? 'single'),
         numPages,
+        currentPage,
+        continuousScroll: computed(() => false),
         basePageWidth: ref(300),
         basePageHeight: ref(100),
         pageMetrics,
@@ -134,7 +142,7 @@ function createPagedHarness(options?: {
             start: 9,
             end: 10,
         }),
-        searchNavigationTargetPage: ref(null),
+        searchNavigationTargetPage: ref(options?.searchNavigationTargetPage ?? null),
         resizeTransitionAnchorPage: ref(null),
         zoomVirtualizationFreeze: ref(null),
     });
@@ -167,36 +175,44 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
     });
 
-    it('keeps paged mode virtualized with spacers so touch scrolling can reach adjacent pages', () => {
+    it('mounts only the active spread row in paged mode', () => {
         const virtualization = createPagedHarness({
             viewMode: 'facing',
+            currentPage: 9,
             visibleRange: {
                 start: 9,
                 end: 10,
             },
         });
 
-        expect(virtualization.virtualizedContinuousMode.value).toBe(true);
-        expect(virtualization.virtualWindowStartPage.value).toBe(3);
-        expect(virtualization.virtualWindowEndPage.value).toBe(16);
+        expect(virtualization.virtualizedContinuousMode.value).toBe(false);
+        expect(virtualization.virtualWindowStartPage.value).toBe(9);
+        expect(virtualization.virtualWindowEndPage.value).toBe(10);
         expect(virtualization.pagesToRender.value).toEqual([
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
             9,
             10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
         ]);
-        expect(virtualization.topVirtualSpacerStyle.value).toEqual({ height: '100px' });
-        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
+        expect(virtualization.topVirtualSpacerStyle.value).toBeNull();
+        expect(virtualization.bottomVirtualSpacerStyle.value).toBeNull();
+    });
+
+    it('uses a search navigation row as the temporary paged mount window', () => {
+        const virtualization = createPagedHarness({
+            viewMode: 'facing-first-single',
+            currentPage: 1,
+            searchNavigationTargetPage: 10,
+            visibleRange: {
+                start: 1,
+                end: 1,
+            },
+        });
+
+        expect(virtualization.pagesToRender.value).toEqual([
+            10,
+            11,
+        ]);
+        expect(virtualization.virtualWindowStartPage.value).toBe(10);
+        expect(virtualization.virtualWindowEndPage.value).toBe(11);
     });
 
     it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {
@@ -213,6 +229,8 @@ describe('usePdfViewerVirtualization', () => {
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
             numPages: ref(6),
+            currentPage: ref(2),
+            continuousScroll: computed(() => true),
             basePageWidth: ref(1200),
             basePageHeight: ref(1600),
             pageMetrics,

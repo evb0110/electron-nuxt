@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import { clamp } from 'es-toolkit/math';
 import {
+    nextTick,
     ref,
     shallowRef,
 } from 'vue';
@@ -156,6 +157,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         container,
         currentPage,
         emitCurrentPage,
+        visibleRange,
         scrollToPageInternal,
         singlePageScroll,
     };
@@ -485,16 +487,19 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(container.scrollTop).toBe(500);
     });
 
-    it('falls back to internal page scrolling when target page is not mounted', () => {
+    it('falls back to internal page scrolling in continuous mode when target page is not mounted', () => {
         const {
             currentPage,
             scrollToPageInternal,
             singlePageScroll,
-        } = createSinglePageScrollHarness({mountedPageNumbers: [
-            10,
-            11,
-            12,
-        ]});
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            mountedPageNumbers: [
+                10,
+                11,
+                12,
+            ],
+        });
 
         singlePageScroll.scrollToPage(1);
 
@@ -696,6 +701,61 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         expect(currentPage.value).toBe(1);
         expect(emitCurrentPage).toHaveBeenCalledWith(1);
+    });
+
+    it('makes an unmounted paged target row authoritative before the deferred DOM snap', async () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            scrollToPageInternal,
+            singlePageScroll,
+            visibleRange,
+        } = createSinglePageScrollHarness({
+            viewMode: 'facing-first-single',
+            continuousScroll: false,
+            mountedPageNumbers: [
+                1,
+                99,
+                100,
+            ],
+        });
+
+        singlePageScroll.scrollToPage(2);
+
+        expect(currentPage.value).toBe(2);
+        expect(visibleRange.value).toEqual({
+            start: 2,
+            end: 3,
+        });
+        expect(emitCurrentPage).toHaveBeenCalledWith(2);
+        expect(scrollToPageInternal).not.toHaveBeenCalled();
+
+        await nextTick();
+        expect(scrollToPageInternal).not.toHaveBeenCalled();
+    });
+
+    it('keeps a paged navigation target authoritative while stale scroll events settle', () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            singlePageScroll,
+            visibleRange,
+        } = createSinglePageScrollHarness({
+            viewMode: 'facing-first-single',
+            continuousScroll: false,
+            mountedPageNumbers: [1],
+            getMostVisiblePage: () => 1,
+        });
+
+        singlePageScroll.scrollToPage(2);
+        singlePageScroll.handleScroll();
+
+        expect(currentPage.value).toBe(2);
+        expect(visibleRange.value).toEqual({
+            start: 2,
+            end: 3,
+        });
+        expect(emitCurrentPage).toHaveBeenCalledWith(2);
     });
 
     it('scrollToPage in single-page mode snaps fit-height pages to top (no "1.5 pages" bleed)', () => {

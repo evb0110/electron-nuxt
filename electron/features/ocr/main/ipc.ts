@@ -199,7 +199,12 @@ async function handleOcrValidateTools() {
 }
 
 async function validateOcrSourcePdfPath(sourcePdfPath: string): Promise<string> {
-    const managedSourcePdfPath = await requireManagedWorkingCopyPath(sourcePdfPath);
+    let managedSourcePdfPath: string;
+    try {
+        managedSourcePdfPath = await requireManagedWorkingCopyPath(sourcePdfPath);
+    } catch (error) {
+        throw new OcrPayloadValidationError(`sourcePdfPath is not a managed working copy: ${getErrorMessage(error)}`);
+    }
     const resolvedPath = await resolveAllowedReadPath(managedSourcePdfPath);
     if (!resolvedPath) {
         throw new OcrPayloadValidationError('sourcePdfPath must be inside the temporary working directory');

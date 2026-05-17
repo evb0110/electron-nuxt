@@ -24,8 +24,10 @@ export default defineConfig({ test: {
     fileParallelism: false,
     maxWorkers: 1,
     minWorkers: 1,
+    reporters: ['verbose'],
     retry: 0,
-    testTimeout: 240_000,
-    hookTimeout: 300_000,
+    testTimeout: 90_000,
+    hookTimeout: 150_000,
+    teardownTimeout: 30_000,
     sequence: { concurrent: false },
 } });

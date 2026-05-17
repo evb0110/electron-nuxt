@@ -48,7 +48,7 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
         expect(createdCount).toBeGreaterThan(baselineCount);
 
         await waitForActiveWorkspaceHost(page);
-        const latestText = await page.evaluate(() => {
+        const latestTextHandle = await page.waitForFunction((expectedText: string) => {
             const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter((candidate) => {
@@ -66,9 +66,13 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
             const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
-            const latest = editors[editors.length - 1];
-            return (latest?.textContent ?? '').trim();
-        });
+            const matchingText = editors
+                .map((editor) => (editor.querySelector<HTMLElement>('[contenteditable], .internal') ?? editor).textContent ?? '')
+                .map(text => text.replace(/\u200B/g, '').trim())
+                .find(text => text.includes(expectedText));
+            return matchingText ?? false;
+        }, { timeout: 8_000 }, typedText);
+        const latestText = await latestTextHandle.jsonValue();
         expect(latestText).toContain(typedText);
     });
 });

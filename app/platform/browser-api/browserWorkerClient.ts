@@ -101,15 +101,6 @@ export class BrowserWorkerClient<
         return this.worker !== null;
     }
 
-    public postToExistingWorker(message: unknown) {
-        if (!this.worker) {
-            return false;
-        }
-
-        this.worker.postMessage(message);
-        return true;
-    }
-
     public registerPendingRequest(
         requestId: number,
         pendingRequest: TPendingRequest,
@@ -131,21 +122,6 @@ export class BrowserWorkerClient<
         }
 
         this.pendingRequests.set(requestId, pendingRequest);
-    }
-
-    public settlePendingRequest(
-        requestId: number,
-        settle: (pendingRequest: TPendingRequest) => void,
-    ) {
-        const pendingRequest = this.pendingRequests.get(requestId);
-        if (!pendingRequest) {
-            return false;
-        }
-
-        this.pendingRequests.delete(requestId);
-        this.clearRequestTimeout(pendingRequest);
-        settle(pendingRequest);
-        return true;
     }
 
     public cancelPendingRequest(

@@ -203,6 +203,10 @@ function requestDjvuCancel(jobId: string): boolean {
 
 function setActivePdfWorker(jobId: string, worker: Worker) {
     activePdfWorkerByJobId.set(jobId, worker);
+    if (canceledJobIds.has(jobId)) {
+        activePdfWorkerByJobId.delete(jobId);
+        void worker.terminate().catch(() => {});
+    }
 }
 
 function clearActivePdfWorker(jobId: string, worker: Worker) {

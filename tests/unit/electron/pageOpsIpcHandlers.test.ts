@@ -155,7 +155,7 @@ describe('registerPageOpsHandlers', () => {
         mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([1]));
         mocks.isPdfOrImagePath.mockReturnValue(true);
         mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.open.mockResolvedValue({

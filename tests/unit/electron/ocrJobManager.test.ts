@@ -76,7 +76,10 @@ vi.mock('worker_threads', () => ({Worker: class {
     }
 }}));
 
-vi.mock('fs', () => ({existsSync: mocks.existsSync}));
+vi.mock('fs', () => ({
+    existsSync: mocks.existsSync,
+    mkdirSync: vi.fn(),
+}));
 vi.mock('fs/promises', () => ({
     stat: mocks.stat,
     unlink: mocks.unlink,
@@ -360,6 +363,10 @@ describe('ocr job manager preparing-stage robustness', () => {
                 requiresCleanupAck: true,
                 errors: [],
             },
+        });
+        worker?.emit('message', {
+            type: 'cleanup-complete',
+            jobId: 'job-7',
         });
 
         expect(mocks.sendToLiveWindow).toHaveBeenCalledWith(

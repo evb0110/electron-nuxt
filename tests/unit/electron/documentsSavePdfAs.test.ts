@@ -101,7 +101,7 @@ describe('handleSavePdfAs', () => {
         vi.clearAllMocks();
         mocks.workingCopyMap.clear();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-save-pdf-as-test-'));
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.setWorkingCopyOriginalPath.mockImplementation((workingPath, originalPath) => {
             mocks.workingCopyMap.set(workingPath, originalPath);
         });

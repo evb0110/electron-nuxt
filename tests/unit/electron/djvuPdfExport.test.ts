@@ -201,10 +201,10 @@ describe('handleDjvuConvertToPdf', () => {
             {preserveBookmarks: true},
         );
 
-        for (let attempt = 0; attempt < 5 && mocks.createDjvuPdfBookmarkTask.mock.calls.length === 0; attempt += 1) {
-            await Promise.resolve();
+        for (let attempt = 0; attempt < 50 && mocks.createDjvuPdfBookmarkTask.mock.calls.length === 0; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
-        await Promise.resolve();
+        expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         const cancelResult = handleDjvuCancel(
             {sender: {id: 7}} as never,
             'djvu-convert-convert-123',

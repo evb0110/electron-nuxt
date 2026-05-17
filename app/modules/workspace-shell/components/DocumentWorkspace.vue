@@ -300,6 +300,7 @@
                         :zoom-mode="zoomMode"
                         :fit-mode="fitMode"
                         :view-mode="viewMode"
+                        :current-page="currentPage"
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
                         :is-resizing="isResizingSidebar"
@@ -858,6 +859,7 @@ const {
     enableDragMode,
     handleGoToPage,
     initFromStorage,
+    shouldAcceptViewerCurrentPageUpdate,
     hasPdf,
 } = w;
 
@@ -1087,6 +1089,23 @@ function handleInsertPages() {
 function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+    if (!shouldAcceptViewerCurrentPageUpdate(page)) {
+        BrowserLogger.warn('pdf-nav', `[workspace-page-update] ignored stale viewer page ${previousPage}->${page}`, {
+            previousPage,
+            ignoredPage: page,
+            sidebarOpen: showSidebar.value,
+            sidebarTab: sidebarTab.value,
+            totalPages: totalPages.value,
+            isLoading: isLoading.value,
+            continuousScroll: continuousScroll.value,
+            fitMode: fitMode.value,
+            viewMode: viewMode.value,
+            zoom: zoom.value,
+            viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
+            viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
+        });
+        return;
+    }
     BrowserLogger.warn('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
         previousPage,
         nextPage: page,
