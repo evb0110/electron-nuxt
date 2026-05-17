@@ -599,7 +599,7 @@ export const usePdfSinglePageScroll = (
             viewerContainer.value,
             targetPage,
         );
-        if (!targetEl) {
+        if (!targetEl || targetEl.classList?.contains('page_container--buffered')) {
             return false;
         }
 

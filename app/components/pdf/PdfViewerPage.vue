@@ -1,7 +1,11 @@
 <template>
     <div
         class="page_container"
-        :class="{ 'page_container--spread-single': spreadSingle }"
+        :class="{
+            'page_container--spread-single': spreadSingle,
+            'page_container--buffered': buffered,
+            'page_container--rendered': rendered,
+        }"
         :data-page="page"
         :style="placeholderStyle ?? undefined"
     >
@@ -67,6 +71,8 @@ interface IProps {
     page: number;
     showSkeleton: boolean;
     spreadSingle?: boolean;
+    buffered?: boolean;
+    rendered?: boolean;
     placeholderStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
     placedImageBusy?: boolean;
@@ -76,6 +82,8 @@ const {
     page,
     showSkeleton,
     spreadSingle = false,
+    buffered = false,
+    rendered = false,
     placeholderStyle = null,
     placedImage = null,
     placedImageBusy = false,

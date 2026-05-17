@@ -114,6 +114,7 @@ function createPagedHarness(options?: {
     viewMode?: TPdfViewMode;
     currentPage?: number;
     searchNavigationTargetPage?: number | null;
+    bufferPages?: number;
     visibleRange?: {
         start: number;
         end: number;
@@ -127,7 +128,7 @@ function createPagedHarness(options?: {
     })));
 
     return usePdfViewerVirtualization({
-        bufferPages: computed(() => 0),
+        bufferPages: computed(() => options?.bufferPages ?? 2),
         viewMode: computed(() => options?.viewMode ?? 'single'),
         numPages,
         currentPage,
@@ -175,7 +176,7 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
     });
 
-    it('mounts only the active spread row in paged mode', () => {
+    it('keeps only the active spread row visible while mounting warm paged buffers', () => {
         const virtualization = createPagedHarness({
             viewMode: 'facing',
             currentPage: 9,
@@ -189,9 +190,19 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.virtualWindowStartPage.value).toBe(9);
         expect(virtualization.virtualWindowEndPage.value).toBe(10);
         expect(virtualization.pagesToRender.value).toEqual([
+            7,
+            8,
             9,
             10,
+            11,
+            12,
+            13,
+            14,
         ]);
+        expect(virtualization.isPageBuffered(8)).toBe(true);
+        expect(virtualization.isPageBuffered(9)).toBe(false);
+        expect(virtualization.isPageBuffered(10)).toBe(false);
+        expect(virtualization.isPageBuffered(11)).toBe(true);
         expect(virtualization.topVirtualSpacerStyle.value).toBeNull();
         expect(virtualization.bottomVirtualSpacerStyle.value).toBeNull();
     });
@@ -208,11 +219,21 @@ describe('usePdfViewerVirtualization', () => {
         });
 
         expect(virtualization.pagesToRender.value).toEqual([
+            8,
+            9,
             10,
             11,
+            12,
+            13,
+            14,
+            15,
         ]);
         expect(virtualization.virtualWindowStartPage.value).toBe(10);
         expect(virtualization.virtualWindowEndPage.value).toBe(11);
+        expect(virtualization.isPageBuffered(9)).toBe(true);
+        expect(virtualization.isPageBuffered(10)).toBe(false);
+        expect(virtualization.isPageBuffered(11)).toBe(false);
+        expect(virtualization.isPageBuffered(12)).toBe(true);
     });
 
     it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {

@@ -49,6 +49,8 @@ interface IUsePdfViewerVirtualizationOptions {
 
 const VIRTUAL_MOUNT_BUFFER_MIN = 6;
 const SEARCH_NAV_VIRTUAL_BUFFER_MIN = 18;
+const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
+const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
 
 export function expandVirtualWindowForAnchor(options: {
     baseStart: number;
@@ -210,6 +212,59 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         });
     });
 
+    const pagedMountRowsBefore = computed(() =>
+        Math.max(PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN, Math.trunc(bufferPages.value) - 1),
+    );
+
+    const pagedMountRowsAfter = computed(() =>
+        Math.max(PAGED_MOUNT_ROW_BUFFER_AFTER_MIN, Math.trunc(bufferPages.value)),
+    );
+
+    const pagedMountedWindowBounds = computed(() => {
+        const activeBounds = pagedWindowBounds.value;
+        if (activeBounds.end < activeBounds.start) {
+            return activeBounds;
+        }
+
+        let startBounds = activeBounds;
+        for (let rowOffset = 0; rowOffset < pagedMountRowsBefore.value; rowOffset += 1) {
+            if (startBounds.start <= 1) {
+                break;
+            }
+            startBounds = getPageRowBoundsForViewMode({
+                pageNumber: startBounds.start - 1,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+        }
+
+        let endBounds = activeBounds;
+        for (let rowOffset = 0; rowOffset < pagedMountRowsAfter.value; rowOffset += 1) {
+            if (endBounds.end >= numPages.value) {
+                break;
+            }
+            endBounds = getPageRowBoundsForViewMode({
+                pageNumber: endBounds.end + 1,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+        }
+
+        return {
+            start: startBounds.start,
+            end: endBounds.end,
+        };
+    });
+
+    function isPageBuffered(pageNumber: number) {
+        if (continuousScroll.value) {
+            return false;
+        }
+
+        const activeBounds = pagedWindowBounds.value;
+        return pageNumber < activeBounds.start || pageNumber > activeBounds.end;
+    }
+
     const baseVirtualWindowStart = computed(() => {
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.start;
@@ -353,12 +408,19 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         const layout = pageLayout.value;
         if (!layout) {
             if (!continuousScroll.value) {
-                const bounds = pagedWindowBounds.value;
+                const bounds = pagedMountedWindowBounds.value;
                 return bounds.end >= bounds.start
                     ? range(bounds.start, bounds.end + 1)
                     : [];
             }
             return range(1, numPages.value + 1);
+        }
+
+        if (!continuousScroll.value) {
+            const bounds = pagedMountedWindowBounds.value;
+            return bounds.end >= bounds.start
+                ? range(bounds.start, bounds.end + 1)
+                : [];
         }
 
         const startBounds = getPageRowBounds(layout, virtualWindowStart.value);
@@ -406,5 +468,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         topVirtualSpacerStyle,
         bottomVirtualSpacerStyle,
         pagesToRender,
+        isPageBuffered,
     };
 };

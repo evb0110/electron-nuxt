@@ -11,6 +11,8 @@
             :pages-to-render="pagesToRender"
             :should-show-skeleton="shouldShowPageSkeleton"
             :is-spread-single="isSpreadSingle"
+            :is-buffered-page="isPageBuffered"
+            :is-rendered-page="isPageRenderedForClass"
             :get-page-placeholder-style="getPagePlaceholderStyle"
             :top-virtual-spacer-style="topVirtualSpacerStyle"
             :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
@@ -267,6 +269,7 @@ const activeCommentStableKey = ref<string | null>(null);
 const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 140;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
+const renderedPageStateVersion = ref(0);
 const {
     beginViewerLoadSettle,
     settleViewerLoadSettle,
@@ -281,6 +284,7 @@ function settleViewerLoadSettledWithManagedShapes(token: number) {
 }
 
 function handlePageRendered(pageNumber: number) {
+    renderedPageStateVersion.value += 1;
     delayedSkeleton.markPageRendered(pageNumber);
     managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
 
@@ -524,7 +528,7 @@ const {
     setupPagePlaceholders,
     renderVisiblePages,
     reRenderAllVisiblePages,
-    cleanupAllPages: cleanupRenderedPages,
+    cleanupAllPages: cleanupAllRenderedPages,
     invalidatePages: invalidateRenderedPages,
     applySearchHighlights,
     hideManagedAnnotationEditors,
@@ -558,6 +562,15 @@ const {
     onRenderStall: relayPageRenderStall,
     onPageRendered: handlePageRendered,
 });
+
+function cleanupRenderedPages() {
+    cleanupAllRenderedPages();
+    renderedPageStateVersion.value += 1;
+}
+
+function isPageRenderedForClass(page: number) {
+    return renderedPageStateVersion.value >= 0 && isPageRendered(page);
+}
 
 const singlePageScroll = usePdfSinglePageScroll({
     viewerContainer,
@@ -744,6 +757,7 @@ const {
     topVirtualSpacerStyle,
     bottomVirtualSpacerStyle,
     pagesToRender,
+    isPageBuffered,
 } = usePdfViewerVirtualization({
     bufferPages,
     viewMode,
@@ -1019,8 +1033,68 @@ const visibleLinksByPage = computed(() => (
         )
 ));
 function shouldShowPageSkeleton(page: number) {
+    if (isPageBuffered(page)) {
+        return false;
+    }
     return delayedSkeleton.shouldShowSkeleton(page);
 }
+
+let pagedBufferRenderToken = 0;
+
+function schedulePagedBufferRender() {
+    const token = ++pagedBufferRenderToken;
+    void nextTick(() => {
+        const mountedPages = pagesToRender.value;
+        const firstMountedPage = mountedPages[0];
+        const lastMountedPage = mountedPages[mountedPages.length - 1];
+        if (
+            token !== pagedBufferRenderToken
+            || continuousScroll.value
+            || isLoading.value
+            || !pdfDocument.value
+            || numPages.value <= 0
+            || firstMountedPage === undefined
+            || lastMountedPage === undefined
+        ) {
+            return;
+        }
+
+        runGuardedTask(
+            () => renderVisiblePages(
+                {
+                    start: firstMountedPage,
+                    end: lastMountedPage,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                },
+            ),
+            {
+                scope: 'pdf-viewer',
+                message: 'Failed to pre-render paged navigation buffer',
+            },
+        );
+    });
+}
+
+watch(
+    () => [
+        continuousScroll.value,
+        isLoading.value,
+        Boolean(pdfDocument.value),
+        numPages.value,
+        visibleRange.value.start,
+        visibleRange.value.end,
+        pagesToRender.value.join(','),
+    ] as const,
+    () => {
+        if (!continuousScroll.value) {
+            schedulePagedBufferRender();
+        }
+    },
+    { flush: 'post' },
+);
 
 const isActiveSpreadHorizontalScrollLocked = computed(() => {
     const container = viewerContainer.value;
@@ -1595,6 +1669,16 @@ defineExpose({
 .pdfViewer .page_container--spread-single {
     grid-column: 1 / -1;
     justify-self: center;
+}
+
+.pdfViewer .page_container--buffered {
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-200vw);
 }
 
 /* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
