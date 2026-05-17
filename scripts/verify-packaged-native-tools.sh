@@ -63,6 +63,9 @@ check_dir() {
 }
 
 check_file "$resource_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" "tesseract binary"
+if [ "$platform" != "win" ]; then
+  check_file "$resource_root/tesseract/$platform_arch/bin/unpaper$exe_suffix" "unpaper binary"
+fi
 
 tessdata_dir="$resource_root/tesseract/tessdata"
 if [ ! -d "$tessdata_dir" ]; then
@@ -197,6 +200,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "pdftoppm" "$resource_root/poppler/$platform_arch/bin/pdftoppm" -v
   run_macos_packaged_tool_smoke "pdftotext" "$resource_root/poppler/$platform_arch/bin/pdftotext" -v
   run_macos_packaged_tool_smoke "tesseract" "$resource_root/tesseract/$platform_arch/bin/tesseract" --version
+  run_macos_packaged_tool_smoke "unpaper" "$resource_root/tesseract/$platform_arch/bin/unpaper" --help
 fi
 
 if [ "$platform" = "linux" ]; then

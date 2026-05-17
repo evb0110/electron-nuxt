@@ -143,6 +143,11 @@ check_tag() {
 
   echo "== Checking $tag =="
   check_file_for_tag "resources/tesseract/$tag/bin/tesseract$exe_suffix" "tesseract" "$tag"
+  if [ "$platform" != "win32" ]; then
+    check_file_for_tag "resources/tesseract/$tag/bin/unpaper$exe_suffix" "unpaper" "$tag"
+  else
+    echo "  SKIP    unpaper: not bundled on Windows"
+  fi
   check_file_for_tag "resources/poppler/$tag/bin/pdftoppm$exe_suffix" "pdftoppm" "$tag"
   check_file_for_tag "resources/poppler/$tag/bin/pdftotext$exe_suffix" "pdftotext" "$tag"
   if [ "$platform" = "win32" ]; then

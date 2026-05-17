@@ -58,8 +58,10 @@ const mocks = vi.hoisted(() => ({
     allowOpenPaths: vi.fn(),
     requireOpenPath: vi.fn((path: string) => path),
     writeFile: vi.fn(),
+    open: vi.fn(),
     rename: vi.fn(),
     rm: vi.fn(),
+    stat: vi.fn(),
     unlink: vi.fn(),
 }));
 
@@ -81,8 +83,10 @@ vi.mock('electron', () => ({
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 vi.mock('fs/promises', () => ({
     writeFile: (...args: unknown[]) => mocks.writeFile(...args),
+    open: (...args: unknown[]) => mocks.open(...args),
     rename: (...args: unknown[]) => mocks.rename(...args),
     rm: (...args: unknown[]) => mocks.rm(...args),
+    stat: (...args: unknown[]) => mocks.stat(...args),
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
@@ -154,8 +158,13 @@ describe('registerPageOpsHandlers', () => {
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.writeFile.mockResolvedValue(undefined);
+        mocks.open.mockResolvedValue({
+            close: vi.fn(async () => undefined),
+            sync: vi.fn(async () => undefined),
+        });
         mocks.rename.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({size: 1});
         mocks.unlink.mockResolvedValue(undefined);
 
         mocks.deletePages.mockResolvedValue({pageCount: 1});

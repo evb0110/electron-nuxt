@@ -14,7 +14,7 @@ const INTERNAL_ROOTS = [
     'packages/contracts',
     'packages/i18n-core',
     'packages/i18n-app',
-    'packages/releaseSelection',
+    'packages/release-selection',
 ];
 
 const SOURCE_EXTENSIONS = [
@@ -140,6 +140,20 @@ async function collectFiles(rootDir, relDir = '') {
     }));
 
     return files.flat();
+}
+
+async function assertRootsExist(projectRoot, roots) {
+    const missingRoots = [];
+    for (const root of roots) {
+        const absoluteRoot = path.join(projectRoot, root);
+        if (!(await pathExists(absoluteRoot))) {
+            missingRoots.push(root);
+        }
+    }
+
+    if (missingRoots.length > 0) {
+        throw new Error(`Dependency graph root(s) do not exist: ${missingRoots.join(', ')}`);
+    }
 }
 
 function extractImportSpecifiers(sourceText) {
@@ -370,6 +384,7 @@ export async function buildDependencyGraph({
     roots = INTERNAL_ROOTS,
 } = {}) {
     const normalizedRoots = roots.map(root => toPosixPath(path.normalize(root)));
+    await assertRootsExist(projectRoot, normalizedRoots);
     const files = (
         await Promise.all(normalizedRoots.map(root => collectFiles(projectRoot, root)))
     )

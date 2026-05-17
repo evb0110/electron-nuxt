@@ -54,4 +54,20 @@ describe('buildPdfAnnotationSavePlan', () => {
         expect(plan.route).toBe('source-clean');
         expect(plan.reason).toBe('no-live-pdfjs-annotation-work');
     });
+
+    it('materializes through PDF.js when live annotation storage inspection is unknown', () => {
+        const plan = buildPdfAnnotationSavePlan({
+            hasPendingReplayableEmbeddedChanges: false,
+            hasEditorOnlyAnnotationsPendingMaterialization: false,
+            liveAnnotationChanges: {
+                ids: new Set(),
+                hasChanges: true,
+                hasUnknownChanges: true,
+            },
+            replayableEmbeddedAnnotationIds: new Set(),
+        });
+
+        expect(plan.route).toBe('pdfjs-materialize');
+        expect(plan.reason).toBe('unknown-live-pdfjs-annotation-storage');
+    });
 });

@@ -8,7 +8,7 @@ export default defineConfig({
         '@contracts': resolve(__dirname, 'packages/contracts'),
         '@i18n-core': resolve(__dirname, 'packages/i18n-core'),
         '@i18n-app': resolve(__dirname, 'packages/i18n-app'),
-        '@releaseSelection': resolve(__dirname, 'packages/releaseSelection'),
+        '@releaseSelection': resolve(__dirname, 'packages/release-selection'),
         electron: resolve(__dirname, 'tests/mocks/electron.ts'),
     }},
     test: {

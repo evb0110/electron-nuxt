@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
 import {
-    rename,
+    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -18,10 +18,32 @@ import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import {
+    cleanupTempOutput,
+    makeTempPdfOutputPath,
+    replaceTempOutput,
+} from '@electron/features/page-ops/main/tempOutput';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
+    0,
+    3,
+];
+
+async function assertNonEmptyPdfOutput(outputPath: string) {
+    let outputStat: Awaited<ReturnType<typeof stat>>;
+    try {
+        outputStat = await stat(outputPath);
+    } catch (error) {
+        throw new Error('Inserting pages failed: qpdf did not produce an output file', {cause: error});
+    }
+
+    if (outputStat.size === 0) {
+        throw new Error('Inserting pages failed: qpdf produced an empty PDF');
+    }
+}
 
 async function prepareInsertionSourcePdf(
     workingCopyPath: string,
@@ -80,9 +102,7 @@ export async function insertPagesFromSourcePaths(
 ) {
     await ensureWorkingCopyDirectory(workingCopyPath);
     const qpdf = getNativeToolPaths().qpdf;
-    const dir = join(workingCopyPath, '..');
-    const id = `tmp-${randomUUID()}`;
-    const tempPath = join(dir, `${id}.pdf`);
+    const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     const {
         sourcePdfPath,
@@ -111,19 +131,13 @@ export async function insertPagesFromSourcePaths(
         ];
         await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
+            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(insert-pages)',
         });
-        await rename(tempPath, workingCopyPath);
+        await assertNonEmptyPdfOutput(tempPath);
+        await replaceTempOutput(tempPath, workingCopyPath);
     } catch (err) {
-        try {
-            if (existsSync(tempPath)) {
-                await unlink(tempPath);
-            }
-        } catch (cleanupError) {
-            log.debug(`Failed to cleanup temporary insert output "${tempPath}": ${
-                getErrorMessage(cleanupError)
-            }`);
-        }
+        await cleanupTempOutput(tempPath, log, 'temporary insert output');
         throw err;
     } finally {
         await cleanup();

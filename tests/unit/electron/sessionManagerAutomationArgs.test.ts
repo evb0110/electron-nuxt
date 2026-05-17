@@ -16,6 +16,7 @@ import {
     shouldDisableAutomationSandbox,
 } from '../../../scripts/electron-run/electronRunLaunchConfig';
 import { isReusableNuxtResponse } from '../../../scripts/electron-run/electronRunNuxtServerResponse';
+import { selectStaleNuxtPortOwnerCleanupTargets } from '../../../scripts/electron-run/sessionManager';
 import { shouldWaitForExternalDevServer } from '../../../electron/server';
 
 describe('sessionManager automation launch args', () => {
@@ -233,5 +234,45 @@ describe('sessionManager automation launch args', () => {
             poweredBy: 'Nuxt',
             body: '<main>unrelated app</main>',
         })).toBe(false);
+    });
+
+    it('cleans only stale session-owned Nuxt port owners', () => {
+        expect(selectStaleNuxtPortOwnerCleanupTargets([
+            1111,
+            2222,
+            3333,
+        ], [
+            {
+                name: 'running-session',
+                sessionPid: 9001,
+                nuxtPid: 1111,
+                nuxtPort: 3000,
+                sessionAlive: true,
+                nuxtAlive: true,
+                descendantPids: [],
+            },
+            {
+                name: 'stale-session',
+                sessionPid: 9002,
+                nuxtPid: 2222,
+                nuxtPort: 3000,
+                sessionAlive: false,
+                nuxtAlive: true,
+                descendantPids: [2223],
+            },
+            {
+                name: 'other-port-stale-session',
+                sessionPid: 9003,
+                nuxtPid: 3333,
+                nuxtPort: 3100,
+                sessionAlive: false,
+                nuxtAlive: true,
+                descendantPids: [],
+            },
+        ], 3000)).toEqual([2222]);
+    });
+
+    it('does not select unrelated Nuxt port owners with no stale session metadata', () => {
+        expect(selectStaleNuxtPortOwnerCleanupTargets([4444], [], 3000)).toEqual([]);
     });
 });

@@ -18,6 +18,7 @@ import {
 type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile'> & IImageExportCapability;
 const PDF_PERSISTENCE_CHUNK_BYTES = 8 * 1024 * 1024;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
+const PDF_PERSISTENCE_ACK_TIMEOUT_MS = 60_000;
 
 interface ISerializedPdfPersistencePortResult {
     path: string | null;
@@ -92,6 +93,40 @@ function waitForPortReady(port: MessagePort) {
     });
 }
 
+function waitForPortAck(port: MessagePort, expectedSeq: number) {
+    return new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            port.removeEventListener('message', handleMessage);
+            reject(new Error(`PDF persistence chunk ${expectedSeq} was not acknowledged`));
+        }, PDF_PERSISTENCE_ACK_TIMEOUT_MS);
+        const handleMessage = (event: MessageEvent) => {
+            const payload = event.data as {
+                type?: unknown;
+                seq?: unknown;
+                error?: unknown;
+            };
+            if (payload.type === 'ack') {
+                if (payload.seq !== expectedSeq) {
+                    clearTimeout(timeout);
+                    port.removeEventListener('message', handleMessage);
+                    reject(new Error('Unexpected PDF persistence acknowledgement sequence'));
+                    return;
+                }
+                clearTimeout(timeout);
+                port.removeEventListener('message', handleMessage);
+                resolve();
+                return;
+            }
+            if (payload.type === 'error') {
+                clearTimeout(timeout);
+                port.removeEventListener('message', handleMessage);
+                reject(new Error(typeof payload.error === 'string' ? payload.error : 'PDF persistence failed'));
+            }
+        };
+        port.addEventListener('message', handleMessage);
+    });
+}
+
 async function streamPdfBytesToPersistencePort(
     ipcRenderer: IpcRenderer,
     sessionId: string,
@@ -111,9 +146,9 @@ async function streamPdfBytesToPersistencePort(
             type: 'chunk',
             seq,
             bytes,
-        });
+        }, [bytes]);
+        await waitForPortAck(channel.port1, seq);
         seq += 1;
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
 
     try {

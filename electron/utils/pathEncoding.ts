@@ -38,7 +38,7 @@ function addCandidate(candidates: string[], seen: Set<string>, candidate: string
     candidates.push(normalized);
 }
 
-export function getPossiblyEncodedPathCandidates(filePath: string) {
+function getPossiblyEncodedPathCandidates(filePath: string) {
     const candidates: string[] = [];
     const seen = new Set<string>();
     const trimmedPath = filePath.trim();

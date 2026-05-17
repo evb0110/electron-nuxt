@@ -3,9 +3,16 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { app } from 'electron';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const isPackaged = __dirname.includes('app.asar');
+type TElectronAppPackagingState = Pick<typeof app, 'isPackaged'>;
+
+export function resolveIsPackaged(electronApp: TElectronAppPackagingState = app) {
+    return electronApp.isPackaged;
+}
+
+const isPackaged = resolveIsPackaged();
 const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '127.0.0.1');
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
 const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');

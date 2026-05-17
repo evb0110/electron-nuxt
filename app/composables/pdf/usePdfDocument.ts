@@ -347,30 +347,83 @@ export const usePdfDocument = () => {
         return null;
     }
 
-    function destroyLoadingTaskAfterRangeReadFailure() {
-        if (!loadingTask) {
+    function abortActiveRangeTransport(message: string) {
+        if (!rangeTransport) {
             return;
         }
 
         try {
-            guardAsync(loadingTask.destroy(), {
+            rangeTransport.abort();
+        } catch (error) {
+            BrowserLogger.debug(
+                'pdf-document',
+                message,
+                error,
+            );
+        } finally {
+            rangeTransport = null;
+        }
+    }
+
+    function destroyActiveLoadingTask(
+        rejectedMessage: string,
+        thrownMessage: string,
+        thrownLogLevel: 'debug' | 'error' = 'debug',
+    ) {
+        if (!loadingTask) {
+            return;
+        }
+
+        const task = loadingTask;
+        loadingTask = null;
+        try {
+            guardAsync(task.destroy(), {
                 scope: 'pdf-document',
-                message: 'PDF loading task destroy rejected after range read failure',
+                message: rejectedMessage,
                 onError: (destroyError) => {
                     BrowserLogger.debug(
                         'pdf-document',
-                        'PDF loading task destroy rejected after range read failure',
+                        rejectedMessage,
                         destroyError,
                     );
                 },
             });
         } catch (destroyError) {
-            BrowserLogger.debug(
+            BrowserLogger[thrownLogLevel](
                 'pdf-document',
-                'Failed to destroy PDF loading task after range read failure',
+                thrownMessage,
                 destroyError,
             );
         }
+    }
+
+    function revokeActiveObjectUrl() {
+        if (!objectUrl) {
+            return;
+        }
+
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+    }
+
+    function cleanupFailedLoadAttempt(version: number) {
+        if (version !== renderVersion) {
+            return;
+        }
+
+        abortActiveRangeTransport('Failed to abort PDF range transport after load failure');
+        destroyActiveLoadingTask(
+            'PDF loading task destroy rejected after load failure',
+            'Failed to destroy PDF loading task after load failure',
+        );
+        revokeActiveObjectUrl();
+    }
+
+    function destroyLoadingTaskAfterRangeReadFailure() {
+        destroyActiveLoadingTask(
+            'PDF loading task destroy rejected after range read failure',
+            'Failed to destroy PDF loading task after range read failure',
+        );
     }
 
     function createRangeReadFailureHandler() {
@@ -545,6 +598,7 @@ export const usePdfDocument = () => {
 
             return await loadPdfFromPath(src, version);
         } catch (error) {
+            cleanupFailedLoadAttempt(version);
             return handleLoadError(error, version);
         } finally {
             finishLoad(version);
@@ -606,53 +660,20 @@ export const usePdfDocument = () => {
         isLoading.value = false;
         cleanupPageCache();
         pageMetricLoads.clear();
-        if (rangeTransport) {
-            try {
-                rangeTransport.abort();
-            } catch (error) {
-                BrowserLogger.debug(
-                    'pdf-document',
-                    'Failed to abort PDF range transport',
-                    error,
-                );
-            } finally {
-                rangeTransport = null;
-            }
-        }
+        abortActiveRangeTransport('Failed to abort PDF range transport');
 
-        if (loadingTask) {
-            try {
-                guardAsync(loadingTask.destroy(), {
-                    scope: 'pdf-document',
-                    message: 'PDF loading task destroy rejected',
-                    onError: (error) => {
-                        BrowserLogger.debug(
-                            'pdf-document',
-                            'PDF loading task destroy rejected',
-                            error,
-                        );
-                    },
-                });
-            } catch (error) {
-                BrowserLogger.error(
-                    'pdf-document',
-                    'Failed to destroy PDF loading task',
-                    error,
-                );
-            } finally {
-                loadingTask = null;
-            }
-        }
+        destroyActiveLoadingTask(
+            'PDF loading task destroy rejected',
+            'Failed to destroy PDF loading task',
+            'error',
+        );
 
         if (pdfDocument.value) {
             destroyPdfDocumentDeferred(pdfDocument.value, 'Failed to destroy PDF document');
             pdfDocument.value = null;
         }
 
-        if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = null;
-        }
+        revokeActiveObjectUrl();
 
         numPages.value = 0;
         basePageWidth.value = null;

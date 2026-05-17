@@ -8,6 +8,8 @@ import {
 
 const loggerError = vi.fn();
 const loggerDebug = vi.fn();
+const createObjectURLMock = vi.fn(() => 'blob:pdf-load');
+const revokeObjectURLMock = vi.fn();
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     error: loggerError,
@@ -62,6 +64,11 @@ const {
 describe('usePdfDocument range loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.stubGlobal('URL', {
+            ...URL,
+            createObjectURL: createObjectURLMock,
+            revokeObjectURL: revokeObjectURLMock,
+        });
         pdfjsState.PDFDataRangeTransport = MockPdfDataRangeTransport;
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
@@ -327,6 +334,7 @@ describe('usePdfDocument range loading', () => {
         expect(documentState.isLoading.value).toBe(false);
         expect(documentState.pdfDocument.value).toBeNull();
         expect(destroy).toHaveBeenCalledTimes(1);
+        expect(getDocumentArg?.range?.abort).toHaveBeenCalledTimes(1);
         expect(loggerError).toHaveBeenCalledWith(
             'pdf-document',
             'Failed to read PDF range chunk',
@@ -337,6 +345,58 @@ describe('usePdfDocument range loading', () => {
             'Failed to load PDF',
             expect.any(Error),
         );
+    });
+
+    it('destroys the PDF.js loading task and aborts range transport when document parsing fails', async () => {
+        const destroy = vi.fn(() => Promise.resolve());
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.reject(new Error('parse failed')),
+            destroy,
+        });
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/parse-failure.pdf',
+            size: (1024 * 1024) + 512,
+        });
+
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        expect(result).toBeNull();
+        expect(destroy).toHaveBeenCalledTimes(1);
+        expect(getDocumentArg?.range?.abort).toHaveBeenCalledTimes(1);
+
+        documentState.cleanup();
+
+        expect(destroy).toHaveBeenCalledTimes(1);
+        expect(getDocumentArg?.range?.abort).toHaveBeenCalledTimes(1);
+    });
+
+    it('destroys the PDF.js loading task and revokes blob URLs when blob loading fails', async () => {
+        const destroy = vi.fn(() => Promise.resolve());
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.reject(new Error('blob parse failed')),
+            destroy,
+        });
+
+        const documentState = usePdfDocument();
+        const result = await documentState.loadPdf(new Blob([Uint8Array.of(1, 2, 3)]));
+
+        expect(result).toBeNull();
+        expect(destroy).toHaveBeenCalledTimes(1);
+        expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+        expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:pdf-load');
+
+        documentState.cleanup();
+
+        expect(destroy).toHaveBeenCalledTimes(1);
+        expect(revokeObjectURLMock).toHaveBeenCalledTimes(1);
     });
 
     it('bounds the cached PDF pages with an LRU policy', async () => {

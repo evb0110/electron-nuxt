@@ -45,4 +45,16 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('codesign --verify --strict --verbose=2 "$tool_path"');
         expect(verifier).toContain('retrying once');
     });
+
+    it('fails deterministically when packaged macOS unpaper is absent or unrunnable', async () => {
+        const sourceMatrix = await readProjectFile('scripts/check-native-tools-source-matrix.sh');
+        const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+        const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
+
+        expect(sourceMatrix).toContain('resources/tesseract/$tag/bin/unpaper$exe_suffix');
+        expect(verifier).toContain('unpaper binary');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "unpaper"');
+        expect(bundleUnpaper).toContain('Error: Unpaper failed to run');
+        expect(bundleUnpaper).toContain('exit 1');
+    });
 });

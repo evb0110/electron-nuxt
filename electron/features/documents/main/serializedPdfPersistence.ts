@@ -8,6 +8,7 @@ import type { FileHandle } from 'fs/promises';
 import type {
     IpcMainEvent,
     MessagePortMain,
+    WebContents,
 } from 'electron';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import {
@@ -43,6 +44,7 @@ interface ISerializedPdfPersistenceSession {
     handle: FileHandle;
     timeout: NodeJS.Timeout;
     queue: Promise<void>;
+    unregisterSenderCleanup: () => void;
 }
 
 export interface IBeginSerializedPdfPersistenceResult {sessionId: string;}
@@ -121,14 +123,39 @@ function refreshSessionTimeout(session: ISerializedPdfPersistenceSession) {
 
 async function cleanupSession(session: ISerializedPdfPersistenceSession) {
     clearSessionTimeout(session);
+    session.unregisterSenderCleanup();
     sessions.delete(session.id);
     await session.handle.close().catch(() => undefined);
     await rm(session.tempPath, { force: true }).catch(() => undefined);
 }
 
+function registerSessionSenderCleanup(sender: WebContents, getSession: () => ISerializedPdfPersistenceSession) {
+    const cleanup = () => {
+        const session = getSession();
+        if (sessions.get(session.id) === session) {
+            void cleanupSession(session);
+        }
+    };
+
+    const handleDestroyed = () => {
+        cleanup();
+    };
+    const handleRenderProcessGone = () => {
+        cleanup();
+    };
+
+    sender.once('destroyed', handleDestroyed);
+    sender.once('render-process-gone', handleRenderProcessGone);
+
+    return () => {
+        sender.removeListener('destroyed', handleDestroyed);
+        sender.removeListener('render-process-gone', handleRenderProcessGone);
+    };
+}
+
 async function createSession(options: {
     mode: TSerializedPdfPersistenceMode;
-    senderId: number;
+    sender: WebContents;
     workingPath: string;
     targetPath: string;
     totalBytes: number;
@@ -142,7 +169,7 @@ async function createSession(options: {
     const session: ISerializedPdfPersistenceSession = {
         id,
         mode: options.mode,
-        senderId: options.senderId,
+        senderId: options.sender.id,
         workingPath: options.workingPath,
         targetPath: options.targetPath,
         tempPath,
@@ -152,7 +179,9 @@ async function createSession(options: {
         handle,
         timeout,
         queue: Promise.resolve(),
+        unregisterSenderCleanup: () => undefined,
     };
+    session.unregisterSenderCleanup = registerSessionSenderCleanup(options.sender, () => session);
     refreshSessionTimeout(session);
     sessions.set(id, session);
     return session;
@@ -170,7 +199,7 @@ export async function beginSerializedPdfSaveToOriginal(
     await ensureWorkingCopyDirectory(normalizedWorkingPath);
     const session = await createSession({
         mode: 'save',
-        senderId: event.sender.id,
+        sender: event.sender,
         workingPath: normalizedWorkingPath,
         targetPath: originalPath,
         totalBytes: normalizedTotalBytes,
@@ -196,7 +225,7 @@ export async function beginSerializedPdfSaveAs(
 
     const session = await createSession({
         mode: 'save_as',
-        senderId: event.sender.id,
+        sender: event.sender,
         workingPath: normalizedWorkingPath,
         targetPath,
         totalBytes: normalizedTotalBytes,
@@ -222,15 +251,16 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         return validation;
     }
 
-    await atomicReplace(session.tempPath, session.targetPath);
     if (session.mode === 'save_as') {
         await ensureWorkingCopyDirectory(session.workingPath);
-        await copyFile(session.targetPath, session.workingPath);
+        await copyFile(session.tempPath, session.workingPath);
+        await atomicReplace(session.tempPath, session.targetPath);
         setWorkingCopyOriginalPath(session.workingPath, session.targetPath);
         allowOpenPath(session.targetPath, session.senderId);
         await addRecentFile(session.targetPath);
         updateRecentFilesMenu();
     } else {
+        await atomicReplace(session.tempPath, session.targetPath);
         await copyFile(session.targetPath, session.workingPath);
     }
 
@@ -320,6 +350,11 @@ async function handlePortMessage(
             }
 
             await session.handle.write(bytes);
+            port.postMessage({
+                type: 'ack',
+                seq: session.nextSeq,
+                receivedBytes: session.receivedBytes,
+            });
             session.nextSeq += 1;
             return;
         }
@@ -329,6 +364,7 @@ async function handlePortMessage(
             const path = validation.isValid ? session.targetPath : null;
             sessions.delete(session.id);
             clearSessionTimeout(session);
+            session.unregisterSenderCleanup();
             if (!validation.isValid) {
                 await cleanupSession(session);
             }
