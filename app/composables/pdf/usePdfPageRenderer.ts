@@ -909,6 +909,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             canvasRenderer.cleanupCanvas(renderResult.canvas);
             return;
         }
+        if (!isCurrentMountedRenderTarget(pageNumber, version, target)) {
+            canvasRenderer.cleanupCanvas(renderResult.canvas);
+            clearSinglePageRenderTracking(pageNumber, version);
+            return;
+        }
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
 
@@ -1011,6 +1016,23 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    function isCurrentMountedRenderTarget(
+        pageNumber: number,
+        version: number,
+        target: ISinglePageRenderTarget,
+    ) {
+        if (renderVersion !== version || renderingPages.get(pageNumber) !== version) {
+            return false;
+        }
+        if (!target.container.isConnected || !target.canvasHost.isConnected) {
+            return false;
+        }
+        if (target.container.dataset.page !== String(pageNumber)) {
+            return false;
+        }
+        return target.canvasHost.closest('.page_container') === target.container;
+    }
+
     async function renderSingleVisiblePage(
         containerRoot: HTMLElement,
         pageNumber: number,
@@ -1109,6 +1131,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     function cleanupRenderedPagesOutside(pagesToKeep: Set<number>) {
         for (const pageNum of renderedPages) {
+            if (!pagesToKeep.has(pageNum)) {
+                cleanupPage(pageNum);
+            }
+        }
+        for (const pageNum of Array.from(renderingPages.keys())) {
             if (!pagesToKeep.has(pageNum)) {
                 cleanupPage(pageNum);
             }

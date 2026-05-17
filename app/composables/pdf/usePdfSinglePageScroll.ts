@@ -278,7 +278,7 @@ interface IUsePdfSinglePageScrollOptions {
     renderVisiblePages: (range: {
         start: number;
         end: number
-    }) => Promise<void>;
+    }, renderOptions?: { preserveRenderedPages?: boolean; }) => Promise<void>;
     visibleRange: Ref<{
         start: number;
         end: number;
@@ -424,7 +424,10 @@ export const usePdfSinglePageScroll = (
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
-        runGuardedTask(() => renderVisiblePages(visibleRange.value), {
+        runGuardedTask(() => renderVisiblePages(
+            visibleRange.value,
+            { preserveRenderedPages: true },
+        ), {
             scope: 'pdf-single-page-scroll',
             message: 'Failed to render visible pages on scroll',
         });
@@ -482,7 +485,10 @@ export const usePdfSinglePageScroll = (
             }
 
             const range = setVisibleRangeToPageRow(targetPage);
-            runGuardedTask(() => renderVisiblePages(range), {
+            runGuardedTask(() => renderVisiblePages(
+                range,
+                { preserveRenderedPages: true },
+            ), {
                 scope: 'pdf-single-page-scroll',
                 message,
             });
@@ -910,7 +916,10 @@ export const usePdfSinglePageScroll = (
                     return;
                 }
                 updateVisibleRange(viewerContainer.value, numPages.value);
-                runGuardedTask(() => renderVisiblePages(visibleRange.value), {
+                runGuardedTask(() => renderVisiblePages(
+                    visibleRange.value,
+                    { preserveRenderedPages: true },
+                ), {
                     scope: 'pdf-single-page-scroll',
                     message: 'Failed to render visible pages after scrollToPage',
                 });
