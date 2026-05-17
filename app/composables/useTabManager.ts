@@ -19,6 +19,19 @@ function createEmptyTab(): ITab {
     };
 }
 
+function reorderTabs(currentTabs: readonly ITab[], fromIndex: number, toIndex: number) {
+    const tab = currentTabs[fromIndex];
+    if (!tab) {
+        return [...currentTabs];
+    }
+    const withoutTab = currentTabs.filter((_, index) => index !== fromIndex);
+    return [
+        ...withoutTab.slice(0, toIndex),
+        tab,
+        ...withoutTab.slice(toIndex),
+    ];
+}
+
 export const useTabManager = () => {
     const activeTab = computed(() =>
         tabs.value.find(t => t.id === activeTabId.value) ?? null,
@@ -26,7 +39,10 @@ export const useTabManager = () => {
 
     function createTab() {
         const tab = createEmptyTab();
-        tabs.value.push(tab);
+        tabs.value = [
+            ...tabs.value,
+            tab,
+        ];
         activeTabId.value = tab.id;
         return tab;
     }
@@ -49,10 +65,11 @@ export const useTabManager = () => {
             return;
         }
 
-        tabs.value.splice(index, 1);
+        const nextTabs = tabs.value.filter(t => t.id !== id);
+        tabs.value = nextTabs;
 
         if (activeTabId.value === id) {
-            const next = tabs.value[index] ?? tabs.value[index - 1] ?? null;
+            const next = nextTabs[index] ?? nextTabs[index - 1] ?? null;
             activeTabId.value = next?.id ?? null;
         }
 
@@ -60,10 +77,14 @@ export const useTabManager = () => {
     }
 
     function updateTab(id: string, updates: TTabUpdate) {
-        const tab = tabs.value.find(t => t.id === id);
-        if (tab) {
-            Object.assign(tab, updates);
-        }
+        tabs.value = tabs.value.map(tab => (
+            tab.id === id
+                ? {
+                    ...tab,
+                    ...updates,
+                }
+                : tab
+        ));
     }
 
     function moveTab(fromIndex: number, toIndex: number) {
@@ -76,10 +97,7 @@ export const useTabManager = () => {
         ) {
             return;
         }
-        const removed = tabs.value.splice(fromIndex, 1);
-        if (removed[0]) {
-            tabs.value.splice(toIndex, 0, removed[0]);
-        }
+        tabs.value = reorderTabs(tabs.value, fromIndex, toIndex);
     }
 
     function getTabById(id: string) {

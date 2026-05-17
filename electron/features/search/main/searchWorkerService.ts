@@ -49,6 +49,25 @@ interface IDispatchSearchRequestPayload {
 
 type TSearchMatch = ISearchResponse['results'][number];
 
+function buildSearchWorkerRequest(
+    payload: IDispatchSearchRequestPayload,
+    requestId: string,
+): TSearchWorkerInboundMessage {
+    return {
+        type: 'search',
+        payload: {
+            requestId,
+            pdfPath: payload.resolvedPdfPath,
+            query: payload.query,
+            ...(payload.pageCount !== undefined ? { pageCount: payload.pageCount } : {}),
+            ...(payload.warmup !== undefined ? { warmup: payload.warmup } : {}),
+            ...(payload.matchCase !== undefined ? { matchCase: payload.matchCase } : {}),
+            ...(payload.wholeWord !== undefined ? { wholeWord: payload.wholeWord } : {}),
+            ...(payload.useRegex !== undefined ? { useRegex: payload.useRegex } : {}),
+        },
+    };
+}
+
 const log = createLogger('search-ipc');
 
 const SEARCH_REQUEST_TIMEOUT_MS = (() => {
@@ -247,7 +266,7 @@ export class SearchWorkerService {
             this.cancelRequest(state, state.activeRequestId);
         }
 
-        state.activeRequestId = requestId;
+        this.activateRequest(state, requestId);
         this.clearIdleCleanupTimer(state);
 
         return new Promise<ISearchResponse>((resolve, reject) => {
@@ -278,31 +297,7 @@ export class SearchWorkerService {
             state.requestTimeouts.set(requestId, requestTimeout);
 
             try {
-                const workerRequest: TSearchWorkerInboundMessage = {
-                    type: 'search',
-                    payload: {
-                        requestId,
-                        pdfPath: payload.resolvedPdfPath,
-                        query: payload.query,
-                    },
-                };
-                if (payload.pageCount !== undefined) {
-                    workerRequest.payload.pageCount = payload.pageCount;
-                }
-                if (payload.warmup !== undefined) {
-                    workerRequest.payload.warmup = payload.warmup;
-                }
-                if (payload.matchCase !== undefined) {
-                    workerRequest.payload.matchCase = payload.matchCase;
-                }
-                if (payload.wholeWord !== undefined) {
-                    workerRequest.payload.wholeWord = payload.wholeWord;
-                }
-                if (payload.useRegex !== undefined) {
-                    workerRequest.payload.useRegex = payload.useRegex;
-                }
-
-                state.worker.postMessage(workerRequest);
+                state.worker.postMessage(buildSearchWorkerRequest(payload, requestId));
             } catch (error) {
                 this.clearRequestTimeout(state, requestId);
                 state.pendingByRequestId.delete(requestId);
@@ -388,6 +383,11 @@ export class SearchWorkerService {
 
         clearTimeout(state.idleCleanupTimer);
         state.idleCleanupTimer = null;
+    }
+
+    private activateRequest(state: ISenderSearchState, requestId: string) {
+        state.activeRequestId = requestId;
+        this.markStateActivity(state);
     }
 
     private clearRequestTimeout(

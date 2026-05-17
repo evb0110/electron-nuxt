@@ -16,6 +16,7 @@ import {
 } from 'os';
 import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
+import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
     buildDjvuRuntimeEnv,
@@ -120,48 +121,38 @@ async function _convertDjvuToPdfWithRanges(
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-pages-'));
     const chunkPaths = Array.from({ length: totalPages }, (_, index) => join(tempDir, `page-${index + 1}.pdf`));
-    const completedPages = new Set<number>();
-    const pageQueue = Array.from({ length: totalPages }, (_, index) => index + 1);
-    let firstError: string | null = null;
+    const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
+    let completedPageCount = 0;
 
     try {
-        async function worker(workerIndex: number) {
-            while (!firstError && pageQueue.length > 0) {
-                const pageNum = pageQueue.shift();
-                if (!pageNum) {
-                    return;
-                }
+        const convertPageWithLimit = limitAsync(async (pageNum: number, index: number) => {
+            const pageOutputPath = chunkPaths[pageNum - 1]!;
+            const pageResult = await convertPageToPdf(
+                inputPath,
+                pageOutputPath,
+                `${jobId}-range-${index + 1}-page-${pageNum}`,
+                pageNum,
+                options.subsample,
+            );
 
-                const pageOutputPath = chunkPaths[pageNum - 1]!;
-                const pageResult = await convertPageToPdf(
-                    inputPath,
-                    pageOutputPath,
-                    `${jobId}-range-${workerIndex}-page-${pageNum}`,
-                    pageNum,
-                    options.subsample,
-                );
-
-                if (!pageResult.success) {
-                    firstError = pageResult.error ?? `Failed to convert page ${pageNum}`;
-                    cancelConversion(jobId);
-                    return;
-                }
-
-                if (!completedPages.has(pageNum)) {
-                    completedPages.add(pageNum);
-                    if (options.onProgress) {
-                        const percent = Math.min(
-                            PROGRESS_CAP,
-                            Math.round((completedPages.size / totalPages) * PROGRESS_CAP),
-                        );
-                        options.onProgress(percent);
-                    }
-                }
+            if (!pageResult.success) {
+                cancelConversion(jobId);
+                return pageResult.error ?? `Failed to convert page ${pageNum}`;
             }
-        }
 
-        const tasks = Array.from({ length: workerCount }, (_, index) => worker(index + 1));
-        await Promise.all(tasks);
+            completedPageCount += 1;
+            if (options.onProgress) {
+                const percent = Math.min(
+                    PROGRESS_CAP,
+                    Math.round((completedPageCount / totalPages) * PROGRESS_CAP),
+                );
+                options.onProgress(percent);
+            }
+            return null;
+        }, workerCount);
+
+        const conversionErrors = await Promise.all(pageNumbers.map(convertPageWithLimit));
+        const firstError = conversionErrors.find((error): error is string => error !== null) ?? null;
 
         if (firstError) {
             await cleanupPartialOutput(outputPath);

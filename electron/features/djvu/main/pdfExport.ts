@@ -103,7 +103,11 @@ function removeQueuedConversionJob(jobId: string) {
         return false;
     }
 
-    queuedConversionJobIds.splice(queueIndex, 1);
+    queuedConversionJobIds.splice(
+        0,
+        queuedConversionJobIds.length,
+        ...queuedConversionJobIds.filter(candidate => candidate !== jobId),
+    );
     const resolver = queuedConversionResolvers.get(jobId);
     queuedConversionResolvers.delete(jobId);
     if (resolver) {
@@ -117,12 +121,11 @@ function releaseConversionSlot() {
         activeConversionSlots -= 1;
     }
 
-    while (activeConversionSlots < DJVU_MAX_CONCURRENT_CONVERSIONS && queuedConversionJobIds.length > 0) {
-        const nextJobId = queuedConversionJobIds.shift();
-        if (!nextJobId) {
-            break;
-        }
+    const availableSlots = Math.max(0, DJVU_MAX_CONCURRENT_CONVERSIONS - activeConversionSlots);
+    const nextJobIds = queuedConversionJobIds.slice(0, availableSlots);
+    queuedConversionJobIds.splice(0, nextJobIds.length);
 
+    for (const nextJobId of nextJobIds) {
         const queued = queuedConversionResolvers.get(nextJobId);
         queuedConversionResolvers.delete(nextJobId);
         if (!queued) {

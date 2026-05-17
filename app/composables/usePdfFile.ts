@@ -48,7 +48,80 @@ interface IPathHistoryEntry {
 
 type TPdfHistoryEntry = IByteHistoryEntry | IPathHistoryEntry;
 
+interface IAppendHistoryResult {
+    history: TPdfHistoryEntry[];
+    historyIndex: number;
+    historyCleanIndex: number;
+}
+
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
+
+function getHistoryBytes(entries: readonly TPdfHistoryEntry[]) {
+    return entries.reduce(
+        (total, entry) => total + (entry.kind === 'bytes' ? entry.snapshot.byteLength : 0),
+        0,
+    );
+}
+
+function trimHistoryByLimits(
+    entries: readonly TPdfHistoryEntry[],
+    limits: {
+        maxEntries: number;
+        maxBytes: number;
+    },
+) {
+    const entryTrimmedHistory = entries.slice(-limits.maxEntries);
+    let totalBytes = getHistoryBytes(entryTrimmedHistory);
+    const byteTrimmedHistory = [...entryTrimmedHistory];
+
+    while (byteTrimmedHistory.length > 1 && totalBytes > limits.maxBytes) {
+        const [firstEntry] = byteTrimmedHistory;
+        totalBytes -= firstEntry?.kind === 'bytes' ? firstEntry.snapshot.byteLength : 0;
+        byteTrimmedHistory.shift();
+    }
+
+    return {
+        history: byteTrimmedHistory,
+        removedFromStart: entries.length - byteTrimmedHistory.length,
+    };
+}
+
+function appendHistoryEntry(state: {
+    history: readonly TPdfHistoryEntry[];
+    historyIndex: number;
+    historyCleanIndex: number;
+}, entry: TPdfHistoryEntry, limits: {
+    maxEntries: number;
+    maxBytes: number;
+}): IAppendHistoryResult {
+    if (state.history.length === 0) {
+        return {
+            history: [entry],
+            historyIndex: 0,
+            historyCleanIndex: 0,
+        };
+    }
+
+    const appendedHistory = [
+        ...state.history.slice(0, state.historyIndex + 1),
+        entry,
+    ];
+    const trimmed = trimHistoryByLimits(appendedHistory, limits);
+    const cleanIndexBeforeTrim = state.historyCleanIndex > state.historyIndex
+        ? -1
+        : state.historyCleanIndex;
+    const historyCleanIndex = cleanIndexBeforeTrim < 0
+        ? -1
+        : trimmed.removedFromStart > cleanIndexBeforeTrim
+            ? -1
+            : cleanIndexBeforeTrim - trimmed.removedFromStart;
+
+    return {
+        history: trimmed.history,
+        historyIndex: trimmed.history.length - 1,
+        historyCleanIndex,
+    };
+}
 
 export const usePdfFile = () => {
     const analytics = useAnalytics();
@@ -411,13 +484,6 @@ export const usePdfFile = () => {
             kind: 'bytes',
             snapshot: options?.reuseSnapshot ? snapshot : snapshot.slice(),
         };
-    }
-
-    function getHistoryBytes(entries: TPdfHistoryEntry[]) {
-        return entries.reduce(
-            (total, entry) => total + (entry.kind === 'bytes' ? entry.snapshot.byteLength : 0),
-            0,
-        );
     }
 
     function scheduleHistoryEntryCleanup(entries: TPdfHistoryEntry[]) {
@@ -835,46 +901,16 @@ export const usePdfFile = () => {
     }
 
     function pushHistoryEntry(entry: TPdfHistoryEntry) {
-        if (history.value.length === 0) {
-            replaceHistory([entry], 0, 0);
-            fileHistoryMutationVersion.value += 1;
-            syncDirtyFromHistory();
-            return;
-        }
+        const nextState = appendHistoryEntry({
+            history: history.value,
+            historyIndex: historyIndex.value,
+            historyCleanIndex: historyCleanIndex.value,
+        }, entry, {
+            maxEntries: MAX_HISTORY_ENTRIES,
+            maxBytes: MAX_HISTORY_BYTES,
+        });
 
-        const truncated = history.value.slice(0, historyIndex.value + 1);
-        truncated.push(entry);
-
-        let nextHistory = truncated;
-        let nextCleanIndex = historyCleanIndex.value;
-        let removedFromStart = 0;
-
-        if (nextCleanIndex > historyIndex.value) {
-            nextCleanIndex = -1;
-        }
-
-        while (nextHistory.length > MAX_HISTORY_ENTRIES) {
-            nextHistory = nextHistory.slice(1);
-            removedFromStart += 1;
-        }
-
-        let totalBytes = getHistoryBytes(nextHistory);
-        while (nextHistory.length > 1 && totalBytes > MAX_HISTORY_BYTES) {
-            const firstEntry = nextHistory[0];
-            totalBytes -= firstEntry?.kind === 'bytes' ? firstEntry.snapshot.byteLength : 0;
-            nextHistory = nextHistory.slice(1);
-            removedFromStart += 1;
-        }
-
-        if (nextCleanIndex >= 0) {
-            if (removedFromStart > nextCleanIndex) {
-                nextCleanIndex = -1;
-            } else {
-                nextCleanIndex -= removedFromStart;
-            }
-        }
-
-        replaceHistory(nextHistory, nextHistory.length - 1, nextCleanIndex);
+        replaceHistory(nextState.history, nextState.historyIndex, nextState.historyCleanIndex);
         fileHistoryMutationVersion.value += 1;
         syncDirtyFromHistory();
     }

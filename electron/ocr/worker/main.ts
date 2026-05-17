@@ -23,10 +23,13 @@ import {
     unlink,
 } from 'fs/promises';
 import { join } from 'path';
-import { uniq } from 'es-toolkit/array';
+import {
+    limitAsync,
+    sortBy,
+    uniq,
+} from 'es-toolkit/array';
 import { PDFDocument } from 'pdf-lib';
 import {
-    forEachConcurrent,
     getOcrConcurrency,
     getSequentialProgressPage,
     getTesseractThreadLimit,
@@ -561,33 +564,12 @@ async function processOcrPages(
     concurrency: number,
     context: IOcrPageProcessingContext,
 ) {
-    const errors: string[] = [];
-    const ocrPageData: IOcrPageWithWords[] = [];
-    const ocrPdfMap: Map<number, string> = new Map();
-    const pageImageMap: Map<number, string> = new Map();
     let processedCount = 0;
-    let effectiveRenderDpi = context.extractionDpi;
 
     sendProgress(jobId, targetPages[0]?.pageNumber ?? 0, 0, targetPages.length);
 
-    await forEachConcurrent(targetPages, concurrency, async (page) => {
+    const processPageWithLimit = limitAsync(async (page: IOcrPdfPageRequest) => {
         const result = await processOcrPage(page, context);
-        if (result.pageData) {
-            ocrPageData.push(result.pageData);
-        }
-        if (result.pdfPath) {
-            ocrPdfMap.set(page.pageNumber, result.pdfPath);
-        }
-        if (result.pageImagePath) {
-            pageImageMap.set(page.pageNumber, result.pageImagePath);
-        }
-        if (result.error) {
-            errors.push(result.error);
-        }
-        if (result.effectiveDpi) {
-            effectiveRenderDpi = Math.min(effectiveRenderDpi, result.effectiveDpi);
-        }
-
         processedCount += 1;
         sendProgress(
             jobId,
@@ -595,15 +577,52 @@ async function processOcrPages(
             processedCount,
             targetPages.length,
         );
-    });
+        return {
+            pageNumber: page.pageNumber,
+            result,
+        };
+    }, concurrency);
 
-    ocrPageData.sort((a, b) => a.pageNumber - b.pageNumber);
+    const pageResults = await Promise.all(targetPages.map(page => processPageWithLimit(page)));
+
     return {
-        errors,
-        ocrPageData,
-        ocrPdfMap,
-        pageImageMap,
-        effectiveRenderDpi,
+        errors: pageResults
+            .map(({ result }) => result.error)
+            .filter((error): error is string => Boolean(error)),
+        ocrPageData: sortBy(
+            pageResults
+                .map(({ result }) => result.pageData)
+                .filter((pageData): pageData is IOcrPageWithWords => Boolean(pageData)),
+            [pageData => pageData.pageNumber],
+        ),
+        ocrPdfMap: new Map(pageResults.flatMap(({
+            pageNumber,
+            result,
+        }) => (
+            result.pdfPath
+                ? [[
+                    pageNumber,
+                    result.pdfPath,
+                ] as const]
+                : []
+        ))),
+        pageImageMap: new Map(pageResults.flatMap(({
+            pageNumber,
+            result,
+        }) => (
+            result.pageImagePath
+                ? [[
+                    pageNumber,
+                    result.pageImagePath,
+                ] as const]
+                : []
+        ))),
+        effectiveRenderDpi: Math.min(
+            context.extractionDpi,
+            ...pageResults
+                .map(({ result }) => result.effectiveDpi)
+                .filter((dpi): dpi is number => typeof dpi === 'number'),
+        ),
     };
 }
 

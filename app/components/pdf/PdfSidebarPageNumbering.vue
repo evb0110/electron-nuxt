@@ -193,8 +193,7 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 
 const isExpanded = ref(false);
-const ignoreRangeInputWatch = ref(false);
-const ignoreSelectionWatch = ref(false);
+const pageNumberingSyncSource = ref<'selection' | 'range' | null>(null);
 const pageRangeInput = ref('');
 const numberingScope = ref<TNumberingScope>('all');
 const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
@@ -390,7 +389,7 @@ function setSelectedPagesSilently(pages: number[]) {
     if (arePageNumberListsEqual(selectedPages, pages)) {
         return;
     }
-    ignoreSelectionWatch.value = true;
+    pageNumberingSyncSource.value = 'range';
     emit('update:selectedPages', pages);
 }
 
@@ -398,7 +397,7 @@ function setPageRangeInputSilently(value: string) {
     if (pageRangeInput.value === value) {
         return;
     }
-    ignoreRangeInputWatch.value = true;
+    pageNumberingSyncSource.value = 'selection';
     pageRangeInput.value = value;
 }
 
@@ -475,8 +474,8 @@ function clearAll() {
 watch(
     () => selectedPages,
     (pages) => {
-        if (ignoreSelectionWatch.value) {
-            ignoreSelectionWatch.value = false;
+        if (pageNumberingSyncSource.value === 'range') {
+            pageNumberingSyncSource.value = null;
             return;
         }
 
@@ -504,8 +503,8 @@ watch(
 watch(
     () => pageRangeInput.value,
     (inputValue) => {
-        if (ignoreRangeInputWatch.value) {
-            ignoreRangeInputWatch.value = false;
+        if (pageNumberingSyncSource.value === 'selection') {
+            pageNumberingSyncSource.value = null;
             return;
         }
 

@@ -8,6 +8,146 @@ import {
     collectBookmarkIds,
 } from '@app/utils/pdfOutlineHelpers';
 
+type TBookmarkDropDestination =
+    | { kind: 'root-end' }
+    | {
+        kind: 'target';
+        payload: IBookmarkDropPayload;
+    };
+
+function removeDraggedBookmarkItems(
+    items: readonly IBookmarkItem[],
+    draggedIds: ReadonlySet<string>,
+): {
+    items: IBookmarkItem[];
+    draggedItems: IBookmarkItem[];
+} {
+    return items.reduce<{
+        items: IBookmarkItem[];
+        draggedItems: IBookmarkItem[];
+    }>((result, item) => {
+        if (draggedIds.has(item.id)) {
+            return {
+                ...result,
+                draggedItems: [
+                    ...result.draggedItems,
+                    item,
+                ],
+            };
+        }
+
+        const childResult = removeDraggedBookmarkItems(item.items, draggedIds);
+        return {
+            items: [
+                ...result.items,
+                {
+                    ...item,
+                    items: childResult.items,
+                },
+            ],
+            draggedItems: [
+                ...result.draggedItems,
+                ...childResult.draggedItems,
+            ],
+        };
+    }, {
+        items: [],
+        draggedItems: [],
+    });
+}
+
+function insertBookmarkItems(
+    items: readonly IBookmarkItem[],
+    draggedItems: readonly IBookmarkItem[],
+    destination: TBookmarkDropDestination,
+): {
+    items: IBookmarkItem[];
+    expandedBookmarkId: string | null;
+    inserted: boolean;
+} {
+    if (destination.kind === 'root-end') {
+        return {
+            items: [
+                ...items,
+                ...draggedItems,
+            ],
+            expandedBookmarkId: null,
+            inserted: true,
+        };
+    }
+
+    const nextItems = items.flatMap((item) => {
+        if (item.id === destination.payload.targetId) {
+            if (destination.payload.position === 'before') {
+                return [
+                    ...draggedItems,
+                    item,
+                ];
+            }
+            if (destination.payload.position === 'after') {
+                return [
+                    item,
+                    ...draggedItems,
+                ];
+            }
+            return [{
+                ...item,
+                items: [
+                    ...item.items,
+                    ...draggedItems,
+                ],
+            }];
+        }
+
+        const childResult = insertBookmarkItems(item.items, draggedItems, destination);
+        return [{
+            ...item,
+            items: childResult.items,
+        }];
+    });
+    const targetExpanded = destination.payload.position === 'child'
+        ? destination.payload.targetId
+        : null;
+    const inserted = JSON.stringify(nextItems) !== JSON.stringify(items);
+
+    return {
+        items: nextItems,
+        expandedBookmarkId: inserted ? targetExpanded : null,
+        inserted,
+    };
+}
+
+function moveBookmarkNodes(
+    items: readonly IBookmarkItem[],
+    draggedRootIds: readonly string[],
+    destination: TBookmarkDropDestination,
+) {
+    const draggedIdSet = new Set(draggedRootIds);
+    const extraction = removeDraggedBookmarkItems(items, draggedIdSet);
+    const draggedById = new Map(extraction.draggedItems.map(item => [
+        item.id,
+        item,
+    ]));
+    const draggedItems = draggedRootIds
+        .map(id => draggedById.get(id) ?? null)
+        .filter((item): item is IBookmarkItem => item !== null);
+
+    if (draggedItems.length === 0) {
+        return {
+            bookmarks: [...items],
+            expandedBookmarkId: null,
+            moved: false,
+        };
+    }
+
+    const insertion = insertBookmarkItems(extraction.items, draggedItems, destination);
+    return {
+        bookmarks: insertion.items,
+        expandedBookmarkId: insertion.expandedBookmarkId,
+        moved: insertion.inserted,
+    };
+}
+
 export const usePdfOutlineDragDrop = (
     bookmarks: Ref<IBookmarkItem[]>,
     expandedBookmarkIds: Ref<Set<string>>,
@@ -72,33 +212,12 @@ export const usePdfOutlineDragDrop = (
         return !draggedBranchIds.has(targetId);
     }
 
-    function extractDraggedItems(draggedRootIds: string[]) {
-        const order = bookmarkOrderIndexMap.value;
-        const descendingIds = [...draggedRootIds].sort((left, right) => (
-            (order.get(right) ?? 0) - (order.get(left) ?? 0)
-        ));
-
-        const extracted = new Map<string, IBookmarkItem>();
-        for (const id of descendingIds) {
-            const location = findBookmarkLocation(bookmarks.value, id);
-            if (!location) {
-                continue;
-            }
-            location.list.splice(location.index, 1);
-            extracted.set(id, location.item);
-        }
-
-        return draggedRootIds
-            .map(id => extracted.get(id) ?? null)
-            .filter((item): item is IBookmarkItem => item !== null);
-    }
-
     function moveBookmarksToRootEnd(draggedRootIds: string[]) {
-        const draggedItems = extractDraggedItems(draggedRootIds);
-        if (draggedItems.length === 0) {
+        const result = moveBookmarkNodes(bookmarks.value, draggedRootIds, { kind: 'root-end' });
+        if (!result.moved) {
             return;
         }
-        bookmarks.value.push(...draggedItems);
+        bookmarks.value = result.bookmarks;
     }
 
     function handleBookmarkDragStart(payload: { id: string }) {
@@ -153,20 +272,18 @@ export const usePdfOutlineDragDrop = (
 
         const targetLocationBeforeExtraction = findBookmarkLocation(bookmarks.value, payload.targetId);
         if (targetLocationBeforeExtraction) {
-            const draggedItems = extractDraggedItems(draggingRoots);
-            const targetLocation = findBookmarkLocation(bookmarks.value, payload.targetId);
-            if (draggedItems.length > 0) {
-                if (!targetLocation) {
-                    bookmarks.value.push(...draggedItems);
-                } else if (payload.position === 'child') {
-                    targetLocation.item.items.push(...draggedItems);
-                    const nextExpanded = new Set(expandedBookmarkIds.value);
-                    nextExpanded.add(targetLocation.item.id);
-                    expandedBookmarkIds.value = nextExpanded;
-                } else {
-                    const insertionIndex = payload.position === 'before' ? targetLocation.index : targetLocation.index + 1;
-                    targetLocation.list.splice(insertionIndex, 0, ...draggedItems);
-                }
+            const result = moveBookmarkNodes(bookmarks.value, draggingRoots, {
+                kind: 'target',
+                payload,
+            });
+            if (result.moved) {
+                bookmarks.value = result.bookmarks;
+            }
+            if (result.expandedBookmarkId) {
+                expandedBookmarkIds.value = new Set([
+                    ...expandedBookmarkIds.value,
+                    result.expandedBookmarkId,
+                ]);
             }
         }
 

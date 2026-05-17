@@ -38,6 +38,26 @@ interface IQueuedResourceRequest {
     reject: (error: Error) => void;
 }
 
+function removeLease(
+    activeLeases: ReadonlyMap<string, IOcrResourceLease>,
+    predicate: (token: string, lease: IOcrResourceLease) => boolean,
+) {
+    return new Map(Array.from(activeLeases.entries()).filter(([
+        token,
+        lease,
+    ]) => !predicate(token, lease)));
+}
+
+function partitionQueuedRequests(
+    queue: readonly IQueuedResourceRequest[],
+    predicate: (item: IQueuedResourceRequest) => boolean,
+) {
+    return {
+        matching: queue.filter(predicate),
+        remaining: queue.filter(item => !predicate(item)),
+    };
+}
+
 function parsePositiveInt(value: string | undefined): number | null {
     if (!value) {
         return null;
@@ -149,21 +169,15 @@ class OcrResourceGovernor {
     }
 
     release(token: string) {
-        if (!this.activeLeases.delete(token)) {
+        if (!this.activeLeases.has(token)) {
             return;
         }
+        this.activeLeases = removeLease(this.activeLeases, candidate => candidate === token);
         this.dispatch();
     }
 
     releaseJob(jobId: string) {
-        for (const [
-            token,
-            lease,
-        ] of this.activeLeases.entries()) {
-            if (lease.jobId === jobId) {
-                this.activeLeases.delete(token);
-            }
-        }
+        this.activeLeases = removeLease(this.activeLeases, (_token, lease) => lease.jobId === jobId);
 
         this.settleQueuedRequests(
             item => item.request.jobId === jobId,
@@ -193,11 +207,11 @@ class OcrResourceGovernor {
     }
 
     private dispatch() {
-        while (this.queue.length > 0 && this.activeLeases.size < this.currentSlotLimit) {
-            const next = this.queue.shift();
-            if (!next) {
-                return;
-            }
+        const availableSlots = Math.max(0, this.currentSlotLimit - this.activeLeases.size);
+        const dispatchable = this.queue.slice(0, availableSlots);
+        this.queue = this.queue.slice(availableSlots);
+
+        for (const next of dispatchable) {
             next.resolve({
                 ...this.createLease(next.request.jobId),
                 effectiveDpi: next.request.requestedDpi,
@@ -213,15 +227,9 @@ class OcrResourceGovernor {
         predicate: (item: IQueuedResourceRequest) => boolean,
         reason: string,
     ) {
-        const remaining: IQueuedResourceRequest[] = [];
-        for (const item of this.queue) {
-            if (predicate(item)) {
-                item.reject(new Error(reason));
-            } else {
-                remaining.push(item);
-            }
-        }
-        this.queue = remaining;
+        const partitioned = partitionQueuedRequests(this.queue, predicate);
+        partitioned.matching.forEach(item => item.reject(new Error(reason)));
+        this.queue = partitioned.remaining;
     }
 }
 

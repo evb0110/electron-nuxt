@@ -59,31 +59,21 @@ function pruneIndexCache(
     options: ISearchIndexCacheOptions,
     now = Date.now(),
 ) {
-    for (const [
+    const freshEntries = Array.from(indexCache.entries())
+        .filter(([
+            ,
+            entry,
+        ]) => now - entry.accessedAt <= options.ttlMs);
+    const retainedEntries = sortBy(
+        freshEntries,
+        [entry => entry[1].accessedAt],
+    ).slice(Math.max(0, freshEntries.length - options.maxEntries));
+
+    indexCache.clear();
+    retainedEntries.forEach(([
         pdfPath,
         entry,
-    ] of indexCache.entries()) {
-        if (now - entry.accessedAt > options.ttlMs) {
-            indexCache.delete(pdfPath);
-        }
-    }
-
-    if (indexCache.size <= options.maxEntries) {
-        return;
-    }
-
-    const sortedByLeastRecentlyUsed = sortBy(
-        [...indexCache.entries()],
-        [entry => entry[1].accessedAt],
-    );
-    const overflowCount = indexCache.size - options.maxEntries;
-    for (let index = 0; index < overflowCount; index += 1) {
-        const entry = sortedByLeastRecentlyUsed[index];
-        if (!entry) {
-            break;
-        }
-        indexCache.delete(entry[0]);
-    }
+    ]) => indexCache.set(pdfPath, entry));
 }
 
 function validateIndexTextBudget(
@@ -130,8 +120,12 @@ async function loadCachedIndex(
 
     const cached = indexCache.get(pdfPath);
     if (cached && cached.mtimeMs === mtimeMs && cached.sourceMtimeMs === sourceMtimeMs) {
-        cached.accessedAt = now;
-        return cached;
+        const touched = {
+            ...cached,
+            accessedAt: now,
+        };
+        indexCache.set(pdfPath, touched);
+        return touched;
     }
 
     if (sourceMtimeMs > mtimeMs) {
@@ -150,10 +144,9 @@ async function loadCachedIndex(
         sourceMtimeMs,
         index,
         accessedAt: now,
-        validatedTextBudget: false,
+        validatedTextBudget: true,
     };
     validateIndexTextBudget(entry.index, options);
-    entry.validatedTextBudget = true;
     indexCache.set(pdfPath, entry);
     pruneIndexCache(indexCache, options, now);
     return entry;
@@ -176,10 +169,9 @@ async function cacheBuiltIndex(
         sourceMtimeMs,
         index,
         accessedAt: now,
-        validatedTextBudget: false,
+        validatedTextBudget: true,
     };
     validateIndexTextBudget(entry.index, options);
-    entry.validatedTextBudget = true;
     indexCache.set(pdfPath, entry);
     pruneIndexCache(indexCache, options, now);
     return entry;

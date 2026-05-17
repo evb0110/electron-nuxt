@@ -25,14 +25,10 @@ export function isLastOcrWordInLine(
 }
 
 export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
-    const parts: string[] = [];
-
-    words.forEach((word, index) => {
-        parts.push(buildOcrTextLayerItemText(word));
-        if (isLastOcrWordInLine(words, index)) {
-            parts.push('\n');
-        }
-    });
-
-    return parts.join('');
+    return words
+        .map((word, index) => (
+            buildOcrTextLayerItemText(word)
+            + (isLastOcrWordInLine(words, index) ? '\n' : '')
+        ))
+        .join('');
 }
