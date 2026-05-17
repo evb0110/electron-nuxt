@@ -524,6 +524,10 @@ function getRenderedMarkerCenter(pageContainer: HTMLElement, stableKey: string) 
     if (!markerRect || markerRect.width <= 0 || markerRect.height <= 0) {
         return null;
     }
+    const viewportBounds = getConnectorViewportBounds();
+    if (!rectsIntersect(markerRect, viewportBounds)) {
+        return null;
+    }
     return {
         cx: markerRect.left + markerRect.width / 2,
         cy: markerRect.top + markerRect.height / 2,
@@ -540,13 +544,60 @@ function getMarkerAnchorInPage(pageContainer: HTMLElement, note: IAnnotationNote
     if (pageRect.width <= 0 || pageRect.height <= 0) {
         return null;
     }
+    const viewportBounds = getConnectorViewportBounds();
+    if (!rectsIntersect(pageRect, viewportBounds)) {
+        return null;
+    }
     const anchorX = clamp(markerRect.left + markerRect.width, 0, 1);
     const anchorY = clamp(markerRect.top, 0, 1);
+    const cx = pageRect.left + (anchorX * pageRect.width);
+    const cy = pageRect.top + (anchorY * pageRect.height);
+    if (!pointInRect(cx, cy, viewportBounds)) {
+        return null;
+    }
     return {
-        cx: pageRect.left + (anchorX * pageRect.width),
-        cy: pageRect.top + (anchorY * pageRect.height),
+        cx,
+        cy,
         radius: 0,
     };
+}
+
+function getConnectorViewportBounds() {
+    const rootRect = annotationViewportRoot?.getBoundingClientRect() ?? null;
+    if (rootRect && rootRect.width > 0 && rootRect.height > 0) {
+        return rootRect;
+    }
+    return {
+        left: 0,
+        top: 0,
+        right: typeof window === 'undefined' ? 0 : window.innerWidth,
+        bottom: typeof window === 'undefined' ? 0 : window.innerHeight,
+    };
+}
+
+function rectsIntersect(
+    rect: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>,
+    bounds: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>,
+) {
+    return (
+        rect.right >= bounds.left
+        && rect.left <= bounds.right
+        && rect.bottom >= bounds.top
+        && rect.top <= bounds.bottom
+    );
+}
+
+function pointInRect(
+    x: number,
+    y: number,
+    rect: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>,
+) {
+    return (
+        x >= rect.left
+        && x <= rect.right
+        && y >= rect.top
+        && y <= rect.bottom
+    );
 }
 
 function getMarkerCenter(
@@ -936,6 +987,12 @@ useEventListener(
     { passive: true },
 );
 
+useEventListener(
+    import.meta.client ? window : undefined,
+    'pdf-comment-marker-drag',
+    scheduleConnectorRefreshFrame,
+);
+
 useMutationObserver(
     annotationViewportRootElement,
     scheduleViewportMutationRefresh,
@@ -1064,7 +1121,7 @@ const emit = defineEmits<{
     inset: 0;
     width: 100vw;
     height: 100vh;
-    z-index: 85;
+    z-index: 24;
     overflow: visible;
 }
 

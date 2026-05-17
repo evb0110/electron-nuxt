@@ -152,6 +152,7 @@ function handlePointerMove(event: PointerEvent) {
 
     dragOffsetX.value = dx;
     dragOffsetY.value = dy;
+    window.dispatchEvent(new CustomEvent('pdf-comment-marker-drag'));
 }
 
 function handlePointerUp(event: PointerEvent) {
