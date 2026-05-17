@@ -27,6 +27,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 
 interface IClassList {
     add: (...args: string[]) => void;
+    contains: (className: string) => boolean;
     remove: (...args: string[]) => void;
 }
 
@@ -112,9 +113,20 @@ const { usePdfPageRenderer } = await import('@app/composables/pdf/usePdfPageRend
 const { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } = await import('@app/constants/timeouts');
 
 function createClassList(): IClassList {
+    const classNames = new Set<string>();
+
     return {
-        add: vi.fn(),
-        remove: vi.fn(),
+        add: vi.fn((...args: string[]) => {
+            for (const className of args) {
+                classNames.add(className);
+            }
+        }),
+        contains: vi.fn((className: string) => classNames.has(className)),
+        remove: vi.fn((...args: string[]) => {
+            for (const className of args) {
+                classNames.delete(className);
+            }
+        }),
     };
 }
 
