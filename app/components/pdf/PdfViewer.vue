@@ -266,7 +266,7 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
-const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 140;
+const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 320;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 const renderedPageStateVersion = ref(0);
@@ -1034,6 +1034,7 @@ const visibleLinksByPage = computed(() => (
 ));
 function shouldShowPageSkeleton(page: number) {
     if (isPageBuffered(page)) {
+        delayedSkeleton.hidePage(page);
         return false;
     }
     if (hasMountedPageCanvas(page)) {

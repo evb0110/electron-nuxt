@@ -117,6 +117,7 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
     });
 
     return {
+        hidePage,
         markPageRendered,
         shouldShowSkeleton,
     };
