@@ -7,6 +7,7 @@ import type {
 import {
     groupBy,
     orderBy,
+    uniq,
 } from 'es-toolkit/array';
 
 const INSTALLER_EXTENSIONS = new Set([
@@ -268,11 +269,9 @@ export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstal
     });
 
     const primaryAssets = normalizedAssets.filter(asset => !asset.isLegacy);
-    const windowsExeArchs = new Set(
-        primaryAssets
-            .filter(asset => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
-            .map(asset => asset.arch),
-    );
+    const windowsExeArchs = new Set(uniq(primaryAssets
+        .filter(asset => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
+        .map(asset => asset.arch)));
 
     const hasArchSpecificWindowsBuilds = windowsExeArchs.has('x64') && windowsExeArchs.has('arm64');
     if (!hasArchSpecificWindowsBuilds) {

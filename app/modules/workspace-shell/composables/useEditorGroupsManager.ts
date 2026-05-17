@@ -1,4 +1,5 @@
 import type { ITab } from '@app/types/tabs';
+import { keyBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type {
     IEditorGroupState,
@@ -62,27 +63,16 @@ export const useEditorGroupsManager = () => {
     }
 
     const groupLookup = computed(() => {
-        const map = new Map<string, IEditorGroupState>();
-        for (const group of groups.value) {
-            map.set(group.id, group);
-        }
-        return map;
+        return new Map(Object.entries(keyBy(groups.value, group => group.id)));
     });
     const tabLookup = computed(() => {
-        const map = new Map<string, ITab>();
-        for (const tab of tabs.value) {
-            map.set(tab.id, tab);
-        }
-        return map;
+        return new Map(Object.entries(keyBy(tabs.value, tab => tab.id)));
     });
     const tabGroupLookup = computed(() => {
-        const map = new Map<string, string>();
-        for (const group of groups.value) {
-            for (const tabId of group.tabIds) {
-                map.set(tabId, group.id);
-            }
-        }
-        return map;
+        return new Map(groups.value.flatMap(group => group.tabIds.map(tabId => [
+            tabId,
+            group.id,
+        ])));
     });
 
     function createGroup(): IEditorGroupState {

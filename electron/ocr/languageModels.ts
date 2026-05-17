@@ -1,5 +1,6 @@
 import { homedir } from 'os';
 import { randomUUID } from 'node:crypto';
+import { uniq } from 'es-toolkit/array';
 import {
     createWriteStream,
     existsSync,
@@ -92,14 +93,9 @@ function getElectronUserDataPath(): string {
 }
 
 function normalizeLanguageCodes(languageCodes: string[]): string[] {
-    const deduped = new Set<string>();
-    for (const languageCode of languageCodes) {
-        const normalized = languageCode.trim().toLowerCase();
-        if (normalized.length > 0) {
-            deduped.add(normalized);
-        }
-    }
-    return Array.from(deduped);
+    return uniq(languageCodes
+        .map(languageCode => languageCode.trim().toLowerCase())
+        .filter(Boolean));
 }
 
 class LanguageModelDownloadError extends Error {

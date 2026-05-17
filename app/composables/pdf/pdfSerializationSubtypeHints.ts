@@ -3,6 +3,7 @@ import type {
     IAnnotationMarkerRect,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import { groupBy } from 'es-toolkit/array';
 
 export interface IMarkupSubtypeHint {
     subtype: TMarkupSubtype;
@@ -74,14 +75,14 @@ export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[])
 }
 
 export function groupMarkupSubtypeHintsByPage(hints: IMarkupSubtypeHint[]) {
-    const hintsByPage = new Map<number, IMarkupSubtypeHint[]>();
-    for (const hint of hints) {
-        const pageHints = hintsByPage.get(hint.pageIndex);
-        if (pageHints) {
-            pageHints.push(hint);
-            continue;
-        }
-        hintsByPage.set(hint.pageIndex, [hint]);
-    }
-    return hintsByPage;
+    return new Map(
+        Object.entries(groupBy(hints, hint => hint.pageIndex))
+            .map(([
+                pageIndex,
+                pageHints,
+            ]) => ([
+                Number(pageIndex),
+                pageHints,
+            ])),
+    );
 }

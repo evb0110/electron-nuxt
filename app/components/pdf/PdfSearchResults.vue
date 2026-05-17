@@ -97,6 +97,7 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
+import { groupBy } from 'es-toolkit/array';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
@@ -142,19 +143,13 @@ const resultItemRefs = new Map<number, HTMLElement>();
 const activeMatchIndex = computed(() => results[currentResultIndex]?.matchIndex ?? -1);
 
 const groupedResults = computed(() => {
-    const groups = new Map<number, IPdfSearchMatch[]>();
+    const groups = groupBy(results, result => result.pageIndex);
 
-    results.forEach((result) => {
-        const matches = groups.get(result.pageIndex) ?? [];
-        matches.push(result);
-        groups.set(result.pageIndex, matches);
-    });
-
-    return Array.from(groups.entries()).map(([
+    return Object.entries(groups).map(([
         pageIndex,
         matches,
     ]) => ({
-        pageIndex,
+        pageIndex: Number(pageIndex),
         matches,
     }));
 });

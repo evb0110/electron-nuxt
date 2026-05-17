@@ -4,6 +4,7 @@ import {
     basename,
     join,
 } from 'path';
+import { sortBy } from 'es-toolkit/array';
 import {
     type ICreatePdfFromInputPathsProgress,
     isSupportedOpenPath,
@@ -167,15 +168,21 @@ export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent)
 
     const supportedPaths = entries
         .map(entry => join(folderPath, entry))
-        .filter(path => isSupportedOpenPath(path))
-        .sort((a, b) => basename(a).localeCompare(basename(b)));
+        .filter(path => isSupportedOpenPath(path));
+    const sortedSupportedPaths = sortBy(
+        supportedPaths.map(path => ({
+            path,
+            name: basename(path),
+        })),
+        ['name'],
+    ).map(entry => entry.path);
 
-    if (supportedPaths.length === 0) {
+    if (sortedSupportedPaths.length === 0) {
         throw new Error(te('errors.file.folderEmpty'));
     }
 
     try {
-        return await openInputPaths(supportedPaths, {}, event.sender);
+        return await openInputPaths(sortedSupportedPaths, {}, event.sender);
     } catch (err) {
         logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);

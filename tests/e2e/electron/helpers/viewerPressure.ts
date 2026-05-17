@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import { sumBy } from 'es-toolkit/math';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -68,11 +69,11 @@ export async function readWorkspacePressure(page: Page): Promise<IWorkspacePress
 export function summarizeInactivePressure(snapshots: IWorkspacePressureSnapshot[]): IWorkspacePressureTotals {
     const inactive = snapshots.filter(host => !host.active);
     return {
-        inactiveCanvases: inactive.reduce((total, host) => total + host.canvases, 0),
-        inactiveRenderedPages: inactive.reduce((total, host) => total + host.renderedPages, 0),
-        inactiveCanvasPixels: inactive.reduce((total, host) => total + host.canvasPixels, 0),
-        inactiveTextSpans: inactive.reduce((total, host) => total + host.textSpans, 0),
-        inactiveDjvuImages: inactive.reduce((total, host) => total + host.djvuImages, 0),
+        inactiveCanvases: sumBy(inactive, host => host.canvases),
+        inactiveRenderedPages: sumBy(inactive, host => host.renderedPages),
+        inactiveCanvasPixels: sumBy(inactive, host => host.canvasPixels),
+        inactiveTextSpans: sumBy(inactive, host => host.textSpans),
+        inactiveDjvuImages: sumBy(inactive, host => host.djvuImages),
     };
 }
 

@@ -152,6 +152,7 @@
 <script setup lang="ts">
 
 import { useEventListener } from '@vueuse/core';
+import { keyBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type {
     ITab,
@@ -230,18 +231,10 @@ const hasMultipleGroups = computed(() => groups.length > 1);
 const leafNode = computed(() => (node.type === 'leaf' ? node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (node.type === 'split' ? node : null));
 const groupById = computed(() => {
-    const map = new Map<string, IEditorGroupState>();
-    for (const group of groups) {
-        map.set(group.id, group);
-    }
-    return map;
+    return new Map(Object.entries(keyBy(groups, group => group.id)));
 });
 const tabById = computed(() => {
-    const map = new Map<string, ITab>();
-    for (const tab of tabs) {
-        map.set(tab.id, tab);
-    }
-    return map;
+    return new Map(Object.entries(keyBy(tabs, tab => tab.id)));
 });
 const tabsByGroupId = computed(() => {
     const map = new Map<string, ITab[]>();

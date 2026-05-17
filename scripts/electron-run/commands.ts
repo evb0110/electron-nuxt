@@ -3,7 +3,10 @@ import {
     join,
 } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { maxBy } from 'es-toolkit/array';
+import {
+    countBy,
+    maxBy,
+} from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import {
     COMMAND_EXECUTION_TIMEOUT_MS,
@@ -112,10 +115,10 @@ function normalizeEventLimit(value: unknown, fallback: number) {
 }
 
 function getDevtoolsSummary(events: readonly TDevtoolsEvent[]) {
-    return events.reduce((acc, event) => {
-        acc[event.kind] += 1;
-        return acc;
-    }, { ...DEVTOOLS_EVENT_SUMMARY_TEMPLATE });
+    return {
+        ...DEVTOOLS_EVENT_SUMMARY_TEMPLATE,
+        ...countBy(events, event => event.kind),
+    };
 }
 
 function parseStringArg(args: readonly unknown[], index: number) {
@@ -491,9 +494,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return score;
         };
 
-        const selectedViewer = viewers
-            .slice()
-            .sort((left, right) => scoreViewer(right) - scoreViewer(left))[0] ?? null;
+        const selectedViewer = maxBy(viewers, scoreViewer) ?? null;
 
         const trigger = (window as any).__electronRunOpenPdfTrigger as {
             token?: string;

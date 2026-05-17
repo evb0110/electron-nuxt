@@ -1,4 +1,5 @@
 import { BROWSER_DOCUMENT_CHUNK_SIZE } from './browserDocumentConstants';
+import { groupBy } from 'es-toolkit/array';
 import {
     cloneBytes,
     normalizePersistedBytes,
@@ -197,16 +198,16 @@ export function createEntryFromPersistedRecord(
 }
 
 export function collectChunkIndicesByRef(chunkKeys: IChunkKeyRecord[]) {
-    const chunkIndicesByRef = new Map<string, Set<number>>();
-    for (const chunkKey of chunkKeys) {
-        let refChunks = chunkIndicesByRef.get(chunkKey.ref);
-        if (!refChunks) {
-            refChunks = new Set<number>();
-            chunkIndicesByRef.set(chunkKey.ref, refChunks);
-        }
-        refChunks.add(chunkKey.index);
-    }
-    return chunkIndicesByRef;
+    return new Map(
+        Object.entries(groupBy(chunkKeys, chunkKey => chunkKey.ref))
+            .map(([
+                ref,
+                chunks,
+            ]) => ([
+                ref,
+                new Set(chunks.map(chunk => chunk.index)),
+            ])),
+    );
 }
 
 export function isChunkedRecordMissingChunks(

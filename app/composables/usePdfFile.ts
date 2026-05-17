@@ -1,4 +1,5 @@
 import { clamp } from 'es-toolkit/math';
+import { uniq } from 'es-toolkit/array';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
@@ -487,11 +488,7 @@ export const usePdfFile = () => {
     }
 
     function scheduleHistoryEntryCleanup(entries: TPdfHistoryEntry[]) {
-        const snapshotPaths = Array.from(
-            new Set(
-                entries.flatMap((entry) => entry.kind === 'path' ? [entry.path] : []),
-            ),
-        );
+        const snapshotPaths = uniq(entries.flatMap((entry) => entry.kind === 'path' ? [entry.path] : []));
 
         if (snapshotPaths.length === 0) {
             return;

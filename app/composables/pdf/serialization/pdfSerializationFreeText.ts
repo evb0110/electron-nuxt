@@ -2,6 +2,7 @@ import type {
     PDFArray,
     PDFDocument,
 } from 'pdf-lib';
+import { groupBy } from 'es-toolkit/array';
 import {
     PDFDict,
     PDFHexString,
@@ -261,15 +262,13 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
     let modified = false;
     const modifiedAt = toPdfDateString(new Date());
     let blankApRef: PDFRef | null = null;
-    const commentsByPage = new Map<number, IAnnotationCommentSummary[]>();
-    candidates.forEach((comment) => {
-        const pageComments = commentsByPage.get(comment.pageIndex) ?? [];
-        pageComments.push(comment);
-        commentsByPage.set(comment.pageIndex, pageComments);
-    });
+    const commentsByPage = groupBy(candidates, comment => comment.pageIndex);
 
-    commentsByPage.forEach((pageComments, pageIndex) => {
-        const page = doc.getPages()[pageIndex];
+    Object.entries(commentsByPage).forEach(([
+        pageIndex,
+        pageComments,
+    ]) => {
+        const page = doc.getPages()[Number(pageIndex)];
         if (!page) {
             return;
         }

@@ -101,6 +101,7 @@
 </template>
 
 <script setup lang="ts">
+import { clamp } from 'es-toolkit/math';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -699,7 +700,7 @@ function finishDocumentOpenTransaction(transaction: IDocumentOpenTransaction, op
 }
 
 function clampOpeningDocumentSkeletonDimension(value: number, min: number, max: number) {
-    return Math.min(Math.max(value, min), Math.max(min, max));
+    return clamp(value, min, Math.max(min, max));
 }
 
 function buildOpeningDocumentSkeletonPadding(width: number, height: number): IContentInsets {

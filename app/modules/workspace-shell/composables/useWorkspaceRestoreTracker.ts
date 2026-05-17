@@ -1,14 +1,12 @@
+import { omit } from 'es-toolkit/object';
+
 const useRestoringTabCounts = () => useState<Record<string, number>>(
     'workspace-restore:counts',
     () => ({}),
 );
 
 function omitCount(record: Record<string, number>, key: string) {
-    const {
-        [key]: _removed,
-        ...rest
-    } = record;
-    return rest;
+    return omit(record, [key]);
 }
 
 export const useWorkspaceRestoreTracker = () => {

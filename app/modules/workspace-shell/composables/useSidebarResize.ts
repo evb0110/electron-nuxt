@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -31,10 +32,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         const deltaX = event.clientX - resizeStartX;
         const nextWidth = resizeStartWidth + deltaX;
 
-        const clampedWidth = Math.min(
-            Math.max(nextWidth, SIDEBAR.MIN_WIDTH),
-            SIDEBAR.MAX_WIDTH,
-        );
+        const clampedWidth = clamp(nextWidth, SIDEBAR.MIN_WIDTH, SIDEBAR.MAX_WIDTH);
 
         if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
             BrowserLogger.warn('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
