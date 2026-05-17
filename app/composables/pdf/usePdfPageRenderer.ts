@@ -1024,13 +1024,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         if (renderVersion !== version || renderingPages.get(pageNumber) !== version) {
             return false;
         }
-        if (!target.container.isConnected || !target.canvasHost.isConnected) {
+        if (target.container.isConnected === false || target.canvasHost.isConnected === false) {
             return false;
         }
         if (target.container.dataset.page !== String(pageNumber)) {
             return false;
         }
-        return target.canvasHost.closest('.page_container') === target.container;
+        if (
+            typeof target.canvasHost.closest === 'function'
+            && target.canvasHost.closest('.page_container') !== target.container
+        ) {
+            return false;
+        }
+        return true;
     }
 
     async function renderSingleVisiblePage(
