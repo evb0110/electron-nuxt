@@ -287,6 +287,78 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
     });
 
+    it('rerenders paged fit-height without restoring the old viewport snapshot, then snaps to the page', async () => {
+        const currentPage = ref(1);
+        const computeFitWidthScale = vi.fn(() => true);
+        const cancelInFlightPageRenders = vi.fn();
+        const reRenderAllVisiblePages = vi.fn(async () => {});
+        const scrollToPage = vi.fn();
+        const syncCurrentPageFromViewport = vi.fn(async () => {});
+        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(currentPage.value));
+
+        usePdfViewerRerenderCoordinator({
+            viewerContainer: ref(null),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+            isLoading: ref(false),
+            numPages: ref(10),
+            currentPage,
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-height' as const),
+            fitMode: computed(() => 'height' as const),
+            viewMode: computed(() => 'facing-first-single' as const),
+            isResizing: computed(() => false),
+            continuousScroll: computed(() => false),
+            getVisibleRange: () => ({
+                start: 2,
+                end: 3,
+            }),
+            reRenderAllVisiblePages,
+            isPageRendered: vi.fn(() => true),
+            summarizeViewerMetricsForLog: vi.fn(() => null),
+            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
+            syncCurrentPageFromViewport,
+            markLowResZoomRerenderUsed: vi.fn(),
+            buildResizeAnchorContext,
+            scheduleEndResizeTransition: vi.fn(),
+            enqueueZoomSync: vi.fn(),
+            scheduleResizeAwareRerender: vi.fn(),
+            cancelInFlightPageRenders,
+            computeFitWidthScale,
+            syncHorizontalScrollForZoomMode: vi.fn(() => true),
+            setupPagePlaceholders: vi.fn(),
+            scrollToPage,
+            getMostVisiblePage: vi.fn(() => 2),
+            resetContinuousScrollState: vi.fn(),
+            resetZoomRerenderQueueState: vi.fn(),
+            consumeZoomViewportAnchor: vi.fn(() => null),
+            beginResizeTransition: vi.fn(() => 1),
+            consumeSuppressedZoomRerender: vi.fn(() => false),
+        });
+
+        currentPage.value = 2;
+        await nextTick();
+        await nextTick();
+
+        expect(computeFitWidthScale).toHaveBeenCalled();
+        expect(buildResizeAnchorContext).not.toHaveBeenCalled();
+        expect(cancelInFlightPageRenders).toHaveBeenCalled();
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({
+                rerenderSource: 'fit-height-current-page',
+                disableVerticalAnchorRestore: true,
+                disablePageAnchorRestore: true,
+                renderBufferOverride: 0,
+            }),
+        );
+        expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
+        expect(scrollToPage).toHaveBeenCalledWith(2, { preferExactDom: true });
+    });
+
     it('keeps the current page as the anchor when sidebar resizing settles', async () => {
         vi.useFakeTimers();
         try {

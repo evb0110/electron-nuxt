@@ -627,27 +627,11 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         annotationUiManager.value?.onScaleChanging({scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS});
     });
 
-    watch(currentPage, async (page) => {
+    watch(currentPage, (page) => {
         if (!isActive.value) {
             return;
         }
         annotationUiManager.value?.onPageChanging({ pageNumber: page });
-        if (fitMode.value === 'height' && !continuousScroll.value && pdfDocument.value) {
-            const updated = computeFitWidthScale(viewerContainer.value);
-            if (updated) {
-                await nextTick();
-                if (
-                    isActive.value
-                    && fitMode.value === 'height'
-                    && !continuousScroll.value
-                    && pdfDocument.value
-                    && !isLoading.value
-                    && currentPage.value === page
-                ) {
-                    scrollToPage(page, { preferExactDom: true });
-                }
-            }
-        }
     });
 
     watch(
