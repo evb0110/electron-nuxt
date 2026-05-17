@@ -17,8 +17,8 @@ interface ISaveDialogOptions {
     extension: string;
 }
 
-export function getOpenDialogParentWindow() {
-    return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+export function getDialogParentWindow(event: Electron.IpcMainInvokeEvent) {
+    return BrowserWindow.fromWebContents(event.sender);
 }
 
 export function errorWithDetails(fallbackMessage: string, details: unknown): Error {
@@ -29,8 +29,11 @@ export function errorWithDetails(fallbackMessage: string, details: unknown): Err
     return new Error(`${fallbackMessage}: ${detailText}`);
 }
 
-export async function showOpenDocumentDialog(options: IOpenDocumentDialogOptions) {
-    const parentWindow = getOpenDialogParentWindow();
+export async function showOpenDocumentDialog(
+    event: Electron.IpcMainInvokeEvent,
+    options: IOpenDocumentDialogOptions,
+) {
+    const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: options.title,
         filters: [{
@@ -52,7 +55,7 @@ export async function showSaveDialogWithExtension(
     event: Electron.IpcMainInvokeEvent,
     options: ISaveDialogOptions,
 ) {
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: options.title,
         defaultPath: options.defaultPath,

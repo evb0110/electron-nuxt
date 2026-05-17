@@ -64,7 +64,9 @@ export async function handleFileSave(
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath);
 
     try {
-        await ensureWorkingCopyDirectory(normalizedWorkingPath);
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+            throw new Error('Working copy path is not managed');
+        }
         const validation = await replaceOriginalWithValidatedTemp(
             originalPath,
             tempPath => copyFile(normalizedWorkingPath, tempPath),
@@ -95,7 +97,9 @@ export async function handleSerializedPdfSave(
     const payload = normalizeIpcWritePayload(data);
 
     try {
-        await ensureWorkingCopyDirectory(normalizedWorkingPath);
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+            throw new Error('Working copy path is not managed');
+        }
         const validation = await replaceOriginalWithValidatedTemp(
             originalPath,
             tempPath => writeFile(tempPath, payload),

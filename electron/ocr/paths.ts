@@ -413,7 +413,7 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
         errors,
         path => `qpdf not found: ${path} (install qpdf or bundle it)`,
     );
-    const valid = tesseract.found && tessdata.found && pdftoppmFound && qpdfFound && popplerRuntime.valid;
+    const valid = tesseract.found && tessdata.found && pdftoppmFound && pdftotextFound && qpdfFound && popplerRuntime.valid;
     const tools: IToolValidationResult['tools'] = {
         tesseract: {
             found: tesseract.found,

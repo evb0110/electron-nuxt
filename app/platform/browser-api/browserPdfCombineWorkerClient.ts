@@ -19,6 +19,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
+const BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS = 120_000;
 
 export class BrowserPdfCombineWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -56,6 +57,7 @@ const browserPdfCombineWorkerClient = new BrowserWorkerClient<
     IPendingBrowserWorkerRequest
 >({
     idleTtlMs: BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS,
+    requestTimeoutMs: BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => {
         try {
             return new Worker(
@@ -87,11 +89,12 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     const worker = browserPdfCombineWorkerClient.getWorker();
 
     return new Promise<IBrowserPdfCombineWorkerResultMap[K]>((resolve, reject) => {
-        browserPdfCombineWorkerClient.clearIdleTerminateTimer();
-        browserPdfCombineWorkerClient.pendingRequests.set(request.id, {
+        browserPdfCombineWorkerClient.registerPendingRequest(request.id, {
             resolve: (value) => resolve(value as IBrowserPdfCombineWorkerResultMap[K]),
             reject,
-        });
+        }, () => new BrowserPdfCombineWorkerUnavailableError(
+            `Browser PDF combine worker request timed out after ${BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS}ms`,
+        ));
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(
@@ -99,8 +102,10 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             );
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
-            browserPdfCombineWorkerClient.pendingRequests.delete(request.id);
-            reject(error instanceof Error ? error : new Error(String(error)));
+            browserPdfCombineWorkerClient.cancelPendingRequest(
+                request.id,
+                error instanceof Error ? error : new Error(String(error)),
+            );
         }
     });
 }

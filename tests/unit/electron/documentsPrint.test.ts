@@ -40,10 +40,12 @@ const mocks = vi.hoisted(() => {
         extractPages: vi.fn(async () => {}),
         stat: vi.fn<(path: string) => Promise<{
             ctimeMs: number;
+            isFile: () => boolean;
             mtimeMs: number;
             size?: number;
         }>>(async () => ({
             ctimeMs: 0,
+            isFile: () => true,
             mtimeMs: 0,
             size: 1,
         })),
@@ -69,6 +71,7 @@ vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
+vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
 
 vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
     debug: vi.fn(),
@@ -85,6 +88,9 @@ const {
     sweepStaleDefaultAppTempPdfs,
 } = await import('@electron/features/documents/main/print');
 
+const tempRoot = '/tmp/evb-viewer';
+const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+
 describe('documents print', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -99,6 +105,7 @@ describe('documents print', () => {
         mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
         mocks.stat.mockResolvedValue({
             ctimeMs: 0,
+            isFile: () => true,
             mtimeMs: 0,
             size: 1,
         });
@@ -109,7 +116,7 @@ describe('documents print', () => {
     });
 
     async function settleNativePrint<T>(promise: Promise<T>) {
-        for (let index = 0; index < 4; index += 1) {
+        for (let index = 0; index < 12; index += 1) {
             await Promise.resolve();
         }
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalled();
@@ -150,22 +157,22 @@ describe('documents print', () => {
         vi.useFakeTimers();
         const resultPromise = handlePrintPdfData(
             { sender: {} } as never,
-            Uint8Array.of(1, 2, 3),
+            validPdfBytes,
             'document.pdf',
         );
         const result = await settleNativePrint(resultPromise);
 
         expect(result).toEqual({ success: true });
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/print-data-print-job-id-document.pdf',
-            Buffer.from(Uint8Array.of(1, 2, 3)),
+            `${tempRoot}/print-data-print-job-id-document.pdf`,
+            Buffer.from(validPdfBytes),
         );
         expect(mocks.unlink).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-data-print-job-id-document.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
     });
 
     it('extracts requested pages to a temporary PDF before opening the native print dialog', async () => {
@@ -181,11 +188,11 @@ describe('documents print', () => {
         expect(result).toEqual({ success: true });
         expect(mocks.extractPages).toHaveBeenCalledWith(
             '/tmp/source.pdf',
-            '/tmp/print-pages-print-job-id-source.pdf',
+            `${tempRoot}/print-pages-print-job-id-source.pdf`,
             [4],
         );
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
-            pathToFileURL('/tmp/print-pages-print-job-id-source.pdf').toString(),
+            pathToFileURL(`${tempRoot}/print-pages-print-job-id-source.pdf`).toString(),
         );
         expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
             expect.objectContaining({pageRanges: [{
@@ -199,7 +206,7 @@ describe('documents print', () => {
         await vi.runOnlyPendingTimersAsync();
 
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-pages-print-job-id-source.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id-source.pdf`);
     });
 
     it('cleans up print resources immediately when native printing fails', async () => {
@@ -211,7 +218,7 @@ describe('documents print', () => {
 
         const resultPromise = handlePrintPdfData(
             { sender: {} } as never,
-            Uint8Array.of(1, 2, 3),
+            validPdfBytes,
             'document.pdf',
         );
         const result = await settleNativePrint(resultPromise);
@@ -221,7 +228,7 @@ describe('documents print', () => {
             error: 'printer unavailable',
         });
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-data-print-job-id-document.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
     });
 
     it('opens an existing PDF path in the default desktop app', async () => {
@@ -238,16 +245,16 @@ describe('documents print', () => {
     it('writes PDF bytes to a temp file before opening the default desktop app', async () => {
         const result = await handleOpenPdfInDefaultAppData(
             { sender: {} } as never,
-            Uint8Array.of(1, 2, 3),
+            validPdfBytes,
             'document.pdf',
         );
 
         expect(result).toEqual({ success: true });
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/open-in-default-app-print-job-id-document.pdf',
-            Buffer.from(Uint8Array.of(1, 2, 3)),
+            `${tempRoot}/open-in-default-app-print-job-id-document.pdf`,
+            Buffer.from(validPdfBytes),
         );
-        expect(mocks.openPath).toHaveBeenCalledWith('/tmp/open-in-default-app-print-job-id-document.pdf');
+        expect(mocks.openPath).toHaveBeenCalledWith(`${tempRoot}/open-in-default-app-print-job-id-document.pdf`);
         expect(mocks.unlink).not.toHaveBeenCalled();
     });
 
@@ -264,16 +271,17 @@ describe('documents print', () => {
         ]);
         mocks.stat.mockImplementation(async (path: string) => ({
             ctimeMs: path.includes('fresh') ? 9_900 : 0,
+            isFile: () => true,
             mtimeMs: path.includes('fresh') ? 9_900 : 0,
         }));
 
         await sweepStaleDefaultAppTempPdfs(5_000);
 
         expect(mocks.stat).toHaveBeenCalledTimes(4);
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/open-in-default-app-stale.pdf');
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-data-stale.pdf');
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-pages-stale.pdf');
-        expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/open-in-default-app-fresh.pdf');
-        expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/other.pdf');
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/open-in-default-app-stale.pdf`);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-stale.pdf`);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-stale.pdf`);
+        expect(mocks.unlink).not.toHaveBeenCalledWith(`${tempRoot}/open-in-default-app-fresh.pdf`);
+        expect(mocks.unlink).not.toHaveBeenCalledWith(`${tempRoot}/other.pdf`);
     });
 });

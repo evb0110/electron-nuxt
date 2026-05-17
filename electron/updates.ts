@@ -32,6 +32,12 @@ const UPDATER_SUPPORTED_PLATFORMS = new Set([
     'darwin',
     'win32',
 ]);
+const UPDATER_SUPPORTED_ARCH_BY_PLATFORM: Partial<Record<NodeJS.Platform, ReadonlySet<string>>> = {
+    // Release metadata is published only for the signed mac arm64 and signed
+    // Windows x64 updater lanes. Other artifacts remain manual-install only.
+    darwin: new Set(['arm64']),
+    win32: new Set(['x64']),
+};
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
@@ -132,7 +138,14 @@ function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = g
 }
 
 function isUpdaterRuntimeSupported() {
-    return app.isPackaged && UPDATER_SUPPORTED_PLATFORMS.has(process.platform);
+    const supportedArchs = UPDATER_SUPPORTED_ARCH_BY_PLATFORM[process.platform];
+    return app.isPackaged
+        && UPDATER_SUPPORTED_PLATFORMS.has(process.platform)
+        && Boolean(supportedArchs?.has(process.arch));
+}
+
+function getUnsupportedRuntimeMessage() {
+    return `Updates are available only in packaged macOS arm64 and Windows x64 builds. Current runtime: ${process.platform}-${process.arch}.`;
 }
 
 async function ensureUpdaterSupported() {
@@ -488,7 +501,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                     origin: 'manual',
                     version: normalizeVersion(app.getVersion()) || null,
                     percent: null,
-                    message: 'Updates are available only in packaged macOS/Windows builds.',
+                    message: getUnsupportedRuntimeMessage(),
                 });
             }
             return;

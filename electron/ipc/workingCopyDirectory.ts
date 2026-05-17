@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
 import {
     constants as fsConstants,
@@ -10,9 +9,10 @@ import {
     rm,
 } from 'fs/promises';
 import {join} from 'path';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 
 export function createWorkingDirectory() {
-    const tempDir = app.getPath('temp');
+    const tempDir = getAppTempDir();
     const workDir = join(tempDir, `pdf-work-${randomUUID()}`);
     mkdirSync(workDir, { recursive: true });
     return workDir;

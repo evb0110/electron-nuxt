@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import {
     dirname,
     isAbsolute,
@@ -12,6 +11,7 @@ import {
     lstatSync,
     realpathSync,
 } from 'fs';
+import { getAppTempDirPath } from '@electron/utils/appTempDir';
 
 interface IPathOps {
     dirname(path: string): string;
@@ -123,7 +123,7 @@ function getTempBaseDirs() {
 }
 
 function getTempBaseDirsSync() {
-    const configuredTempDir = app.getPath('temp');
+    const configuredTempDir = getAppTempDirPath();
     const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
     const canonicalTempDir = safeRealpathSync(tempDir);
     return isSamePath(canonicalTempDir, tempDir)

@@ -120,7 +120,9 @@ export async function deletePages(
     }
 
     const qpdf = getQpdfBinary();
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
@@ -152,7 +154,9 @@ export async function reorderPages(
     newOrder: number[],
 ) {
     const qpdf = getQpdfBinary();
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
@@ -187,7 +191,9 @@ export async function rotatePages(
     angle: TRotationAngle,
 ) {
     const qpdf = getQpdfBinary();
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {

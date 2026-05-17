@@ -5,7 +5,8 @@ import {
 import { existsSync } from 'fs';
 import { extname } from 'path';
 import { uniq } from 'es-toolkit/array';
-import { isAllowedWritePath } from '@electron/utils/pathValidator';
+import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
@@ -13,22 +14,29 @@ import {
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/i18n';
 
-function validateWorkingPdfPath(path: unknown): asserts path is string {
+async function validateWorkingPdfPath(path: unknown): Promise<string> {
     if (!path || typeof path !== 'string' || path.trim() === '') {
         throw new Error('Invalid working copy path');
     }
 
-    if (!isAllowedWritePath(path)) {
+    if (!await ensureWorkingCopyDirectory(path)) {
+        throw new Error('Path is not a managed working copy');
+    }
+
+    const resolvedPath = await resolveAllowedWritePath(path);
+    if (!resolvedPath) {
         throw new Error('Path is outside the allowed working directory');
     }
 
-    if (!existsSync(path)) {
-        throw new Error(`Working copy not found: ${path}`);
+    if (!existsSync(resolvedPath)) {
+        throw new Error(`Working copy not found: ${resolvedPath}`);
     }
 
-    if (extname(path).toLowerCase() !== '.pdf') {
+    if (extname(resolvedPath).toLowerCase() !== '.pdf') {
         throw new Error('Working file must be a PDF');
     }
+
+    return resolvedPath;
 }
 
 function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
@@ -129,9 +137,9 @@ export async function handlePdfExportImages(
     canceled?: boolean;
     outputPaths?: string[];
 }> {
-    validateWorkingPdfPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
 
     const result = await showExportImageDialog(parentWindow, buildImageSuggestedName(normalizedPageNumbers));
     if (result.canceled || !result.filePath) {
@@ -142,7 +150,7 @@ export async function handlePdfExportImages(
     }
 
     const { normalizedPath } = normalizeImageExportPath(result.filePath, 'png');
-    const outputPaths = await exportPdfPagesAsImages(workingCopyPath, normalizedPath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
+    const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
 
     return {
         success: true,
@@ -159,9 +167,9 @@ export async function handlePdfExportMultiPageTiff(
     canceled?: boolean;
     outputPath?: string;
 }> {
-    validateWorkingPdfPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
 
     const result = await showMultiPageTiffDialog(parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
     if (result.canceled || !result.filePath) {
@@ -171,7 +179,7 @@ export async function handlePdfExportMultiPageTiff(
         };
     }
 
-    const outputPath = await exportPdfAsMultiPageTiff(workingCopyPath, result.filePath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
+    const outputPath = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
 
     return {
         success: true,

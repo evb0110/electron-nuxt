@@ -47,6 +47,23 @@ export const useSettings = () => {
         hasSettingsCookieSnapshot.value = true;
     }
 
+    function buildSettingsPatch(
+        previousSettings: ISettingsData | null,
+        nextSettings: ISettingsData,
+    ): Partial<ISettingsData> {
+        if (!previousSettings) {
+            return nextSettings;
+        }
+
+        const patch: Partial<ISettingsData> = {};
+        for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
+            if (nextSettings[key] !== previousSettings[key]) {
+                patch[key] = nextSettings[key] as never;
+            }
+        }
+        return patch;
+    }
+
     const {
         state: settings,
         isResolved: isLoaded,
@@ -61,6 +78,7 @@ export const useSettings = () => {
         },
         onLoaded(nextSettings) {
             syncSettingsCookies(nextSettings);
+            lastSavedSettings = nextSettings;
         },
         onError(loadError) {
             BrowserLogger.error('settings', 'Failed to load settings', loadError);
@@ -73,13 +91,20 @@ export const useSettings = () => {
 
     let saveInFlight: Promise<void> | null = null;
     let saveDirty = false;
+    let lastSavedSettings: ISettingsData | null = hasSettingsCookieSnapshot.value
+        ? initialSettings
+        : null;
 
     async function runSaveQueue() {
         while (true) {
             saveDirty = false;
             const payload = sanitizeSettings(toRaw(settings.value));
+            const patch = buildSettingsPatch(lastSavedSettings, payload);
             try {
-                await getPlatformAPI().settings.save(payload);
+                if (Object.keys(patch).length > 0) {
+                    await getPlatformAPI().settings.save(patch);
+                }
+                lastSavedSettings = payload;
                 syncSettingsCookies(payload);
             } catch (e) {
                 BrowserLogger.error('settings', 'Failed to save settings', e);

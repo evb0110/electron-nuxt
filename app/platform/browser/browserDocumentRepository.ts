@@ -660,6 +660,20 @@ export class BrowserDocumentStore {
             .filter((record): record is IBrowserPersistedDocumentRecord => record !== null);
     }
 
+    private isBrokenChunkedRecord(
+        record: IBrowserPersistedDocumentRecord,
+        chunkIndicesByRef: Map<string, Set<number>>,
+    ) {
+        return (
+            record.storageMode === 'chunked'
+            && record.fileSize > 0
+            && (
+                (record.chunkCount ?? 0) <= 0
+                || isChunkedRecordMissingChunks(record, chunkIndicesByRef)
+            )
+        );
+    }
+
     private async sweepPersistedOrphans(): Promise<void> {
         const records = await this.getAllPersistedRecords();
         if (records.length === 0) {
@@ -701,7 +715,7 @@ export class BrowserDocumentStore {
             : [];
         const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
         const brokenChunkRefs = records
-            .filter((record) => isChunkedRecordMissingChunks(record, chunkIndicesByRef))
+            .filter((record) => this.isBrokenChunkedRecord(record, chunkIndicesByRef))
             .map((record) => record.ref);
         const refsToRemoveSet = new Set([
             ...refsToRemove,
@@ -722,7 +736,7 @@ export class BrowserDocumentStore {
             })
             .map((chunkKey) => deleteChunkRecord(chunkKey.ref, chunkKey.index));
 
-        if (refsToRemove.length === 0 && chunkDeletes.length === 0) {
+        if (refsToRemoveSet.size === 0 && chunkDeletes.length === 0) {
             return;
         }
 

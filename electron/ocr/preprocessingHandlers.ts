@@ -1,5 +1,4 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import { app } from 'electron';
 import { randomUUID } from 'crypto';
 import {
     readFile,
@@ -13,6 +12,7 @@ import {
 } from '@electron/ocr/preprocessing';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const log = createLogger('ocr-ipc');
 const PREPROCESS_MAX_IMAGE_BYTES = (() => {
@@ -97,7 +97,7 @@ export async function handlePreprocessPage(
             };
         }
 
-        const tempDir = app.getPath('temp');
+        const tempDir = getAppTempDir();
         const uuid = randomUUID();
         const inputPath = join(tempDir, `preprocess-input-${uuid}.png`);
         const outputPath = join(tempDir, `preprocess-output-${uuid}.png`);

@@ -177,6 +177,23 @@ describe('BrowserDocumentStore', () => {
         ]));
     });
 
+    it('rejects document creation when durable IndexedDB writes cannot commit', async () => {
+        vi.stubGlobal('indexedDB', undefined);
+        const store = new BrowserDocumentStore();
+
+        await expect(store.createStoredDocument(
+            'failed.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        )).rejects.toThrow('IndexedDB document write did not commit');
+
+        expect(store.getRecentFiles()).toEqual([]);
+    });
+
     it('sweeps stale working copies and detached records on the next session', async () => {
         const store = new BrowserDocumentStore();
         const recentSourceRef = await store.createStoredDocument(
@@ -798,5 +815,37 @@ describe('BrowserDocumentStore', () => {
         const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
         expect(database?.getStoreRecords('document-chunks').size ?? 0).toBe(0);
         await expect(store.read(ref)).resolves.toEqual(new Uint8Array());
+    });
+
+    it('sweeps corrupt recent chunked documents with positive size and no chunk records', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'corrupt.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        await store.touchRecentFile(ref);
+
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+        const documents = database?.getStoreRecords('documents');
+        const record = documents?.get(ref);
+        expect(record).toBeTruthy();
+        documents?.set(ref, {
+            ...(record as Record<string, unknown>),
+            data: new Uint8Array(),
+            storageMode: 'chunked',
+            fileSize: 8,
+            chunkCount: 0,
+            chunkSize: 4,
+        });
+
+        const rehydratedStore = new BrowserDocumentStore();
+
+        await expect(rehydratedStore.exists(ref)).resolves.toBe(false);
+        expect(rehydratedStore.getRecentFiles()).toEqual([]);
     });
 });

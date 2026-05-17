@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
 import {
@@ -18,6 +17,7 @@ import type {
 } from '@contracts/pdfConformance';
 import { createDefaultPdfConformanceProfile } from '@electron/features/documents/main/pdfConformanceHelpers';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -253,7 +253,7 @@ export async function validatePdfData(
     }
 
     const tempPath = join(
-        app.getPath('temp'),
+        getAppTempDir(),
         `pdf-validate-${randomUUID()}-${sanitizeValidationFileName(fileName)}`,
     );
 

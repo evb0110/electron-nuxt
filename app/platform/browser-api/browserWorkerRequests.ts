@@ -1,6 +1,7 @@
 export interface IPendingBrowserWorkerRequest<TValue = unknown> {
     resolve: (value: TValue) => void;
     reject: (error: Error) => void;
+    timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
 
 export type TBrowserWorkerResult<TData = unknown> =
@@ -26,6 +27,10 @@ export function settleBrowserWorkerResult<TData>(
     }
 
     pendingRequests.delete(result.id);
+    if (pending.timeoutTimer) {
+        clearTimeout(pending.timeoutTimer);
+        pending.timeoutTimer = null;
+    }
     if (result.ok) {
         pending.resolve(result.data);
         onSettled();

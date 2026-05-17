@@ -17,6 +17,7 @@ const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
 const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
+const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
 
 type TIncomingTransferListener = (
     transfer: IWindowTabIncomingTransfer,
@@ -30,10 +31,21 @@ interface IKnownBrowserWindow {
 interface IPendingBrowserTransfer {
     transferId: string;
     targetWindowId: number;
-    payload: IWindowTabIncomingTransfer;
+    nonce: string;
+    payload: TBrowserTransferEnvelope;
     resolve: (result: IWindowTabTransferResult) => void;
     timeoutHandle: ReturnType<typeof setTimeout>;
 }
+
+type TBrowserTransferEnvelope = IWindowTabIncomingTransfer & {
+    schemaVersion: typeof TRANSFER_MESSAGE_SCHEMA_VERSION;
+    nonce: string;
+};
+
+type TBrowserTransferAckEnvelope = IWindowTabTransferAck & {
+    schemaVersion: typeof TRANSFER_MESSAGE_SCHEMA_VERSION;
+    nonce: string;
+};
 
 type TBrowserWindowTabsMessage =
     | {
@@ -52,17 +64,18 @@ type TBrowserWindowTabsMessage =
     }
     | {
         type: 'transfer';
-        transfer: IWindowTabIncomingTransfer;
+        transfer: TBrowserTransferEnvelope;
     }
     | {
         type: 'ack';
         windowId: number;
-        ack: IWindowTabTransferAck;
+        ack: TBrowserTransferAckEnvelope;
     };
 
 const incomingTransferListeners = new Set<TIncomingTransferListener>();
 const knownWindows = new Map<number, IKnownBrowserWindow>();
 const pendingTransfers = new Map<string, IPendingBrowserTransfer>();
+const incomingTransferNonces = new Map<string, string>();
 const queuedTransfersByWindow = new Map<number, string[]>();
 
 let channel: BroadcastChannel | null = null;
@@ -114,6 +127,14 @@ function createWindowId() {
         1,
         Math.floor(Date.now() + Math.random() * 1_000_000),
     );
+}
+
+function createTransferNonce() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function resolveCurrentWindowId() {
@@ -325,18 +346,31 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
 
 function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'transfer' }>) {
     if (
-        message.transfer.targetWindowId !== currentWindowId
+        message.transfer.schemaVersion !== TRANSFER_MESSAGE_SCHEMA_VERSION
+        || !message.transfer.nonce
+        || message.transfer.targetWindowId !== currentWindowId
         || !isCurrentWindowReady
     ) {
         return;
     }
 
+    incomingTransferNonces.set(message.transfer.transferId, message.transfer.nonce);
     incomingTransferListeners.forEach((listener) => {
         listener(message.transfer);
     });
 }
 
 function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
+    const pending = pendingTransfers.get(message.ack.transferId);
+    if (
+        !pending
+        || message.windowId !== pending.targetWindowId
+        || message.ack.schemaVersion !== TRANSFER_MESSAGE_SCHEMA_VERSION
+        || message.ack.nonce !== pending.nonce
+    ) {
+        return;
+    }
+
     finishTransfer(message.ack.transferId, {
         success: message.ack.success,
         ...(message.ack.error ? { error: message.ack.error } : {}),
@@ -501,12 +535,15 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         }
 
         const transferId = crypto.randomUUID();
-        const payload: IWindowTabIncomingTransfer = {
+        const nonce = createTransferNonce();
+        const payload: TBrowserTransferEnvelope = {
             transferId,
             sourceWindowId: currentWindowId,
             targetWindowId,
             tab: request.tab,
             payload: request.payload,
+            schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
+            nonce,
         };
 
         return new Promise<IWindowTabTransferResult>((resolve) => {
@@ -520,6 +557,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             pendingTransfers.set(transferId, {
                 transferId,
                 targetWindowId,
+                nonce,
                 payload,
                 resolve,
                 timeoutHandle,
@@ -540,10 +578,20 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     },
     transferAck(ack: IWindowTabTransferAck) {
         initializeBrowserWindowTabs();
+        const nonce = incomingTransferNonces.get(ack.transferId);
+        if (!nonce) {
+            return Promise.resolve(false);
+        }
+
+        incomingTransferNonces.delete(ack.transferId);
         postMessage({
             type: 'ack',
             windowId: currentWindowId,
-            ack,
+            ack: {
+                ...ack,
+                schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
+                nonce,
+            },
         });
         return Promise.resolve(true);
     },

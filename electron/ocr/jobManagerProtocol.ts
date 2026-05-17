@@ -128,6 +128,15 @@ function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorke
         : null;
 }
 
+function parseWorkerCleanupCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
+    return typeof message.jobId === 'string'
+        ? {
+            type: 'cleanup-complete',
+            jobId: message.jobId,
+        }
+        : null;
+}
+
 export function parseWorkerMessage(message: unknown): TOcrWorkerManagerMessage | null {
     if (!isRecord(message) || typeof message.type !== 'string') {
         return null;
@@ -140,6 +149,8 @@ export function parseWorkerMessage(message: unknown): TOcrWorkerManagerMessage |
             return parseWorkerProgressMessage(message);
         case 'complete':
             return parseWorkerCompleteMessage(message);
+        case 'cleanup-complete':
+            return parseWorkerCleanupCompleteMessage(message);
         default:
             return null;
     }

@@ -41,6 +41,12 @@ async function openDatabase() {
     });
 }
 
+function assertWriteCommitted(result: unknown, operation: string) {
+    if (result === null) {
+        throw new Error(`IndexedDB ${operation} did not commit.`);
+    }
+}
+
 export async function withObjectStore<T>(
     storeName: string,
     mode: IDBTransactionMode,
@@ -94,7 +100,8 @@ export async function withObjectStore<T>(
 }
 
 export async function persistRecord(record: IBrowserPersistedDocumentRecord) {
-    await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.put(record));
+    const result = await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.put(record));
+    assertWriteCommitted(result, 'document write');
 }
 
 export async function loadRecord(ref: string) {
@@ -114,5 +121,6 @@ export async function loadAllRecords() {
 }
 
 export async function deleteRecord(ref: string) {
-    await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.delete(ref));
+    const result = await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.delete(ref));
+    assertWriteCommitted(result, 'document delete');
 }

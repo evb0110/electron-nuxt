@@ -83,6 +83,13 @@ const PDF_COMBINE_MAX_TOTAL_INPUT_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
+const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_MB ?? '16', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 16 * 1024 * 1024;
+    }
+    return Math.min(parsed, 256) * 1024 * 1024;
+})();
 export const SUPPORTED_IMAGE_EXTENSIONS = PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS;
 
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
@@ -291,6 +298,16 @@ async function enforceInputResourceLimits(inputPaths: string[]) {
             throw new Error('Combined input files are too large to combine safely');
         }
     }
+    return { totalBytes };
+}
+
+function canUseLocalWorkerStartupFallback(totalBytes: number) {
+    return totalBytes <= PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES;
+}
+
+function getLocalWorkerStartupFallbackDisabledError() {
+    const maxMb = Math.floor(PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
+    return new Error(`Image combine worker startup failed and main-process fallback is disabled for inputs larger than ${maxMb}MB`);
 }
 
 function createPdfFromInputPathsWorker(
@@ -438,7 +455,7 @@ export async function createPdfFromInputPaths(
         throw new Error('No input files were provided');
     }
 
-    await enforceInputResourceLimits(normalizedPaths);
+    const resourceUsage = await enforceInputResourceLimits(normalizedPaths);
 
     if (!canCombineInWorker(normalizedPaths)) {
         return createPdfFromInputPathsLocal(normalizedPaths, options);
@@ -459,6 +476,9 @@ export async function createPdfFromInputPaths(
         logger.warn(
             `Image combine worker failed, falling back to in-process conversion: ${getErrorMessage(workerError)}`,
         );
+        if (!canUseLocalWorkerStartupFallback(resourceUsage.totalBytes)) {
+            throw getLocalWorkerStartupFallbackDisabledError();
+        }
         return createPdfFromInputPathsLocal(normalizedPaths, options);
     }
 }

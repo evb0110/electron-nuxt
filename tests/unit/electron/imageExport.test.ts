@@ -43,12 +43,19 @@ const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     renderPageCount: 2,
+    pdfPageCount: 2,
 }));
 
 vi.mock('fs/promises', async () => {
     const actual = await vi.importActual<typeof FsPromises>('fs/promises');
     return {
         ...actual,
+        readFile: async (path: Parameters<typeof actual.readFile>[0], ...args: Parameters<typeof actual.readFile> extends [unknown, ...infer Rest] ? Rest : never) => {
+            if (String(path) === '/tmp/input.pdf') {
+                return Buffer.from('%PDF-1.7\n%%EOF\n');
+            }
+            return actual.readFile(path, ...args);
+        },
         rename: mocks.rename,
         stat: mocks.stat,
     };
@@ -60,6 +67,7 @@ vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({
 })}));
 
 vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: mocks.runCommand}));
+vi.mock('pdf-lib', () => ({PDFDocument: {load: vi.fn(async () => ({ getPageCount: () => mocks.pdfPageCount }))}}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -110,6 +118,7 @@ describe('image export', () => {
         mocks.atomicReplace.mockReset();
         mocks.makeSiblingTempPath.mockClear();
         mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -136,7 +145,16 @@ describe('image export', () => {
                     ? 'jpg'
                     : 'tif';
 
-            for (let page = 1; page <= mocks.renderPageCount; page += 1) {
+            const firstPageArgIndex = args.indexOf('-f');
+            const lastPageArgIndex = args.indexOf('-l');
+            const firstPage = firstPageArgIndex >= 0
+                ? Number.parseInt(String(args[firstPageArgIndex + 1]), 10)
+                : 1;
+            const lastPage = lastPageArgIndex >= 0
+                ? Number.parseInt(String(args[lastPageArgIndex + 1]), 10)
+                : mocks.renderPageCount;
+
+            for (let page = firstPage; page <= lastPage; page += 1) {
                 const pageBytes = extension === 'tif'
                     ? Buffer.from(UTIF.encodeImage(new Uint8Array([
                         page === 1 ? 255 : 0,
@@ -258,6 +276,7 @@ describe('image export', () => {
 
     it('uses sibling temp and atomic replace for image export EXDEV fallback', async () => {
         mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
         mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
 
         const outputPath = join(tempDir, 'exported.png');
@@ -273,6 +292,7 @@ describe('image export', () => {
 
     it('keeps an existing image target when EXDEV atomic replacement fails', async () => {
         mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
         mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
         mocks.atomicReplace.mockRejectedValue(new Error('replace failed'));
 

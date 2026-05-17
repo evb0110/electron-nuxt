@@ -65,6 +65,7 @@ export const useDjvu = () => {
         isPartial: boolean 
     }) => void) | null = null;
     let openDjvuGeneration = 0;
+    let conversionGeneration = 0;
 
     function logSuppressedError(action: string, error: unknown) {
         BrowserLogger.warn('djvu', action, error);
@@ -239,6 +240,8 @@ export const useDjvu = () => {
     setupViewingReadyListener();
     setupViewingErrorListener();
     onUnmounted(() => {
+        invalidatePendingDjvuOpen();
+        conversionGeneration += 1;
         void cancelActiveJobs();
         void releaseViewingPath(djvuSourcePath.value);
         teardownListeners();
@@ -305,13 +308,14 @@ export const useDjvu = () => {
             return;
         }
 
+        const generation = ++conversionGeneration;
         const djvu = getDjvuCapability();
         const documents = getDocumentsCapability();
 
         const suggestedName = (getDocumentRefBaseName(djvuSourcePath.value) ?? t('djvu.documentFallback'))
             .replace(/\.djvu?$/i, '.pdf');
         const savePath = await documents.savePdfDialog(suggestedName);
-        if (!savePath) {
+        if (!savePath || generation !== conversionGeneration) {
             return;
         }
 
@@ -340,6 +344,10 @@ export const useDjvu = () => {
                 },
             );
 
+            if (generation !== conversionGeneration) {
+                return;
+            }
+
             if (!result.success || !result.pdfPath) {
                 BrowserLogger.error('djvu', 'Conversion failed', result.error);
                 viewingError.value = result.error ?? t('errors.djvu.convert');
@@ -356,6 +364,10 @@ export const useDjvu = () => {
             exitDjvuMode();
             activeViewingJobId.value = null;
 
+            if (generation !== conversionGeneration) {
+                return;
+            }
+
             if (tempPath) {
                 try {
                     await djvu.cleanupTemp(tempPath);
@@ -365,6 +377,9 @@ export const useDjvu = () => {
             }
 
             const openResult = await documents.openPdfDirect(result.pdfPath);
+            if (generation !== conversionGeneration) {
+                return;
+            }
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
                 setOriginalPath?.(openResult.originalPath);
@@ -395,6 +410,13 @@ export const useDjvu = () => {
     }
 
     async function cancelActiveJobs() {
+        if (
+            conversionState.value.isConverting
+            || activeConvertJobId.value
+            || pendingConvertCancel.value
+        ) {
+            conversionGeneration += 1;
+        }
         const ids = new Set<string>();
         if (activeViewingJobId.value) {
             ids.add(activeViewingJobId.value);

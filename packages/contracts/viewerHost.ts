@@ -74,7 +74,7 @@ export interface IViewerSearchCapability {
 
 export interface IViewerSettingsCapability {
     get(): Promise<ISettingsData>;
-    save(settings: ISettingsData): Promise<void>;
+    save(settings: Partial<ISettingsData>): Promise<void>;
 }
 
 export interface IViewerHostApi {

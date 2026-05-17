@@ -52,7 +52,9 @@ export async function savePdfAs(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    await ensureWorkingCopyDirectory(normalizedWorkingPath);
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     if (!existsSync(normalizedWorkingPath)) {
         throw new Error(`File not found: ${normalizedWorkingPath}`);
     }
@@ -142,7 +144,9 @@ export async function savePdfDataAs(
 
         await atomicReplace(tempPath, targetPath);
         replaced = true;
-        await ensureWorkingCopyDirectory(normalizedWorkingPath);
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+            throw new Error('Working copy path is not managed');
+        }
         await copyFile(targetPath, normalizedWorkingPath);
         setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath);
         allowOpenPath(targetPath, event.sender);

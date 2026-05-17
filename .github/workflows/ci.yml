@@ -39,5 +39,14 @@ jobs:
       - name: Validate
         run: pnpm run validate
 
+      - name: Install landing dependencies
+        run: pnpm --dir landing install --frozen-lockfile
+
+      - name: Landing typecheck
+        run: pnpm --dir landing run typecheck
+
+      - name: Landing build
+        run: pnpm --dir landing run build
+
       - name: Unit and integration tests
         run: pnpm run test:release

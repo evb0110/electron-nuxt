@@ -375,6 +375,14 @@ function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
     parentPort?.postMessage(payload);
 }
 
+function sendCleanupComplete(jobId: string) {
+    const payload: TOcrWorkerOutboundMessage = {
+        type: 'cleanup-complete',
+        jobId,
+    };
+    parentPort?.postMessage(payload);
+}
+
 async function acquireOcrResourceSlot(
     jobId: string,
     pageNumber: number,
@@ -900,6 +908,7 @@ async function processOcrJob(
     } finally {
         activeJobControllers.delete(jobId);
         await cleanupTempFiles(tempFiles, keepFiles);
+        sendCleanupComplete(jobId);
     }
 }
 

@@ -41,7 +41,7 @@ interface ICoreInvokeMap {
         result: ISettingsData;
     };
     'settings:save': {
-        args: [settings: ISettingsData];
+        args: [settings: Partial<ISettingsData>];
         result: undefined;
     };
     'updates:getState': {
@@ -216,7 +216,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
 
         settings: {
             get: () => invokeWithStartupTrace('settings:get', () => invokeCore('settings:get')),
-            save: (settings: ISettingsData) => invokeCore('settings:save', settings),
+            save: (settings: Partial<ISettingsData>) => invokeCore('settings:save', settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
             onDebugLog: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onPayload('debug:log', callback),

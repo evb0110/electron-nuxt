@@ -319,12 +319,6 @@ export async function handleDjvuConvertToPdf(
                 percent: 0,
             });
 
-            const outlinePromise = (options.preserveBookmarks !== false)
-                ? getDjvuOutline(djvuPath, { signal: abortController.signal })
-                    .then(sexp => parseDjvuOutline(sexp))
-                    .catch(() => [] as IPdfBookmarkEntry[])
-                : Promise.resolve([] as IPdfBookmarkEntry[]);
-
             const convertResult = await convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
                 ...(subsample > 1 ? { subsample } : {}),
                 pageCount,
@@ -346,7 +340,11 @@ export async function handleDjvuConvertToPdf(
             }
             throwIfCanceled(jobId);
 
-            const bookmarks = await outlinePromise;
+            const bookmarks = options.preserveBookmarks !== false
+                ? await getDjvuOutline(djvuPath, { signal: abortController.signal })
+                    .then(sexp => parseDjvuOutline(sexp))
+                    .catch(() => [] as IPdfBookmarkEntry[])
+                : [];
             if (bookmarks.length > 0) {
                 throwIfCanceled(jobId);
                 safeSendToWindow(window, 'djvu:progress', {

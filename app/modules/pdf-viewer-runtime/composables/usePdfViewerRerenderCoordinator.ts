@@ -151,6 +151,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             : fitMode.value === 'width';
     }
 
+    function isFitHeightZoomModeActive() {
+        return zoomMode
+            ? zoomMode.value === 'fit-height'
+            : fitMode.value === 'height';
+    }
+
     function shouldDisableHorizontalAnchorRestore() {
         if (!isFitWidthZoomModeActive()) {
             return false;
@@ -163,7 +169,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     }
 
     function resolveRerenderBufferOverride(source: string) {
-        if (source === 'zoom-change' || source === 'zoom-settle' || source === 'fit-mode') {
+        if (
+            source === 'zoom-change'
+            || source === 'zoom-settle'
+            || source === 'fit-mode'
+            || source === 'fit-height-current-page'
+            || source === 'fit-width-current-page'
+        ) {
             return 0;
         }
         return undefined;
@@ -359,8 +371,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     watch(currentPage, async (next, previous) => {
         if (
             next === previous
-            || fitMode.value !== 'width'
-            || !isFitWidthZoomModeActive()
+            || !(
+                (fitMode.value === 'width' && isFitWidthZoomModeActive())
+                || (fitMode.value === 'height' && isFitHeightZoomModeActive())
+            )
             || continuousScroll.value
             || !pdfDocument.value
             || isLoading.value
@@ -381,7 +395,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         });
         cancelInFlightPageRenders?.();
         await reRenderVisiblePagesAndSyncCurrentPage({
-            source: 'fit-width-current-page',
+            source: fitMode.value === 'height'
+                ? 'fit-height-current-page'
+                : 'fit-width-current-page',
             stabilize: true,
             resizeAnchor,
         });

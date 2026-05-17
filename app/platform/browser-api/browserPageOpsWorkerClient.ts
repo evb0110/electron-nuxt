@@ -18,6 +18,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
+const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
 
 export class BrowserPageOpsWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -70,6 +71,7 @@ const browserPageOpsWorkerClient = new BrowserWorkerClient<
     IPendingBrowserWorkerRequest
 >({
     idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
+    requestTimeoutMs: BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => {
         try {
             return new Worker(
@@ -101,18 +103,21 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
     const worker = browserPageOpsWorkerClient.getWorker();
 
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
-        browserPageOpsWorkerClient.clearIdleTerminateTimer();
-        browserPageOpsWorkerClient.pendingRequests.set(request.id, {
+        browserPageOpsWorkerClient.registerPendingRequest(request.id, {
             resolve: (value) => resolve(value as IBrowserPageOpsWorkerResultMap[K]),
             reject,
-        });
+        }, () => new BrowserPageOpsWorkerUnavailableError(
+            `Browser page operation worker request timed out after ${BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS}ms`,
+        ));
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(request as TBrowserPageOpsWorkerRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
-            browserPageOpsWorkerClient.pendingRequests.delete(request.id);
-            reject(error instanceof Error ? error : new Error(String(error)));
+            browserPageOpsWorkerClient.cancelPendingRequest(
+                request.id,
+                error instanceof Error ? error : new Error(String(error)),
+            );
         }
     });
 }

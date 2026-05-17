@@ -478,17 +478,45 @@ function handleWorkerMessage(
                 log.debug(`Ignoring late OCR completion for inactive job "${requestId}"`);
                 return;
             }
-            if (message.result.success) {
-                pendingResultFileStore.track(scopedJobId, requestId, webContentsId, message.result.pdfPath);
+            const activeJob = activeJobs.get(scopedJobId);
+            if (activeJob) {
+                activeJob.pendingCompletionResult = message.result;
+            }
+            return;
+        }
+        case 'cleanup-complete': {
+            if (message.jobId !== requestId) {
+                log.warn(`Ignoring OCR cleanup completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
+                return;
+            }
+            if (!isCurrentActiveWorker(scopedJobId, worker)) {
+                log.debug(`Ignoring late OCR cleanup completion for inactive job "${requestId}"`);
+                return;
+            }
+
+            const result = activeJobs.get(scopedJobId)?.pendingCompletionResult;
+            if (!result) {
+                log.warn(`OCR cleanup completed before result for job "${requestId}"`);
+                safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
+                    requestId,
+                    success: false,
+                    errors: ['OCR worker completed cleanup before sending a result'],
+                });
+                terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker cleanup completed without result' });
+                return;
+            }
+
+            if (result.success) {
+                pendingResultFileStore.track(scopedJobId, requestId, webContentsId, result.pdfPath);
                 void pendingResultFileStore.evictStale();
             }
 
             safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
                 requestId,
-                ...message.result,
+                ...result,
             });
 
-            terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker reported completion' });
+            terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker reported cleanup completion' });
             return;
         }
         default:
@@ -520,6 +548,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
         worker,
         completed: false,
         terminatedByUs: false,
+        pendingCompletionResult: null,
         startedAtMs: Date.now(),
         watchdogTimer: null,
     };
