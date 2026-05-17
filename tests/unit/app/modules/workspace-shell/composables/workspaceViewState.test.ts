@@ -29,6 +29,8 @@ function createState(options?: { dragMode?: boolean; }) {
         hasOpenAnnotationNotes: ref(false),
         canUndoHistory: ref(false),
         canRedoHistory: ref(false),
+        currentPage: ref(1),
+        totalPages: ref(1),
         pdfViewerRef: ref({
             scrollToPage: () => {},
             cancelCommentPlacement: () => {},
@@ -83,6 +85,8 @@ describe('useWorkspaceViewState', () => {
             hasOpenAnnotationNotes: ref(false),
             canUndoHistory: ref(false),
             canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(1),
             pdfViewerRef: ref({
                 scrollToPage: () => {},
                 cancelCommentPlacement: () => {},

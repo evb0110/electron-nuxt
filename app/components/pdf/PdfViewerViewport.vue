@@ -27,6 +27,8 @@
             :page="page"
             :show-skeleton="shouldShowSkeleton(page)"
             :spread-single="isSpreadSingle(page)"
+            :buffered="isBufferedPage(page)"
+            :rendered="isRenderedPage(page)"
             :placeholder-style="getPagePlaceholderStyle(page)"
             :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
             :placed-image-busy="isPendingImagePlacementFinalizing"
@@ -60,6 +62,8 @@ interface IProps {
     pagesToRender: number[];
     shouldShowSkeleton: (page: number) => boolean;
     isSpreadSingle: (page: number) => boolean;
+    isBufferedPage: (page: number) => boolean;
+    isRenderedPage: (page: number) => boolean;
     getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
     topVirtualSpacerStyle?: Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
@@ -74,6 +78,8 @@ const {
     pagesToRender,
     shouldShowSkeleton,
     isSpreadSingle,
+    isBufferedPage,
+    isRenderedPage,
     getPagePlaceholderStyle,
     topVirtualSpacerStyle = null,
     bottomVirtualSpacerStyle = null,

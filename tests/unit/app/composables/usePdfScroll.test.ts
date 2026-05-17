@@ -35,11 +35,12 @@ function createContainerStub() {
     };
 }
 
-function createPageElementStub(pageNumber: number, top: number, height: number) {
+function createPageElementStub(pageNumber: number, top: number, height: number, buffered = false) {
     return cast<HTMLElement>({
         dataset: { page: String(pageNumber) },
         offsetTop: top,
         offsetHeight: height,
+        classList: { contains: (className: string) => buffered && className === 'page_container--buffered' },
     });
 }
 
@@ -123,6 +124,31 @@ describe('usePdfScroll page layout fallback', () => {
             end: 5,
         });
         expect(scroll.getMostVisiblePage(container, 10)).toBe(5);
+    });
+
+    it('ignores offscreen buffered pages when resolving visible page state', () => {
+        const bufferedPage = createPageElementStub(2, 0, 300, true);
+        const activePage = createPageElementStub(4, 20, 180);
+        const container = cast<HTMLElement>({
+            clientHeight: 200,
+            clientWidth: 200,
+            scrollHeight: 240,
+            scrollWidth: 200,
+            scrollLeft: 0,
+            scrollTop: 0,
+            querySelector: () => null,
+            querySelectorAll: () => [
+                bufferedPage,
+                activePage,
+            ],
+        });
+        const scroll = usePdfScroll();
+
+        expect(scroll.getVisiblePageRange(container, 10)).toEqual({
+            start: 4,
+            end: 4,
+        });
+        expect(scroll.getMostVisiblePage(container, 10)).toBe(4);
     });
 
     it('scrolls to spread rows using row-aware layout metrics', () => {

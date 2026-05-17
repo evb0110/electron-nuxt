@@ -49,6 +49,10 @@ function getPageNumberFromElement(element: HTMLElement) {
     return normalizePageNumber(element.dataset.page);
 }
 
+function isBufferedPageElement(element: HTMLElement) {
+    return element.classList?.contains('page_container--buffered') === true;
+}
+
 function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics {
     const viewportTop = container.scrollTop;
     const viewportBottom = viewportTop + container.clientHeight;
@@ -60,6 +64,10 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
     let maxVisibleArea = 0;
 
     for (const pageElement of pageContainers) {
+        if (isBufferedPageElement(pageElement)) {
+            continue;
+        }
+
         const pageNumber = getPageNumberFromElement(pageElement);
         if (!pageNumber) {
             continue;
@@ -175,6 +183,10 @@ export function getVisiblePageDebugSnapshot(
     const pageContainers = container.querySelectorAll<HTMLElement>('.page_container');
 
     for (const pageElement of pageContainers) {
+        if (isBufferedPageElement(pageElement)) {
+            continue;
+        }
+
         const pageNumber = getPageNumberFromElement(pageElement);
         if (!pageNumber || pageNumber > totalPages) {
             continue;
