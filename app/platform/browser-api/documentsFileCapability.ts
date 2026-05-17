@@ -42,6 +42,7 @@ import {
     assertBrowserPathWithinFullReadBudget,
     saveWorkingBytesToSource,
 } from '@app/platform/browser-api/browserSaveTargets';
+import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
 import { stripPdfEncryption } from '@app/utils/pdfDecrypt';
 
 export { createCombinedPdfFromPaths };
@@ -484,15 +485,27 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.recoverRecentFilesIfStorageMissing();
                 const recentFiles = browserDocumentStore.getRecentFiles();
                 const validatedFiles: IRecentFile[] = [];
+                let shouldBackfillStorage = false;
 
                 for (const file of recentFiles) {
                     const entry = await browserDocumentStore.ensureEntry(file.originalPath);
                     if (entry && entry.retention !== 'transient') {
-                        validatedFiles.push(file);
+                        const fileSize = typeof file.fileSize === 'number'
+                            ? file.fileSize
+                            : entry.fileSize;
+                        shouldBackfillStorage ||= fileSize !== file.fileSize;
+                        validatedFiles.push({
+                            ...file,
+                            fileSize,
+                        });
                         continue;
                     }
 
                     await browserDocumentStore.removeRecentFile(file.originalPath);
+                }
+
+                if (shouldBackfillStorage) {
+                    writeRecentFilesToStorage(validatedFiles);
                 }
 
                 return validatedFiles;

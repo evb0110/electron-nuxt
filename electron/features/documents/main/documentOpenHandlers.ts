@@ -27,7 +27,7 @@ import {
 } from '@electron/features/documents/main/documentOpen.service';
 import {
     errorWithDetails,
-    getOpenDialogParentWindow,
+    getDialogParentWindow,
     showOpenDocumentDialog,
 } from '@electron/features/documents/main/documentDialogCommon';
 
@@ -119,7 +119,7 @@ export async function handleOpenPdfDirectBatch(
 }
 
 export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
-    const result = await showOpenDocumentDialog({
+    const result = await showOpenDocumentDialog(event, {
         title: te('dialogs.openDocument'),
         extensions: [
             'pdf',
@@ -142,7 +142,7 @@ export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): P
 }
 
 export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
-    const parentWindow = getOpenDialogParentWindow();
+    const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: te('dialogs.openFolder'),
         properties: ['openDirectory'],
@@ -190,7 +190,7 @@ export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent)
 }
 
 export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
-    const result = await showOpenDocumentDialog({
+    const result = await showOpenDocumentDialog(event, {
         title: te('dialogs.combineFiles'),
         extensions: [
             'pdf',
@@ -211,7 +211,7 @@ export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent
 }
 
 export async function handleOpenImageDialog(event: Electron.IpcMainInvokeEvent): Promise<string | null> {
-    const parentWindow = getOpenDialogParentWindow();
+    const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: te('dialogs.openImage'),
         filters: [{

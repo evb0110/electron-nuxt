@@ -14,6 +14,7 @@ import { getErrorMessage } from '@app/utils/error';
 interface IPendingWorkerRequest {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
+    timeoutTimer?: ReturnType<typeof setTimeout> | null;
     onProgress?: TBrowserSearchWorkerProgressHandler;
 }
 
@@ -23,6 +24,7 @@ type TBrowserSearchWorkerProgressHandler = (progress: {
 }) => void;
 
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
+const BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS = 60_000;
 
 class BrowserSearchWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -46,7 +48,12 @@ function settleSearchWorkerResponse(
         return;
     }
 
+    const timeoutTimer = pending.timeoutTimer;
     pendingWorkerRequests.delete(result.id);
+    if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        pending.timeoutTimer = null;
+    }
     if (result.ok) {
         pending.resolve(result.data);
         scheduleIdleWorkerTermination();
@@ -66,6 +73,7 @@ const browserSearchWorkerClient = new BrowserWorkerClient<
     IPendingWorkerRequest
 >({
     idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
+    requestTimeoutMs: BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS,
     createWorker: () => {
         try {
             return new Worker(
@@ -102,18 +110,21 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
 
     const promise: Promise<IBrowserSearchWorkerResultMap[K]> =
         new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-            browserSearchWorkerClient.clearIdleTerminateTimer();
-            browserSearchWorkerClient.pendingRequests.set(request.id, {
+            browserSearchWorkerClient.registerPendingRequest(request.id, {
                 resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
                 reject,
                 ...(onProgress ? { onProgress } : {}),
-            });
+            }, () => new BrowserSearchWorkerUnavailableError(
+                `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
+            ));
 
             try {
                 worker.postMessage(request);
             } catch (error) {
-                browserSearchWorkerClient.pendingRequests.delete(request.id);
-                reject(error instanceof Error ? error : new Error(String(error)));
+                browserSearchWorkerClient.cancelPendingRequest(
+                    request.id,
+                    error instanceof Error ? error : new Error(String(error)),
+                );
             }
         });
 
@@ -139,10 +150,14 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
     return postBrowserSearchWorkerRequest(type, payload, options.onProgress);
 }
 
-export async function cancelBrowserSearchWorkerRequest(requestId: number) {
+export function cancelBrowserSearchWorkerRequest(requestId: number) {
     if (!browserSearchWorkerClient.hasWorker()) {
         return;
     }
 
-    await runBrowserSearchWorkerRequest('cancel', { requestId });
+    browserSearchWorkerClient.cancelPendingRequest(
+        requestId,
+        new Error('ERR_BROWSER_SEARCH_CANCELED'),
+        { resetWorker: true },
+    );
 }

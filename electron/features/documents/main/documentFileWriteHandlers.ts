@@ -22,7 +22,9 @@ export async function handleFileWrite(
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
 
-    await ensureWorkingCopyDirectory(resolvedPath);
+    if (!await ensureWorkingCopyDirectory(resolvedPath)) {
+        throw new Error('Invalid file path: writes require a managed working copy');
+    }
     try {
         await writeFileAtomic(resolvedPath, payload);
     } catch (error) {
@@ -30,7 +32,9 @@ export async function handleFileWrite(
         if (code !== 'ENOENT' && code !== 'ENOTDIR') {
             throw error;
         }
-        await ensureWorkingCopyDirectory(resolvedPath);
+        if (!await ensureWorkingCopyDirectory(resolvedPath)) {
+            throw new Error('Invalid file path: writes require a managed working copy');
+        }
         await writeFileAtomic(resolvedPath, payload);
     }
     return true;

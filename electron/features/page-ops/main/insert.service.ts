@@ -69,7 +69,9 @@ async function prepareInsertionSourcePdf(
         };
     }
 
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const mergedPdf = await createPdfFromInputPaths(sourcePaths);
     const tempSourcePdfPath = join(
         workingCopyPath,
@@ -100,7 +102,9 @@ export async function insertPagesFromSourcePaths(
     sourcePaths: TOpenPath[],
     afterPage: number,
 ) {
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const qpdf = getNativeToolPaths().qpdf;
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 

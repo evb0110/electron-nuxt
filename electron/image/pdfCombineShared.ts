@@ -11,6 +11,7 @@ import {
     readImageDpi,
     readTiffFrameDpi,
 } from '@electron/image/imageDpi';
+import { parseIntegerEnv } from '@electron/utils/env';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -24,6 +25,13 @@ interface ICreateCombinedPdfOptions {
     onProgress?: (progress: ICreateCombinedPdfProgress) => void;
     unsupportedFileError: (sourcePath: string) => string;
     appendDjvuPages?: (targetPdf: PDFDocument, sourcePath: string) => Promise<number>;
+}
+
+export interface IPdfCombineResourceLimits {
+    maxPages: number;
+    maxTiffFrames: number;
+    maxImagePixels: number;
+    maxOutputBytes: number;
 }
 
 export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
@@ -40,6 +48,37 @@ export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
 const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 );
+const DEFAULT_RESOURCE_LIMITS: IPdfCombineResourceLimits = {
+    maxPages: parseIntegerEnv('EVB_PDF_COMBINE_MAX_PAGES', 500, 1, 10_000),
+    maxTiffFrames: parseIntegerEnv('EVB_PDF_COMBINE_MAX_TIFF_FRAMES', 250, 1, 5_000),
+    maxImagePixels: parseIntegerEnv('EVB_PDF_COMBINE_MAX_IMAGE_PIXELS', 80_000_000, 1_000_000),
+    maxOutputBytes: parseIntegerEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', 512, 1, 4096) * 1024 * 1024,
+};
+
+function getDefaultResourceLimits(): IPdfCombineResourceLimits {
+    return { ...DEFAULT_RESOURCE_LIMITS };
+}
+
+function assertPageLimit(nextPageCount: number, limits: IPdfCombineResourceLimits) {
+    if (nextPageCount > limits.maxPages) {
+        throw new Error(`Combined PDF is capped at ${limits.maxPages} pages`);
+    }
+}
+
+function assertPixelLimit(width: number, height: number, sourcePath: string, limits: IPdfCombineResourceLimits) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+        throw new Error(`Image has invalid dimensions: ${sourcePath}`);
+    }
+    if (width * height > limits.maxImagePixels) {
+        throw new Error(`Image dimensions are too large to combine safely: ${sourcePath}`);
+    }
+}
+
+function assertOutputLimit(outputBytes: Uint8Array, limits: IPdfCombineResourceLimits) {
+    if (outputBytes.byteLength > limits.maxOutputBytes) {
+        throw new Error('Combined PDF output is too large to return safely');
+    }
+}
 
 async function normalizeImageWithElectron(sourcePath: string) {
     const { nativeImage } = await import('electron');
@@ -114,10 +153,13 @@ function createCombineProgress(
 async function appendPdfPages(
     targetPdf: PDFDocument,
     sourcePath: string,
+    currentPageCount: number,
+    limits: IPdfCombineResourceLimits,
 ): Promise<number> {
     const sourceBytes = await readFile(sourcePath);
     const sourcePdf = await PDFDocument.load(sourceBytes);
     const pageIndices = sourcePdf.getPageIndices();
+    assertPageLimit(currentPageCount + pageIndices.length, limits);
 
     if (pageIndices.length === 0) {
         return 0;
@@ -134,7 +176,10 @@ async function appendPdfPages(
 async function appendBitmapPage(
     targetPdf: PDFDocument,
     sourcePath: string,
+    currentPageCount: number,
+    limits: IPdfCombineResourceLimits,
 ): Promise<number> {
+    assertPageLimit(currentPageCount + 1, limits);
     const originalBytes = await readFile(sourcePath);
     const extension = extname(sourcePath).toLowerCase();
     const dpi = readImageDpi(originalBytes, extension);
@@ -147,6 +192,7 @@ async function appendBitmapPage(
     } else {
         embeddedImage = await targetPdf.embedPng(await normalizeImageWithElectron(sourcePath));
     }
+    assertPixelLimit(embeddedImage.width, embeddedImage.height, sourcePath, limits);
 
     return appendEmbeddedImagePage(targetPdf, embeddedImage, dpi);
 }
@@ -154,6 +200,8 @@ async function appendBitmapPage(
 async function appendTiffPages(
     targetPdf: PDFDocument,
     sourcePath: string,
+    currentPageCount: number,
+    limits: IPdfCombineResourceLimits,
 ): Promise<number> {
     const tiffBytes = new Uint8Array(await readFile(sourcePath));
     let addedPages = 0;
@@ -164,6 +212,11 @@ async function appendTiffPages(
         height,
         rgba,
     } of iterateDecodedTiffFrames(tiffBytes)) {
+        assertPageLimit(currentPageCount + addedPages + 1, limits);
+        if (addedPages >= limits.maxTiffFrames) {
+            throw new Error(`TIFF frame count is capped at ${limits.maxTiffFrames}: ${sourcePath}`);
+        }
+        assertPixelLimit(width, height, sourcePath, limits);
         const dpi = readTiffFrameDpi(frame as Record<string, unknown>) ?? 72;
         const pngBytes = encode({
             width,
@@ -187,12 +240,14 @@ async function appendTiffPages(
 async function appendImagePages(
     targetPdf: PDFDocument,
     sourcePath: string,
+    currentPageCount: number,
+    limits: IPdfCombineResourceLimits,
 ): Promise<number> {
     const extension = extname(sourcePath).toLowerCase();
     if (extension === '.tif' || extension === '.tiff') {
-        return appendTiffPages(targetPdf, sourcePath);
+        return appendTiffPages(targetPdf, sourcePath, currentPageCount, limits);
     }
-    return appendBitmapPage(targetPdf, sourcePath);
+    return appendBitmapPage(targetPdf, sourcePath, currentPageCount, limits);
 }
 
 export async function createCombinedPdf(
@@ -205,6 +260,7 @@ export async function createCombinedPdf(
     }
 
     const targetPdf = await PDFDocument.create();
+    const limits = getDefaultResourceLimits();
     let pageCount = 0;
     const startedAt = Date.now();
 
@@ -213,11 +269,13 @@ export async function createCombinedPdf(
         const extension = extname(sourcePath).toLowerCase();
 
         if (extension === '.pdf') {
-            pageCount += await appendPdfPages(targetPdf, sourcePath);
+            pageCount += await appendPdfPages(targetPdf, sourcePath, pageCount, limits);
         } else if (isDjvuPath(sourcePath) && options.appendDjvuPages) {
-            pageCount += await options.appendDjvuPages(targetPdf, sourcePath);
+            const addedPages = await options.appendDjvuPages(targetPdf, sourcePath);
+            assertPageLimit(pageCount + addedPages, limits);
+            pageCount += addedPages;
         } else if (isImagePath(sourcePath)) {
-            pageCount += await appendImagePages(targetPdf, sourcePath);
+            pageCount += await appendImagePages(targetPdf, sourcePath, pageCount, limits);
         } else {
             throw new Error(options.unsupportedFileError(sourcePath));
         }
@@ -235,5 +293,7 @@ export async function createCombinedPdf(
         throw new Error('No pages were generated from the input files');
     }
 
-    return targetPdf.save();
+    const outputBytes = await targetPdf.save();
+    assertOutputLimit(outputBytes, limits);
+    return outputBytes;
 }

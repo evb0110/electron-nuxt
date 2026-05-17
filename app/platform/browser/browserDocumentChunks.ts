@@ -55,11 +55,14 @@ export function toPersistedChunkRecord(value: unknown): IBrowserDocumentChunkRec
 }
 
 export async function persistChunkRecord(record: IBrowserDocumentChunkRecord) {
-    await withObjectStore(
+    const result = await withObjectStore(
         DOCUMENT_CHUNKS_STORE,
         'readwrite',
         (store) => store.put(record),
     );
+    if (result === null) {
+        throw new Error('IndexedDB document chunk write did not commit.');
+    }
 }
 
 export async function loadChunkRecord(ref: string, index: number) {
@@ -71,11 +74,14 @@ export async function loadChunkRecord(ref: string, index: number) {
 }
 
 export async function deleteChunkRecord(ref: string, index: number) {
-    await withObjectStore(
+    const result = await withObjectStore(
         DOCUMENT_CHUNKS_STORE,
         'readwrite',
         (store) => store.delete(createChunkKey(ref, index)),
     );
+    if (result === null) {
+        throw new Error('IndexedDB document chunk delete did not commit.');
+    }
 }
 
 export async function loadAllChunkKeys() {

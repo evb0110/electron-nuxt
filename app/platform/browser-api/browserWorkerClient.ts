@@ -1,6 +1,7 @@
 interface IBrowserWorkerClientOptions<TResponse, TPendingRequest> {
     createWorker: () => Worker;
     idleTtlMs: number;
+    requestTimeoutMs?: number;
     handleMessage: (
         pendingRequests: Map<number, TPendingRequest>,
         response: TResponse,
@@ -15,7 +16,10 @@ export function canUseBrowserWorker() {
 
 export class BrowserWorkerClient<
     TResponse,
-    TPendingRequest extends {reject: (error: Error) => void},
+    TPendingRequest extends {
+        reject: (error: Error) => void;
+        timeoutTimer?: ReturnType<typeof setTimeout> | null;
+    },
 > {
     public readonly pendingRequests = new Map<number, TPendingRequest>();
 
@@ -61,6 +65,7 @@ export class BrowserWorkerClient<
         const pending = Array.from(this.pendingRequests.values());
         this.pendingRequests.clear();
         this.clearIdleTerminateTimer();
+        pending.forEach(request => this.clearRequestTimeout(request));
 
         if (this.worker) {
             this.worker.removeEventListener('message', this.handleWorkerMessage);
@@ -96,6 +101,74 @@ export class BrowserWorkerClient<
         return this.worker !== null;
     }
 
+    public postToExistingWorker(message: unknown) {
+        if (!this.worker) {
+            return false;
+        }
+
+        this.worker.postMessage(message);
+        return true;
+    }
+
+    public registerPendingRequest(
+        requestId: number,
+        pendingRequest: TPendingRequest,
+        createTimeoutError: () => Error,
+    ) {
+        this.clearIdleTerminateTimer();
+        const timeoutMs = this.options.requestTimeoutMs;
+        if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+            pendingRequest.timeoutTimer = setTimeout(() => {
+                if (!this.pendingRequests.delete(requestId)) {
+                    return;
+                }
+
+                this.clearRequestTimeout(pendingRequest);
+                const timeoutError = createTimeoutError();
+                pendingRequest.reject(timeoutError);
+                this.resetWorker(timeoutError);
+            }, timeoutMs);
+        }
+
+        this.pendingRequests.set(requestId, pendingRequest);
+    }
+
+    public settlePendingRequest(
+        requestId: number,
+        settle: (pendingRequest: TPendingRequest) => void,
+    ) {
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (!pendingRequest) {
+            return false;
+        }
+
+        this.pendingRequests.delete(requestId);
+        this.clearRequestTimeout(pendingRequest);
+        settle(pendingRequest);
+        return true;
+    }
+
+    public cancelPendingRequest(
+        requestId: number,
+        error: Error,
+        options: {resetWorker?: boolean} = {},
+    ) {
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (!pendingRequest) {
+            return false;
+        }
+
+        this.pendingRequests.delete(requestId);
+        this.clearRequestTimeout(pendingRequest);
+        pendingRequest.reject(error);
+        if (options.resetWorker) {
+            this.resetWorker();
+        } else {
+            this.scheduleIdleWorkerTermination();
+        }
+        return true;
+    }
+
     private readonly handleWorkerMessage = (event: MessageEvent<TResponse>) => {
         this.options.handleMessage(
             this.pendingRequests,
@@ -121,5 +194,14 @@ export class BrowserWorkerClient<
         window.addEventListener('beforeunload', () => {
             this.resetWorker();
         });
+    }
+
+    private clearRequestTimeout(request: TPendingRequest) {
+        if (!request.timeoutTimer) {
+            return;
+        }
+
+        clearTimeout(request.timeoutTimer);
+        request.timeoutTimer = null;
     }
 }

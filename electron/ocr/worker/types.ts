@@ -92,6 +92,11 @@ export interface IOcrWorkerCompleteMessage {
     result: TOcrWorkerCompleteResult;
 }
 
+export interface IOcrWorkerCleanupCompleteMessage {
+    type: 'cleanup-complete';
+    jobId: string;
+}
+
 export interface IOcrWorkerLogMessage {
     type: 'log';
     level: TOcrWorkerLogLevel;
@@ -117,6 +122,7 @@ export interface IOcrWorkerResourceReleaseMessage {
 export type TOcrWorkerOutboundMessage =
     | IOcrWorkerProgressMessage
     | IOcrWorkerCompleteMessage
+    | IOcrWorkerCleanupCompleteMessage
     | IOcrWorkerLogMessage
     | IOcrWorkerResourceAcquireMessage
     | IOcrWorkerResourceReleaseMessage;

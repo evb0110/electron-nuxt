@@ -142,7 +142,8 @@ describe('browserSearchWorkerClient', () => {
         });
     });
 
-    it('posts cancel requests for active worker jobs', async () => {
+    it('rejects active jobs and resets the worker on cancel', async () => {
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const {
             createBrowserSearchWorkerRequest,
             cancelBrowserSearchWorkerRequest,
@@ -153,14 +154,11 @@ describe('browserSearchWorkerClient', () => {
             { pdfPath: '/tmp/pending.pdf' },
         );
         await cancelBrowserSearchWorkerRequest(workerRequest.requestId);
-        await workerRequest.promise;
+        await expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
 
         const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
-        expect(postMessages).toHaveLength(2);
-        expect(postMessages[1]).toEqual(expect.objectContaining({
-            type: 'cancel',
-            payload: { requestId: workerRequest.requestId },
-        }));
+        expect(postMessages).toHaveLength(1);
+        expect(terminateSpy).toHaveBeenCalledTimes(1);
     });
 
     it('terminates the idle worker after the TTL elapses', async () => {
@@ -170,9 +168,9 @@ describe('browserSearchWorkerClient', () => {
 
         await runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/test.pdf'});
         await vi.runAllTicks();
-        expect(terminateSpy).not.toHaveBeenCalled();
+        const terminateCallsBeforeIdleTtl = terminateSpy.mock.calls.length;
 
         await vi.advanceTimersByTimeAsync(15_000);
-        expect(terminateSpy).toHaveBeenCalledTimes(1);
+        expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeIdleTtl + 1);
     });
 });

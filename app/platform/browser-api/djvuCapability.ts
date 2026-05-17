@@ -349,7 +349,9 @@ async function renderDjvuPage(
 async function mapDjvuContentsToPdfBookmarks(
     worker: IDjvuWorker,
     items: IDjvuContentsItem[] | null | undefined,
+    signal?: AbortSignal,
 ): Promise<IPdfBookmarkEntry[]> {
+    throwIfCanceled(signal);
     if (!items || items.length === 0) {
         return [];
     }
@@ -357,12 +359,14 @@ async function mapDjvuContentsToPdfBookmarks(
     const bookmarks: IPdfBookmarkEntry[] = [];
 
     for (const item of items) {
+        throwIfCanceled(signal);
         const pageNumber = item.url
             ? await worker.doc.getPageNumberByUrl(item.url).run().catch(() => null)
             : null;
         const children = await mapDjvuContentsToPdfBookmarks(
             worker,
             item.children,
+            signal,
         );
 
         bookmarks.push({
@@ -556,10 +560,13 @@ async function buildPdfWithOptionalBookmarks(options: {
     try {
         let bookmarks: IPdfBookmarkEntry[] = [];
         if (options.preserveBookmarks) {
+            throwIfCanceled(options.signal);
             const contents = await options.worker.doc.getContents().run().catch(() => null);
+            throwIfCanceled(options.signal);
             bookmarks = await mapDjvuContentsToPdfBookmarks(
                 options.worker,
                 contents,
+                options.signal,
             );
         }
 

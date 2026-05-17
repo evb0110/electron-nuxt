@@ -51,6 +51,11 @@ async function validateWorkingCopyPath(path: unknown): Promise<string> {
         throw new Error('Invalid working copy path');
     }
 
+    const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedPath);
+    if (!isManagedWorkingCopy) {
+        throw new Error('Path is not a managed working copy');
+    }
+
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
         throw new Error('Path is outside the allowed working directory');
@@ -63,7 +68,6 @@ async function validateWorkingCopyPath(path: unknown): Promise<string> {
 }
 
 async function validateQueuedWorkingCopyPath(path: string): Promise<string> {
-    await ensureWorkingCopyDirectory(path);
     return validateWorkingCopyPath(path);
 }
 
@@ -76,7 +80,6 @@ async function resolveWorkingCopyPath(path: unknown): Promise<string> {
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
     const workingCopyPath = mappedWorkingCopyPath ?? normalizedPath;
 
-    await ensureWorkingCopyDirectory(workingCopyPath);
     return validateWorkingCopyPath(workingCopyPath);
 }
 
@@ -149,7 +152,7 @@ async function handlePageOpsExtract(
     const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
     const rangeLabel = formatPageRange(pages);
     const suggestedName = `${baseName} (${rangeLabel}).pdf`;
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions = {
         title: te('dialogs.extractPages'),
         defaultPath: suggestedName,
@@ -215,7 +218,7 @@ async function handlePageOpsInsert(
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath);
 
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions = {
         title: te('dialogs.insertPagesFromPdf'),
         filters: [{

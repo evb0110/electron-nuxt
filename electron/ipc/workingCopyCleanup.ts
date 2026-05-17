@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { statSync } from 'fs';
 import {
     readdir,
@@ -24,6 +23,7 @@ import {
     isWorkingCopyDirectoryName,
     safeRemoveDirectory,
 } from '@electron/ipc/workingCopyDirectory';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('working-copy');
 const STALE_WORK_DIR_MAX_AGE_MS = (() => {
@@ -42,7 +42,7 @@ const STALE_WORK_DIR_SCAN_LIMIT = (() => {
 })();
 
 export async function cleanupStaleWorkingCopyDirectories() {
-    const tempDir = resolve(app.getPath('temp'));
+    const tempDir = resolve(getAppTempDir());
     let entries: string[] = [];
     try {
         entries = await readdir(tempDir);
@@ -120,7 +120,7 @@ async function cleanupWorkingCopyDirectory(workingPath: string) {
     }
 
     try {
-        const tempDir = resolve(app.getPath('temp'));
+        const tempDir = resolve(getAppTempDir());
         const workDir = resolve(dirname(normalizedPath));
         const relativePath = relative(tempDir, workDir);
         const workDirName = basename(workDir);
@@ -156,7 +156,13 @@ export function cleanupWorkingCopy(workingPath: string) {
         return;
     }
 
-    rememberRetiredWorkingCopyOriginal(normalizedPath, workingCopyMap.get(normalizedPath));
+    const originalPath = workingCopyMap.get(normalizedPath);
+    if (!originalPath) {
+        logger.warn(`Rejected cleanup for unmanaged working copy path "${normalizedPath}"`);
+        return;
+    }
+
+    rememberRetiredWorkingCopyOriginal(normalizedPath, originalPath);
     workingCopyMap.delete(normalizedPath);
     cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {
         logger.warn(`Failed to cleanup working copy directory "${normalizedPath}": ${getErrorMessage(err)}`);

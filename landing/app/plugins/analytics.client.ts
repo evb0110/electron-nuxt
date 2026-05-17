@@ -6,7 +6,7 @@ export default defineNuxtPlugin(() => {
             return;
         }
 
-        fetch('/api/analytics/page-view', {
+        fetch('/api/analytics/pageView', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

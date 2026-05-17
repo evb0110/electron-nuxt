@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import {
     existsSync,
     mkdirSync,
@@ -29,6 +28,7 @@ import {
 import { isAllowedOriginalSavePath } from '@electron/ipc/workingCopyValidation';
 import { WorkingCopyMissingError } from '@electron/ipc/workingCopyMissingError';
 import { createLogger } from '@electron/utils/logger';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('working-copy');
 
@@ -127,7 +127,7 @@ export async function ensureWorkingCopyDirectory(workingPath: string) {
     }
     const { originalPath } = mapping;
 
-    const tempDir = resolve(app.getPath('temp'));
+    const tempDir = resolve(getAppTempDir());
     const parentDir = resolve(dirname(normalizedWorkingPath));
     const relativePath = relative(tempDir, parentDir);
     const isWithinTemp = (

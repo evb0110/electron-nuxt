@@ -1,5 +1,4 @@
 import {
-    app,
     BrowserWindow,
     shell,
 } from 'electron';
@@ -22,6 +21,8 @@ import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 import { extractPages } from '@electron/features/page-ops/public';
+import { parseIntegerEnv } from '@electron/utils/env';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -34,6 +35,9 @@ const PRINT_DATA_TEMP_PREFIX = 'print-data-';
 const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
 const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
+const MAX_PRINT_PDF_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 256, 1, 2048) * 1024 * 1024;
+const PDF_HEADER_SCAN_BYTES = 1024;
+const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
 const scheduledPrintTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -68,6 +72,52 @@ function normalizePrintableFileName(fileName?: string) {
 
 function toOwnedBuffer(data: Uint8Array) {
     return Buffer.from(data);
+}
+
+function includesAsciiToken(data: Uint8Array, token: string, start: number, end: number) {
+    const tokenBytes = Buffer.from(token, 'ascii');
+    const lastStart = end - tokenBytes.byteLength;
+    for (let offset = start; offset <= lastStart; offset += 1) {
+        let matches = true;
+        for (let index = 0; index < tokenBytes.byteLength; index += 1) {
+            if (data[offset + index] !== tokenBytes[index]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function validatePdfBytesForHandoff(data: Uint8Array, label: string) {
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+        throw new Error(`Invalid ${label} payload`);
+    }
+    if (data.byteLength > MAX_PRINT_PDF_BYTES) {
+        throw new Error(`${label} payload is too large`);
+    }
+
+    const headerEnd = Math.min(data.byteLength, PDF_HEADER_SCAN_BYTES);
+    const eofStart = Math.max(0, data.byteLength - PDF_EOF_SCAN_BYTES);
+    if (
+        !includesAsciiToken(data, '%PDF-', 0, headerEnd)
+        || !includesAsciiToken(data, '%%EOF', eofStart, data.byteLength)
+    ) {
+        throw new Error(`${label} payload is not a valid PDF`);
+    }
+}
+
+async function assertPdfPathWithinSizeLimit(filePath: string) {
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile()) {
+        throw new Error('Invalid PDF path');
+    }
+    if (fileStat.size > MAX_PRINT_PDF_BYTES) {
+        throw new Error('PDF file is too large');
+    }
 }
 
 function scheduleDefaultAppTempCleanup(path: string, delayMs = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS) {
@@ -129,7 +179,7 @@ function shouldSweepManagedTempPdf(entry: string) {
 }
 
 export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_MAX_AGE_MS) {
-    const tempDir = app.getPath('temp');
+    const tempDir = getAppTempDir();
     const now = Date.now();
 
     let entries: string[] = [];
@@ -185,6 +235,7 @@ async function resolveAllowedPdfPath(filePath: string) {
     if (!resolvedPath || extname(resolvedPath).toLowerCase() !== '.pdf') {
         throw new Error('Invalid PDF path');
     }
+    await assertPdfPathWithinSizeLimit(resolvedPath);
     return resolvedPath;
 }
 
@@ -309,13 +360,11 @@ export async function handlePrintPdfData(
     data: Uint8Array,
     fileName?: string,
 ): Promise<IPrintPdfResult> {
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
-        throw new Error('Invalid print payload');
-    }
+    validatePdfBytesForHandoff(data, 'print');
 
     const ownerWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     const tempFileName = `${PRINT_DATA_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
-    const tempPath = join(app.getPath('temp'), tempFileName);
+    const tempPath = join(getAppTempDir(), tempFileName);
     let shouldRetainTempPdf = false;
 
     try {
@@ -338,12 +387,10 @@ export async function handleOpenPdfInDefaultAppData(
     data: Uint8Array,
     fileName?: string,
 ): Promise<IOpenPdfInDefaultAppResult> {
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
-        throw new Error('Invalid PDF handoff payload');
-    }
+    validatePdfBytesForHandoff(data, 'PDF handoff');
 
     const tempFileName = `${DEFAULT_APP_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
-    const tempPath = join(app.getPath('temp'), tempFileName);
+    const tempPath = join(getAppTempDir(), tempFileName);
     try {
         await writeFile(tempPath, toOwnedBuffer(data));
         const result = await openPdfInDefaultApp(tempPath);
@@ -383,7 +430,7 @@ export async function handlePrintPdfPath(
     }
 
     const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
-    const tempPath = join(app.getPath('temp'), tempFileName);
+    const tempPath = join(getAppTempDir(), tempFileName);
     let shouldRetainTempPdf = false;
     try {
         await extractPages(resolvedPath, tempPath, normalizedPageNumbers);

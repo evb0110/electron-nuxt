@@ -8,7 +8,7 @@ import type {
 
 export interface ISettingsCapability {
     get: () => Promise<ISettingsData>;
-    save: (settings: ISettingsData) => Promise<void>;
+    save: (settings: Partial<ISettingsData>) => Promise<void>;
     getDebugLogs: () => Promise<IDebugLogEntry[]>;
     onDebugLog: (callback: (entry: IDebugLogEntry) => void) => IMenuEventUnsubscribe;
     rendererLog: (entry: IRendererLogEntry) => void;

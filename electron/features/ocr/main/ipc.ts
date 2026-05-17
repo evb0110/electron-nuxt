@@ -45,6 +45,7 @@ import {
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
+import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');
@@ -198,7 +199,8 @@ async function handleOcrValidateTools() {
 }
 
 async function validateOcrSourcePdfPath(sourcePdfPath: string): Promise<string> {
-    const resolvedPath = await resolveAllowedReadPath(sourcePdfPath);
+    const managedSourcePdfPath = await requireManagedWorkingCopyPath(sourcePdfPath);
+    const resolvedPath = await resolveAllowedReadPath(managedSourcePdfPath);
     if (!resolvedPath) {
         throw new OcrPayloadValidationError('sourcePdfPath must be inside the temporary working directory');
     }

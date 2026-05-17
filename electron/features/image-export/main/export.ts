@@ -3,6 +3,7 @@ import {
     copyFile,
     mkdir,
     mkdtemp,
+    readFile,
     readdir,
     stat,
     rename,
@@ -22,6 +23,7 @@ import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
+import { PDFDocument } from 'pdf-lib';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
@@ -39,6 +41,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { parseIntegerEnv } from '@electron/utils/env';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 
@@ -47,7 +50,10 @@ interface IRenderedPageFile {
     path: string;
 }
 
-interface IExportPdfOptions {pageNumbers?: number[];}
+interface IExportPdfOptions {
+    pageNumbers?: number[];
+    signal?: AbortSignal;
+}
 
 interface IPreparedSourcePdf {
     pdfPath: string;
@@ -58,6 +64,8 @@ const logger = createLogger('image-export');
 const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
+const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
 const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
 const TIFF_COMBINE_WORKER_FILENAME = 'image-export-tiff-worker.js';
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = (() => {
@@ -175,10 +183,42 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
-async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat): Promise<IRenderedPageFile[]> {
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw new Error('The operation was aborted');
+    }
+}
+
+async function getPdfPageCount(pdfPath: string): Promise<number> {
+    const pdf = await PDFDocument.load(await readFile(pdfPath), {
+        ignoreEncryption: true,
+        updateMetadata: false,
+    });
+    return pdf.getPageCount();
+}
+
+function assertExportPageCountWithinLimit(pageCount: number) {
+    if (!Number.isInteger(pageCount) || pageCount < 1) {
+        throw new Error('PDF export source has no pages');
+    }
+    if (pageCount > PDF_EXPORT_MAX_PAGES) {
+        throw new Error(`PDF image export is capped at ${PDF_EXPORT_MAX_PAGES} pages`);
+    }
+}
+
+async function renderPdfToTempPages(
+    pdfPath: string,
+    format: TImageExportFormat,
+    pageRange: {
+        firstPage: number;
+        lastPage: number;
+    },
+    signal?: AbortSignal,
+): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));
     const prefix = join(tempDir, 'page');
     const paths = getNativeToolPaths();
+    throwIfAborted(signal);
 
     const detectedDpi = await detectSourceDpi(
         pdfPath,
@@ -188,16 +228,23 @@ async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat)
     const renderDpi = clampDpi(detectedDpi ?? 300);
 
     try {
+        throwIfAborted(signal);
         await runNativeToolCommand(paths.pdftoppm, [
             toPdftoppmFormatArg(format),
             '-r',
             String(renderDpi),
+            '-f',
+            String(pageRange.firstPage),
+            '-l',
+            String(pageRange.lastPage),
             pdfPath,
             prefix,
         ], {
             timeoutMs: PDFTOPPM_TIMEOUT_MS,
             commandLabel: `pdftoppm(export-${format})`,
+            ...(signal ? { signal } : {}),
         });
+        throwIfAborted(signal);
 
         const fileNames = await readdir(tempDir);
         const pageFiles = sortBy(
@@ -264,6 +311,7 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
     const qpdf = getNativeToolPaths().qpdf;
 
     try {
+        throwIfAborted(options.signal);
         await runNativeToolCommand(qpdf, [
             pdfPath,
             '--pages',
@@ -274,6 +322,7 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(export-subset)',
+            ...(options.signal ? { signal: options.signal } : {}),
         });
 
         return {
@@ -292,6 +341,20 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
         });
         throw error;
     }
+}
+
+function createPageRanges(pageCount: number) {
+    const ranges: Array<{
+        firstPage: number;
+        lastPage: number;
+    }> = [];
+    for (let firstPage = 1; firstPage <= pageCount; firstPage += PDF_EXPORT_RENDER_CHUNK_PAGES) {
+        ranges.push({
+            firstPage,
+            lastPage: Math.min(pageCount, firstPage + PDF_EXPORT_RENDER_CHUNK_PAGES - 1),
+        });
+    }
+    return ranges;
 }
 
 export async function exportPdfPagesAsImages(
@@ -313,34 +376,40 @@ export async function exportPdfPagesAsImages(
     const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
 
     try {
-        const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format);
+        const pageCount = options.pageNumbers
+            ? normalizePageNumbers(options.pageNumbers)!.length
+            : await getPdfPageCount(preparedSourcePdf.pdfPath);
+        assertExportPageCountWithinLimit(pageCount);
 
-        try {
-            const exportedPaths: string[] = [];
-            const isSinglePageExport = pageFiles.length === 1;
+        const exportedPaths: string[] = [];
+        const isSinglePageExport = pageCount === 1;
+        for (const pageRange of createPageRanges(pageCount)) {
+            throwIfAborted(options.signal);
+            const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format, pageRange, options.signal);
 
-            for (let index = 0; index < pageFiles.length; index += 1) {
-                const source = pageFiles[index]!;
+            try {
+                for (const source of pageFiles) {
+                    const outputIndex = exportedPaths.length + 1;
+                    const targetPath = isSinglePageExport
+                        ? normalizedPath
+                        : join(
+                            outputDirectory,
+                            `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`,
+                        );
 
-                const targetPath = isSinglePageExport
-                    ? normalizedPath
-                    : join(
-                        outputDirectory,
-                        `${outputStem}-${String(index + 1).padStart(3, '0')}${outputExtension}`,
-                    );
-
-                await moveFile(source.path, targetPath);
-                exportedPaths.push(targetPath);
+                    throwIfAborted(options.signal);
+                    await moveFile(source.path, targetPath);
+                    exportedPaths.push(targetPath);
+                }
+            } finally {
+                const tempDir = dirname(pageFiles[0]!.path);
+                await rm(tempDir, {
+                    recursive: true,
+                    force: true,
+                });
             }
-
-            return exportedPaths;
-        } finally {
-            const tempDir = dirname(pageFiles[0]!.path);
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            });
         }
+        return exportedPaths;
     } finally {
         await preparedSourcePdf.cleanup();
     }
@@ -464,9 +533,18 @@ export async function exportPdfAsMultiPageTiff(
     const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
 
     try {
-        const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff');
+        const pageCount = options.pageNumbers
+            ? normalizePageNumbers(options.pageNumbers)!.length
+            : await getPdfPageCount(preparedSourcePdf.pdfPath);
+        assertExportPageCountWithinLimit(pageCount);
+        const pageFiles: IRenderedPageFile[] = [];
 
         try {
+            for (const pageRange of createPageRanges(pageCount)) {
+                throwIfAborted(options.signal);
+                pageFiles.push(...await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff', pageRange, options.signal));
+            }
+
             const orderedPagePaths = pageFiles
                 .sort((left, right) => left.page - right.page)
                 .map(pageFile => pageFile.path);
@@ -479,11 +557,10 @@ export async function exportPdfAsMultiPageTiff(
 
             return targetPath;
         } finally {
-            const tempDir = dirname(pageFiles[0]!.path);
-            await rm(tempDir, {
+            await Promise.all(uniq(pageFiles.map(pageFile => dirname(pageFile.path))).map(tempDir => rm(tempDir, {
                 recursive: true,
                 force: true,
-            });
+            })));
         }
     } finally {
         await preparedSourcePdf.cleanup();

@@ -1,5 +1,8 @@
 import type { Worker } from 'worker_threads';
-import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
+import type {
+    IOcrPdfPageRequest,
+    TOcrWorkerCompleteResult,
+} from '@electron/ocr/worker/types';
 
 export interface IOcrQueuedJob {
     scopedJobId: string;
@@ -25,6 +28,7 @@ export interface IOcrActiveJob extends IOcrQueuedJob {
     worker: Worker;
     completed: boolean;
     terminatedByUs: boolean;
+    pendingCompletionResult: TOcrWorkerCompleteResult | null;
     startedAtMs: number;
     watchdogTimer: NodeJS.Timeout | null;
 }

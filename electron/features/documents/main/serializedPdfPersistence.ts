@@ -196,7 +196,9 @@ export async function beginSerializedPdfSaveToOriginal(
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath);
 
-    await ensureWorkingCopyDirectory(normalizedWorkingPath);
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const session = await createSession({
         mode: 'save',
         sender: event.sender,
@@ -252,7 +254,9 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
     }
 
     if (session.mode === 'save_as') {
-        await ensureWorkingCopyDirectory(session.workingPath);
+        if (!await ensureWorkingCopyDirectory(session.workingPath)) {
+            throw new Error('Working copy path is not managed');
+        }
         await copyFile(session.tempPath, session.workingPath);
         await atomicReplace(session.tempPath, session.targetPath);
         setWorkingCopyOriginalPath(session.workingPath, session.targetPath);

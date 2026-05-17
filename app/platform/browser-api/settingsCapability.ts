@@ -99,7 +99,13 @@ export const browserSettingsCapability: ISettingsCapability = {
         return Promise.resolve(sanitizeSettings(settingsState.value));
     },
     save(settings) {
-        const nextSettings = sanitizeSettings(settings);
+        const currentSettings = browserSettingsLoaded
+            ? settingsState.value
+            : readBrowserSettingsFromStorage() ?? { ...DEFAULT_SETTINGS };
+        const nextSettings = sanitizeSettings({
+            ...currentSettings,
+            ...settings,
+        });
         settingsState.value = nextSettings;
         browserSettingsLoaded = true;
         writeBrowserSettingsToStorage(nextSettings);

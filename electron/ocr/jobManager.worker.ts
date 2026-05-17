@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,6 +56,6 @@ export function createOcrWorker(): Worker {
         popplerFontConfigDir: paths.popplerFontConfigDir,
         qpdfBinary: paths.qpdf,
         unpaperBinary: paths.unpaper,
-        tempDir: app.getPath('temp'),
+        tempDir: getAppTempDir(),
     }});
 }

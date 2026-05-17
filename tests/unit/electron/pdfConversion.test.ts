@@ -229,21 +229,18 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
-    it('falls back to in-process conversion for large worker startup failures', async () => {
+    it('rejects large inputs instead of falling back to in-process conversion after worker startup failures', async () => {
         mocks.stat.mockResolvedValue({
             isFile: () => true,
             size: 32 * 1024 * 1024,
         });
 
-        const result = await createPdfFromInputPaths(['/tmp/input.pdf']);
+        await expect(createPdfFromInputPaths(['/tmp/input.pdf']))
+            .rejects
+            .toThrow('Image combine worker startup failed and main-process fallback is disabled for inputs larger than 16MB');
 
-        expect(Array.from(result)).toEqual([
-            9,
-            9,
-            9,
-        ]);
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.create).toHaveBeenCalledTimes(1);
+        expect(mocks.create).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 

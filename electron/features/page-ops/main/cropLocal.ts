@@ -56,7 +56,9 @@ function boxesEqual(
 }
 
 async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string) {
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
     try {
         const outputBytes = await pdfDoc.save();
@@ -72,7 +74,9 @@ async function mutatePdfPages(
     workingCopyPath: string,
     mutate: (pages: ReturnType<PDFDocument['getPages']>) => void,
 ) {
-    await ensureWorkingCopyDirectory(workingCopyPath);
+    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+        throw new Error('Working copy path is not managed');
+    }
     const pdfBytes = await readFile(workingCopyPath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
     mutate(pdfDoc.getPages());

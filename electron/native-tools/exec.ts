@@ -9,6 +9,7 @@ interface IRunNativeToolCommandOptions {
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
     allowedExitCodes?: number[];
+    signal?: AbortSignal;
     commandLabel?: string;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
@@ -23,6 +24,7 @@ export async function runNativeToolCommand(
         env,
         timeoutMs,
         allowedExitCodes,
+        signal,
         commandLabel,
         log,
     } = options;
@@ -44,6 +46,9 @@ export async function runNativeToolCommand(
     }
     if (allowedExitCodes !== undefined) {
         commandOptions.allowedExitCodes = allowedExitCodes;
+    }
+    if (signal !== undefined) {
+        commandOptions.signal = signal;
     }
     if (commandLabel !== undefined) {
         commandOptions.commandLabel = commandLabel;

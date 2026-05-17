@@ -14,10 +14,15 @@ interface IUsePlatformHydratedStateOptions<T> {
 
 const loadPromises = new Map<string, Promise<unknown>>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const instanceTokens = new Map<string, number>();
+let nextInstanceToken = 1;
 
 export const usePlatformHydratedState = <T>(
     options: IUsePlatformHydratedStateOptions<T>,
 ) => {
+    const instanceToken = nextInstanceToken;
+    nextInstanceToken += 1;
+    instanceTokens.set(options.key, instanceToken);
     const state = useState<T>(`${options.key}:data`, options.initialValue);
     const isLoading = useState(`${options.key}:is-loading`, () => false);
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
@@ -33,6 +38,10 @@ export const usePlatformHydratedState = <T>(
         retryTimers.delete(options.key);
     }
 
+    function isCurrentInstance() {
+        return instanceTokens.get(options.key) === instanceToken;
+    }
+
     function scheduleRetry() {
         if (
             retryTimers.has(options.key)
@@ -44,6 +53,9 @@ export const usePlatformHydratedState = <T>(
 
         const timer = setTimeout(() => {
             retryTimers.delete(options.key);
+            if (!isCurrentInstance()) {
+                return;
+            }
             void load();
         }, options.retryDelayMs);
         retryTimers.set(options.key, timer);
@@ -62,12 +74,18 @@ export const usePlatformHydratedState = <T>(
 
             try {
                 const nextValue = await options.loadValue();
+                if (!isCurrentInstance()) {
+                    return null;
+                }
                 state.value = nextValue;
                 options.onLoaded?.(nextValue);
                 isResolved.value = true;
                 clearRetryTimer();
                 return nextValue;
             } catch (loadError) {
+                if (!isCurrentInstance()) {
+                    return null;
+                }
                 error.value = options.getErrorMessage?.(loadError)
                     ?? getErrorMessage(loadError);
                 options.onError?.(loadError);
@@ -77,9 +95,11 @@ export const usePlatformHydratedState = <T>(
                 }
                 return null;
             } finally {
-                isLoading.value = false;
+                if (isCurrentInstance()) {
+                    isLoading.value = false;
+                }
                 loadPromises.delete(options.key);
-                if (shouldRetry) {
+                if (shouldRetry && isCurrentInstance()) {
                     scheduleRetry();
                 }
             }
