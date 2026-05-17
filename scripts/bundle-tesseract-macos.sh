@@ -29,27 +29,74 @@ echo "Copying binaries and libraries..."
 # Copy tesseract binary
 cp "$BREW/bin/tesseract" "$DEST/bin/"
 
-# Copy all required dylibs
-# Core libraries
-cp "$BREW/opt/tesseract/lib/libtesseract.5.dylib" "$DEST/lib/"
-cp "$BREW/opt/leptonica/lib/libleptonica.6.dylib" "$DEST/lib/"
-cp "$BREW/opt/libarchive/lib/libarchive.13.dylib" "$DEST/lib/"
+copy_dylib() {
+  local source="$1"
+  local name
+  name="$(basename "$source")"
 
-# Leptonica dependencies (image formats)
-cp "$BREW/opt/libpng/lib/libpng16.16.dylib" "$DEST/lib/"
-cp "$BREW/opt/jpeg-turbo/lib/libjpeg.8.dylib" "$DEST/lib/"
-cp "$BREW/opt/giflib/lib/libgif.dylib" "$DEST/lib/"
-cp "$BREW/opt/libtiff/lib/libtiff.6.dylib" "$DEST/lib/"
-cp "$BREW/opt/webp/lib/libwebp.7.dylib" "$DEST/lib/"
-cp "$BREW/opt/webp/lib/libwebpmux.3.dylib" "$DEST/lib/"
-cp "$BREW/opt/webp/lib/libsharpyuv.0.dylib" "$DEST/lib/"
-cp "$BREW/opt/openjpeg/lib/libopenjp2.7.dylib" "$DEST/lib/"
+  if [ ! -f "$DEST/lib/$name" ]; then
+    cp -L "$source" "$DEST/lib/$name"
+    echo "  Copied $name"
+  fi
+}
 
-# libarchive dependencies (compression)
-cp "$BREW/opt/xz/lib/liblzma.5.dylib" "$DEST/lib/"
-cp "$BREW/opt/zstd/lib/libzstd.1.dylib" "$DEST/lib/"
-cp "$BREW/opt/lz4/lib/liblz4.1.dylib" "$DEST/lib/"
-cp "$BREW/opt/libb2/lib/libb2.1.dylib" "$DEST/lib/"
+resolve_dylib_source() {
+  local dep="$1"
+  local dep_name
+  dep_name="$(basename "$dep")"
+
+  if [[ "$dep" == "$BREW/"* ]] && [ -f "$dep" ]; then
+    echo "$dep"
+    return
+  fi
+
+  find "$BREW" -type f -name "$dep_name" -print -quit 2>/dev/null || true
+}
+
+copy_deps_recursive() {
+  local files=("$@")
+  local added=1
+
+  while [ "$added" -gt 0 ]; do
+    added=0
+    for file in "${files[@]}"; do
+      [ -f "$file" ] || continue
+
+      local deps
+      deps="$(otool -L "$file" 2>/dev/null | awk 'NR > 1 {print $1}' || true)"
+      for dep in $deps; do
+        case "$dep" in
+          /usr/lib/*|/System/*)
+            continue
+            ;;
+        esac
+
+        local dep_name
+        dep_name="$(basename "$dep")"
+        if [ -f "$DEST/lib/$dep_name" ]; then
+          continue
+        fi
+
+        local dep_source
+        dep_source="$(resolve_dylib_source "$dep")"
+        if [ -n "$dep_source" ]; then
+          copy_dylib "$dep_source"
+          files+=("$DEST/lib/$dep_name")
+          added=1
+        fi
+      done
+    done
+  done
+}
+
+# Seed with the direct libraries expected by the bundled tesseract binary.
+copy_dylib "$BREW/opt/tesseract/lib/libtesseract.5.dylib"
+copy_dylib "$BREW/opt/leptonica/lib/libleptonica.6.dylib"
+copy_dylib "$BREW/opt/libarchive/lib/libarchive.13.dylib"
+
+# Homebrew formulas gain transitive dependencies over time. Copy the closure so
+# signed app smoke tests catch missing dylibs before release packaging does.
+copy_deps_recursive "$DEST/bin/tesseract" "$DEST/lib/"*.dylib
 
 echo "Fixing library paths..."
 
@@ -91,6 +138,14 @@ TESS_DEPS="$(otool -L "$DEST/bin/tesseract" | grep "$BREW" | awk '{print $1}')" 
 for dep in $TESS_DEPS; do
   dep_name="$(basename "$dep")"
   install_name_tool -change "$dep" "@executable_path/../lib/$dep_name" "$DEST/bin/tesseract"
+done
+
+# Run another dependency pass after install-name rewriting to catch dependencies
+# that now appear as @loader_path names inside copied libraries.
+copy_deps_recursive "$DEST/bin/tesseract" "$DEST/lib/"*.dylib
+for lib in "$DEST/lib/"*.dylib; do
+  echo "  Fixing $(basename "$lib")..."
+  fix_lib "$lib"
 done
 
 echo "Verifying..."
