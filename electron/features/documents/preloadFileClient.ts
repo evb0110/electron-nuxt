@@ -141,12 +141,12 @@ async function streamPdfBytesToPersistencePort(
     let seq = 0;
     for (let offset = 0; offset < data.byteLength; offset += PDF_PERSISTENCE_CHUNK_BYTES) {
         const end = Math.min(offset + PDF_PERSISTENCE_CHUNK_BYTES, data.byteLength);
-        const bytes = data.buffer.slice(data.byteOffset + offset, data.byteOffset + end);
+        const bytes = data.slice(offset, end);
         channel.port1.postMessage({
             type: 'chunk',
             seq,
             bytes,
-        }, [bytes]);
+        });
         await waitForPortAck(channel.port1, seq);
         seq += 1;
     }
