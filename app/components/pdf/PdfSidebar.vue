@@ -13,9 +13,9 @@
             size="sm"
             :ui="{
                 root: 'gap-0',
-                list: 'gap-0.5 p-1.5 mb-0 rounded-none bg-transparent border-b border-default',
+                list: 'gap-1 px-2 py-1.5 mb-0 rounded-none bg-transparent border-b border-[var(--app-sidebar-border)]',
                 indicator: 'hidden',
-                trigger: 'flex-1 min-w-0 justify-center px-1.5 py-1 rounded-md border border-transparent text-[11.5px] font-semibold tracking-[0.01em] whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default',
+                trigger: 'flex-1 min-w-0 justify-center gap-1.5 h-7 px-1.5 py-0 rounded-md border border-transparent text-[11.5px] font-semibold tracking-[0.01em] whitespace-nowrap data-[state=active]:bg-[var(--app-control-active-bg)] data-[state=active]:border-[var(--app-control-active-border)] data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-[var(--app-sidebar-control-hover-bg)] data-[state=inactive]:hover:text-default',
                 leadingIcon: 'size-3.5 shrink-0',
             }"
             class="shrink-0"
@@ -490,7 +490,7 @@ interface IPdfSidebarTabItem {
     title: string;
 }
 
-const COMPACT_THRESHOLD = 280;
+const COMPACT_THRESHOLD = 340;
 const isCompact = computed(() => (width ?? 240) < COMPACT_THRESHOLD);
 
 const allTabs: IPdfSidebarTabItem[] = [
