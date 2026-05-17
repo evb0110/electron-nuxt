@@ -1,7 +1,7 @@
 <template>
     <div class="pdf-bookmarks-toolbar">
         <div
-            class="pdf-bookmarks-view-modes"
+            class="pdf-bookmarks-display-segment"
             role="group"
             :aria-label="t('bookmarks.controls')"
         >
@@ -13,31 +13,15 @@
             >
                 <button
                     type="button"
-                    class="pdf-bookmarks-view-mode-button"
+                    class="pdf-bookmarks-segment-button"
                     :class="{ 'is-active': displayMode === option.id }"
                     :aria-label="option.title"
+                    :aria-pressed="displayMode === option.id"
                     @click="setDisplayMode(option.id)"
                 >
                     <UIcon
                         :name="option.icon"
-                        class="size-4"
-                    />
-                </button>
-            </AppTooltip>
-            <AppTooltip
-                :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
-                :delay-duration="800"
-            >
-                <button
-                    type="button"
-                    class="pdf-bookmarks-view-mode-button"
-                    :class="{ 'is-active': isEditMode }"
-                    :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
-                    @click="toggleEditMode"
-                >
-                    <UIcon
-                        :name="isEditMode ? 'i-ph-pencil-simple-line' : 'i-ph-pencil'"
-                        class="size-4"
+                        class="size-3.5"
                     />
                 </button>
             </AppTooltip>
@@ -57,7 +41,25 @@
                 >
                     <UIcon
                         name="i-ph-plus"
-                        class="size-4"
+                        class="size-3.5"
+                    />
+                </button>
+            </AppTooltip>
+            <AppTooltip
+                :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
+                :delay-duration="800"
+            >
+                <button
+                    type="button"
+                    class="pdf-bookmarks-icon-button"
+                    :class="{ 'is-active': isEditMode }"
+                    :aria-label="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
+                    :aria-pressed="isEditMode"
+                    @click="toggleEditMode"
+                >
+                    <UIcon
+                        :name="isEditMode ? 'i-ph-pencil-simple-line' : 'i-ph-pencil'"
+                        class="size-3.5"
                     />
                 </button>
             </AppTooltip>
@@ -120,59 +122,55 @@ function addRootBookmark() {
 
 <style scoped>
 .pdf-bookmarks-toolbar {
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
     align-items: center;
-    gap: 0.375rem;
+    justify-content: space-between;
+    gap: 0.5rem;
     padding: 0.375rem 0.5rem;
     border-bottom: 1px solid var(--app-sidebar-border);
 }
 
-.pdf-bookmarks-view-modes {
-    display: flex;
+.pdf-bookmarks-display-segment {
+    display: inline-flex;
     align-items: center;
     gap: 0.25rem;
     min-width: 0;
 }
 
-.pdf-bookmarks-view-mode-button,
+.pdf-bookmarks-toolbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.pdf-bookmarks-segment-button,
 .pdf-bookmarks-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
     border: 1px solid transparent;
     border-radius: 0.375rem;
     background: transparent;
     color: var(--ui-text-muted);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--app-outline-toolbar-button-size, 1.75rem);
-    height: var(--app-outline-toolbar-button-size, 1.75rem);
     cursor: pointer;
+    transition:
+        background-color 0.12s ease,
+        color 0.12s ease,
+        border-color 0.12s ease;
 }
 
-.pdf-bookmarks-view-mode-button:hover,
+.pdf-bookmarks-segment-button:hover,
 .pdf-bookmarks-icon-button:hover {
     background: var(--app-sidebar-control-hover-bg);
     color: var(--ui-text);
 }
 
-.pdf-bookmarks-view-mode-button.is-active {
+.pdf-bookmarks-segment-button.is-active,
+.pdf-bookmarks-icon-button.is-active {
+    background: var(--app-control-active-bg);
     border-color: var(--app-control-active-border);
     color: var(--ui-text);
-    background: var(--app-control-active-bg);
-}
-
-.pdf-bookmarks-toolbar-actions {
-    display: inline-flex;
-    gap: 0.25rem;
-}
-
-@media (width <= 780px) {
-    .pdf-bookmarks-toolbar {
-        grid-template-columns: 1fr;
-    }
-
-    .pdf-bookmarks-toolbar-actions {
-        justify-content: flex-end;
-    }
 }
 </style>
