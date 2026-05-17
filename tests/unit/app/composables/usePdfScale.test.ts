@@ -232,4 +232,35 @@ describe('usePdfScale', () => {
             scale.effectiveScale.value * (pageMetrics[0]!.width + pageMetrics[1]!.width),
         ).toBeCloseTo(940, 6);
     });
+
+    it('uses the active facing spread row height for fit-height scale', () => {
+        const pageMetrics = [
+            {
+                width: 600,
+                height: 1000,
+            },
+            {
+                width: 600,
+                height: 700,
+            },
+            {
+                width: 600,
+                height: 800,
+            },
+        ] satisfies IPdfPageMetric[];
+        const { scale } = createScaleComposable({
+            width: 600,
+            height: 1000,
+            pageMetrics,
+            mode: 'height',
+            viewMode: 'facing-first-single',
+            currentPage: 2,
+            continuousScroll: false,
+        });
+        const container = createContainer(1536, 900);
+
+        scale.computeFitWidthScale(container);
+
+        expect(scale.effectiveScale.value * pageMetrics[2]!.height).toBeCloseTo(860, 6);
+    });
 });
