@@ -234,33 +234,43 @@ function clearViteCache(): void {
 }
 
 async function cleanupStaleNuxtPortOwners(reason: string) {
-    const pidsOnPort = getPidsOnPort(getNuxtPort());
+    const nuxtPort = getNuxtPort();
+    const pidsOnPort = getPidsOnPort(nuxtPort);
     if (pidsOnPort.length === 0) {
         return false;
     }
 
-    const managedNuxtPids = new Set<number>();
-    const runningSessions = listRunningSessions();
-    for (const name of runningSessions) {
+    const sessionMetadata: INuxtPortOwnerSessionMetadata[] = [];
+    for (const name of listAllSessionNames()) {
         const info = getSessionInfo(name);
-        const nuxtPid = info?.nuxtPid ?? null;
-        if (!nuxtPid || !isProcessAlive(nuxtPid)) {
+        if (!info) {
             continue;
         }
-        managedNuxtPids.add(nuxtPid);
-        for (const childPid of getDescendantPids(nuxtPid)) {
-            managedNuxtPids.add(childPid);
-        }
+        const nuxtPid = info?.nuxtPid ?? null;
+        const nuxtAlive = Boolean(nuxtPid && isProcessAlive(nuxtPid));
+        sessionMetadata.push({
+            name,
+            sessionPid: info.pid,
+            nuxtPid,
+            nuxtPort: info.nuxtPort,
+            sessionAlive: isProcessAlive(info.pid),
+            nuxtAlive,
+            descendantPids: nuxtAlive && nuxtPid ? getDescendantPids(nuxtPid) : [],
+        });
     }
 
-    const stalePids = pidsOnPort.filter(pid => !managedNuxtPids.has(pid));
-    if (stalePids.length === 0) {
+    const staleNuxtPids = selectStaleNuxtPortOwnerCleanupTargets(
+        pidsOnPort,
+        sessionMetadata,
+        nuxtPort,
+    );
+    if (staleNuxtPids.length === 0) {
         return false;
     }
 
-    console.log(`[Nuxt] Cleaning stale process(es) on port ${getNuxtPort()} (${reason}): ${stalePids.join(', ')}`);
-    await killProcessTreeForPids(stalePids, 1200);
-    killPids(stalePids);
+    console.log(`[Nuxt] Cleaning stale session-owned Nuxt process(es) on port ${nuxtPort} (${reason}): ${staleNuxtPids.join(', ')}`);
+    await killProcessTreeForPids(staleNuxtPids, 1200);
+    killPids(staleNuxtPids);
     await delay(500);
     return true;
 }
@@ -275,6 +285,44 @@ interface INuxtStartupAttempt {
     exited: boolean;
     exitCode: number | null;
     exitSignal: NodeJS.Signals | null;
+}
+
+export interface INuxtPortOwnerSessionMetadata {
+    name: string;
+    sessionPid: number | null;
+    nuxtPid: number | null;
+    nuxtPort: number;
+    sessionAlive: boolean;
+    nuxtAlive: boolean;
+    descendantPids: number[];
+}
+
+export function selectStaleNuxtPortOwnerCleanupTargets(
+    pidsOnPort: number[],
+    sessions: INuxtPortOwnerSessionMetadata[],
+    nuxtPort: number,
+) {
+    const targets = new Set<number>();
+    for (const session of sessions) {
+        if (
+            session.sessionAlive
+            || session.nuxtPort !== nuxtPort
+            || !session.nuxtPid
+            || !session.nuxtAlive
+        ) {
+            continue;
+        }
+
+        const ownedPids = new Set([
+            session.nuxtPid,
+            ...session.descendantPids,
+        ]);
+        if (pidsOnPort.some(pid => ownedPids.has(pid))) {
+            targets.add(session.nuxtPid);
+        }
+    }
+
+    return Array.from(targets);
 }
 
 function hasCompletedNuxtBuildMarkers(attempt: INuxtStartupAttempt) {

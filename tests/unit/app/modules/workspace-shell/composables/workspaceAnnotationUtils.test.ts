@@ -83,7 +83,7 @@ describe('hasAnnotationChanges', () => {
         expect(result).toBe(true);
     });
 
-    it('returns false when annotation storage access fails', () => {
+    it('returns true when annotation storage access fails', () => {
         const throwingDocument = {} as Partial<PDFDocumentProxy> as PDFDocumentProxy;
         Object.defineProperty(throwingDocument, 'annotationStorage', {get: () => {
             throw new Error('bad storage');
@@ -94,7 +94,7 @@ describe('hasAnnotationChanges', () => {
             pdfDocument: shallowRef(throwingDocument),
         });
 
-        expect(result).toBe(false);
+        expect(result).toBe(true);
     });
 });
 

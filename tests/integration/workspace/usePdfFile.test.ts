@@ -713,6 +713,127 @@ describe('usePdfFile', () => {
             expect(file.pdfData.value).toEqual(savedBytes);
         });
 
+        it('does not apply save completion state after another document opens', async () => {
+            const firstBytes = new Uint8Array([1]);
+            const secondBytes = new Uint8Array([2]);
+            const savedBytes = new Uint8Array([9]);
+
+            mockDocuments.statFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return { size: firstBytes.length };
+                }
+                if (path === '/tmp/second.pdf') {
+                    return { size: secondBytes.length };
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+            mockDocuments.readFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return firstBytes.buffer;
+                }
+                if (path === '/tmp/second.pdf') {
+                    return secondBytes.buffer;
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+            const saveGate = deferred<undefined>();
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.saveFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    await saveGate.promise;
+                    return;
+                }
+                throw new Error(`unexpected save path ${path}`);
+            });
+
+            const file = usePdfFile();
+            await file.openFile({
+                kind: 'pdf',
+                originalPath: '/first.pdf',
+                workingPath: '/tmp/first.pdf',
+            });
+            file.markDirty();
+
+            const save = file.saveFile(savedBytes);
+            await file.openFile({
+                kind: 'pdf',
+                originalPath: '/second.pdf',
+                workingPath: '/tmp/second.pdf',
+            });
+
+            saveGate.resolve(undefined);
+            await expect(save).resolves.toEqual({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            });
+
+            expect(file.workingCopyPath.value).toBe('/tmp/second.pdf');
+            expect(file.originalPath.value).toBe('/second.pdf');
+            expect(file.pdfData.value).toEqual(secondBytes);
+            expect(file.isDirty.value).toBe(false);
+            expect(file.lastSaveMode.value).toBe('rewrite');
+        });
+
+        it('does not apply Save As completion state after another document opens', async () => {
+            const firstBytes = new Uint8Array([1]);
+            const secondBytes = new Uint8Array([2]);
+            const saveAsGate = deferred<string>();
+
+            mockDocuments.statFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return { size: firstBytes.length };
+                }
+                if (path === '/tmp/second.pdf') {
+                    return { size: secondBytes.length };
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+            mockDocuments.readFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return firstBytes.buffer;
+                }
+                if (path === '/tmp/second.pdf') {
+                    return secondBytes.buffer;
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+            mockDocuments.savePdfAs.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return saveAsGate.promise;
+                }
+                throw new Error(`unexpected Save As path ${path}`);
+            });
+
+            const file = usePdfFile();
+            await file.openFile({
+                kind: 'pdf',
+                originalPath: '/first.pdf',
+                workingPath: '/tmp/first.pdf',
+            });
+
+            const saveAs = file.saveWorkingCopyAs();
+            await file.openFile({
+                kind: 'pdf',
+                originalPath: '/second.pdf',
+                workingPath: '/tmp/second.pdf',
+            });
+
+            saveAsGate.resolve('/exports/first-copy.pdf');
+            await expect(saveAs).resolves.toEqual({
+                success: false,
+                outPath: null,
+                saveMode: 'save_as_rewrite',
+                didSaveAs: true,
+            });
+
+            expect(file.workingCopyPath.value).toBe('/tmp/second.pdf');
+            expect(file.originalPath.value).toBe('/second.pdf');
+            expect(file.pdfData.value).toEqual(secondBytes);
+            expect(mockDocuments.createWorkingCopyFromPath).not.toHaveBeenCalled();
+        });
+
         it('routes signed-document rewrites to Save As', async () => {
             const pdfBytes = new Uint8Array([
                 1,

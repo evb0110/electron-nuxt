@@ -59,4 +59,28 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.hasChanges).toBe(true);
         expect(result.hasUnknownChanges).toBe(false);
     });
+
+    it('treats PDF.js annotation storage inspection failures as unknown live changes', () => {
+        const document = { annotationStorage: {resetModifiedIds() {
+            throw new Error('pdfjs storage unavailable');
+        }}} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.ids).toEqual(new Set());
+        expect(result.hasChanges).toBe(true);
+        expect(result.hasUnknownChanges).toBe(true);
+    });
+
+    it('treats serializable getter failures as unknown live changes', () => {
+        const document = { annotationStorage: {get serializable() {
+            throw new Error('pdfjs serialization failed');
+        }}} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document);
+
+        expect(result.ids).toEqual(new Set());
+        expect(result.hasChanges).toBe(true);
+        expect(result.hasUnknownChanges).toBe(true);
+    });
 });

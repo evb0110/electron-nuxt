@@ -174,6 +174,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
 
     const pendingImagePlacement = ref<IPdfImagePlacementDraft | null>(null);
     const isPendingImagePlacementFinalizing = ref(false);
+    let latestImagePlacementRequestId = 0;
 
     function revokePendingImagePlacementPreview() {
         const previewUrl = pendingImagePlacement.value?.previewUrl;
@@ -182,7 +183,10 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         }
     }
 
-    function clearPendingImagePlacement() {
+    function clearPendingImagePlacement(options: {invalidatePendingStarts?: boolean;} = {}) {
+        if (options.invalidatePendingStarts !== false) {
+            latestImagePlacementRequestId += 1;
+        }
         revokePendingImagePlacementPreview();
         pendingImagePlacement.value = null;
         isPendingImagePlacementFinalizing.value = false;
@@ -226,6 +230,8 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             pageY?: number | null;
         },
     ) {
+        const requestId = latestImagePlacementRequestId + 1;
+        latestImagePlacementRequestId = requestId;
         const target = getImagePlacementTarget(optionsOverride);
         let initialDimensions: IImagePlacementDimensions | null;
         try {
@@ -240,12 +246,18 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         if (!initialDimensions) {
             return false;
         }
+        if (requestId !== latestImagePlacementRequestId) {
+            return false;
+        }
 
         const bytes = new Uint8Array(await file.arrayBuffer());
+        if (requestId !== latestImagePlacementRequestId) {
+            return false;
+        }
         const previewUrl = URL.createObjectURL(new Blob([bytes], { type: file.type || 'image/png' }));
         const placementRect = getInitialImagePlacementRect(target, initialDimensions);
 
-        clearPendingImagePlacement();
+        clearPendingImagePlacement({ invalidatePendingStarts: false });
         pendingImagePlacement.value = {
             ...placementRect,
             rotationDegrees: 0,

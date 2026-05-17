@@ -664,9 +664,15 @@ export const usePdfFile = () => {
         }));
     }
 
-    async function commitPersistedPdfState(snapshotHint?: Uint8Array | null) {
-        const path = workingCopyPath.value;
+    async function commitPersistedPdfState(
+        snapshotHint?: Uint8Array | null,
+        expectedWorkingPath?: TDocumentRef,
+    ) {
+        const path = expectedWorkingPath ?? workingCopyPath.value;
         if (!path) {
+            return false;
+        }
+        if (!isActiveWorkingCopy(path)) {
             return false;
         }
 
@@ -682,17 +688,27 @@ export const usePdfFile = () => {
 
         if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
+            if (!isActiveWorkingCopy(path)) {
+                return false;
+            }
             pdfData.value = snapshot;
             pdfSrc.value = toPdfBlob(snapshot);
             markCurrentHistoryEntryClean(snapshot);
         } else {
             const nextState = await readPdfStateFromPath(path);
+            if (!isActiveWorkingCopy(path)) {
+                return false;
+            }
             pdfData.value = nextState.pdfData;
             pdfSrc.value = nextState.pdfSrc;
             markCurrentHistoryEntryClean(nextState.pdfData);
         }
 
-        await refreshPdfConformanceProfile(path);
+        const profile = await readPdfConformanceProfile(path);
+        if (!isActiveWorkingCopy(path)) {
+            return false;
+        }
+        pdfConformanceProfile.value = profile;
         BrowserLogger.debug('workspace', 'Committed persisted PDF state', () => ({
             path,
             isDirty: isDirty.value,
@@ -701,6 +717,17 @@ export const usePdfFile = () => {
             historyCleanIndex: historyCleanIndex.value,
         }));
         return true;
+    }
+
+    function isActiveWorkingCopy(path: TDocumentRef) {
+        return workingCopyPath.value === path;
+    }
+
+    function createStalePersistResult(
+        saveMode: TPdfSaveMode,
+        didSaveAs: boolean,
+    ): IPdfPersistResult {
+        return createPersistResult(false, saveMode, didSaveAs, null);
     }
 
     function shouldForceSaveAs(mode: TPdfSaveMode) {
@@ -1026,11 +1053,21 @@ export const usePdfFile = () => {
             }
 
             const validation = await savePdfBytesToWorkingCopy(workingPath, data);
+            if (!isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
+                    workingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, false);
+            }
             if (!validation.isValid) {
                 error.value = validation.errors.join('\n') || t('errors.file.save');
                 return createFailedPersistResult(requestedSaveMode, false);
             }
-            await commitPersistedPdfState(data);
+            if (!await commitPersistedPdfState(data, workingPath)) {
+                return createStalePersistResult(requestedSaveMode, false);
+            }
             lastSaveMode.value = requestedSaveMode;
             return createPersistResult(true, requestedSaveMode, false);
         });
@@ -1046,7 +1083,17 @@ export const usePdfFile = () => {
             }
 
             await getDocumentsCapability().saveFile(workingPath);
-            await commitPersistedPdfState();
+            if (!isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale working-copy save completion', {
+                    workingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (!await commitPersistedPdfState(undefined, workingPath)) {
+                return createStalePersistResult(requestedSaveMode, false);
+            }
             lastSaveMode.value = requestedSaveMode;
             return createPersistResult(true, requestedSaveMode, false);
         });
@@ -1069,19 +1116,54 @@ export const usePdfFile = () => {
                 error.value = saveAsResult.validation.errors.join('\n') || t('errors.file.save');
                 return createFailedPersistResult(requestedSaveMode, true);
             }
+            if (!isActiveWorkingCopy(previousWorkingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale Save As completion', {
+                    workingPath: previousWorkingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    savedPath: saveAsResult.path,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, true);
+            }
             const savedPath = saveAsResult.path;
             if (savedPath) {
+                let savedWorkingPath = previousWorkingPath;
                 if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
                     const nextWorkingPath =
                         await getDocumentsCapability().createWorkingCopyFromPath(savedPath);
+                    if (!isActiveWorkingCopy(previousWorkingPath)) {
+                        BrowserLogger.debug('workspace', 'Skipped stale Save As working-copy refresh', {
+                            workingPath: previousWorkingPath,
+                            currentWorkingPath: workingCopyPath.value,
+                            nextWorkingPath,
+                            savedPath,
+                            saveMode: requestedSaveMode,
+                        });
+                        if (!isActiveWorkingCopy(nextWorkingPath)) {
+                            void getDocumentsCapability().cleanupFile(nextWorkingPath);
+                        }
+                        return createStalePersistResult(requestedSaveMode, true);
+                    }
                     workingCopyPath.value = nextWorkingPath;
+                    savedWorkingPath = nextWorkingPath;
                     if (previousWorkingPath !== nextWorkingPath) {
                         await getDocumentsCapability().cleanupFile(previousWorkingPath);
                     }
                 }
+                if (!isActiveWorkingCopy(savedWorkingPath)) {
+                    BrowserLogger.debug('workspace', 'Skipped stale Save As state commit', {
+                        workingPath: savedWorkingPath,
+                        currentWorkingPath: workingCopyPath.value,
+                        savedPath,
+                        saveMode: requestedSaveMode,
+                    });
+                    return createStalePersistResult(requestedSaveMode, true);
+                }
                 originalPath.value = savedPath;
                 requiresSaveAsOnFirstSave.value = false;
-                await commitPersistedPdfState(data ?? undefined);
+                if (!await commitPersistedPdfState(data ?? undefined, savedWorkingPath)) {
+                    return createStalePersistResult(requestedSaveMode, true);
+                }
                 lastSaveMode.value = requestedSaveMode;
             }
             return createPersistResult(Boolean(savedPath), requestedSaveMode, true, savedPath);

@@ -1,0 +1,118 @@
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import {
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+interface ITestOwner {
+    id: number;
+    destroyed: boolean;
+    once: ReturnType<typeof vi.fn>;
+    isDestroyed: () => boolean;
+}
+
+function createOwner(id: number): ITestOwner {
+    const owner: ITestOwner = {
+        id,
+        destroyed: false,
+        once: vi.fn(),
+        isDestroyed: () => owner.destroyed,
+    };
+
+    return owner;
+}
+
+function triggerDestroyed(owner: ITestOwner) {
+    const destroyedHandler = owner.once.mock.calls
+        .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
+    destroyedHandler?.();
+}
+
+describe('open path capabilities', () => {
+    let tempRoot = '';
+    const previousTtl = process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS;
+
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+        tempRoot = mkdtempSync(join(tmpdir(), 'evb-open-path-capability-test-'));
+    });
+
+    afterEach(() => {
+        rmSync(tempRoot, {
+            force: true,
+            recursive: true,
+        });
+        if (previousTtl === undefined) {
+            delete process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS;
+        } else {
+            process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS = previousTtl;
+        }
+        vi.useRealTimers();
+    });
+
+    it('expires grants after the configured lifetime', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS = '60000';
+
+        const filePath = join(tempRoot, 'opened.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const {
+            allowOpenPath,
+            requireOpenPath,
+        } = await import('@electron/ipc/openPathCapabilities');
+
+        expect(allowOpenPath(filePath)).not.toBeNull();
+        expect(() => requireOpenPath(filePath)).not.toThrow();
+
+        vi.setSystemTime(61_001);
+
+        expect(() => requireOpenPath(filePath)).toThrow('Path not allowed');
+    });
+
+    it('clears grants when the owning webContents is destroyed', async () => {
+        const filePath = join(tempRoot, 'owned.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const owner = createOwner(42);
+        const {
+            allowOpenPath,
+            requireOpenPath,
+        } = await import('@electron/ipc/openPathCapabilities');
+
+        expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
+        expect(() => requireOpenPath(filePath, owner as never)).not.toThrow();
+
+        triggerDestroyed(owner);
+
+        expect(() => requireOpenPath(filePath, owner as never)).toThrow('Path not allowed');
+    });
+
+    it('registers one cleanup listener per owner', async () => {
+        const firstPath = join(tempRoot, 'first.pdf');
+        const secondPath = join(tempRoot, 'second.pdf');
+        writeFileSync(firstPath, new Uint8Array([1]));
+        writeFileSync(secondPath, new Uint8Array([2]));
+
+        const owner = createOwner(7);
+        const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
+
+        allowOpenPath(firstPath, owner as never);
+        allowOpenPath(secondPath, owner as never);
+
+        expect(owner.once).toHaveBeenCalledTimes(1);
+        expect(owner.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+    });
+});

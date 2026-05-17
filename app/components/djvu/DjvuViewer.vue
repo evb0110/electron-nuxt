@@ -613,6 +613,10 @@ let queuedPageNumbers: number[] = [];
 let lastRenderedPageSet = new Set<number>();
 let wheelAccumulator: IWheelPageAccumulatorState = createWheelPageAccumulatorState();
 
+function isCurrentLoadGeneration(generation: number) {
+    return generation === loadGeneration;
+}
+
 function emitLoading(nextLoading: boolean, options: { force?: boolean } = {}) {
     if (!options.force && isLoading.value === nextLoading) {
         return;
@@ -751,14 +755,30 @@ function discardStalePageObjectUrl(
     worker.revokeObjectURL(url);
 }
 
+function discardStaleWorker(
+    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+) {
+    if (worker === activeWorker) {
+        activeWorker = null;
+    }
+    worker.terminate();
+}
+
 function commitLoadedPagePreview(
     pageNumber: number,
     token: number,
+    generation: number,
     worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
     objectUrl: string,
 ) {
     const currentState = pageStates.value[pageNumber - 1];
-    if (!isActive.value || !currentState || currentState.token !== token || worker !== activeWorker) {
+    if (
+        !isActive.value
+        || !isCurrentLoadGeneration(generation)
+        || !currentState
+        || currentState.token !== token
+        || worker !== activeWorker
+    ) {
         discardStalePageObjectUrl(worker, objectUrl);
         return false;
     }
@@ -773,10 +793,18 @@ function commitLoadedPagePreview(
 function markPagePreviewLoadFailed(
     pageNumber: number,
     token: number,
+    generation: number,
+    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
     error: unknown,
 ) {
     const currentState = pageStates.value[pageNumber - 1];
-    if (!currentState || currentState.token !== token) {
+    if (
+        !isActive.value
+        || !isCurrentLoadGeneration(generation)
+        || !currentState
+        || currentState.token !== token
+        || worker !== activeWorker
+    ) {
         return;
     }
 
@@ -818,6 +846,7 @@ function finishInitialPreviewLoadIfSettled() {
 async function ensurePageLoaded(pageNumber: number) {
     const state = pageStates.value[pageNumber - 1];
     const worker = activeWorker;
+    const generation = loadGeneration;
     if (!isActive.value || !worker || !canLoadPagePreview(state)) {
         return;
     }
@@ -828,9 +857,9 @@ async function ensurePageLoaded(pageNumber: number) {
 
     try {
         const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-        commitLoadedPagePreview(pageNumber, token, worker, pageObject.url);
+        commitLoadedPagePreview(pageNumber, token, generation, worker, pageObject.url);
     } catch (error) {
-        markPagePreviewLoadFailed(pageNumber, token, error);
+        markPagePreviewLoadFailed(pageNumber, token, generation, worker, error);
     }
 }
 
@@ -1169,14 +1198,17 @@ watch(
 
         try {
             const worker = await createDjvuWorkerFromPath(src);
-            if (generation !== loadGeneration) {
-                worker.terminate();
+            if (!isCurrentLoadGeneration(generation)) {
+                discardStaleWorker(worker);
                 return;
             }
 
             activeWorker = worker;
             const sizes = await worker.doc.getPagesSizes().run();
-            if (generation !== loadGeneration) {
+            if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
+                if (worker === activeWorker && pageSizes.value.length === 0) {
+                    discardStaleWorker(worker);
+                }
                 return;
             }
 
@@ -1207,6 +1239,10 @@ watch(
             lastRenderedPageSet = new Set<number>();
             syncLoadedPages();
         } catch (error) {
+            if (!isCurrentLoadGeneration(generation)) {
+                return;
+            }
+
             viewerError.value = error instanceof Error ? error.message : t('errors.djvu.open');
             BrowserLogger.error('djvu-viewer', 'Failed to initialize native DjVu viewer', {
                 src,
@@ -1214,7 +1250,7 @@ watch(
             });
             emitLoading(false);
         } finally {
-            if (generation === loadGeneration) {
+            if (isCurrentLoadGeneration(generation)) {
                 finishInitialPreviewLoadIfSettled();
             }
         }
@@ -1224,6 +1260,7 @@ watch(
 
 watch(isActive, async (active) => {
     if (!active) {
+        loadGeneration += 1;
         releaseRenderedPagePreviews();
         clearWheelAccumulator();
         if (import.meta.client && scrollRafId !== 0) {
@@ -1240,14 +1277,17 @@ watch(isActive, async (active) => {
 
         try {
             const worker = await createDjvuWorkerFromPath(src);
-            if (generation !== loadGeneration) {
-                worker.terminate();
+            if (!isCurrentLoadGeneration(generation)) {
+                discardStaleWorker(worker);
                 return;
             }
 
             activeWorker = worker;
             const sizes = await worker.doc.getPagesSizes().run();
-            if (generation !== loadGeneration) {
+            if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
+                if (worker === activeWorker && pageSizes.value.length === 0) {
+                    discardStaleWorker(worker);
+                }
                 return;
             }
 
@@ -1264,6 +1304,10 @@ watch(isActive, async (active) => {
             measureContainer();
             syncLoadedPages();
         } catch (error) {
+            if (!isCurrentLoadGeneration(generation)) {
+                return;
+            }
+
             viewerError.value = error instanceof Error ? error.message : t('errors.djvu.open');
             BrowserLogger.error('djvu-viewer', 'Failed to resume native DjVu viewer', {
                 src,

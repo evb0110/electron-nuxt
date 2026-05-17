@@ -42,6 +42,10 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['tesseract'],
     },
+    unpaper: {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['unpaper'],
+    },
 };
 
 export function getMacPackagedToolSmokePolicy(toolName) {

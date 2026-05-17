@@ -1300,6 +1300,14 @@ function buildThumbnailRenderTransform(scaleX: number, scaleY: number) {
         : undefined;
 }
 
+function cleanupPdfPage(page: PDFPageProxy) {
+    try {
+        page.cleanup();
+    } catch (error) {
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Failed to cleanup thumbnail PDF page', {error});
+    }
+}
+
 function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
     if (
         getCanvas(pageNum) !== canvas
@@ -1338,32 +1346,41 @@ async function renderPreparedThumbnail(
     renderKey: string,
 ) {
     const page = await pdfDocument.getPage(pageNum);
-    if (
-        runId !== renderRunId
-        || !isPdfDocumentUsable(pdfDocument)
-        || getThumbnailRenderKey(pageNum) !== renderKey
-        || !isCanvasForRenderKey(canvas, renderKey)
-    ) {
-        return;
-    }
+    try {
+        if (
+            runId !== renderRunId
+            || !isPdfDocumentUsable(pdfDocument)
+            || getThumbnailRenderKey(pageNum) !== renderKey
+            || !isCanvasForRenderKey(canvas, renderKey)
+        ) {
+            return;
+        }
 
-    const metrics = resolveThumbnailRenderMetrics(page, pageNum);
-    applyThumbnailCanvasSize(canvas, metrics);
-    const context = canvas.getContext('2d');
-    if (!context) {
-        return;
-    }
+        const metrics = resolveThumbnailRenderMetrics(page, pageNum);
+        applyThumbnailCanvasSize(canvas, metrics);
+        const context = canvas.getContext('2d');
+        if (!context) {
+            return;
+        }
 
-    const task = page.render({
-        canvasContext: context,
-        viewport: metrics.scaledViewport,
-        canvas,
-        transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
-    });
-    renderTasks.set(pageNum, task);
-    await task.promise;
-    renderTasks.delete(pageNum);
-    finalizeRenderedThumbnail(pageNum, canvas, renderKey);
+        const task = page.render({
+            canvasContext: context,
+            viewport: metrics.scaledViewport,
+            canvas,
+            transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
+        });
+        renderTasks.set(pageNum, task);
+        try {
+            await task.promise;
+        } finally {
+            if (renderTasks.get(pageNum) === task) {
+                renderTasks.delete(pageNum);
+            }
+        }
+        finalizeRenderedThumbnail(pageNum, canvas, renderKey);
+    } finally {
+        cleanupPdfPage(page);
+    }
 }
 
 function cleanupThumbnailRenderState(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
@@ -1541,18 +1558,22 @@ async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId:
     const pageNum = clamp(currentPage || 1, 1, Math.max(1, totalPages));
     try {
         const page = await pdfDocument.getPage(pageNum);
-        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
-            return;
-        }
+        try {
+            if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+                return;
+            }
 
-        const viewport = page.getViewport({scale: 1});
-        updateThumbnailAspectRatio(
-            viewport.width,
-            viewport.height,
-            'preload-viewport',
-            {page: pageNum},
-        );
-        void refreshVisibleThumbnailPane('preload-viewport');
+            const viewport = page.getViewport({scale: 1});
+            updateThumbnailAspectRatio(
+                viewport.width,
+                viewport.height,
+                'preload-viewport',
+                {page: pageNum},
+            );
+            void refreshVisibleThumbnailPane('preload-viewport');
+        } finally {
+            cleanupPdfPage(page);
+        }
     } catch (error) {
         if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
             return;

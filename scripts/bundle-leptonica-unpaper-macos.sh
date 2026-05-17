@@ -275,8 +275,9 @@ if "$DEST/bin/unpaper" --help > /dev/null 2>&1; then
   "$DEST/bin/unpaper" --help | head -10
   echo "..."
 else
-  echo "⚠ Unpaper failed to run. Check dylib dependencies above."
+  echo "Error: Unpaper failed to run. Check dylib dependencies above."
   otool -L "$DEST/bin/unpaper"
+  exit 1
 fi
 
 # Step 8: Show final status

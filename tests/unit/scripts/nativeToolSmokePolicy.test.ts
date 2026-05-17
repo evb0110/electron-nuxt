@@ -21,11 +21,13 @@ describe('native tool smoke policy', () => {
             0,
             10,
         ]));
+        expect(getMacPackagedToolSmokePolicy('unpaper').allowedExitCodes).toEqual(new Set([0]));
     });
 
     it('requires both an allowed exit code and recognizable output', () => {
         expect(() => assertMacPackagedToolSmoke('qpdf', 0, 'qpdf version 12.0.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('unpaper', 0, 'Usage: unpaper [options]')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('qpdf', 2, 'qpdf version 12.0.0')).toThrow(
             'Packaged tool smoke test failed (qpdf) with exit code 2',
         );

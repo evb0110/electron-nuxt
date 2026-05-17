@@ -123,8 +123,8 @@ export function collectLivePdfJsAnnotationChangeIds(
         BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
         return {
             ids: new Set<string>(),
-            hasChanges: false,
-            hasUnknownChanges: false,
+            hasChanges: true,
+            hasUnknownChanges: true,
         };
     }
 }

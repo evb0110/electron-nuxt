@@ -19,6 +19,21 @@ function toElement<T extends object>(value: T) {
     return value as HTMLElement;
 }
 
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
+
 describe('usePdfImagePlacement', () => {
     const createObjectURL = vi.fn(() => 'blob:preview');
     const revokeObjectURL = vi.fn();
@@ -113,6 +128,65 @@ describe('usePdfImagePlacement', () => {
             expect(didStart).toBe(false);
             expect(imagePlacement.pendingImagePlacement.value).toBeNull();
             expect(finalized).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('keeps the latest image placement when overlapping starts resolve out of order', async () => {
+        const slowBitmap = createDeferred<{
+            width: number;
+            height: number;
+            close: () => void;
+        }>();
+        const fastBitmap = createDeferred<{
+            width: number;
+            height: number;
+            close: () => void;
+        }>();
+        vi.stubGlobal('createImageBitmap', vi.fn()
+            .mockReturnValueOnce(slowBitmap.promise)
+            .mockReturnValueOnce(fastBitmap.promise));
+
+        const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
+        const finalized = vi.fn();
+        const scope = effectScope();
+        const imagePlacement = scope.run(() => usePdfImagePlacement({
+            viewerContainer,
+            currentPage: ref(1),
+            numPages: ref(4),
+            effectiveScale: ref(2),
+            emitFinalize: finalized,
+        }));
+
+        if (!imagePlacement) {
+            throw new Error('Failed to create image placement composable');
+        }
+
+        try {
+            const slowStart = imagePlacement.startImagePlacement(
+                new File([new Uint8Array([1])], 'slow.png', { type: 'image/png' }),
+            );
+            const fastStart = imagePlacement.startImagePlacement(
+                new File([new Uint8Array([2])], 'fast.png', { type: 'image/png' }),
+            );
+
+            fastBitmap.resolve({
+                width: 200,
+                height: 100,
+                close: vi.fn(),
+            });
+            await expect(fastStart).resolves.toBe(true);
+            expect(imagePlacement.pendingImagePlacement.value?.fileName).toBe('fast.png');
+
+            slowBitmap.resolve({
+                width: 400,
+                height: 200,
+                close: vi.fn(),
+            });
+            await expect(slowStart).resolves.toBe(false);
+            expect(imagePlacement.pendingImagePlacement.value?.fileName).toBe('fast.png');
+            expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:preview');
         } finally {
             scope.stop();
         }
