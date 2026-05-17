@@ -735,6 +735,44 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(container.scrollTop).toBe(120);
     });
 
+    it('scrollToPage in facing-first-single mode frames the full spread row', () => {
+        const {
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            viewMode: 'facing-first-single',
+            continuousScroll: false,
+            clientHeight: 100,
+            scrollHeight: 270,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 70,
+                },
+                {
+                    offsetTop: 110,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 110,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 190,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 190,
+                    offsetHeight: 60,
+                },
+            ],
+        });
+
+        singlePageScroll.scrollToPage(2);
+
+        expect(container.scrollTop).toBe(90);
+    });
+
     it('scrollToPage in single-page mode keeps tall pages centered (which clamps to top edge)', () => {
         // Tall page: pageHeight (200) > containerHeight (100). centerOffset =
         // max(0, (100 − 200)/2) = 0, so 'center' degenerates to topTarget =

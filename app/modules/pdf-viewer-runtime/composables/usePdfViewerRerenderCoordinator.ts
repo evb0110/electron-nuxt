@@ -389,15 +389,49 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
 
+        if (fitMode.value === 'height') {
+            const document = pdfDocument.value;
+            cancelInFlightPageRenders?.();
+            await reRenderAllVisiblePages(getVisibleRange, {
+                preserveExistingPages: true,
+                disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
+                disableVerticalAnchorRestore: true,
+                disablePageAnchorRestore: true,
+                rerenderSource: 'fit-height-current-page',
+                renderBufferOverride: 0,
+            });
+            if (
+                document === null
+                || pdfDocument.value !== document
+                || isLoading.value
+                || currentPage.value !== next
+                || fitMode.value !== 'height'
+                || continuousScroll.value
+            ) {
+                return;
+            }
+            await nextTick();
+            if (
+                pdfDocument.value !== document
+                || isLoading.value
+                || currentPage.value !== next
+                || fitMode.value !== 'height'
+                || continuousScroll.value
+            ) {
+                return;
+            }
+            scrollToPage(next, { preferExactDom: true });
+            syncHorizontalScrollAfterLayoutUpdate();
+            return;
+        }
+
         const resizeAnchor = buildResizeAnchorContext({
             preferredAnchorPage: next,
             trustPreferredAnchorPage: true,
         });
         cancelInFlightPageRenders?.();
         await reRenderVisiblePagesAndSyncCurrentPage({
-            source: fitMode.value === 'height'
-                ? 'fit-height-current-page'
-                : 'fit-width-current-page',
+            source: 'fit-width-current-page',
             stabilize: true,
             resizeAnchor,
         });
