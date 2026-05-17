@@ -39,7 +39,7 @@
 
         <div
             v-else
-            class="pdf-bookmarks-tree flex flex-col"
+            class="pdf-bookmarks-tree flex flex-col app-scrollbar"
             @click="closeBookmarkContextMenu"
         >
             <PdfOutlineItem
@@ -582,6 +582,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pdf-bookmarks {
+    height: 100%;
+    min-height: 0;
     padding: 0.75rem;
 }
 
@@ -616,6 +618,9 @@ onBeforeUnmount(() => {
 }
 
 .pdf-bookmarks-tree {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     user-select: none;
 }
 
