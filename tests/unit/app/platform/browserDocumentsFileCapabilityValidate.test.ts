@@ -14,6 +14,7 @@ const pdfjsModule = vi.hoisted(() => ({
 }));
 
 vi.mock('pdfjs-dist', () => pdfjsModule);
+vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: () => Promise.resolve()}));
 
 describe('createBrowserDocumentsFileCapability validation', () => {
     beforeEach(() => {

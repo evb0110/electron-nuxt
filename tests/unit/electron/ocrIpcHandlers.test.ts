@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     getTesseractThreadLimit: vi.fn(),
     getSequentialProgressPage: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
+    requireManagedWorkingCopyPath: vi.fn<(path: string) => Promise<string>>(),
 }));
 
 vi.mock('electron', () => ({
@@ -55,6 +56,7 @@ vi.mock('@electron/utils/concurrency', () => ({
     getSequentialProgressPage: mocks.getSequentialProgressPage,
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/ipc/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path)}));
 
 vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
@@ -83,6 +85,7 @@ describe('registerOcrHandlers', () => {
         mocks.handlers.clear();
         vi.clearAllMocks();
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/working-copy.pdf');
+        mocks.requireManagedWorkingCopyPath.mockImplementation(async (path: string) => path);
 
         mocks.getOcrToolPaths.mockReturnValue({
             tesseract: '/mock/tesseract',
@@ -246,7 +249,7 @@ describe('registerOcrHandlers', () => {
     });
 
     it('rejects disallowed sourcePdfPath before queuing OCR worker job', async () => {
-        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.requireManagedWorkingCopyPath.mockRejectedValue(new Error('sourcePdfPath is not a managed working copy'));
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(

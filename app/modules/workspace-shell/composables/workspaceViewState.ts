@@ -25,6 +25,9 @@ interface IWorkspaceViewStateDeps {
     hasOpenAnnotationNotes: Ref<boolean>;
     canUndoHistory: Ref<boolean>;
     canRedoHistory: Ref<boolean>;
+    currentPage: Ref<number>;
+    totalPages: Ref<number>;
+    beginProgrammaticPageNavigation?: ((page: number) => void) | undefined;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         cancelCommentPlacement: () => void;
@@ -86,9 +89,17 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         }
     }
 
+    function normalizeNavigationPage(page: number) {
+        const maxPage = Math.max(1, Math.trunc(deps.totalPages.value || page || 1));
+        const requestedPage = Number.isFinite(page) ? Math.trunc(page) : deps.currentPage.value;
+        return Math.min(Math.max(requestedPage, 1), maxPage);
+    }
+
     function handleGoToPage(page: number) {
+        const targetPage = normalizeNavigationPage(page);
         BrowserLogger.warn('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
             requestedPage: page,
+            targetPage,
             hasViewer: Boolean(deps.pdfViewerRef.value),
             sidebarOpen: deps.showSidebar.value,
             sidebarTab: deps.sidebarTab.value,
@@ -96,7 +107,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             annotationTool: deps.annotationTool.value,
             isPlacingNote: deps.annotationPlacingPageNote.value,
         });
-        deps.pdfViewerRef.value?.scrollToPage(page);
+        deps.beginProgrammaticPageNavigation?.(targetPage);
+        deps.currentPage.value = targetPage;
+        deps.pdfViewerRef.value?.scrollToPage(targetPage);
     }
 
     return {

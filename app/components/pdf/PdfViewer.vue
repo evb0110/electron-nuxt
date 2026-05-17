@@ -158,6 +158,7 @@ interface IProps {
     searchPageMatches?: Map<number, IPdfPageMatches> | undefined;
     currentSearchMatch?: IPdfSearchMatch | null | undefined;
     currentSearchMatchNavigationId?: number | undefined;
+    currentPage?: number | undefined;
     workingCopyPath?: string | null | undefined;
     authorName?: string | null | undefined;
 }
@@ -170,6 +171,7 @@ const {
     authorName: authorNameProp = undefined,
     bufferPages: bufferPagesProp = undefined,
     continuousScroll: continuousScrollProp = true,
+    currentPage: requestedCurrentPageProp = undefined,
     currentSearchMatch: currentSearchMatchProp = undefined,
     currentSearchMatchNavigationId: currentSearchMatchNavigationIdProp = undefined,
     dragMode: dragModeProp = false,
@@ -212,6 +214,7 @@ const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
 const searchPageMatches = computed(() => searchPageMatchesProp ?? emptySearchPageMatches);
 const currentSearchMatch = computed(() => currentSearchMatchProp ?? null);
 const currentSearchMatchNavigationId = computed(() => currentSearchMatchNavigationIdProp ?? 0);
+const requestedCurrentPage = computed(() => requestedCurrentPageProp);
 const workingCopyPath = computed(() => workingCopyPathProp ?? null);
 const continuousScroll = computed(() => continuousScrollProp ?? true);
 const isActive = computed(() => isActiveProp ?? true);
@@ -316,7 +319,7 @@ const {
 } = useViewportPagePin({ summarizeViewerStateForLog });
 
 const {
-    currentPage,
+    currentPage: viewerCurrentPage,
     visibleRange,
     getMostVisiblePage,
     scrollToPage: scrollToPageInternal,
@@ -344,7 +347,7 @@ function handleResizeTransitionSignal(payload: {
         ...payload,
         storedAnchorPage: resizeTransitionAnchorPage.value,
         viewer: summarizeViewerStateForLog(),
-        currentPage: currentPage.value,
+        currentPage: viewerCurrentPage.value,
         visibleRange: {
             start: visibleRange.value.start,
             end: visibleRange.value.end,
@@ -401,7 +404,7 @@ const {
     pageMetricsVersion,
     basePageWidth,
     basePageHeight,
-    currentPage,
+    viewerCurrentPage,
     continuousScroll,
 );
 
@@ -446,7 +449,7 @@ const managedEmbeddedPdfShapes = useManagedEmbeddedPdfShapes({
     invalidatePages: (pages) => invalidateRenderedPages(pages),
     renderVisiblePages: (range, options) => renderVisiblePages(range, options),
     hideManagedAnnotationEditors: (pageNumber) => hideManagedAnnotationEditors(pageNumber),
-    currentPage,
+    currentPage: viewerCurrentPage,
 });
 const {
     managedEmbeddedAnnotationIds,
@@ -532,7 +535,7 @@ const {
 } = usePdfPageRenderer({
     container: viewerContainer,
     document: pdfDocumentResult,
-    currentPage,
+    currentPage: viewerCurrentPage,
     isActive,
     effectiveScale,
     bufferPages,
@@ -559,7 +562,7 @@ const {
 const singlePageScroll = usePdfSinglePageScroll({
     viewerContainer,
     numPages,
-    currentPage,
+    currentPage: viewerCurrentPage,
     scaledMargin,
     viewMode,
     continuousScroll,
@@ -574,6 +577,32 @@ const singlePageScroll = usePdfSinglePageScroll({
     emitCurrentPage: (page) => emit('update:currentPage', page),
 });
 
+watch(
+    requestedCurrentPage,
+    (pageNumber) => {
+        if (
+            typeof pageNumber !== 'number'
+            || !Number.isFinite(pageNumber)
+            || numPages.value <= 0
+            || !viewerContainer.value
+        ) {
+            return;
+        }
+
+        const targetPage = Math.min(
+            Math.max(Math.trunc(pageNumber), 1),
+            numPages.value,
+        );
+        if (targetPage === viewerCurrentPage.value) {
+            return;
+        }
+
+        cancelPendingSearchScroll();
+        singlePageScroll.scrollToPage(targetPage);
+    },
+    { flush: 'post' },
+);
+
 const {
     pendingImagePlacement,
     isPendingImagePlacementFinalizing,
@@ -584,7 +613,7 @@ const {
     restorePendingImagePlacement,
 } = usePdfImagePlacement({
     viewerContainer,
-    currentPage,
+    currentPage: viewerCurrentPage,
     numPages,
     effectiveScale,
     emitFinalize: (payload) => emit('image-placement-finalize', payload),
@@ -617,7 +646,7 @@ const annotations = useAnnotationOrchestrator({
     viewerContainer,
     pdfDocument,
     numPages,
-    currentPage,
+    currentPage: viewerCurrentPage,
     effectiveScale,
     visibleRange,
     annotationTool,
@@ -719,6 +748,8 @@ const {
     bufferPages,
     viewMode,
     numPages,
+    currentPage: viewerCurrentPage,
+    continuousScroll,
     basePageWidth,
     basePageHeight,
     pageMetrics,
@@ -745,7 +776,7 @@ const {
     zoom,
     zoomMode,
     effectiveScale,
-    currentPage,
+    currentPage: viewerCurrentPage,
     visibleRange,
     virtualizedContinuousMode,
     virtualWindowStart,
@@ -796,7 +827,7 @@ const {
     activeCommentStableKey,
     pdfDocumentResult,
     annotations,
-    currentPage,
+    currentPage: viewerCurrentPage,
     visibleRange,
     effectiveScale,
     basePageWidth,
@@ -906,7 +937,7 @@ function syncFitWidthZoomModeForCurrentPage() {
 
 watch(
     () => [
-        currentPage.value,
+        viewerCurrentPage.value,
         fitMode.value,
         continuousScroll.value,
         zoom.value,
@@ -1003,7 +1034,7 @@ const isActiveSpreadHorizontalScrollLocked = computed(() => {
         basePageHeight: basePageHeight.value,
         numPages: numPages.value,
         pageMetrics: pageMetrics.value,
-        currentPage: currentPage.value,
+        currentPage: viewerCurrentPage.value,
         viewMode: viewMode.value,
         effectiveScale: effectiveScale.value,
         scaledMargin: scaledMargin.value,
@@ -1059,7 +1090,7 @@ function resolveHorizontalScrollClampForActiveSpread() {
     const scrollClamp = resolveActiveSpreadHorizontalScrollClamp({
         container,
         fitMode: fitMode.value,
-        pageNumber: currentPage.value,
+        pageNumber: viewerCurrentPage.value,
         viewMode: viewMode.value,
         numPages: numPages.value,
         basePageWidth: basePageWidth.value,
@@ -1113,7 +1144,7 @@ watch(
     () => [
         zoomMode.value,
         fitMode.value,
-        currentPage.value,
+        viewerCurrentPage.value,
         effectiveScale.value,
         viewMode.value,
         numPages.value,
@@ -1130,7 +1161,7 @@ watch(
         !!searchNavigationWindow.value,
         virtualWindowStart.value,
         virtualWindowEnd.value,
-        currentPage.value,
+        viewerCurrentPage.value,
         visibleRange.value.start,
         visibleRange.value.end,
         singlePageScroll.searchNavigationTargetPage.value,
@@ -1163,7 +1194,7 @@ watch(
     },
 );
 
-watch(currentPage, (next, previous) => {
+watch(viewerCurrentPage, (next, previous) => {
     if (next === previous) {
         return;
     }
@@ -1207,7 +1238,7 @@ watch(
                 start: nextStart,
                 end: nextEnd, 
             },
-            currentPage: currentPage.value,
+            currentPage: viewerCurrentPage.value,
             isLoading: isLoading.value,
             continuousScroll: continuousScroll.value,
             viewer: summarizeViewerStateForLog(),
@@ -1241,7 +1272,7 @@ const {
     restoreViewerScrollSnapshot,
 } = usePdfViewerScrollSnapshot({
     viewerContainer,
-    currentPage,
+    currentPage: viewerCurrentPage,
     resolveHorizontalScrollClampForActiveSpread,
     syncHorizontalScrollForZoomMode,
     scrollToPage: singlePageScroll.scrollToPage,

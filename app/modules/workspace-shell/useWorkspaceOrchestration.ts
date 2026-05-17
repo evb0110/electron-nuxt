@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
@@ -37,6 +38,8 @@ interface IWorkspaceOrchestrationDeps {
         (e: 'open-settings'): void;
     };
 }
+
+const WORKSPACE_PAGE_NAVIGATION_LOCK_MS = 2_000;
 
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
     const {
@@ -324,6 +327,44 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         serializePdfForSave,
     } = pageSaveOrchestration;
 
+    const programmaticPageNavigationTarget = ref<number | null>(null);
+    let programmaticPageNavigationTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearProgrammaticPageNavigationTarget() {
+        if (programmaticPageNavigationTimer !== null) {
+            clearTimeout(programmaticPageNavigationTimer);
+            programmaticPageNavigationTimer = null;
+        }
+        programmaticPageNavigationTarget.value = null;
+    }
+
+    function beginProgrammaticPageNavigation(page: number) {
+        programmaticPageNavigationTarget.value = page;
+        if (programmaticPageNavigationTimer !== null) {
+            clearTimeout(programmaticPageNavigationTimer);
+        }
+        programmaticPageNavigationTimer = setTimeout(() => {
+            programmaticPageNavigationTimer = null;
+            if (programmaticPageNavigationTarget.value === page) {
+                programmaticPageNavigationTarget.value = null;
+            }
+        }, WORKSPACE_PAGE_NAVIGATION_LOCK_MS);
+    }
+
+    function shouldAcceptViewerCurrentPageUpdate(page: number) {
+        const targetPage = programmaticPageNavigationTarget.value;
+        if (targetPage === null) {
+            return true;
+        }
+        if (page !== targetPage) {
+            return false;
+        }
+        clearProgrammaticPageNavigationTarget();
+        return true;
+    }
+
+    tryOnScopeDispose(clearProgrammaticPageNavigationTarget);
+
     const viewState = useWorkspaceViewState({
         fitMode,
         zoomMode,
@@ -338,6 +379,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasOpenAnnotationNotes,
         canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
         canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
+        currentPage,
+        totalPages,
+        beginProgrammaticPageNavigation,
         pdfViewerRef,
     });
     const {
@@ -640,6 +684,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ...pdfHistory,
         ...pageSaveOrchestration,
         ...workspacePrint,
+        shouldAcceptViewerCurrentPageUpdate,
         appSettings,
         pdfDocument,
         pdfData,

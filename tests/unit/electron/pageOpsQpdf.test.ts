@@ -42,7 +42,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
 describe('page-ops qpdf extract', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        ensureWorkingCopyDirectoryMock.mockResolvedValue(false);
+        ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
     });
 
     it('rejects empty qpdf output and removes an empty destination placeholder', async () => {
@@ -156,7 +156,7 @@ describe('page-ops qpdf extract', () => {
 describe('page-ops qpdf working-copy mutations', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        ensureWorkingCopyDirectoryMock.mockResolvedValue(false);
+        ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
     });
 
     it('recovers the working-copy directory before writing mutation output beside it', async () => {

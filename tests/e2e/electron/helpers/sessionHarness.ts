@@ -6,7 +6,12 @@ import puppeteer, {
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from '../../../../scripts/electron-run/client';
 import { DEFAULT_NUXT_PORT } from '../../../../scripts/electron-run/electronRunPortConfig';
-import { getSessionInfo } from '../../../../scripts/electron-run/electronRunSessionArtifacts';
+import { isProcessAlive } from '../../../../scripts/electron-run/electronRunProcessTree';
+import {
+    getSessionInfo,
+    getSessionStartingInfo,
+    readSessionLogTail,
+} from '../../../../scripts/electron-run/electronRunSessionArtifacts';
 import {
     sessionDir,
     setCurrentSessionName,
@@ -20,8 +25,9 @@ import {
 import { cleanupSessionFixtures } from './fixtures';
 import { waitForFunctionInPage } from './pageRuntime';
 
-const SESSION_READY_TIMEOUT_MS = 120_000;
+const SESSION_READY_TIMEOUT_MS = 75_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
+const SESSION_STOP_TIMEOUT_MS = 15_000;
 const PRESERVE_E2E_ARTIFACTS_ENV = 'EVB_E2E_PRESERVE_ARTIFACTS';
 
 export interface IElectronE2ESession {
@@ -43,6 +49,64 @@ function cleanupSessionArtifacts(sessionName: string) {
         recursive: true,
         force: true,
     });
+}
+
+function createSessionDiagnostics(sessionName: string) {
+    setCurrentSessionName(sessionName);
+    const info = getSessionInfo(sessionName);
+    const starting = getSessionStartingInfo(sessionName);
+    const details = {
+        sessionName,
+        info: info
+            ? {
+                ...info,
+                pidAlive: isProcessAlive(info.pid),
+                electronPidAlive: info.electronPid ? isProcessAlive(info.electronPid) : null,
+                nuxtPidAlive: info.nuxtPid ? isProcessAlive(info.nuxtPid) : null,
+            }
+            : null,
+        starting: starting
+            ? {
+                ...starting,
+                pidAlive: isProcessAlive(starting.pid),
+                ageMs: Date.now() - starting.startedAt,
+            }
+            : null,
+    };
+    const logTail = readSessionLogTail(120);
+    return [
+        `Session diagnostics: ${JSON.stringify(details, null, 2)}`,
+        logTail ? `--- Recent session log ---\n${logTail}` : 'No session log tail available.',
+    ].join('\n');
+}
+
+async function withSessionTimeout<T>(
+    sessionName: string,
+    label: string,
+    timeoutMs: number,
+    task: Promise<T>,
+    options: { cleanupOnTimeout?: boolean } = {},
+): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+            if (options.cleanupOnTimeout) {
+                void stopSingleSession(sessionName).catch(() => {});
+            }
+            reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s.\n${createSessionDiagnostics(sessionName)}`));
+        }, timeoutMs);
+    });
+
+    try {
+        return await Promise.race([
+            task,
+            timeoutPromise,
+        ]);
+    } finally {
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+    }
 }
 
 async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
@@ -161,24 +225,53 @@ async function connectToSessionPage(sessionName: string) {
 export async function startElectronE2ESession(sessionName: string, options?: {clean?: boolean;}): Promise<IElectronE2ESession> {
     const clean = options?.clean ?? true;
 
-    await stopSingleSession(sessionName);
+    await withSessionTimeout(
+        sessionName,
+        `Stopping stale Electron E2E session '${sessionName}'`,
+        SESSION_STOP_TIMEOUT_MS,
+        stopSingleSession(sessionName),
+    );
     if (clean) {
         cleanupSessionArtifacts(sessionName);
     }
 
     setCurrentSessionName(sessionName);
-    await startSessionDetached();
+    await withSessionTimeout(
+        sessionName,
+        `Starting Electron E2E session '${sessionName}'`,
+        SESSION_READY_TIMEOUT_MS,
+        startSessionDetached(),
+        { cleanupOnTimeout: true },
+    );
 
-    const ready = await waitForSessionReady(SESSION_READY_TIMEOUT_MS);
+    const ready = await withSessionTimeout(
+        sessionName,
+        `Waiting for Electron E2E session '${sessionName}' metadata`,
+        SESSION_READY_TIMEOUT_MS,
+        waitForSessionReady(SESSION_READY_TIMEOUT_MS),
+        { cleanupOnTimeout: true },
+    );
     if (!ready) {
-        throw new Error(`Session '${sessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s`);
+        throw new Error(`Session '${sessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(sessionName)}`);
     }
 
-    await waitForHealthReady(sessionName);
+    await withSessionTimeout(
+        sessionName,
+        `Waiting for Electron E2E session '${sessionName}' health`,
+        SESSION_READY_TIMEOUT_MS,
+        waitForHealthReady(sessionName, SESSION_READY_TIMEOUT_MS),
+        { cleanupOnTimeout: true },
+    );
     const {
         browser,
         page,
-    } = await connectToSessionPage(sessionName);
+    } = await withSessionTimeout(
+        sessionName,
+        `Connecting to Electron E2E session '${sessionName}' renderer`,
+        RENDERER_READY_TIMEOUT_MS + 20_000,
+        connectToSessionPage(sessionName),
+        { cleanupOnTimeout: true },
+    );
 
     const command = async <T = unknown>(
         nextCommand: TElectronRunCommand,
@@ -195,7 +288,12 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
         } catch {
             // Disconnect best-effort for cleanup.
         }
-        await stopSingleSession(sessionName);
+        await withSessionTimeout(
+            sessionName,
+            `Stopping Electron E2E session '${sessionName}'`,
+            SESSION_STOP_TIMEOUT_MS,
+            stopSingleSession(sessionName),
+        );
         if (!shouldPreserveE2EArtifacts()) {
             cleanupSessionArtifacts(sessionName);
         }

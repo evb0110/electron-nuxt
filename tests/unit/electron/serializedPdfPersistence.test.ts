@@ -61,7 +61,7 @@ describe('serializedPdfPersistence', () => {
             errors: [],
             warnings: [],
         });
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);

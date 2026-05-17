@@ -54,7 +54,7 @@ describe('page crop operations', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         tempDir = await mkdtemp(join(tmpdir(), 'page-crop-test-'));
         pdfPath = join(tempDir, 'sample.pdf');
     });

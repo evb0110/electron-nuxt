@@ -27,7 +27,7 @@ interface ICreateCombinedPdfOptions {
     appendDjvuPages?: (targetPdf: PDFDocument, sourcePath: string) => Promise<number>;
 }
 
-export interface IPdfCombineResourceLimits {
+interface IPdfCombineResourceLimits {
     maxPages: number;
     maxTiffFrames: number;
     maxImagePixels: number;

@@ -12,6 +12,7 @@ import {
     buildPageLayoutMetrics,
     getLeadingSpacerHeightForPage,
     getPageRowBounds,
+    getPageRowBoundsForViewMode,
     getTrailingSpacerHeightForPage,
     normalizePageMetrics,
 } from '@app/composables/pdf/pdfPageLayout';
@@ -29,6 +30,8 @@ interface IUsePdfViewerVirtualizationOptions {
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
     numPages: Ref<number>;
+    currentPage: Ref<number>;
+    continuousScroll: ComputedRef<boolean>;
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     pageMetrics: Ref<IPdfPageMetric[]>;
@@ -79,6 +82,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         bufferPages,
         viewMode,
         numPages,
+        currentPage,
+        continuousScroll,
         basePageWidth,
         basePageHeight,
         pageMetrics,
@@ -174,7 +179,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     }
 
     const virtualizedContinuousMode = computed(() =>
-        numPages.value > 0
+        continuousScroll.value
+        && numPages.value > 0
         && pageHeightEstimate.value > 0,
     );
 
@@ -188,16 +194,32 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             : Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
     );
 
+    const pagedWindowBounds = computed(() => {
+        if (numPages.value <= 0) {
+            return {
+                start: 1,
+                end: 0,
+            };
+        }
+
+        const anchorPage = searchNavigationTargetPage.value ?? currentPage.value;
+        return getPageRowBoundsForViewMode({
+            pageNumber: anchorPage,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+    });
+
     const baseVirtualWindowStart = computed(() => {
         if (!virtualizedContinuousMode.value) {
-            return 1;
+            return pagedWindowBounds.value.start;
         }
         return Math.max(1, visibleRange.value.start - virtualMountBuffer.value);
     });
 
     const baseVirtualWindowEnd = computed(() => {
         if (!virtualizedContinuousMode.value) {
-            return numPages.value;
+            return pagedWindowBounds.value.end;
         }
         return Math.min(numPages.value, visibleRange.value.end + virtualMountBuffer.value);
     });
@@ -241,7 +263,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     const virtualWindowStart = computed(() => {
         if (!virtualizedContinuousMode.value) {
-            return 1;
+            return pagedWindowBounds.value.start;
         }
         if (zoomVirtualizationFreeze.value) {
             return zoomVirtualizationFreeze.value.windowStart;
@@ -259,7 +281,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     const virtualWindowEnd = computed(() => {
         if (!virtualizedContinuousMode.value) {
-            return numPages.value;
+            return pagedWindowBounds.value.end;
         }
         if (zoomVirtualizationFreeze.value) {
             return zoomVirtualizationFreeze.value.windowEnd;
@@ -330,6 +352,12 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
         const layout = pageLayout.value;
         if (!layout) {
+            if (!continuousScroll.value) {
+                const bounds = pagedWindowBounds.value;
+                return bounds.end >= bounds.start
+                    ? range(bounds.start, bounds.end + 1)
+                    : [];
+            }
             return range(1, numPages.value + 1);
         }
 
@@ -343,7 +371,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     const virtualWindowStartPage = computed(() => {
         if (!virtualizedContinuousMode.value) {
-            return 1;
+            return pagedWindowBounds.value.start;
         }
         const layout = pageLayout.value;
         if (!layout) {
@@ -354,7 +382,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     const virtualWindowEndPage = computed(() => {
         if (!virtualizedContinuousMode.value) {
-            return numPages.value;
+            return pagedWindowBounds.value.end;
         }
 
         const layout = pageLayout.value;

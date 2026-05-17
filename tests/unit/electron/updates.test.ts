@@ -84,6 +84,7 @@ vi.mock('@electron/settings', () => ({
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
 
 const originalPlatform = process.platform;
+const originalArch = process.arch;
 
 function createMetadataResponse(version: string) {
     return {
@@ -116,6 +117,10 @@ beforeAll(() => {
         configurable: true,
         value: 'win32',
     });
+    Object.defineProperty(process, 'arch', {
+        configurable: true,
+        value: 'x64',
+    });
 });
 
 describe('updates robustness', () => {
@@ -123,6 +128,10 @@ describe('updates robustness', () => {
         Object.defineProperty(process, 'platform', {
             configurable: true,
             value: 'win32',
+        });
+        Object.defineProperty(process, 'arch', {
+            configurable: true,
+            value: 'x64',
         });
         vi.useFakeTimers();
         vi.clearAllMocks();
@@ -359,5 +368,9 @@ afterAll(() => {
     Object.defineProperty(process, 'platform', {
         configurable: true,
         value: originalPlatform,
+    });
+    Object.defineProperty(process, 'arch', {
+        configurable: true,
+        value: originalArch,
     });
 });

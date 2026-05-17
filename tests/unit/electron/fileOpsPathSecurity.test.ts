@@ -89,7 +89,7 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/safe.pdf');
         mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,

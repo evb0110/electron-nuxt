@@ -32,6 +32,7 @@ import { usePdfViewerResizeLifecycle } from '@app/modules/pdf-viewer-runtime/com
 import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerRerenderCoordinator';
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerRenderStallRecovery';
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerZoomRerenderQueue';
+import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -337,6 +338,18 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     }
 
     function getVisibleRange() {
+        if (!continuousScroll.value && numPages.value > 0) {
+            const rowBounds = getPageRowBoundsForViewMode({
+                pageNumber: currentPage.value,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+            visibleRange.value = {
+                start: rowBounds.start,
+                end: rowBounds.end,
+            };
+            return visibleRange.value;
+        }
         updateVisibleRange(viewerContainer.value, numPages.value);
         return visibleRange.value;
     }
