@@ -56,17 +56,17 @@ export interface IBeginSerializedPdfSaveAsResult {
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
 
-function getPdfPersistencePortMessageData(messageEvent: unknown) {
-    const data = messageEvent && typeof messageEvent === 'object' && 'data' in messageEvent
-        ? messageEvent.data
-        : null;
-    if (
-        data != null
-    ) {
-        return data;
+function getPdfPersistencePortMessageData(messageEvent: unknown): unknown {
+    if (!messageEvent || typeof messageEvent !== 'object' || !('data' in messageEvent)) {
+        return messageEvent;
     }
 
-    return messageEvent;
+    const data = messageEvent.data;
+    if (data == null) {
+        return messageEvent;
+    }
+
+    return getPdfPersistencePortMessageData(data);
 }
 
 function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
@@ -286,6 +286,34 @@ function describePersistenceMessage(message: unknown) {
     return `keys=${Object.keys(message).join(',')}`;
 }
 
+function isPdfPersistencePortPayload(message: unknown): message is {
+    type?: unknown;
+    seq?: unknown;
+    bytes?: unknown;
+} {
+    return Boolean(message && typeof message === 'object' && 'type' in message);
+}
+
+function normalizePdfPersistencePortPayload(message: unknown): unknown {
+    let currentMessage = message;
+    for (let depth = 0; depth < 4; depth += 1) {
+        if (isPdfPersistencePortPayload(currentMessage)) {
+            return currentMessage;
+        }
+        if (!currentMessage || typeof currentMessage !== 'object' || !('data' in currentMessage)) {
+            return currentMessage;
+        }
+
+        const nextMessage = currentMessage.data;
+        if (nextMessage == null || nextMessage === currentMessage) {
+            return currentMessage;
+        }
+        currentMessage = nextMessage;
+    }
+
+    return currentMessage;
+}
+
 function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
     const sessionId = typeof rawSessionId === 'string' ? rawSessionId : '';
     const session = sessions.get(sessionId);
@@ -328,11 +356,12 @@ async function handlePortMessage(
     message: unknown,
 ) {
     try {
-        if (!message || typeof message !== 'object') {
+        const normalizedMessage = normalizePdfPersistencePortPayload(message);
+        if (!normalizedMessage || typeof normalizedMessage !== 'object') {
             throw new Error('Invalid PDF persistence message');
         }
 
-        const payload = message as {
+        const payload = normalizedMessage as {
             type?: unknown;
             seq?: unknown;
             bytes?: unknown;
@@ -377,7 +406,7 @@ async function handlePortMessage(
             return;
         }
 
-        throw new Error(`Unknown PDF persistence message (${describePersistenceMessage(message)})`);
+        throw new Error(`Unknown PDF persistence message (${describePersistenceMessage(normalizedMessage)})`);
     } catch (error) {
         await cleanupSession(session);
         port.postMessage({
