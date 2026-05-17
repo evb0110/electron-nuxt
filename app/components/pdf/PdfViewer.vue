@@ -1036,7 +1036,18 @@ function shouldShowPageSkeleton(page: number) {
     if (isPageBuffered(page)) {
         return false;
     }
+    if (hasMountedPageCanvas(page)) {
+        delayedSkeleton.markPageRendered(page);
+        return false;
+    }
     return delayedSkeleton.shouldShowSkeleton(page);
+}
+
+function hasMountedPageCanvas(page: number) {
+    const container = viewerContainer.value?.querySelector<HTMLElement>(
+        `.page_container[data-page="${page}"]`,
+    );
+    return Boolean(container?.querySelector('.page_canvas canvas'));
 }
 
 let pagedBufferRenderToken = 0;
