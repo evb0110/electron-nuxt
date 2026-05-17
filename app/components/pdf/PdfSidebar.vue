@@ -38,7 +38,10 @@
                 />
             </template>
         </UTabs>
-        <div class="relative min-h-0 flex-1 overflow-hidden overflow-y-auto [&>*]:w-full app-scrollbar">
+        <div
+            class="pdf-sidebar-content relative min-h-0 flex-1 overflow-hidden overflow-y-auto [&>*]:w-full app-scrollbar"
+            :class="{ 'pdf-sidebar-content-bookmarks': activeTab === 'bookmarks' }"
+        >
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
                 :tool="annotationTool"
@@ -559,5 +562,9 @@ const sidebarStyle = computed(() => {
     flex: 1;
     min-height: 80px;
     overflow: hidden;
+}
+
+.pdf-sidebar-content-bookmarks {
+    overflow-y: hidden;
 }
 </style>

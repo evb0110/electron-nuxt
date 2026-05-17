@@ -91,17 +91,17 @@ const displayModeOptions = computed<Array<{
     {
         id: 'top-level',
         title: t('bookmarks.topLevelOnly'),
-        icon: 'i-ph-list',
+        icon: 'i-ph-rows',
     },
     {
         id: 'all-expanded',
         title: t('bookmarks.expandAll'),
-        icon: 'i-ph-caret-double-down',
+        icon: 'i-ph-tree-view',
     },
     {
         id: 'current-expanded',
         title: t('bookmarks.expandCurrentPath'),
-        icon: 'i-ph-eye',
+        icon: 'i-ph-crosshair-simple',
     },
 ]);
 
