@@ -16,6 +16,7 @@ import {
     getPageContainerByNumber,
     getPageScrollBounds as getPageScrollBoundsForContainer,
 } from '@app/composables/pdf/pdfScrollVisibility';
+import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const PAGE_FLIP_STEP_DELTA_PX = 120;
@@ -39,6 +40,11 @@ export type TWheelDirection = -1 | 1;
 interface IPageScrollBounds {
     min: number;
     max: number;
+}
+
+interface IPageRowGeometry {
+    top: number;
+    height: number;
 }
 
 export interface IWheelPageAccumulatorState {
@@ -405,11 +411,71 @@ export const usePdfSinglePageScroll = (
         }
 
         const targetPage = clamp(pageNumber, 1, numPages.value);
+        const rowGeometry = getPageRowGeometry(container, targetPage);
+        if (rowGeometry) {
+            return getPageScrollBoundsFromGeometry(container, rowGeometry);
+        }
+
         return getPageScrollBoundsForContainer(
             container,
             targetPage,
             scaledMargin.value,
         );
+    }
+
+    function getPageRowGeometry(
+        container: HTMLElement,
+        pageNumber: number,
+    ): IPageRowGeometry | null {
+        const rowBounds = getPageRowBoundsForViewMode({
+            pageNumber,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+        let rowTop = Number.POSITIVE_INFINITY;
+        let rowBottom = Number.NEGATIVE_INFINITY;
+        let foundAnyPage = false;
+
+        for (let rowPage = rowBounds.start; rowPage <= rowBounds.end; rowPage += 1) {
+            const pageElement = getPageContainerByNumber(container, rowPage);
+            if (!pageElement) {
+                continue;
+            }
+            foundAnyPage = true;
+            rowTop = Math.min(rowTop, pageElement.offsetTop);
+            rowBottom = Math.max(rowBottom, pageElement.offsetTop + pageElement.offsetHeight);
+        }
+
+        if (!foundAnyPage) {
+            return null;
+        }
+
+        return {
+            top: rowTop,
+            height: Math.max(0, rowBottom - rowTop),
+        };
+    }
+
+    function getPageScrollBoundsFromGeometry(
+        container: HTMLElement,
+        geometry: IPageRowGeometry,
+    ): IPageScrollBounds {
+        const maxScrollTop = Math.max(
+            0,
+            container.scrollHeight - container.clientHeight,
+        );
+        const unclampedMin = Math.max(0, geometry.top - scaledMargin.value);
+        const unclampedMax = unclampedMin + Math.max(
+            0,
+            geometry.height - container.clientHeight,
+        );
+        const min = Math.min(maxScrollTop, unclampedMin);
+        const max = Math.min(maxScrollTop, Math.max(min, unclampedMax));
+
+        return {
+            min,
+            max,
+        };
     }
 
     function isWithinTallPageInterior(pageNumber: number) {
@@ -468,8 +534,12 @@ export const usePdfSinglePageScroll = (
 
         const container = viewerContainer.value;
         const containerHeight = container.clientHeight;
-        const targetHeight = targetEl.offsetHeight;
-        const baseTop = targetEl.offsetTop - scaledMargin.value;
+        const targetGeometry = getPageRowGeometry(container, targetPage) ?? {
+            top: targetEl.offsetTop,
+            height: targetEl.offsetHeight,
+        };
+        const targetHeight = targetGeometry.height;
+        const baseTop = targetGeometry.top - scaledMargin.value;
         const maxTop = Math.max(0, container.scrollHeight - containerHeight);
         const topTarget = Math.min(maxTop, Math.max(0, baseTop));
         const centerOffset = Math.max(0, (containerHeight - targetHeight) / 2);

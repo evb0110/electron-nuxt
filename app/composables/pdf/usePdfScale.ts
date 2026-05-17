@@ -9,6 +9,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { ZOOM } from '@app/constants/pdfLayout';
 import {
     normalizePageMetrics,
+    getPageRowBoundsForViewMode,
     resolveCurrentSpreadBaseWidth,
     resolveDocumentBaseMetric,
 } from '@app/composables/pdf/pdfPageLayout';
@@ -74,12 +75,23 @@ export const usePdfScale = (
         normalizedPageMetrics: IPdfPageMetric[],
         documentBaseHeight: number,
     ) {
-        // Fit-height should be anchored to the active page instead of the
-        // tallest page in the document so toggling continuous scroll does
-        // not nudge the zoom level on mixed-height PDFs.
+        // Fit-height is anchored to the visible page row. In facing modes the
+        // row is the unit the user is paging through, so the taller page in
+        // the active spread must define the scale.
         const page = toValue(currentPage);
-        const pageHeight = normalizedPageMetrics[page - 1]?.height ?? null;
-        return (pageHeight != null && pageHeight > 0) ? pageHeight : documentBaseHeight;
+        const totalPages = toValue(numPages);
+        const rowBounds = getPageRowBoundsForViewMode({
+            pageNumber: page,
+            viewMode: toValue(viewMode),
+            totalPages,
+        });
+        let rowHeight = 0;
+
+        for (let rowPage = rowBounds.start; rowPage <= rowBounds.end; rowPage += 1) {
+            rowHeight = Math.max(rowHeight, normalizedPageMetrics[rowPage - 1]?.height ?? 0);
+        }
+
+        return rowHeight > 0 ? rowHeight : documentBaseHeight;
     }
 
     function getFitRawSize(container: HTMLElement, mode: TFitMode) {
