@@ -712,6 +712,8 @@ function cleanupViewerState() {
 }
 
 function releaseRenderedPagePreviews() {
+    activeRenderPromise = null;
+
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         const state = pageStates.value[pageNumber - 1];
         if (!state) {
@@ -734,6 +736,20 @@ function stopWorker() {
 
     for (let pageNumber = 1; pageNumber <= pageStates.value.length; pageNumber += 1) {
         revokePageUrl(pageNumber);
+    }
+
+    activeWorker.terminate();
+    activeWorker = null;
+    activeRenderPromise = null;
+    queuedPageNumbers = [];
+    lastRenderedPageSet = new Set<number>();
+    invalidateContinuousScrollWindowCache();
+}
+
+function suspendWorker() {
+    releaseRenderedPagePreviews();
+    if (!activeWorker) {
+        return;
     }
 
     activeWorker.terminate();
@@ -911,12 +927,15 @@ async function processRenderQueue() {
         return;
     }
 
-    activeRenderPromise = ensurePageLoaded(nextPageNumber)
+    const trackedRenderPromise = ensurePageLoaded(nextPageNumber)
         .finally(() => {
-            activeRenderPromise = null;
+            if (activeRenderPromise === trackedRenderPromise) {
+                activeRenderPromise = null;
+            }
         });
+    activeRenderPromise = trackedRenderPromise;
 
-    await activeRenderPromise;
+    await trackedRenderPromise;
 
     if (!activeWorker) {
         return;
@@ -1261,7 +1280,7 @@ watch(
 watch(isActive, async (active) => {
     if (!active) {
         loadGeneration += 1;
-        releaseRenderedPagePreviews();
+        suspendWorker();
         clearWheelAccumulator();
         if (import.meta.client && scrollRafId !== 0) {
             window.cancelAnimationFrame(scrollRafId);
@@ -1270,7 +1289,7 @@ watch(isActive, async (active) => {
         return;
     }
 
-    if (src && import.meta.client && !activeWorker && pageSizes.value.length === 0) {
+    if (src && import.meta.client && !activeWorker) {
         loadGeneration += 1;
         const generation = loadGeneration;
         emitLoading(true, { force: true });
@@ -1283,23 +1302,26 @@ watch(isActive, async (active) => {
             }
 
             activeWorker = worker;
-            const sizes = await worker.doc.getPagesSizes().run();
-            if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
-                if (worker === activeWorker && pageSizes.value.length === 0) {
-                    discardStaleWorker(worker);
+            if (pageSizes.value.length === 0) {
+                const sizes = await worker.doc.getPagesSizes().run();
+                if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
+                    if (worker === activeWorker && pageSizes.value.length === 0) {
+                        discardStaleWorker(worker);
+                    }
+                    return;
                 }
-                return;
+
+                pageSizes.value = sizes;
+                pageStates.value = sizes.map(() => ({
+                    objectUrl: null,
+                    status: 'idle',
+                    token: 0,
+                }));
+                emit('update:totalPages', sizes.length);
             }
 
-            pageSizes.value = sizes;
-            pageStates.value = sizes.map(() => ({
-                objectUrl: null,
-                status: 'idle',
-                token: 0,
-            }));
             invalidateContinuousScrollWindowCache();
             viewerError.value = null;
-            emit('update:totalPages', sizes.length);
             await nextTick();
             measureContainer();
             syncLoadedPages();

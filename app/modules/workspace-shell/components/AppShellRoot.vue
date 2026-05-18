@@ -191,7 +191,10 @@ import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import {
+    createTabViewSessionState,
+    useTabSessionStore,
+} from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type {
     TPdfViewMode,
@@ -216,7 +219,7 @@ const {
     getTabById,
     getGroupByTabId,
     activateGroup,
-    activateTab,
+    activateTab: activateEditorTab,
     createTab,
     closeTab,
     moveTabWithinGroup,
@@ -303,6 +306,22 @@ const {
     waitForWorkspace,
     workspaceRefs,
 } = useWorkspaceRefRegistry({ activeTabId });
+
+function persistActiveTabViewState() {
+    const tabId = activeTabId.value;
+    const workspace = tabId ? workspaceRefs.value.get(tabId) : null;
+    if (!tabId || !workspace) {
+        return;
+    }
+
+    updateTabViewState(tabId, createTabViewSessionState(workspace.getToolbarSnapshot()));
+}
+
+function activateTab(groupId: string, tabId: string) {
+    persistActiveTabViewState();
+    activateEditorTab(groupId, tabId);
+}
+
 const activeTab = computed(() => (
     activeTabId.value
         ? getTabById(activeTabId.value)
@@ -673,6 +692,7 @@ const {
     mergeWindowInto,
 });
 function createTabInGroup(groupId: string) {
+    persistActiveTabViewState();
     createTabInGroupFromRouting(groupId);
 }
 
@@ -908,7 +928,10 @@ useTabsShellBindings({
     tabs,
     activeTabId,
     activeWorkspace,
-    createTab: () => createTab({ activate: true }),
+    createTab: () => {
+        persistActiveTabViewState();
+        return createTab({ activate: true });
+    },
     activateTab: (tabId) => {
         const group = getGroupByTabId(tabId);
         if (group) {

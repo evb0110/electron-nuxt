@@ -262,11 +262,15 @@ export class SearchWorkerService {
             throw new Error(`Search request with id "${requestId}" is already in progress`);
         }
 
-        if (state.activeRequestId && state.activeRequestId !== requestId) {
+        if (!payload.warmup && state.activeRequestId && state.activeRequestId !== requestId) {
             this.cancelRequest(state, state.activeRequestId);
         }
 
-        this.activateRequest(state, requestId);
+        if (!payload.warmup) {
+            this.activateRequest(state, requestId);
+        } else {
+            this.markStateActivity(state);
+        }
         this.clearIdleCleanupTimer(state);
 
         return new Promise<ISearchResponse>((resolve, reject) => {

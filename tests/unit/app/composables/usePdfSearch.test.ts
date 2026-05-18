@@ -296,6 +296,69 @@ describe('usePdfSearch', () => {
         expect(mockSearch.resetCache).toHaveBeenCalledOnce();
     });
 
+    it('invalidates the active run before awaiting backend cancellation', async () => {
+        let firstRequestId = '';
+        let resolveFirstSearch: (value: {
+            results: Array<{
+                pageNumber: number;
+                pageMatchIndex: number;
+                matchIndex: number;
+                startOffset: number;
+                endOffset: number;
+            }>;
+            truncated: boolean;
+        }) => void = () => {};
+        let resolveCancel: () => void = () => {};
+
+        mockSearch.run.mockImplementation(async (_pdfPath, query, options) => {
+            if (query === 'beta') {
+                return {
+                    results: [],
+                    truncated: false,
+                };
+            }
+
+            firstRequestId = options.requestId;
+            return new Promise((resolve) => {
+                resolveFirstSearch = resolve;
+            });
+        });
+        mockSearch.cancel.mockImplementation(async () => new Promise<void>((resolve) => {
+            resolveCancel = resolve;
+        }));
+
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const firstSearch = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        expect(mockSearch.run).toHaveBeenCalledOnce();
+
+        const secondSearch = search.search('beta', '/tmp/work.pdf');
+        await vi.waitFor(() => {
+            expect(mockSearch.cancel).toHaveBeenCalledWith(firstRequestId);
+        });
+
+        resolveFirstSearch({
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 1,
+                endOffset: 6,
+            }],
+            truncated: false,
+        });
+        await firstSearch;
+
+        expect(search.results.value).toEqual([]);
+        expect(search.isSearching.value).toBe(true);
+
+        resolveCancel();
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await secondSearch;
+    });
+
     it('surfaces a localized search error when backend search fails', async () => {
         mockSearch.run.mockRejectedValue(new Error('ERR_BROWSER_SEARCH_TOO_LARGE'));
 

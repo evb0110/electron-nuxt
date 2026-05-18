@@ -1,4 +1,9 @@
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDict,
+    PDFDocument,
+    PDFName,
+    PDFRef,
+} from 'pdf-lib';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -15,6 +20,8 @@ import {
     updateAnnotationTextByRef,
 } from '@app/composables/pdf/pdfSerializationComments';
 import { resolveCommentPdfRefInDocument } from '@app/composables/pdf/pdfSerializationRefs';
+import { getPdfDictSubtype } from '@app/utils/pdfDict';
+import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
 import {
     applyEmbeddedAnnotationDeletes,
     applyEmbeddedNoteTextUpdates,
@@ -120,6 +127,28 @@ export async function updateEmbeddedAnnotationText(
     const targetRef = resolveCommentPdfRefInDocument(doc, comment);
     if (!targetRef) {
         return null;
+    }
+
+    const targetDict = doc.context.lookupMaybe(targetRef, PDFDict);
+    const targetSubtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(targetDict ?? null));
+    const parentValue = targetDict?.get(PDFName.of('Parent'));
+    const parentDict = parentValue instanceof PDFRef
+        ? doc.context.lookupMaybe(parentValue, PDFDict) ?? null
+        : parentValue instanceof PDFDict
+            ? parentValue
+            : null;
+    const parentSubtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(parentDict));
+    const freeTextRef = targetSubtype === 'freetext'
+        ? targetRef
+        : targetSubtype === 'popup' && parentSubtype === 'freetext' && parentValue instanceof PDFRef
+            ? parentValue
+            : null;
+
+    if (freeTextRef) {
+        applyFreeTextNoteRects(doc, [{
+            ...comment,
+            annotationId: `${freeTextRef.objectNumber}R${freeTextRef.generationNumber}`,
+        }]);
     }
 
     if (!updateAnnotationTextByRef(doc, targetRef, text)) {

@@ -39,6 +39,10 @@ POPPLER_VERSION="${POPPLER_VERSION_OVERRIDE:-24.08.0}"
 QPDF_VERSION="12.3.2"
 DJVULIBRE_INSTALLER="DjVuLibre-3.5.28_DjView-4.12_Setup.exe"
 DJVULIBRE_SF_PATH="DjVuLibre_Windows/3.5.28%2B4.12"
+TESSERACT_SHA256="c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9"
+POPPLER_SHA256="58a6f9ae269756231d2f9aa6cba39d75fec6deacaf3c4a50683383b5f3d5a527"
+QPDF_SHA256="8941870a604e7c87ed24566b038d46c24ce76616254d2383c578f60c0677f202"
+DJVULIBRE_SHA256="16c0a63926d0380280f35c8d9570efe01032c03c262ba61aa72a341b8cb58469"
 
 # ==========================================
 # Helper functions
@@ -47,10 +51,30 @@ download() {
   local url="$1"
   local dest="$2"
   local cache_key="${3:-$(basename "$dest")}"
+  local expected_sha256="${4:-}"
   local cache_path="$CACHE_DIR/$cache_key"
+
+  verify_sha256() {
+    local path="$1"
+    local label="$2"
+    if [ -z "$expected_sha256" ]; then
+      echo "Error: Missing SHA256 pin for release-critical archive $label"
+      exit 1
+    fi
+
+    local actual_sha256
+    actual_sha256="$(shasum -a 256 "$path" | awk '{print $1}')"
+    if [ "$actual_sha256" != "$expected_sha256" ]; then
+      echo "Error: SHA256 mismatch for $label"
+      echo "  expected: $expected_sha256"
+      echo "  actual:   $actual_sha256"
+      exit 1
+    fi
+  }
 
   if [ -s "$cache_path" ]; then
     echo "  Using cache: $cache_key"
+    verify_sha256 "$cache_path" "$cache_key"
     cp "$cache_path" "$dest"
     return
   fi
@@ -58,6 +82,7 @@ download() {
   echo "  Downloading: $cache_key"
   local temp_cache="${cache_path}.part-$$"
   curl -fSL --retry 3 --retry-delay 5 -o "$temp_cache" "$url"
+  verify_sha256 "$temp_cache" "$cache_key"
   mv "$temp_cache" "$cache_path"
   cp "$cache_path" "$dest"
 }
@@ -216,7 +241,7 @@ bundle_arm64_via_msys2() {
   cat > "$iso_root/etc/pacman.conf" <<'PACMAN_CONF'
 [options]
 Architecture = aarch64
-SigLevel = Never
+SigLevel = Required DatabaseOptional
 
 [clangarm64]
 Server = https://mirror.msys2.org/mingw/clangarm64/
@@ -326,7 +351,7 @@ TESSERACT_DIR="$RESOURCES_DIR/tesseract/$PLATFORM_ARCH"
 clean_dir "$TESSERACT_DIR/bin"
 
 TESSERACT_URL="https://github.com/UB-Mannheim/tesseract/releases/download/${TESSERACT_TAG}/${TESSERACT_INSTALLER}"
-download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe" "tesseract-${TESSERACT_TAG}.exe"
+download "$TESSERACT_URL" "$TEMP_DIR/tesseract-setup.exe" "tesseract-${TESSERACT_TAG}.exe" "$TESSERACT_SHA256"
 
 echo "  Extracting with 7z..."
 7z x -y "$TEMP_DIR/tesseract-setup.exe" -o"$TEMP_DIR/tesseract" > /dev/null 2>&1
@@ -357,7 +382,7 @@ clean_dir "$POPPLER_DIR"
 mkdir -p "$POPPLER_DIR/bin"
 
 POPPLER_URL="https://github.com/oschwartz10612/poppler-windows/releases/download/v${POPPLER_VERSION}-0/Release-${POPPLER_VERSION}-0.zip"
-download "$POPPLER_URL" "$TEMP_DIR/poppler.zip" "poppler-${POPPLER_VERSION}.zip"
+download "$POPPLER_URL" "$TEMP_DIR/poppler.zip" "poppler-${POPPLER_VERSION}.zip" "$POPPLER_SHA256"
 
 echo "  Extracting..."
 unzip -qo "$TEMP_DIR/poppler.zip" -d "$TEMP_DIR/poppler"
@@ -412,7 +437,7 @@ QPDF_DIR="$RESOURCES_DIR/qpdf/$PLATFORM_ARCH"
 clean_dir "$QPDF_DIR/bin"
 
 QPDF_URL="https://github.com/qpdf/qpdf/releases/download/v${QPDF_VERSION}/qpdf-${QPDF_VERSION}-msvc64.zip"
-download "$QPDF_URL" "$TEMP_DIR/qpdf.zip" "qpdf-${QPDF_VERSION}.zip"
+download "$QPDF_URL" "$TEMP_DIR/qpdf.zip" "qpdf-${QPDF_VERSION}.zip" "$QPDF_SHA256"
 
 echo "  Extracting..."
 unzip -qo "$TEMP_DIR/qpdf.zip" -d "$TEMP_DIR/qpdf"
@@ -448,7 +473,7 @@ if ! command -v objdump >/dev/null 2>&1; then
 fi
 
 DJVULIBRE_URL="https://sourceforge.net/projects/djvu/files/${DJVULIBRE_SF_PATH}/${DJVULIBRE_INSTALLER}/download"
-download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe" "djvulibre-${DJVULIBRE_SF_PATH//\//_}.exe"
+download "$DJVULIBRE_URL" "$TEMP_DIR/djvulibre-setup.exe" "djvulibre-${DJVULIBRE_SF_PATH//\//_}.exe" "$DJVULIBRE_SHA256"
 
 echo "  Extracting with 7z..."
 7z x -y "$TEMP_DIR/djvulibre-setup.exe" -o"$TEMP_DIR/djvulibre" > /dev/null 2>&1

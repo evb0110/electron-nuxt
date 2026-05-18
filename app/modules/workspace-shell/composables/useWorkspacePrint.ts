@@ -439,6 +439,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
 
     onScopeDispose(() => {
         cleanupPrintFrame();
+        printDialogOpen.value = false;
+        printDialogSelectedPages.value = [];
+        isPreparingPrint.value = false;
+        activePrintAction.value = null;
+        printError.value = null;
     });
 
     return {

@@ -438,6 +438,10 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         return Boolean(requestId && canceledSearchRequests.has(requestId));
     }
 
+    function isSearchCanceled(requestId: string | undefined) {
+        return Boolean(requestId && canceledSearchRequests.has(requestId));
+    }
+
     function emitPageProgress(requestId: string | undefined, processed: number, total: number) {
         if (!requestId) {
             return;
@@ -522,7 +526,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         pageCount: number,
         options: IIterateSearchPagesOptions,
     ): Promise<TPageOutcome> {
-        if (consumeCancellation(options.requestId)) {
+        if (isSearchCanceled(options.requestId)) {
             return 'cancel';
         }
         const result = await options.onPage(pageNumber, text, pageCount);
@@ -573,7 +577,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     ) {
         let shouldContinueCallbacks = true;
         for (let pageNumber = 1; pageNumber <= extracted.pageCount; pageNumber += 1) {
-            if (consumeCancellation(options.requestId)) {
+            if (isSearchCanceled(options.requestId)) {
                 return { canceled: true };
             }
 
@@ -625,6 +629,10 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 pageCount = await iterateBrowserSearchDocumentText(
                     pdfPath,
                     async (pageNumber, text, totalPages) => {
+                        if (isSearchCanceled(options.requestId)) {
+                            canceled = true;
+                            return;
+                        }
                         pageCount = totalPages;
                         pageTexts[pageNumber - 1] = text;
                         rememberPageText(cache, pageNumber, text);
@@ -690,12 +698,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 useRegex: Boolean(options.useRegex),
             });
 
-            const completed = await iterateSearchPages(pdfPath, size, {
+            await iterateSearchPages(pdfPath, size, {
                 requestId,
                 streamDirectExtraction: true,
                 onPage: async (pageNumber, text, pageCount) => {
-                    if (canceledSearchRequests.has(requestId)) {
-                        canceledSearchRequests.delete(requestId);
+                    if (isSearchCanceled(requestId)) {
                         return false;
                     }
 
@@ -735,8 +742,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 },
             });
 
-            if (!completed && canceledSearchRequests.has(requestId)) {
-                canceledSearchRequests.delete(requestId);
+            if (consumeCancellation(requestId)) {
                 return {
                     results: [],
                     truncated: false,

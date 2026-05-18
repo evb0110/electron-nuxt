@@ -1,3 +1,4 @@
+import { tryOnScopeDispose } from '@vueuse/core';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {
     type IAnalyticsDocumentContext,
@@ -21,6 +22,8 @@ interface IAnalyticsBrowserState {
     documentContext: IAnalyticsDocumentContext | null;
     flushTimer: number | null;
     isFlushing: boolean;
+    lifecycleCleanup: (() => void) | null;
+    lifecycleConsumers: number;
     lifecycleInstalled: boolean;
     queue: IAnalyticsEventEnvelope[];
     sessionId: string | null;
@@ -32,6 +35,8 @@ const analyticsBrowserState: IAnalyticsBrowserState = {
     documentContext: null,
     flushTimer: null,
     isFlushing: false,
+    lifecycleCleanup: null,
+    lifecycleConsumers: 0,
     lifecycleInstalled: false,
     queue: [],
     sessionId: null,
@@ -270,18 +275,54 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
     const flushWithBeacon = () => {
         void flushAnalyticsQueue(enabledFlag, true);
     };
-
-    window.addEventListener('pagehide', flushWithBeacon);
-    document.addEventListener('visibilitychange', () => {
+    const flushWhenHidden = () => {
         if (document.visibilityState === 'hidden') {
             flushWithBeacon();
         }
-    });
+    };
+
+    window.addEventListener('pagehide', flushWithBeacon);
+    document.addEventListener('visibilitychange', flushWhenHidden);
+    analyticsBrowserState.lifecycleCleanup = () => {
+        window.removeEventListener('pagehide', flushWithBeacon);
+        document.removeEventListener('visibilitychange', flushWhenHidden);
+        analyticsBrowserState.lifecycleCleanup = null;
+        analyticsBrowserState.lifecycleInstalled = false;
+    };
+}
+
+function retainAnalyticsLifecycle(enabledFlag: unknown) {
+    if (!isClientAnalyticsEnabled(enabledFlag)) {
+        return;
+    }
+
+    analyticsBrowserState.lifecycleConsumers += 1;
+    ensureAnalyticsLifecycle(enabledFlag);
+}
+
+function releaseAnalyticsLifecycle() {
+    if (analyticsBrowserState.lifecycleConsumers <= 0) {
+        return;
+    }
+
+    analyticsBrowserState.lifecycleConsumers -= 1;
+    if (analyticsBrowserState.lifecycleConsumers > 0) {
+        return;
+    }
+
+    analyticsBrowserState.lifecycleCleanup?.();
+    clearFlushTimer();
 }
 
 export const useAnalytics = () => {
     const runtimeConfig = useRuntimeConfig();
     const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
+    retainAnalyticsLifecycle(enabledFlag);
+    if (!tryOnScopeDispose(() => {
+        releaseAnalyticsLifecycle();
+    })) {
+        releaseAnalyticsLifecycle();
+    }
 
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
         if (!isClientAnalyticsEnabled(enabledFlag)) {

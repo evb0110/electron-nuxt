@@ -50,7 +50,7 @@ resolve_dylib_source() {
     return
   fi
 
-  find "$BREW" -type f -name "$dep_name" -print -quit 2>/dev/null || true
+  find "$BREW" \( -type f -o -type l \) -name "$dep_name" -print -quit 2>/dev/null || true
 }
 
 copy_deps_recursive() {

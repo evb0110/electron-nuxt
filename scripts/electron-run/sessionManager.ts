@@ -651,6 +651,7 @@ function buildElectronRuntimeEnv(cdpPort: number, mainJs: string) {
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
         EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
         EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE: shouldBootstrapDevProfile ? '1' : '0',
+        EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
         ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
         ELECTRON_ENABLE_STACK_DUMPING: process.env.ELECTRON_ENABLE_STACK_DUMPING ?? '1',
     } satisfies NodeJS.ProcessEnv;

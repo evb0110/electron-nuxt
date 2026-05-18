@@ -62,11 +62,11 @@ describe('platform/arch resolution', () => {
         },
     );
 
-    it('keeps ia32 mapping explicit for legacy packaging flows', () => {
-        expect(resolvePlatformArchTag({
+    it('rejects ia32 because bundled resources only support x64 and arm64', () => {
+        expect(() => resolvePlatformArchTag({
             platform: 'win32',
             arch: 'ia32',
-        })).toBe('win32-ia32');
+        })).toThrow(/Unsupported architecture: ia32/);
     });
 
     it('throws for unsupported platform values', () => {
@@ -86,11 +86,8 @@ describe('platform/arch resolution', () => {
     it('respects architecture allowlists where required', () => {
         expect(() => resolvePlatformArch({
             platform: 'win32',
-            arch: 'ia32',
-            allowedArchs: [
-                'x64',
-                'arm64',
-            ],
-        })).toThrow(/Architecture "ia32" is not supported in this context/);
+            arch: 'arm64',
+            allowedArchs: ['x64'],
+        })).toThrow(/Architecture "arm64" is not supported in this context/);
     });
 });

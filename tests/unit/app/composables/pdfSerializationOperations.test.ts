@@ -21,6 +21,7 @@ import type {
 import {
     type IPdfSerializationSavePayload,
     serializePdfEdits,
+    updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
@@ -618,15 +619,20 @@ async function createPdfWithFreeTextNotes(notes: Array<{
         if (note.contents !== undefined) {
             annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(note.contents));
         }
+        let popupRef: PDFRef | null = null;
         if (note.withPopup !== false) {
             const popupDict = doc.context.obj({
                 Type: PDFName.of('Annot'),
                 Subtype: PDFName.of('Popup'),
             });
-            const popupRef = doc.context.register(popupDict);
+            popupRef = doc.context.register(popupDict);
             annotDict.set(PDFName.of('Popup'), popupRef);
         }
         const ref = doc.context.register(annotDict);
+        if (popupRef) {
+            const popupDict = doc.context.lookup(popupRef, PDFDict);
+            popupDict.set(PDFName.of('Parent'), ref);
+        }
         noteRefs.push(ref);
         const list = refsByPage.get(note.pageIndex) ?? [];
         list.push(ref);
@@ -1080,6 +1086,153 @@ describe('serializePdfEdits free-text note rect application', () => {
         ]);
         expect(firstDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
         expect(secondDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+    });
+
+    it('does not apply singleton fallback when multiple FreeText popup notes share a page', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([
+            {
+                pageIndex: 0,
+                rect: [
+                    100,
+                    500,
+                    200,
+                    600,
+                ],
+                contents: 'target',
+            },
+            {
+                pageIndex: 0,
+                rect: [
+                    300,
+                    100,
+                    400,
+                    200,
+                ],
+                contents: 'unrelated',
+            },
+        ]);
+        const targetRef = noteRefs[0]!;
+        const unrelatedRef = noteRefs[1]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            annotationId: `${targetRef.objectNumber}R${targetRef.generationNumber}`,
+            text: 'target',
+            markerRect: {
+                left: 0.1,
+                top: 0.05,
+                width: 0.2,
+                height: 0.1,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const targetDict = getAnnotDict(doc, targetRef);
+        const unrelatedDict = getAnnotDict(doc, unrelatedRef);
+
+        expect(getRectNumbers(targetDict!)).not.toEqual([
+            100,
+            500,
+            200,
+            600,
+        ]);
+        expect(targetDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getRectNumbers(unrelatedDict!)).toEqual([
+            300,
+            100,
+            400,
+            200,
+        ]);
+        expect(unrelatedDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('keeps narrow singleton fallback for one FreeText popup candidate and one comment', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'saved note',
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            text: 'different cached text',
+            markerRect: {
+                left: 0.8,
+                top: 0.8,
+                width: 0.02,
+                height: 0.02,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+
+        expect(getRectNumbers(dict!)).not.toEqual([
+            100,
+            500,
+            200,
+            600,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+    });
+
+    it('blanks FreeText popup appearance before direct embedded text updates', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'old note',
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const result = await updateEmbeddedAnnotationText(
+            bytes,
+            makeFreeTextComment({
+                pageIndex: 0,
+                annotationId: `${noteRef.objectNumber}R${noteRef.generationNumber}`,
+                text: 'old note',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+            }),
+            'edited note',
+        );
+        expect(result).not.toBeNull();
+
+        const doc = await PDFDocument.load(result!, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+        const rectSize = getRectSize(getRectNumbers(dict!));
+
+        expect(getPdfDictContents(dict ?? null)).toBe('edited note');
+        expect(rectSize?.width).toBeLessThanOrEqual(2);
+        expect(rectSize?.height).toBeLessThanOrEqual(2);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
     });
 
     it('skips FreeText annotations without a Popup entry', async () => {

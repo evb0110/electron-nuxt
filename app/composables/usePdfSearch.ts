@@ -390,10 +390,10 @@ export const usePdfSearch = () => {
             return false;
         }
 
+        const runId = ++searchRunId;
         cancelScheduledSearch();
         await cancelActiveSearch();
         cleanupProgressListener();
-        const runId = ++searchRunId;
 
         if (trimmedQuery.length < MIN_QUERY_LENGTH) {
             isSearching.value = false;

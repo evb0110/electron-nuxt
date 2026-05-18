@@ -18,6 +18,7 @@ export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'searc
 
 export interface IPdfViewerExpose {
     getViewerContainer: () => HTMLElement | null;
+    getCurrentPage?: () => number;
     scrollToPage: (page: number) => void;
     captureScrollSnapshot?: () => IScrollSnapshot | null;
     restoreScrollSnapshot?: (

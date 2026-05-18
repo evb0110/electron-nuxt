@@ -26,6 +26,11 @@ const utifMock = vi.hoisted(() => ({
     decodeImage: vi.fn(),
     toRGBA8: vi.fn(() => new Uint8Array()),
 }));
+const pdfjsModule = vi.hoisted(() => ({
+    GlobalWorkerOptions: {},
+    VerbosityLevel: {ERRORS: 3},
+    getDocument: vi.fn(() => ({promise: Promise.resolve({destroy: vi.fn(async () => {})})})),
+}));
 
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
@@ -51,6 +56,7 @@ vi.mock('utif', () => {
         },
     };
 });
+vi.mock('pdfjs-dist', () => pdfjsModule);
 
 async function createPdfBytes() {
     const document = await PDFDocument.create();
@@ -170,6 +176,8 @@ describe('createBrowserDocumentsFileCapability', () => {
         utifMock.decodeImage.mockReset();
         utifMock.toRGBA8.mockReset();
         utifMock.toRGBA8.mockReturnValue(new Uint8Array());
+        pdfjsModule.getDocument.mockReset();
+        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy: vi.fn(async () => {})})});
     });
 
     it('cleans up transient source refs via cleanupFile', async () => {
@@ -1219,6 +1227,35 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(sourceEntry?.saveHandle).toBe(handle);
         await expect(browserDocumentStore.stat(sourceRef!)).resolves.toEqual({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
         expect(writes.length).toBeGreaterThan(1);
+    });
+
+    it('leaves the browser working copy untouched when Save As is canceled for new PDF data', async () => {
+        const showSaveFilePicker = vi.fn(async () => {
+            throw new DOMException('Canceled', 'AbortError');
+        });
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showSaveFilePicker } });
+        const originalBytes = await createPdfBytes();
+        const updatedBytes = new Uint8Array(originalBytes.byteLength + 1);
+        updatedBytes.set(originalBytes);
+        updatedBytes[updatedBytes.length - 1] = 0x0a;
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'draft.pdf',
+            originalBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+
+        const result = await capability.savePdfDataAs(workingRef, updatedBytes);
+
+        expect(result.path).toBeNull();
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(originalBytes);
+        expect(showSaveFilePicker).toHaveBeenCalledOnce();
     });
 
     it('blocks browser save-as when a working copy exceeds the full-read budget', async () => {

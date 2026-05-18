@@ -177,10 +177,22 @@ function ensureChannel() {
     }
 
     channel = new BroadcastChannel(WINDOW_TABS_CHANNEL);
-    channel.addEventListener('message', (event) => {
-        handleMessage(event.data);
-    });
+    channel.addEventListener('message', handleChannelMessage);
     return channel;
+}
+
+function handleChannelMessage(event: MessageEvent<unknown>) {
+    handleMessage(event.data);
+}
+
+function cleanupChannel() {
+    if (!channel) {
+        return;
+    }
+
+    channel.removeEventListener('message', handleChannelMessage);
+    channel.close();
+    channel = null;
 }
 
 function postMessage(message: TBrowserWindowTabsMessage) {
@@ -417,17 +429,22 @@ function registerCleanupHandlers() {
     }
 
     cleanupRegistered = true;
-    window.addEventListener('beforeunload', () => {
-        if (currentWindowId > 0) {
-            postMessage({
-                type: 'unregister',
-                windowId: currentWindowId,
-            });
-        }
-    });
-    window.addEventListener('focus', () => {
-        announceCurrentWindow();
-    });
+    window.addEventListener('beforeunload', handleWindowBeforeUnload);
+    window.addEventListener('focus', handleWindowFocus);
+}
+
+function handleWindowBeforeUnload() {
+    if (currentWindowId > 0) {
+        postMessage({
+            type: 'unregister',
+            windowId: currentWindowId,
+        });
+    }
+    cleanupChannel();
+}
+
+function handleWindowFocus() {
+    announceCurrentWindow();
 }
 
 function initializeBrowserWindowTabs() {
