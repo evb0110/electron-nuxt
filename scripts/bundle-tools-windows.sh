@@ -10,6 +10,7 @@ RESOURCES_DIR="$PROJECT_ROOT/resources"
 TEMP_DIR="/tmp/win-bundle-$$"
 CACHE_DIR="${WIN_BUNDLE_CACHE_DIR:-$PROJECT_ROOT/.cache/win-tools}"
 source "$SCRIPT_DIR/win-system-dll-pattern.sh"
+source "$SCRIPT_DIR/sha256-file.sh"
 
 # TARGET_ARCH can be set by CI (e.g., TARGET_ARCH=arm64 on x64 runner).
 # x64: downloads pre-built release ZIPs from upstream projects.
@@ -63,7 +64,7 @@ download() {
     fi
 
     local actual_sha256
-    actual_sha256="$(shasum -a 256 "$path" | awk '{print $1}')"
+    actual_sha256="$(sha256_file "$path")"
     if [ "$actual_sha256" != "$expected_sha256" ]; then
       echo "Error: SHA256 mismatch for $label"
       echo "  expected: $expected_sha256"
