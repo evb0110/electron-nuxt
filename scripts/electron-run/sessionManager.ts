@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import {
+    execFileSync,
     spawn,
     type ChildProcess,
 } from 'node:child_process';
@@ -275,6 +276,137 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
     return true;
 }
 
+interface IProcessListEntry {
+    pid: number;
+    ppid: number;
+    command: string;
+}
+
+function listUnixProcesses(): IProcessListEntry[] {
+    if (process.platform === 'win32') {
+        return [];
+    }
+
+    try {
+        const output = execFileSync('ps', [
+            '-ax',
+            '-o',
+            'pid=,ppid=,command=',
+        ], {encoding: 'utf8'});
+        const processes: IProcessListEntry[] = [];
+        for (const line of output.split('\n')) {
+            const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+            if (!match) {
+                continue;
+            }
+            const pid = Number(match[1]);
+            const ppid = Number(match[2]);
+            const command = match[3] ?? '';
+            if (Number.isFinite(pid) && Number.isFinite(ppid) && pid > 0 && ppid > 0) {
+                processes.push({
+                    pid,
+                    ppid,
+                    command,
+                });
+            }
+        }
+        return processes;
+    } catch {
+        return [];
+    }
+}
+
+function getProcessCwd(pid: number) {
+    if (process.platform === 'win32') {
+        return null;
+    }
+
+    try {
+        const output = execFileSync('lsof', [
+            '-a',
+            '-p',
+            String(pid),
+            '-d',
+            'cwd',
+            '-Fn',
+        ], {
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        const cwdLine = output.split('\n').find(line => line.startsWith('n'));
+        return cwdLine ? cwdLine.slice(1) : null;
+    } catch {
+        return null;
+    }
+}
+
+function getProcessEnvValue(pid: number, name: string) {
+    if (process.platform === 'win32') {
+        return null;
+    }
+
+    try {
+        const output = execFileSync('ps', [
+            'eww',
+            '-p',
+            String(pid),
+            '-o',
+            'command=',
+        ], {encoding: 'utf8'});
+        const prefix = `${name}=`;
+        const token = output.split(/\s+/).find(part => part.startsWith(prefix));
+        return token ? token.slice(prefix.length) : null;
+    } catch {
+        return null;
+    }
+}
+
+function getProcessEnvPort(pid: number) {
+    const port = Number(getProcessEnvValue(pid, 'PORT'));
+    return Number.isInteger(port) && port > 0 ? port : null;
+}
+
+function isProjectNuxtRootProcess(processEntry: IProcessListEntry) {
+    if (!processEntry.command.includes('pnpm run dev:nuxt')) {
+        return false;
+    }
+    return getProcessCwd(processEntry.pid) === projectRoot;
+}
+
+function getProjectNuxtRootProcesses(): IProjectNuxtRootProcessMetadata[] {
+    return listUnixProcesses()
+        .filter(isProjectNuxtRootProcess)
+        .map(processEntry => ({
+            pid: processEntry.pid,
+            ppid: processEntry.ppid,
+            devServerPort: getProcessEnvPort(processEntry.pid),
+            descendantPids: getDescendantPids(processEntry.pid),
+        }));
+}
+
+async function cleanupOrphanedProjectNuxtRoots(reason: string) {
+    const roots = getProjectNuxtRootProcesses();
+    if (roots.length === 0) {
+        return false;
+    }
+
+    const pidsOnPreservedPort = getPidsOnPort(getNuxtPort());
+    const targets = selectOrphanedProjectNuxtRootCleanupTargets(roots, pidsOnPreservedPort, getNuxtPort());
+    if (targets.length === 0) {
+        return false;
+    }
+
+    console.log(`[Nuxt] Cleaning orphaned project dev server root(s) (${reason}): ${targets.join(', ')}`);
+    await killProcessTreeForPids(targets, 1200);
+    killPids(targets);
+    await delay(500);
+    return true;
+}
+
 interface INuxtStartupAttempt {
     nuxt: ChildProcess;
     viteClientBuilt: boolean;
@@ -294,6 +426,13 @@ export interface INuxtPortOwnerSessionMetadata {
     nuxtPort: number;
     sessionAlive: boolean;
     nuxtAlive: boolean;
+    descendantPids: number[];
+}
+
+export interface IProjectNuxtRootProcessMetadata {
+    pid: number;
+    ppid: number;
+    devServerPort: number | null;
     descendantPids: number[];
 }
 
@@ -320,6 +459,33 @@ export function selectStaleNuxtPortOwnerCleanupTargets(
         if (pidsOnPort.some(pid => ownedPids.has(pid))) {
             targets.add(session.nuxtPid);
         }
+    }
+
+    return Array.from(targets);
+}
+
+export function selectOrphanedProjectNuxtRootCleanupTargets(
+    roots: IProjectNuxtRootProcessMetadata[],
+    pidsOnPreservedPort: number[],
+    devServerPort: number,
+) {
+    const preservedPids = new Set(pidsOnPreservedPort);
+    const targets = new Set<number>();
+
+    for (const root of roots) {
+        if (root.ppid !== 1 || root.devServerPort !== devServerPort) {
+            continue;
+        }
+
+        const ownedPids = new Set([
+            root.pid,
+            ...root.descendantPids,
+        ]);
+        if (Array.from(preservedPids).some(pid => ownedPids.has(pid))) {
+            continue;
+        }
+
+        targets.add(root.pid);
     }
 
     return Array.from(targets);
@@ -361,6 +527,8 @@ async function selectNuxtPort() {
 async function prepareNuxtServerStart(forceClean: boolean, logTiming: (message: string) => void) {
     await selectNuxtPort();
     console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
+    await cleanupOrphanedProjectNuxtRoots('before reuse check');
+    logTiming('Nuxt orphan cleanup complete');
 
     if (!forceClean && await isReusableNuxtServer()) {
         console.log(`[Nuxt] Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);
