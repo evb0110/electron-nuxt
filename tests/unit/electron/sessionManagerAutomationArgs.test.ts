@@ -16,7 +16,10 @@ import {
     shouldDisableAutomationSandbox,
 } from '../../../scripts/electron-run/electronRunLaunchConfig';
 import { isReusableNuxtResponse } from '../../../scripts/electron-run/electronRunNuxtServerResponse';
-import { selectStaleNuxtPortOwnerCleanupTargets } from '../../../scripts/electron-run/sessionManager';
+import {
+    selectOrphanedProjectNuxtRootCleanupTargets,
+    selectStaleNuxtPortOwnerCleanupTargets,
+} from '../../../scripts/electron-run/sessionManager';
 import { shouldWaitForExternalDevServer } from '../../../electron/server';
 
 describe('sessionManager automation launch args', () => {
@@ -274,5 +277,40 @@ describe('sessionManager automation launch args', () => {
 
     it('does not select unrelated Nuxt port owners with no stale session metadata', () => {
         expect(selectStaleNuxtPortOwnerCleanupTargets([4444], [], 3000)).toEqual([]);
+    });
+
+    it('cleans only orphaned project Nuxt roots for the active dev-server port', () => {
+        expect(selectOrphanedProjectNuxtRootCleanupTargets([
+            {
+                pid: 1001,
+                ppid: 1,
+                devServerPort: 3235,
+                descendantPids: [
+                    1002,
+                    1003,
+                ],
+            },
+            {
+                pid: 2001,
+                ppid: 1,
+                devServerPort: 50054,
+                descendantPids: [
+                    2002,
+                    2003,
+                ],
+            },
+            {
+                pid: 3001,
+                ppid: 9000,
+                devServerPort: 3235,
+                descendantPids: [3002],
+            },
+            {
+                pid: 4001,
+                ppid: 1,
+                devServerPort: 3235,
+                descendantPids: [4002],
+            },
+        ], [4002], 3235)).toEqual([1001]);
     });
 });
