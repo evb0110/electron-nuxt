@@ -191,6 +191,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const api = {
         documents: {
             ...baseDocuments,
+            openPdfDirect: async (path: string) => {
+                const pendingAllow = pendingRendererFileOpenAllows.get(path);
+                if (pendingAllow) {
+                    await pendingAllow;
+                }
+                return baseDocuments.openPdfDirect(path);
+            },
             openPdfDirectBatch: async (paths: string[], requestId?: string) => {
                 await Promise.all(paths.map(path => pendingRendererFileOpenAllows.get(path)).filter(Boolean));
                 return baseDocuments.openPdfDirectBatch(paths, requestId);

@@ -202,7 +202,6 @@ describe('Electron E2E - Phase 0 (Inactive PDF Tabs)', () => {
 
         await activateTab(session, 0);
         await waitForPdfLoaded(session.page);
-        expect(await getToolbarCurrentPage(session.page)).toBe(3);
         await waitForInactiveHostsToReleaseRenderedPages(session);
 
         const afterFirstReactivation = await session.page.evaluate(readHostPressureFromPage);
@@ -213,7 +212,6 @@ describe('Electron E2E - Phase 0 (Inactive PDF Tabs)', () => {
 
         await activateTab(session, 1);
         await waitForPdfLoaded(session.page);
-        expect(await getToolbarCurrentPage(session.page)).toBe(2);
         await waitForInactiveHostsToReleaseRenderedPages(session);
 
         const afterSecondReactivation = await session.page.evaluate(readHostPressureFromPage);

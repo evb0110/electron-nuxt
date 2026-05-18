@@ -1000,6 +1000,7 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
         }
 
         viewer.scrollTop = Math.max(0, pageEl.offsetTop - 16);
+        viewer.dispatchEvent(new Event('scroll', { bubbles: true }));
         return true;
     }, pageNumber);
 

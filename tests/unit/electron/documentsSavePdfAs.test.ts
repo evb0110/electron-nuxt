@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
     workingCopyMap: new Map<string, string>(),
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
+    validatePdfFile: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -93,6 +94,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
+vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
 
 describe('handleSavePdfAs', () => {
     let tempRoot = '';
@@ -108,6 +110,11 @@ describe('handleSavePdfAs', () => {
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await unlink(sourcePath);
+        });
+        mocks.validatePdfFile.mockResolvedValue({
+            isValid: true,
+            issues: [],
+            metadata: null,
         });
     });
 
@@ -136,6 +143,7 @@ describe('handleSavePdfAs', () => {
         await expect(handleSavePdfAs({sender: {}} as never, workingPath)).resolves.toBe(targetPath);
 
         expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(targetPath);
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith(workingPath);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath);
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
@@ -144,8 +152,41 @@ describe('handleSavePdfAs', () => {
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
         expect(
+            mocks.validatePdfFile.mock.invocationCallOrder[0]!,
+        ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
+        expect(
             mocks.atomicReplace.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.allowOpenPath.mock.invocationCallOrder[0]!);
+    });
+
+    it('does not copy the working PDF when validation fails', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        writeFileSync(workingPath, 'not-pdf');
+        writeFileSync(targetPath, 'old-pdf');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.showSaveDialog.mockResolvedValue({
+            canceled: false,
+            filePath: targetPath,
+        });
+        mocks.validatePdfFile.mockResolvedValue({
+            isValid: false,
+            issues: ['invalid'],
+            metadata: null,
+        });
+
+        const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleSavePdfAs({sender: {}} as never, workingPath))
+            .rejects
+            .toThrow('Working copy is not a valid PDF');
+
+        expect(mocks.validatePdfFile).toHaveBeenCalledWith(workingPath);
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(readFileSyncUtf8(targetPath)).toBe('old-pdf');
+        expect(existsSync(tempPath)).toBe(false);
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
     });
 
     it('cleans the sibling temp path and preserves the existing target when replacement fails', async () => {

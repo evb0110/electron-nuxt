@@ -459,11 +459,17 @@ const logDevRecovery = (level: 'debug' | 'info' | 'warn' | 'error', message: str
 installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });
 tracePreload('dev recovery hooks installed');
 
+function isRendererAutomationFileOpenHelperEnabled() {
+    return process.env.EVB_AUTOMATION_USER_DATA_DIR
+        && process.env.EVB_AUTOMATION_SESSION_NAME
+        && process.env.EVB_ENABLE_RENDERER_FILE_OPEN_HELPER === '1';
+}
+
 const electronApi = createElectronApi(ipcRenderer, webUtils);
 contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 
-if (process.env.EVB_AUTOMATION_USER_DATA_DIR) {
+if (isRendererAutomationFileOpenHelperEnabled()) {
     const automationFileOpenToken = globalThis.crypto.randomUUID();
     const automationFileOpenTokenRegistration = ipcRenderer.invoke(
         DOCUMENTS_CHANNELS.registerRendererFileOpenToken,

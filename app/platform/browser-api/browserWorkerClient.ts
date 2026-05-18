@@ -26,7 +26,7 @@ export class BrowserWorkerClient<
     private worker: Worker | null = null;
     private nextRequestId = 1;
     private idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
-    private cleanupListenersRegistered = false;
+    private cleanupListenerRegistered = false;
 
     public constructor(private readonly options: IBrowserWorkerClientOptions<TResponse, TPendingRequest>) {}
 
@@ -88,7 +88,7 @@ export class BrowserWorkerClient<
         const worker = this.options.createWorker();
         worker.addEventListener('message', this.handleWorkerMessage);
         worker.addEventListener('error', this.handleWorkerError);
-        this.registerCleanupListeners();
+        this.registerCleanupListener();
         this.worker = worker;
         return worker;
     }
@@ -157,19 +157,21 @@ export class BrowserWorkerClient<
         this.resetWorker(this.options.createError(event));
     };
 
-    private registerCleanupListeners() {
+    private readonly handleWindowBeforeUnload = () => {
+        this.resetWorker();
+    };
+
+    private registerCleanupListener() {
         if (
-            this.cleanupListenersRegistered
+            this.cleanupListenerRegistered
             || typeof window === 'undefined'
             || typeof window.addEventListener !== 'function'
         ) {
             return;
         }
 
-        this.cleanupListenersRegistered = true;
-        window.addEventListener('beforeunload', () => {
-            this.resetWorker();
-        });
+        this.cleanupListenerRegistered = true;
+        window.addEventListener('beforeunload', this.handleWindowBeforeUnload);
     }
 
     private clearRequestTimeout(request: TPendingRequest) {

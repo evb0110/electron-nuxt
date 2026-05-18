@@ -107,34 +107,37 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         const targetPixelWidth = Math.max(1, Math.round(payload.targetPixelWidth));
         const targetPixelHeight = Math.max(1, Math.round(payload.targetPixelHeight));
         const image = await decodePlacedImageSource(payload);
-
         const canvas = document.createElement('canvas');
         canvas.width = targetPixelWidth;
         canvas.height = targetPixelHeight;
 
-        const context = canvas.getContext('2d');
-        if (!context) {
-            return null;
+        try {
+            const context = canvas.getContext('2d');
+            if (!context) {
+                return null;
+            }
+
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.drawImage(image, 0, 0, targetPixelWidth, targetPixelHeight);
+
+            const blob = await new Promise<Blob | null>((resolve) => {
+                canvas.toBlob((value) => {
+                    resolve(value);
+                }, 'image/png');
+            });
+            if (!blob) {
+                return null;
+            }
+
+            return new Uint8Array(await blob.arrayBuffer());
+        } finally {
+            if ('close' in image && typeof image.close === 'function') {
+                image.close();
+            }
+            canvas.width = 0;
+            canvas.height = 0;
         }
-
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.drawImage(image, 0, 0, targetPixelWidth, targetPixelHeight);
-
-        if ('close' in image && typeof image.close === 'function') {
-            image.close();
-        }
-
-        const blob = await new Promise<Blob | null>((resolve) => {
-            canvas.toBlob((value) => {
-                resolve(value);
-            }, 'image/png');
-        });
-        if (!blob) {
-            return null;
-        }
-
-        return new Uint8Array(await blob.arrayBuffer());
     }
 
     async function toSerializedPlacedImagePayload(
@@ -236,6 +239,28 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         payload.bookmarkItems = bookmarkItems?.value ?? [];
     }
 
+    function assertPdfLibResultDidNotShrinkCatastrophically(
+        operation: string,
+        data: Uint8Array,
+        result: Uint8Array | null,
+    ) {
+        if (!result || result.length >= data.length * 0.5) {
+            return;
+        }
+
+        BrowserLogger.error(
+            PDF_SERIALIZATION_LOG_SECTION,
+            `${operation}: pdf-lib re-save lost more than half the document; refusing to persist`,
+            {
+                inputSize: data.length,
+                outputSize: result.length,
+            },
+        );
+        throw new Error(
+            `PDF serialization produced a corrupted result (input ${data.length} bytes, output ${result.length} bytes); refusing to overwrite original`,
+        );
+    }
+
     async function runSerializedEdit(
         data: Uint8Array,
         payload: IPdfSerializationSavePayload,
@@ -246,22 +271,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 return data;
             }
 
-            if (
-                payload.freeTextComments.length > 0
-                && result.length < data.length * 0.5
-            ) {
-                BrowserLogger.error(
-                    PDF_SERIALIZATION_LOG_SECTION,
-                    'serializePdfEdits: pdf-lib re-save lost more than half the document; refusing to persist',
-                    {
-                        inputSize: data.length,
-                        outputSize: result.length,
-                    },
-                );
-                throw new Error(
-                    `PDF serialization produced a corrupted result (input ${data.length} bytes, output ${result.length} bytes); refusing to overwrite original`,
-                );
-            }
+            assertPdfLibResultDidNotShrinkCatastrophically('serializePdfEdits', data, result);
 
             return result;
         }, {
@@ -326,6 +336,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         pendingTexts: Map<string, string>,
     ): Promise<Uint8Array> {
         const payload = createEmptySavePayload();
+        payload.freeTextComments = getFreeTextNoteComments();
         payload.annotationComments = annotationComments.value;
         payload.pendingEmbeddedTextUpdates = Array.from(pendingTexts.entries());
         return runSerializedEdit(data, payload);
@@ -357,7 +368,9 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return false;
         }
 
-        return updateEmbeddedAnnotationTextOffThread(sourceData, comment, text);
+        const result = await updateEmbeddedAnnotationTextOffThread(sourceData, comment, text);
+        assertPdfLibResultDidNotShrinkCatastrophically('updateEmbeddedAnnotationText', sourceData, result);
+        return result;
     }
 
     async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary) {
@@ -370,7 +383,9 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return null;
         }
 
-        return deleteEmbeddedAnnotationOffThread(sourceData, comment);
+        const result = await deleteEmbeddedAnnotationOffThread(sourceData, comment);
+        assertPdfLibResultDidNotShrinkCatastrophically('deleteEmbeddedAnnotation', sourceData, result);
+        return result;
     }
 
     return {

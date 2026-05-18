@@ -77,6 +77,11 @@ export async function savePdfAs(
     const tempPath = makeSiblingTempPath(targetPath);
     let replaced = false;
     try {
+        const validation = await validatePdfFile(normalizedWorkingPath);
+        if (!validation.isValid) {
+            throw new Error('Working copy is not a valid PDF');
+        }
+
         await copyFile(normalizedWorkingPath, tempPath);
         await atomicReplace(tempPath, targetPath);
         replaced = true;

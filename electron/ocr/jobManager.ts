@@ -964,7 +964,6 @@ export async function shutdownOcrJobManager() {
     preparingJobs.clear();
 
     const activeEntries = Array.from(activeJobs.entries());
-    activeJobs.clear();
     for (const [
         scopedJobId,
         activeJob,
@@ -980,6 +979,9 @@ export async function shutdownOcrJobManager() {
         ]) =>
             terminateWorkerSafely(scopedJobId, activeJob.worker, 'app shutdown')),
     );
+    for (const [scopedJobId] of activeEntries) {
+        finalizeActiveJob(scopedJobId);
+    }
 
     await pendingResultFileStore.shutdown();
 

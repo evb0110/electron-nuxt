@@ -1,4 +1,8 @@
 import {
+    basename,
+    extname,
+} from 'path';
+import {
     saveDocxAs,
     savePdfAs,
     savePdfDataAs,
@@ -10,6 +14,7 @@ import {
     beginSerializedPdfSaveAs,
     type IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/main/serializedPdfPersistence';
+import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
 import { te } from '@electron/i18n';
 
 export async function handleSavePdfAs(
@@ -35,9 +40,15 @@ export async function handleBeginSavePdfDataAs(
     workingPath: string,
     totalBytes: number,
 ): Promise<IBeginSerializedPdfSaveAsResult> {
-    const suggestedName = typeof workingPath === 'string' && workingPath.trim()
-        ? workingPath.trim().split(/[\\/]/u).pop() ?? 'document.pdf'
-        : 'document.pdf';
+    const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+    const originalPath = normalizedWorkingPath
+        ? getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath
+        : null;
+    const suggestedName = originalPath
+        ? basename(originalPath)
+        : normalizedWorkingPath
+            ? basename(normalizedWorkingPath, extname(normalizedWorkingPath))
+            : 'document.pdf';
     const targetPath = await showSaveDialogWithExtension(event, {
         title: te('dialogs.savePdfAs'),
         defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,

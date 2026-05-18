@@ -12,6 +12,7 @@ import type {
     IWorkspaceFilePort,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
@@ -45,6 +46,7 @@ interface ICreateWorkspaceExposeDeps extends
     fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
     currentPage: Ref<number>;
+    pdfViewerRef?: Ref<IPdfViewerExpose | null>;
     handleFitMode: (mode: TFitMode) => void;
     handleToggleSidebar: () => void;
     handleToggleContinuousScroll: () => void;
@@ -113,7 +115,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
-        const currentPage = normalizeToolbarSnapshotPage(deps.currentPage.value);
+        const currentPage = normalizeToolbarSnapshotPage(
+            deps.pdfViewerRef?.value?.getCurrentPage?.() ?? deps.currentPage.value,
+        );
         const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
         return {
             hasPdf: deps.hasPdf.value,

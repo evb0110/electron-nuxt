@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -86,9 +87,35 @@ vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
 const {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
+    shutdownDjvuConversions,
 } = await import('@electron/features/djvu/main/pdfExport');
 
 const trustedDjvuPath = '/tmp/input.djvu' as TOpenPath;
+
+function createEvent(senderId: number) {
+    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+    const sender = {
+        id: senderId,
+        once: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+            const eventListeners = listeners.get(event) ?? [];
+            eventListeners.push(listener);
+            listeners.set(event, eventListeners);
+            return sender;
+        }),
+        removeListener: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+            listeners.set(event, (listeners.get(event) ?? []).filter(candidate => candidate !== listener));
+            return sender;
+        }),
+        emit: (event: string, ...args: unknown[]) => {
+            const eventListeners = listeners.get(event) ?? [];
+            listeners.delete(event);
+            for (const listener of eventListeners) {
+                listener(...args);
+            }
+        },
+    };
+    return { sender };
+}
 
 describe('handleDjvuConvertToPdf', () => {
     beforeEach(() => {
@@ -149,11 +176,15 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.consumeAllowedDjvuWritePath.mockImplementation((outputPath: string) => outputPath);
     });
 
+    afterEach(async () => {
+        await shutdownDjvuConversions();
+    });
+
     it('falls back to in-process bookmark embedding only for small PDFs when worker startup fails', async () => {
         mocks.bookmarkTaskState.mode = 'startup-error';
 
         const result = await handleDjvuConvertToPdf(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -177,7 +208,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.stat.mockResolvedValue({size: 256 * 1024 * 1024});
 
         const result = await handleDjvuConvertToPdf(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -195,7 +226,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.bookmarkTaskState.mode = 'cancel-pending';
 
         const convertPromise = handleDjvuConvertToPdf(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -206,7 +237,7 @@ describe('handleDjvuConvertToPdf', () => {
         }
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         const cancelResult = handleDjvuCancel(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             'djvu-convert-convert-123',
         );
         const result = await convertPromise;
@@ -233,7 +264,7 @@ describe('handleDjvuConvertToPdf', () => {
         }));
 
         const convertPromise = handleDjvuConvertToPdf(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: true},
@@ -244,7 +275,7 @@ describe('handleDjvuConvertToPdf', () => {
         }
         const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
         const cancelResult = handleDjvuCancel(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             'djvu-convert-convert-123',
         );
         const result = await convertPromise;
@@ -261,7 +292,7 @@ describe('handleDjvuConvertToPdf', () => {
 
     it('atomically replaces the output file', async () => {
         const result = await handleDjvuConvertToPdf(
-            {sender: {id: 7}} as never,
+            createEvent(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
             {preserveBookmarks: false},
@@ -273,5 +304,87 @@ describe('handleDjvuConvertToPdf', () => {
             jobId: 'djvu-convert-convert-123',
         });
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/.convert-123.convert.pdf', '/tmp/output.pdf');
+    });
+
+    it('cancels active jobs when the sender is destroyed', async () => {
+        mocks.getDjvuPageCount.mockImplementationOnce((
+            _filePath: string,
+            options?: { signal?: AbortSignal },
+        ) => new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+                const error = new Error('DjVu conversion canceled');
+                error.name = 'AbortError';
+                reject(error);
+            });
+        }));
+        const event = createEvent(9);
+
+        const convertPromise = handleDjvuConvertToPdf(
+            event as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {preserveBookmarks: true},
+        );
+
+        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
+        event.sender.emit('destroyed');
+        const result = await convertPromise;
+
+        expect(metadataOptions?.signal?.aborted).toBe(true);
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: 'DjVu conversion canceled',
+        });
+        expect(event.sender.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
+        expect(event.sender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+    });
+
+    it('removes queued jobs when their sender render process is gone', async () => {
+        let finishFirstConversion!: () => void;
+        mocks.convertDjvuToPdfFile.mockImplementationOnce(() => new Promise(resolve => {
+            finishFirstConversion = () => {
+                resolve({success: true});
+            };
+        }));
+        const firstEvent = createEvent(10);
+        const queuedEvent = createEvent(11);
+
+        const firstPromise = handleDjvuConvertToPdf(
+            firstEvent as never,
+            trustedDjvuPath,
+            '/tmp/first.pdf',
+            {preserveBookmarks: false},
+        );
+
+        for (let attempt = 0; attempt < 10 && mocks.convertDjvuToPdfFile.mock.calls.length === 0; attempt += 1) {
+            await Promise.resolve();
+        }
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
+
+        const queuedPromise = handleDjvuConvertToPdf(
+            queuedEvent as never,
+            trustedDjvuPath,
+            '/tmp/queued.pdf',
+            {preserveBookmarks: false},
+        );
+
+        await Promise.resolve();
+        queuedEvent.sender.emit('render-process-gone');
+        await expect(queuedPromise).resolves.toEqual({
+            success: false,
+            jobId: 'djvu-convert-temp-456',
+            error: 'DjVu conversion canceled',
+        });
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
+
+        finishFirstConversion();
+        await expect(firstPromise).resolves.toMatchObject({
+            success: true,
+            jobId: 'djvu-convert-convert-123',
+        });
     });
 });

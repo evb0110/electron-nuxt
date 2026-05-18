@@ -382,4 +382,37 @@ describe('ocr job manager preparing-stage robustness', () => {
             expect.any(Function),
         );
     });
+
+    it('sends renderer request ids when canceling active jobs during shutdown', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const {
+            handleOcrCreateSearchablePdfAsync,
+            shutdownOcrJobManager,
+        } = await import('@electron/ocr/jobManager');
+
+        const result = await handleOcrCreateSearchablePdfAsync(
+            createEvent(88) as never,
+            '/tmp/work-8.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-8',
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-8',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+
+        await shutdownOcrJobManager();
+
+        expect(worker?.postMessage).toHaveBeenCalledWith({
+            type: 'cancel',
+            jobId: 'job-8',
+        });
+    });
 });

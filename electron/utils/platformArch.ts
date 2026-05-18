@@ -19,7 +19,6 @@ const PLATFORM_MAP: Record<string, string> = {
 
 const ARCH_MAP: Record<string, string> = {
     arm64: 'arm64',
-    ia32: 'ia32',
     x64: 'x64',
 };
 

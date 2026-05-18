@@ -876,8 +876,12 @@ watch([
         return;
     }
 
-    currentPage.value = Math.min(Math.max(initialViewState.currentPage, 1), pages);
+    const restoredPage = Math.min(Math.max(initialViewState.currentPage, 1), pages);
+    currentPage.value = restoredPage;
     hasAppliedInitialViewState.value = true;
+    void nextTick(() => {
+        pdfViewerRef.value?.scrollToPage(restoredPage);
+    });
 }, { flush: 'post' });
 
 const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
@@ -1342,6 +1346,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     fitMode,
     viewMode,
     currentPage,
+    pdfViewerRef,
     handleFitMode,
     handleToggleSidebar: () => {
         showSidebar.value = !showSidebar.value;

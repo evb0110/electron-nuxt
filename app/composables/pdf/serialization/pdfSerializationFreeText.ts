@@ -68,6 +68,7 @@ function findFreeTextCommentMatch(
     dict: PDFDict,
     ref: PDFRef,
     pageComments: IAnnotationCommentSummary[],
+    pageFreeTextPopupCount: number,
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ): IAnnotationCommentSummary | null {
@@ -115,7 +116,7 @@ function findFreeTextCommentMatch(
         return bestMatch.comment;
     }
 
-    const singleComment = pageComments.length === 1 ? pageComments[0] : null;
+    const singleComment = pageFreeTextPopupCount === 1 && pageComments.length === 1 ? pageComments[0] : null;
     if (singleComment && isAnnotationMarkerRect(singleComment.markerRect)) {
         return singleComment;
     }
@@ -153,23 +154,23 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
             return;
         }
 
+        const freeTextPopupAnnotations = Array.from(iterateAnnotationRefDicts(doc, context.annots))
+            .filter(({ dict }) => {
+                const currentSubtype = dict.get(subtypeName);
+                return currentSubtype instanceof PDFName
+                    && currentSubtype === freeTextName
+                    && Boolean(dict.get(popupName));
+            });
+
         for (const {
             dict,
             ref,
-        } of iterateAnnotationRefDicts(doc, context.annots)) {
-            const currentSubtype = dict.get(subtypeName);
-            if (!(currentSubtype instanceof PDFName) || currentSubtype !== freeTextName) {
-                continue;
-            }
-
-            if (!dict.get(popupName)) {
-                continue;
-            }
-
+        } of freeTextPopupAnnotations) {
             const matchedComment = findFreeTextCommentMatch(
                 dict,
                 ref,
                 pageComments,
+                freeTextPopupAnnotations.length,
                 context.pageView,
                 context.pageRotation,
             );

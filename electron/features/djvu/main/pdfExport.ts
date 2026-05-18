@@ -1,6 +1,9 @@
 import { BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
-import type { IpcMainInvokeEvent } from 'electron';
+import type {
+    IpcMainInvokeEvent,
+    WebContents,
+} from 'electron';
 import type { Worker } from 'worker_threads';
 import { uniq } from 'es-toolkit/array';
 import {
@@ -42,6 +45,11 @@ const activeJobIds = new Set<string>();
 const activeJobOwnerById = new Map<string, number>();
 const activeJobAbortControllerById = new Map<string, AbortController>();
 const activePdfWorkerByJobId = new Map<string, Worker>();
+const senderCleanupById = new Map<number, {
+    sender: WebContents;
+    handleDestroyed: () => void;
+    handleRenderProcessGone: () => void;
+}>();
 const queuedConversionJobIds: string[] = [];
 const queuedConversionResolvers = new Map<string, {
     resolve: () => void;
@@ -201,6 +209,67 @@ function requestDjvuCancel(jobId: string): boolean {
     return removedQueuedJob || canceledProcess || Boolean(activePdfWorker) || activeJobIds.has(normalizedJobId);
 }
 
+function requestDjvuCancelForSender(webContentsId: number, reason: string) {
+    const jobIds = Array.from(activeJobOwnerById.entries())
+        .filter(([
+            , ownerWebContentsId,
+        ]) => ownerWebContentsId === webContentsId)
+        .map(([jobId]) => jobId);
+
+    if (jobIds.length === 0) {
+        return;
+    }
+
+    logger.info(`Canceling ${jobIds.length} DjVu conversion job(s) for sender ${webContentsId}: ${reason}`);
+    for (const jobId of jobIds) {
+        requestDjvuCancel(jobId);
+    }
+}
+
+function unregisterSenderLifecycleCleanup(webContentsId: number) {
+    const cleanup = senderCleanupById.get(webContentsId);
+    if (!cleanup) {
+        return;
+    }
+
+    cleanup.sender.removeListener('destroyed', cleanup.handleDestroyed);
+    cleanup.sender.removeListener('render-process-gone', cleanup.handleRenderProcessGone);
+    senderCleanupById.delete(webContentsId);
+}
+
+function unregisterSenderLifecycleCleanupIfIdle(webContentsId: number) {
+    if ([...activeJobOwnerById.values()].some(ownerWebContentsId => ownerWebContentsId === webContentsId)) {
+        return;
+    }
+    unregisterSenderLifecycleCleanup(webContentsId);
+}
+
+function registerSenderLifecycleCleanup(sender: WebContents) {
+    const webContentsId = sender.id;
+    if (senderCleanupById.has(webContentsId)) {
+        return;
+    }
+
+    const cleanup = (reason: string) => {
+        requestDjvuCancelForSender(webContentsId, reason);
+        unregisterSenderLifecycleCleanup(webContentsId);
+    };
+    const handleDestroyed = () => {
+        cleanup('sender destroyed');
+    };
+    const handleRenderProcessGone = () => {
+        cleanup('render process gone');
+    };
+
+    senderCleanupById.set(webContentsId, {
+        sender,
+        handleDestroyed,
+        handleRenderProcessGone,
+    });
+    sender.once('destroyed', handleDestroyed);
+    sender.once('render-process-gone', handleRenderProcessGone);
+}
+
 function setActivePdfWorker(jobId: string, worker: Worker) {
     activePdfWorkerByJobId.set(jobId, worker);
     if (canceledJobIds.has(jobId)) {
@@ -307,6 +376,7 @@ export async function handleDjvuConvertToPdf(
     canceledJobIds.delete(jobId);
     activeJobIds.add(jobId);
     activeJobOwnerById.set(jobId, event.sender.id);
+    registerSenderLifecycleCleanup(event.sender);
     const abortController = new AbortController();
     activeJobAbortControllerById.set(jobId, abortController);
 
@@ -390,6 +460,7 @@ export async function handleDjvuConvertToPdf(
         canceledJobIds.delete(jobId);
         activeJobIds.delete(jobId);
         activeJobOwnerById.delete(jobId);
+        unregisterSenderLifecycleCleanupIfIdle(event.sender.id);
         activeJobAbortControllerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         try {
@@ -460,6 +531,9 @@ export async function shutdownDjvuConversions() {
     activeJobOwnerById.clear();
     activeJobAbortControllerById.clear();
     activePdfWorkerByJobId.clear();
+    for (const webContentsId of Array.from(senderCleanupById.keys())) {
+        unregisterSenderLifecycleCleanup(webContentsId);
+    }
     activeConversionSlots = 0;
 
     await Promise.allSettled(workerTerminations);

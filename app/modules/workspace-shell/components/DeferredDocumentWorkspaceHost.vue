@@ -388,6 +388,10 @@ function readWorkspaceToolbarSnapshot() {
     lastToolbarSnapshot.value = snapshot;
     return snapshot;
 }
+
+function emitCurrentViewSessionState(snapshot: IWorkspaceToolbarSnapshot = readWorkspaceToolbarSnapshot()) {
+    emit('update-session-state', createTabViewSessionState(snapshot));
+}
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(tabId));
 const isDocumentOpenInFlight = computed(() => (
     documentOpenInFlightCount.value > 0
@@ -494,6 +498,16 @@ watch(hasMountedWorkspace, (mounted) => {
         workspaceChunkLoadError.value = null;
     }
 });
+
+watch(
+    () => isActive || isRenderActive,
+    (active, wasActive) => {
+        if (wasActive && !active) {
+            emitCurrentViewSessionState();
+        }
+    },
+    { flush: 'sync' },
+);
 
 watch(
     [
@@ -1191,7 +1205,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    emit('update-session-state', createTabViewSessionState(readWorkspaceToolbarSnapshot()));
     isHostUnmounted = true;
     workspaceLoadPromise = null;
     workspacePreloadPromise = null;

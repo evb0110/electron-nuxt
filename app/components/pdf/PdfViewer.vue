@@ -591,8 +591,12 @@ const singlePageScroll = usePdfSinglePageScroll({
 });
 
 watch(
-    requestedCurrentPage,
-    (pageNumber) => {
+    [
+        requestedCurrentPage,
+        numPages,
+        viewerContainer,
+    ],
+    ([pageNumber]) => {
         if (
             typeof pageNumber !== 'number'
             || !Number.isFinite(pageNumber)
@@ -613,7 +617,10 @@ watch(
         cancelPendingSearchScroll();
         singlePageScroll.scrollToPage(targetPage);
     },
-    { flush: 'post' },
+    {
+        flush: 'post',
+        immediate: true, 
+    },
 );
 
 const {
@@ -1373,6 +1380,7 @@ async function saveViewerDocument() {
 
 defineExpose({
     getViewerContainer: () => viewerContainer.value,
+    getCurrentPage: () => viewerCurrentPage.value,
     scrollToPage: (pageNumber: number) => {
         cancelPendingSearchScroll();
         singlePageScroll.scrollToPage(pageNumber);
