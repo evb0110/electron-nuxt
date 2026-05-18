@@ -13,6 +13,12 @@ sha256_file() {
           exit
         }
       }
+      line = tolower($0)
+      gsub(/[^[:xdigit:]]/, "", line)
+      if (length(line) == 64) {
+        print line
+        exit
+      }
     }'
   }
 
