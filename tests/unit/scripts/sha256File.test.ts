@@ -73,7 +73,7 @@ describe('sha256_file shell helper', () => {
         addRequiredUnixTools(binDir);
         writeFileSync(
             sha256sumPath,
-            `#!/bin/sh\nprintf '%s  %s\\n' '${expectedSha256}' "$1"\n`,
+            `#!/bin/sh\nprintf '\\\\%s  %s\\n' '${expectedSha256}' "$1"\n`,
             { mode: 0o755 },
         );
 
