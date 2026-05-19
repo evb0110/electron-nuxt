@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationModifiedPayload,
     IAnnotationSettings,
     IShapeAnnotation,
     TAnnotationTool,
@@ -156,7 +157,11 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         }
     }
 
-    function handleAnnotationModified() {
+    function handleAnnotationModified(payload: IAnnotationModifiedPayload = {}) {
+        if (payload.forceDirty) {
+            markAnnotationDirty();
+            return;
+        }
         if (
             !annotationEditorState.value.hasSomethingToUndo
             && !hasAnnotationChanges()
