@@ -67,6 +67,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
     const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
     const MAX_RELOAD_HISTORY = 20;
     const VITE_FULL_RELOAD_EVENT_MAX_AGE_MS = 15_000;
+    const APP_READY_EVENT_NAME = 'evb:app-ready';
     const log = options.log ?? ((level, message, data) => {
         if (level === 'debug') {
             if (data) {
@@ -103,6 +104,11 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
     (window as IWindowWithReloadHistory).__reloadHistory = reloadHistory;
 
     const pageLoadTime = Date.now();
+    let appReadySeen = (window as Window & {__appReady?: boolean}).__appReady === true;
+
+    window.addEventListener(APP_READY_EVENT_NAME, () => {
+        appReadySeen = true;
+    }, { once: true });
 
     function readPersistedReloadHistory() {
         try {
@@ -226,6 +232,12 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
                 return {
                     allowed: false,
                     blockReason: `Within initial load grace period (${timeSinceLoad}ms < ${INITIAL_LOAD_GRACE_MS}ms)`,
+                };
+            }
+            if (!appReadySeen && (window as Window & {__appReady?: boolean}).__appReady !== true) {
+                return {
+                    allowed: false,
+                    blockReason: 'App startup readiness has not been reached yet',
                 };
             }
 
