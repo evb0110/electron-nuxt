@@ -47,6 +47,7 @@ import {
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import { isTrustedRendererUrl } from '@electron/security/trustedRendererUrl';
 import { registerRendererLogBridge } from '@electron/ipc/rendererLogBridge';
 import {
     setHostZenModeForWindow,
@@ -123,27 +124,24 @@ function isTrustedWebContentsSender(
     }
 
     const rawSenderUrl = senderFrame?.url || sender.getURL();
-    const trustedOrigin = getTrustedRendererOrigin();
-    if (!trustedOrigin || !rawSenderUrl) {
-        logger.warn(`[ipc] rejected ${channel}: missing trusted origin or sender URL`);
+    const trustedUrl = getTrustedRendererUrl();
+    if (!trustedUrl || !rawSenderUrl) {
+        logger.warn(`[ipc] rejected ${channel}: missing trusted URL or sender URL`);
         return false;
     }
 
-    let parsedSenderUrl: URL;
-    try {
-        parsedSenderUrl = new URL(rawSenderUrl);
-    } catch {
-        logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${rawSenderUrl}`);
-        return false;
-    }
+    if (!isTrustedRendererUrl(rawSenderUrl, trustedUrl)) {
+        let senderDescription = rawSenderUrl;
+        try {
+            const parsedSenderUrl = new URL(rawSenderUrl);
+            senderDescription = `${parsedSenderUrl.origin}${parsedSenderUrl.pathname}`;
+        } catch {
+            logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${rawSenderUrl}`);
+            return false;
+        }
 
-    const trustedUrl = new URL(trustedOrigin);
-    const senderTrusted = trustedUrl.protocol === 'evb-viewer:'
-        ? parsedSenderUrl.protocol === trustedUrl.protocol && parsedSenderUrl.hostname === trustedUrl.hostname
-        : parsedSenderUrl.origin === trustedUrl.origin;
-    if (!senderTrusted) {
         logger.warn(
-            `[ipc] rejected ${channel}: untrusted sender origin ${parsedSenderUrl.origin} (expected ${trustedOrigin})`,
+            `[ipc] rejected ${channel}: untrusted sender URL ${senderDescription} (expected ${trustedUrl})`,
         );
         return false;
     }
@@ -151,8 +149,8 @@ function isTrustedWebContentsSender(
     return true;
 }
 
-function getTrustedRendererOrigin() {
-    return config.renderer.trustedOrigin;
+function getTrustedRendererUrl() {
+    return config.renderer.trustedUrl;
 }
 
 function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: string) {

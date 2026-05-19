@@ -100,6 +100,9 @@ export const config = {
                 ? APP_PROTOCOL_ORIGIN
                 : new URL(config.server.url).origin;
         },
+        get trustedUrl() {
+            return this.url;
+        },
         get staticRoot() {
             if (isPackaged) {
                 return join(process.resourcesPath, 'app.asar', 'nuxt-output', 'public');

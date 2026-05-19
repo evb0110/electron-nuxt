@@ -317,6 +317,14 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
             const outputRefs: string[] = [];
 
+            if (targetPages.length === 0) {
+                await pdfDocument.destroy();
+                return {
+                    success: false,
+                    canceled: true,
+                };
+            }
+
             try {
                 for (let index = 0; index < targetPages.length; index += 1) {
                     const pageNumber = targetPages[index]!;

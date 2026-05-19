@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 
 const {
     detectHostReleasePlatform,
+    assertPublishUpdaterMetadataReferences,
     assertPublishUpdaterMetadataPolicy,
     expectsUpdaterMetadata,
     getLocalReleaseTargets,
@@ -140,6 +141,42 @@ describe('release policy', () => {
             EVB_RELEASE_HAS_MAC_SIGNING: 'true',
             EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
         })).not.toThrow();
+    });
+
+    it('validates publish-time updater metadata asset references without shell parsing', () => {
+        const metadata = new Map([
+            [
+                'latest-mac.yml',
+                [
+                    'version: 0.1.0',
+                    'path: "EVB Viewer-0.1.0-arm64.dmg"',
+                    'sha512: abc',
+                ].join('\n'),
+            ],
+            [
+                'latest.yml',
+                [
+                    'version: 0.1.0',
+                    'path: \'EVB Viewer Setup 0.1.0.exe\'',
+                    'sha512: def',
+                ].join('\n'),
+            ],
+        ]);
+
+        expect(assertPublishUpdaterMetadataReferences([
+            'EVB Viewer-0.1.0-arm64.dmg',
+            'EVB Viewer Setup 0.1.0.exe',
+            'latest-mac.yml',
+            'latest.yml',
+        ], (fileName: string) => metadata.get(fileName) ?? '')).toBe(true);
+    });
+
+    it('rejects publish-time updater metadata that points at missing or unsafe assets', () => {
+        expect(() => assertPublishUpdaterMetadataReferences([ 'latest-mac.yml' ], () => 'path: "Missing.dmg"\n'))
+            .toThrow('Missing.dmg not found');
+
+        expect(() => assertPublishUpdaterMetadataReferences([ 'latest.yml' ], () => 'path: "../EVB Viewer Setup 0.1.0.exe"\n'))
+            .toThrow('Unsafe path entry');
     });
 
     it('keeps release checks focused on static checks and release-critical tests', () => {

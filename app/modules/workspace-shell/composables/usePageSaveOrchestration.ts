@@ -260,6 +260,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         await handleSaveAsWithReload();
     }
 
+    function saveForExternalRead() {
+        return handleSaveWithReload();
+    }
+
     async function handleOcrComplete(payload: IOcrCompletePayload) {
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
             BrowserLogger.debug('ocr', 'Ignoring stale OCR result for inactive document', {
@@ -337,6 +341,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         rewritePageLabels,
         handleSave,
         handleSaveAs,
+        saveForExternalRead,
         handleExportDocx,
         handleOcrComplete,
         isAnySaving,

@@ -64,7 +64,7 @@ function deferred<T>() {
     };
 }
 
-function createHarness(path: string | null = '/tmp/work.pdf') {
+function createHarness(path: string | null = '/tmp/work.pdf', options: {ensureWorkingCopyFreshForRead?: () => Promise<boolean>;} = {}) {
     const workingCopyPath = ref<string | null>(path);
     const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
     const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
@@ -78,6 +78,7 @@ function createHarness(path: string | null = '/tmp/work.pdf') {
         clearOcrCache,
         resetSearchCache,
         onExtractedDocument,
+        ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
     });
 
     return {
@@ -173,6 +174,38 @@ describe('usePageOperations', () => {
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();
         expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
+    });
+
+    it('persists pending changes before extracting pages from the working copy', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        const {
+            pageOps,
+            onExtractedDocument,
+        } = createHarness('/tmp/work.pdf', { ensureWorkingCopyFreshForRead });
+        pageOpsApi.extract.mockResolvedValueOnce({
+            success: true,
+            destPath: 'browser://documents/extract.pdf',
+        });
+
+        await expect(pageOps.extractPages([3])).resolves.toBe(true);
+
+        expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+        expect(pageOpsApi.extract).toHaveBeenCalledWith('/tmp/work.pdf', [3]);
+        expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
+    });
+
+    it('does not extract pages when pending changes cannot be persisted', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
+        const {
+            pageOps,
+            onExtractedDocument,
+        } = createHarness('/tmp/work.pdf', { ensureWorkingCopyFreshForRead });
+
+        await expect(pageOps.extractPages([3])).resolves.toBe(false);
+
+        expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+        expect(pageOpsApi.extract).not.toHaveBeenCalled();
+        expect(onExtractedDocument).not.toHaveBeenCalled();
     });
 
     it('rejects deleting all pages before calling electron API', async () => {

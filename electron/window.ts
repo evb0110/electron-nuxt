@@ -66,7 +66,7 @@ function formatErrorMessage(error: unknown) {
     return getErrorMessage(error);
 }
 const windowSecurity = createWindowSecurity({
-    getTrustedRendererOrigin: () => config.renderer.trustedOrigin,
+    getTrustedRendererUrl: () => config.renderer.trustedUrl,
     logger,
 });
 const windowRuntime = createWindowRuntime({

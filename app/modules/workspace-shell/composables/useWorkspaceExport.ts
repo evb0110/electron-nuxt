@@ -18,6 +18,7 @@ interface IExportOverlayStatus {
 interface IWorkspaceExportDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
     totalPages: Ref<number>;
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
 }
 
 export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
@@ -25,6 +26,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     const {
         workingCopyPath,
         totalPages,
+        ensureWorkingCopyFreshForRead,
     } = deps;
 
     const isExportInProgress = ref(false);
@@ -177,8 +179,16 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
         const selectedPageCount = getSelectedPageCount(pageNumbers);
         isExportInProgress.value = true;
-        showExportRunning('images', selectedPageCount);
         try {
+            const isFreshForRead = ensureWorkingCopyFreshForRead
+                ? await ensureWorkingCopyFreshForRead()
+                : true;
+            if (!isFreshForRead || !workingCopyPath.value) {
+                setExportOverlay(null);
+                return;
+            }
+
+            showExportRunning('images', selectedPageCount);
             const documents = getDocumentsCapability();
             const startedAt = Date.now();
             const result = await documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
@@ -207,8 +217,16 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
         const selectedPageCount = getSelectedPageCount(pageNumbers);
         isExportInProgress.value = true;
-        showExportRunning('multipage-tiff', selectedPageCount);
         try {
+            const isFreshForRead = ensureWorkingCopyFreshForRead
+                ? await ensureWorkingCopyFreshForRead()
+                : true;
+            if (!isFreshForRead || !workingCopyPath.value) {
+                setExportOverlay(null);
+                return;
+            }
+
+            showExportRunning('multipage-tiff', selectedPageCount);
             const documents = getDocumentsCapability();
             const startedAt = Date.now();
             const result = await documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);

@@ -249,4 +249,31 @@ describe('createBrowserImageExportCapability', () => {
             }),
         );
     });
+
+    it('fails PNG export when selected pages resolve to no valid PDF pages', async () => {
+        const fakePdfDocument = createFakePdfDocument(2);
+        getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/documentsImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        const result = await capability.exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [
+                0,
+                3,
+            ],
+        );
+
+        expect(result).toEqual({
+            success: false,
+            canceled: true,
+        });
+        expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
+        expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
+        expect(saveBlobToPickerOrDownloadMock).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
+    });
 });

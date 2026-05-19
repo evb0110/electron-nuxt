@@ -18,25 +18,37 @@ function createWindowMock() {
 }
 
 describe('createWindowSecurity', () => {
-    it('tracks the current trusted renderer origin instead of a startup snapshot', () => {
-        let trustedOrigin = 'evb-viewer://app';
+    it('tracks the current trusted renderer URL instead of a startup snapshot', () => {
+        let trustedUrl = 'evb-viewer://app/electron';
         const security = createWindowSecurity({
-            getTrustedRendererOrigin: () => trustedOrigin,
+            getTrustedRendererUrl: () => trustedUrl,
             logger: { warn: vi.fn() },
         });
 
         expect(security.isTrustedRendererUrl('evb-viewer://app/electron/settings')).toBe(true);
 
-        trustedOrigin = 'http://127.0.0.1:41001';
+        trustedUrl = 'http://127.0.0.1:41001/electron';
 
         expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/electron/settings')).toBe(true);
         expect(security.isTrustedRendererUrl('evb-viewer://app/electron/settings')).toBe(false);
     });
 
+    it('rejects same-origin renderer URLs outside the configured app route', () => {
+        const security = createWindowSecurity({
+            getTrustedRendererUrl: () => 'http://127.0.0.1:41001/electron',
+            logger: { warn: vi.fn() },
+        });
+
+        expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/electron')).toBe(true);
+        expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/electron/viewer')).toBe(true);
+        expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/admin')).toBe(false);
+        expect(security.isTrustedRendererUrl('http://127.0.0.1:41001/electronic')).toBe(false);
+    });
+
     it('blocks unsupported protocols before delegating to shell.openExternal', () => {
         const logger = { warn: vi.fn() };
         const security = createWindowSecurity({
-            getTrustedRendererOrigin: () => 'evb-viewer://app',
+            getTrustedRendererUrl: () => 'evb-viewer://app/electron',
             logger,
         });
         const window = createWindowMock();

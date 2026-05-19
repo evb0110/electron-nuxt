@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     mkdir: vi.fn(),
     readdir: vi.fn(),
     copyFile: vi.fn(),
+    fileUrl: '/tmp/app.asar/dist/electron/ocr/languageModels.js',
     logger: {
         debug: vi.fn(),
         info: vi.fn(),
@@ -21,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('os', () => ({homedir: () => '/tmp/home'}));
-vi.mock('url', () => ({fileURLToPath: () => '/tmp/app.asar/dist/electron/ocr/languageModels.js'}));
+vi.mock('url', () => ({fileURLToPath: () => mocks.fileUrl}));
 vi.mock('fs', () => ({
     createWriteStream: vi.fn(),
     existsSync: (path: string) => mocks.existsSync(path),
@@ -41,6 +43,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.fileUrl = '/tmp/app.asar/dist/electron/ocr/languageModels.js';
         Object.defineProperty(process, 'resourcesPath', {
             configurable: true,
             value: '/tmp/resources',
@@ -53,6 +56,10 @@ describe('ensureRuntimeTessdataSeeded', () => {
             'notes.txt',
         ]);
         mocks.copyFile.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('shares one async seed across concurrent callers', async () => {
@@ -81,5 +88,14 @@ describe('ensureRuntimeTessdataSeeded', () => {
             '/tmp/resources/tesseract/tessdata/osd.traineddata',
             join(runtimeDir, 'osd.traineddata'),
         );
+    });
+
+    it('resolves bundled tessdata from the repository resources directory in development', async () => {
+        mocks.fileUrl = '/repo/electron/ocr/languageModels.ts';
+        vi.spyOn(process, 'cwd').mockReturnValue('/repo');
+        mocks.existsSync.mockImplementation((path: string) => path === '/repo/resources/tesseract');
+        const { getRuntimeTessdataDir } = await import('@electron/ocr/languageModels');
+
+        expect(getRuntimeTessdataDir()).toBe('/repo/resources/tesseract/tessdata');
     });
 });

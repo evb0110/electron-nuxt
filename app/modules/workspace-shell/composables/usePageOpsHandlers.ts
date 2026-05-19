@@ -31,6 +31,7 @@ export interface IPageOpsHandlersDeps {
     };
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
 }
 
 export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
@@ -51,6 +52,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache,
+        ensureWorkingCopyFreshForRead,
     } = deps;
 
     const {
@@ -70,6 +72,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
+        ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),
         ...(onExtractedDocument !== undefined ? { onExtractedDocument } : {}),
     });
 
