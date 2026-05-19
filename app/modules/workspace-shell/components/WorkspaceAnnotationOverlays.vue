@@ -512,16 +512,9 @@ interface INoteViewportRect {
 
 const connectorLines = shallowRef<IConnectorLine[]>([]);
 
-function getRenderedMarkerCenter(pageContainer: HTMLElement, stableKey: string) {
-    const escapedKey = escapeCssAttr(stableKey);
-    const markerElement = pageContainer.querySelector<HTMLElement>(
-        [
-            `.pdf-comment-marker-button[data-stable-key="${escapedKey}"]`,
-            `.pdf-note-open-anchor[data-stable-key="${escapedKey}"]`,
-        ].join(', '),
-    );
-    const markerRect = markerElement?.getBoundingClientRect() ?? null;
-    if (!markerRect || markerRect.width <= 0 || markerRect.height <= 0) {
+function getMarkerPointFromElement(markerElement: HTMLElement): IConnectorMarkerPoint | null {
+    const markerRect = markerElement.getBoundingClientRect();
+    if (markerRect.width <= 0 || markerRect.height <= 0) {
         return null;
     }
     const viewportBounds = getConnectorViewportBounds();
@@ -533,6 +526,25 @@ function getRenderedMarkerCenter(pageContainer: HTMLElement, stableKey: string) 
         cy: markerRect.top + markerRect.height / 2,
         radius: Math.min(markerRect.width, markerRect.height) / 2,
     };
+}
+
+function getRenderedMarkerCenter(pageContainer: HTMLElement, stableKey: string) {
+    const escapedKey = escapeCssAttr(stableKey);
+    const markerSelectors = [
+        `.pdf-comment-marker-button[data-stable-key="${escapedKey}"]`,
+        `.pdf-note-open-anchor[data-stable-key="${escapedKey}"]`,
+    ];
+
+    for (const selector of markerSelectors) {
+        for (const markerElement of pageContainer.querySelectorAll<HTMLElement>(selector)) {
+            const point = getMarkerPointFromElement(markerElement);
+            if (point) {
+                return point;
+            }
+        }
+    }
+
+    return null;
 }
 
 function getMarkerAnchorInPage(pageContainer: HTMLElement, note: IAnnotationNoteWindowEntry) {
