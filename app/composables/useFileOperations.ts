@@ -126,6 +126,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         clearPendingPersistedShapeStateForNextReload,
     } = deps;
 
+    let saveOperationInProgress = false;
+
     function nowMs() {
         return typeof performance !== 'undefined'
             ? performance.now()
@@ -648,7 +650,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function hasSaveOperationInProgress() {
-        if (isSaving.value || isSavingAs.value) {
+        if (saveOperationInProgress || isSaving.value || isSavingAs.value) {
             return true;
         }
         return false;
@@ -748,6 +750,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             data: Uint8Array,
             opts: { saveMode: TPdfSaveMode },
         ) => Promise<IPdfPersistResult>,
+        onPersistenceSettled?: () => void,
     ) {
         const saveSucceeded = await saveSerializedChanges(
             rawData,
@@ -759,8 +762,17 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode,
             persist,
         );
+        onPersistenceSettled?.();
         await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
         return saveSucceeded;
+    }
+
+    function clearSaveIndicator(mode: 'save' | 'save_as') {
+        if (mode === 'save') {
+            isSaving.value = false;
+            return;
+        }
+        isSavingAs.value = false;
     }
 
     async function handleSave() {
@@ -769,6 +781,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
         const saveStartedAtMs = nowMs();
         let saveSucceededForTelemetry = false;
+        saveOperationInProgress = true;
         isSaving.value = true;
         let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
         let finalizedReloadWaiter = false;
@@ -817,6 +830,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         'save',
                         'rewrite',
                         saveFile,
+                        () => clearSaveIndicator('save'),
                     );
                     finalizedReloadWaiter = true;
                     if (!saveSucceeded) {
@@ -832,6 +846,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     'save',
                     saveWorkingCopy,
                 );
+                clearSaveIndicator('save');
                 await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                 finalizedReloadWaiter = true;
                 saveSucceededForTelemetry = saveSucceeded;
@@ -852,6 +867,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 'save',
                 'rewrite',
                 saveFile,
+                () => clearSaveIndicator('save'),
             );
             finalizedReloadWaiter = true;
             if (!saveSucceeded) {
@@ -878,6 +894,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 { success: saveSucceededForTelemetry },
                 SLOW_SAVE_TOTAL_WARN_MS,
             );
+            saveOperationInProgress = false;
             isSaving.value = false;
         }
     }
@@ -888,6 +905,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
         const saveStartedAtMs = nowMs();
         let saveSucceededForTelemetry = false;
+        saveOperationInProgress = true;
         isSavingAs.value = true;
         let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
         let finalizedReloadWaiter = false;
@@ -934,6 +952,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     opts => saveWorkingCopyAs(undefined, opts),
                 );
             }
+            clearSaveIndicator('save_as');
             await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
             if (!saveSucceeded) {
@@ -960,6 +979,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 { success: saveSucceededForTelemetry },
                 SLOW_SAVE_TOTAL_WARN_MS,
             );
+            saveOperationInProgress = false;
             isSavingAs.value = false;
         }
     }

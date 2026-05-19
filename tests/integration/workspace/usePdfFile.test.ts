@@ -713,6 +713,130 @@ describe('usePdfFile', () => {
             expect(file.pdfData.value).toEqual(savedBytes);
         });
 
+        it('resolves after committing saved bytes without waiting for deferred conformance analysis', async () => {
+            const pdfBytes = new Uint8Array([
+                1,
+                2,
+            ]);
+            const savedBytes = new Uint8Array([
+                9,
+                9,
+            ]);
+            const unsignedProfile = {
+                isSigned: false,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: false,
+                hasXfa: false,
+                canIncrementalSave: true,
+                saveRestrictions: [] as string[],
+            };
+            const postSaveProfile = {
+                ...unsignedProfile,
+                isTagged: true,
+            };
+            const conformanceGate = deferred<typeof postSaveProfile>();
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/save.pdf',
+                workingPath: '/tmp/save.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: 2 });
+            mockDocuments.readFile.mockResolvedValueOnce(pdfBytes.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.saveFile.mockResolvedValue(undefined);
+            mockDocuments.analyzePdfConformance
+                .mockResolvedValueOnce(unsignedProfile)
+                .mockImplementationOnce(() => conformanceGate.promise);
+
+            const file = usePdfFile();
+            await file.openFile();
+            await vi.waitFor(() => {
+                expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
+            });
+            file.markDirty();
+
+            let saveSettled = false;
+            let saveResult: Awaited<ReturnType<typeof file.saveFile>> | null = null;
+            const savePromise = file.saveFile(savedBytes).then((result) => {
+                saveSettled = true;
+                saveResult = result;
+                return result;
+            });
+
+            await vi.waitFor(() => {
+                expect(file.pdfData.value).toEqual(savedBytes);
+            });
+            await vi.waitFor(() => {
+                expect(saveSettled).toBe(true);
+            });
+            expect(saveResult).toEqual({
+                success: true,
+                outPath: '/save.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            });
+            expect(file.pdfConformanceProfile.value).toBeNull();
+
+            conformanceGate.resolve(postSaveProfile);
+            await savePromise;
+            await vi.waitFor(() => {
+                expect(file.pdfConformanceProfile.value).toEqual(postSaveProfile);
+            });
+        });
+
+        it('ignores stale deferred conformance results for the same working path', async () => {
+            const pdfBytes = new Uint8Array([
+                1,
+                2,
+            ]);
+            const savedBytes = new Uint8Array([
+                8,
+                8,
+            ]);
+            const staleProfile = {
+                isSigned: true,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: false,
+                hasXfa: false,
+                canIncrementalSave: false,
+                saveRestrictions: ['signed'] as string[],
+            };
+            const latestProfile = {
+                ...staleProfile,
+                isSigned: false,
+                canIncrementalSave: true,
+                saveRestrictions: [] as string[],
+            };
+            const staleConformanceGate = deferred<typeof staleProfile>();
+            const latestConformanceGate = deferred<typeof latestProfile>();
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.analyzePdfConformance
+                .mockImplementationOnce(() => staleConformanceGate.promise)
+                .mockImplementationOnce(() => latestConformanceGate.promise);
+
+            const file = usePdfFile();
+            await file.loadPdfFromPath('/tmp/save.pdf');
+            expect(file.pdfConformanceProfile.value).toBeNull();
+
+            await file.persistPdfDataSilently(savedBytes);
+
+            staleConformanceGate.resolve(staleProfile);
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(file.pdfConformanceProfile.value).toBeNull();
+
+            latestConformanceGate.resolve(latestProfile);
+            await vi.waitFor(() => {
+                expect(file.pdfConformanceProfile.value).toEqual(latestProfile);
+            });
+        });
+
         it('does not apply save completion state after another document opens', async () => {
             const firstBytes = new Uint8Array([1]);
             const secondBytes = new Uint8Array([2]);
