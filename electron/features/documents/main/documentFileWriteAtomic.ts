@@ -33,13 +33,17 @@ const ALLOWED_SYSTEM_SYMLINK_TARGETS = new Map([
     ],
 ]);
 
+export function assertWithinIpcWriteBudget(byteLength: number) {
+    if (byteLength > MAX_IPC_WRITE_BYTES) {
+        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
+    }
+}
+
 export function normalizeIpcWritePayload(data: unknown) {
     if (!(data instanceof Uint8Array)) {
         throw new Error('Invalid data: must be a Uint8Array');
     }
-    if (data.byteLength > MAX_IPC_WRITE_BYTES) {
-        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
-    }
+    assertWithinIpcWriteBudget(data.byteLength);
     return data;
 }
 

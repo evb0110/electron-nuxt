@@ -412,6 +412,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     const {
         isLoadFromSourceActive,
+        invalidateDocumentLoad,
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     } = usePdfViewerDocumentLifecycle({
@@ -611,6 +612,12 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 emit('annotation-comments', []);
             }
             if (!isActive.value) {
+                invalidateDocumentLoad();
+                cancelPendingSearchScroll?.();
+                cancelInFlightPageRenders?.();
+                cleanupRenderedPages();
+                cleanupDocument();
+                emit('update:document', null);
                 return;
             }
             scheduleLoadFromSource(isReload);

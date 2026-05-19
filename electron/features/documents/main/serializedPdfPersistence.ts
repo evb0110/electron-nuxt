@@ -27,6 +27,7 @@ import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
+import { assertWithinIpcWriteBudget } from '@electron/features/documents/main/documentFileWriteAtomic';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 
@@ -93,6 +94,7 @@ function normalizeTotalBytes(totalBytes: unknown): number {
         throw new Error('Invalid total byte count');
     }
 
+    assertWithinIpcWriteBudget(totalBytes);
     return totalBytes;
 }
 

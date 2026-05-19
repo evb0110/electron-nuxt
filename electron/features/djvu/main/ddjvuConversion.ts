@@ -123,9 +123,14 @@ async function _convertDjvuToPdfWithRanges(
     const chunkPaths = Array.from({ length: totalPages }, (_, index) => join(tempDir, `page-${index + 1}.pdf`));
     const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
     let completedPageCount = 0;
+    let firstError: string | null = null;
 
     try {
         const convertPageWithLimit = limitAsync(async (pageNum: number, index: number) => {
+            if (firstError) {
+                return firstError;
+            }
+
             const pageOutputPath = chunkPaths[pageNum - 1]!;
             const pageResult = await convertPageToPdf(
                 inputPath,
@@ -137,7 +142,12 @@ async function _convertDjvuToPdfWithRanges(
 
             if (!pageResult.success) {
                 cancelConversion(jobId);
-                return pageResult.error ?? `Failed to convert page ${pageNum}`;
+                firstError = pageResult.error ?? `Failed to convert page ${pageNum}`;
+                return firstError;
+            }
+
+            if (firstError) {
+                return firstError;
             }
 
             completedPageCount += 1;
@@ -152,7 +162,7 @@ async function _convertDjvuToPdfWithRanges(
         }, workerCount);
 
         const conversionErrors = await Promise.all(pageNumbers.map(convertPageWithLimit));
-        const firstError = conversionErrors.find((error): error is string => error !== null) ?? null;
+        firstError = firstError ?? conversionErrors.find((error): error is string => error !== null) ?? null;
 
         if (firstError) {
             await cleanupPartialOutput(outputPath);

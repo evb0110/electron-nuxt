@@ -14,11 +14,17 @@ export function resolveSiteUrl(event: H3Event): string {
     const requestUrl = getRequestURL(event);
     const env = getRuntimeEnv();
     const configuredSiteUrl = (env.NUXT_PUBLIC_SITE_URL
+        || env.NUXT_SITE_URL
         || env.SITE_URL
         || '').trim();
     if (configuredSiteUrl) {
         return normalizeSiteUrl(configuredSiteUrl);
     }
+
+    const allowedSiteHosts = (env.SITE_URL_ALLOWED_HOSTS || '')
+        .split(',')
+        .map(host => host.trim().toLowerCase())
+        .filter(Boolean);
 
     if (env.NODE_ENV !== 'production') {
         return normalizeSiteUrl(`${requestUrl.protocol}//${requestUrl.host}`);
@@ -28,10 +34,10 @@ export function resolveSiteUrl(event: H3Event): string {
         return normalizeSiteUrl(DEFAULT_PRODUCTION_SITE_URL);
     }
 
-    const allowedSiteHosts = (env.SITE_URL_ALLOWED_HOSTS || '')
-        .split(',')
-        .map(host => host.trim().toLowerCase())
-        .filter(Boolean);
+    if (!allowedSiteHosts.length) {
+        return normalizeSiteUrl(DEFAULT_PRODUCTION_SITE_URL);
+    }
+
     const requestHost = requestUrl.host.toLowerCase();
     if (!allowedSiteHosts.includes(requestHost)) {
         throw new Error('Cannot resolve sitemap site URL without a configured canonical URL or allowed request host');

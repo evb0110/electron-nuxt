@@ -83,6 +83,16 @@ async function runBrowserFileHandlePhase<T>(
     }
 }
 
+async function abortBrowserFileWritable(
+    writable: FileSystemWritableFileStream,
+) {
+    await runBrowserFileHandlePhase(
+        'aborting file writer',
+        BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+        () => writable.abort(),
+    ).catch(() => undefined);
+}
+
 async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
     const permissionHandle = handle as TPermissionCapableFileHandle;
     const descriptor = { mode: 'readwrite' as const };
@@ -286,7 +296,12 @@ export async function saveBlobToPickerOrDownload(
             });
 
             const writable = await handle.createWritable();
-            await writable.write(blob);
+            try {
+                await writable.write(blob);
+            } catch (error) {
+                await abortBrowserFileWritable(writable);
+                throw error;
+            }
             await writable.close();
             return {
                 canceled: false,
@@ -419,7 +434,6 @@ export async function writeBytesToHandle(
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
         () => handle.createWritable(),
     );
-    let writeError: unknown = null;
     let closeError: unknown = null;
 
     try {
@@ -429,7 +443,8 @@ export async function writeBytesToHandle(
             () => writable.write(toBrowserOwnedArrayBuffer(data)),
         );
     } catch (error) {
-        writeError = error;
+        await abortBrowserFileWritable(writable);
+        throw normalizeBrowserFileHandleError(error);
     }
 
     try {
@@ -442,9 +457,6 @@ export async function writeBytesToHandle(
         closeError = error;
     }
 
-    if (writeError) {
-        throw normalizeBrowserFileHandleError(writeError);
-    }
     if (closeError) {
         throw normalizeBrowserFileHandleError(closeError);
     }
@@ -460,7 +472,6 @@ export async function writeDocumentRefToHandle(
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
         () => handle.createWritable(),
     );
-    let writeError: unknown = null;
     let closeError: unknown = null;
 
     try {
@@ -481,7 +492,8 @@ export async function writeDocumentRefToHandle(
             }
         }
     } catch (error) {
-        writeError = error;
+        await abortBrowserFileWritable(writable);
+        throw normalizeBrowserFileHandleError(error);
     }
 
     try {
@@ -494,9 +506,6 @@ export async function writeDocumentRefToHandle(
         closeError = error;
     }
 
-    if (writeError) {
-        throw normalizeBrowserFileHandleError(writeError);
-    }
     if (closeError) {
         throw normalizeBrowserFileHandleError(closeError);
     }

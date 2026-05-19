@@ -24,6 +24,7 @@ const lifecycleMocks = vi.hoisted(() => ({
     renderVisiblePages: vi.fn(),
     resetRenderStallRecoveryState: vi.fn(),
     resetZoomRerenderQueueState: vi.fn(),
+    invalidateDocumentLoad: vi.fn(),
     scheduleLoadFromSource: vi.fn(),
     updateVisibleRange: vi.fn(),
 }));
@@ -69,6 +70,7 @@ vi.mock('@app/modules/pdf-viewer-runtime/composables/usePdfViewerResizeLifecycle
 
 vi.mock('@app/modules/pdf-viewer-runtime/composables/usePdfViewerDocumentLifecycle', () => ({usePdfViewerDocumentLifecycle: () => ({
     isLoadFromSourceActive: ref(false),
+    invalidateDocumentLoad: lifecycleMocks.invalidateDocumentLoad,
     scheduleRecoverInitialRender: vi.fn(),
     scheduleLoadFromSource: lifecycleMocks.scheduleLoadFromSource,
 })}));
@@ -245,6 +247,7 @@ describe('usePdfViewerCore inactive lifecycle', () => {
         await nextTick();
 
         expect(lifecycleMocks.scheduleLoadFromSource).not.toHaveBeenCalled();
+        expect(lifecycleMocks.invalidateDocumentLoad).toHaveBeenCalledTimes(1);
 
         harness.app.unmount();
     });

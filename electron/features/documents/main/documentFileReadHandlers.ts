@@ -105,6 +105,7 @@ export async function handleFileReadText(
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
+    assertWithinIpcReadBudget(resolvedPath);
     const buffer = await readFile(resolvedPath, 'utf-8');
     return buffer;
 }

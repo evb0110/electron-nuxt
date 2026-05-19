@@ -20,6 +20,7 @@ export default defineNuxtConfig({
 
     alias: {
         '@i18n-core': fileURLToPath(new URL('./app/i18n/core.ts', import.meta.url)),
+        '@releaseSelection': fileURLToPath(new URL('../packages/release-selection', import.meta.url)),
     },
 
     runtimeConfig: {

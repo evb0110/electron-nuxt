@@ -104,8 +104,8 @@ export function createDocumentsService(): IDocumentsService {
         savePdfData: (event, workingPath, data) => handleSerializedPdfSave(event, workingPath, data),
         beginSavePdfData: (event, workingPath, totalBytes) =>
             beginSerializedPdfSaveToOriginal(event, workingPath, totalBytes),
-        cleanupFile: (_event, workingPath) => {
-            cleanupWorkingCopy(workingPath);
+        cleanupFile: (event, workingPath) => {
+            cleanupWorkingCopy(workingPath, event.sender.id);
         },
         cleanupOcrTemp: (event, filePath) => handleCleanupOcrTemp(event, filePath),
         setWindowTitle: (event, title) => handleSetWindowTitle(event, title),

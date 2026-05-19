@@ -151,7 +151,7 @@ async function cleanupWorkingCopyDirectory(workingPath: string) {
     }
 }
 
-export function cleanupWorkingCopy(workingPath: string) {
+export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: number) {
     const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedPath) {
         return;
@@ -162,11 +162,19 @@ export function cleanupWorkingCopy(workingPath: string) {
         logger.warn(`Rejected cleanup for unmanaged working copy path "${normalizedPath}"`);
         return;
     }
+    const ownerWebContentsId = getWorkingCopyOwnerWebContentsId(normalizedPath);
+    if (
+        typeof ownerWebContentsId === 'number'
+        && ownerWebContentsId !== senderWebContentsId
+    ) {
+        logger.warn(`Rejected cleanup for working copy path owned by another sender "${normalizedPath}"`);
+        return;
+    }
 
     rememberRetiredWorkingCopyOriginal(
         normalizedPath,
         originalEntry.originalPath,
-        getWorkingCopyOwnerWebContentsId(normalizedPath),
+        ownerWebContentsId,
     );
     workingCopyMap.delete(normalizedPath);
     cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {

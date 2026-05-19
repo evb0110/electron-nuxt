@@ -104,6 +104,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     const clientHintsPlatform = getHeader(event, 'sec-ch-ua-platform')?.replace(/"/g, '') || '';
     const profile = parseUserAgent(getHeader(event, 'user-agent') || '', clientHintsPlatform);
     const recommended = recommendInstaller(installers, profile);
+    setHeader(event, 'vary', 'User-Agent, Sec-CH-UA-Platform');
 
     if (installers.length) {
         setHeader(event, 'cache-control', 'public, s-maxage=600, stale-while-revalidate=3600');
