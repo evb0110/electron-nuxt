@@ -436,7 +436,7 @@ describe('useFileOperations', () => {
         ]);
     });
 
-    it('waits for the post-save reload to restore the viewer state after a successful save', async () => {
+    it('waits for the post-save reload after clearing the visible save indicator', async () => {
         const deferredReload = createDeferred<undefined>();
         const cancel = vi.fn();
         const { deps } = createDeps({
@@ -459,6 +459,11 @@ describe('useFileOperations', () => {
         });
         expect(settled).toBe(false);
         expect(cancel).not.toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(deps.isSaving.value).toBe(false);
+        });
+        await expect(handleSave()).resolves.toBe(false);
+        expect(deps.saveFile).toHaveBeenCalledOnce();
         expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
         const adoptPersistedShapeStateForNextReload = vi.mocked(
             deps.adoptPersistedShapeStateForNextReload!,

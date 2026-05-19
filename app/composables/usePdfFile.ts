@@ -144,6 +144,7 @@ export const usePdfFile = () => {
     const requiresSaveAsOnFirstSave = ref(false);
     const MAX_HISTORY_ENTRIES = 20;
     const MAX_HISTORY_BYTES = 200 * 1024 * 1024;
+    let conformanceProfileRequestId = 0;
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -578,11 +579,31 @@ export const usePdfFile = () => {
         }
     }
 
+    function clearPdfConformanceProfile() {
+        conformanceProfileRequestId += 1;
+        pdfConformanceProfile.value = null;
+    }
+
+    function applyPdfConformanceProfile(
+        path: TDocumentRef,
+        requestId: number,
+        profile: IPdfConformanceProfile | null,
+    ) {
+        if (
+            conformanceProfileRequestId === requestId
+            && workingCopyPath.value === path
+        ) {
+            pdfConformanceProfile.value = profile;
+            return true;
+        }
+        return false;
+    }
+
     function deferPdfConformanceProfile(path: TDocumentRef) {
+        const requestId = ++conformanceProfileRequestId;
+        pdfConformanceProfile.value = null;
         readPdfConformanceProfile(path).then((profile) => {
-            if (workingCopyPath.value === path) {
-                pdfConformanceProfile.value = profile;
-            }
+            applyPdfConformanceProfile(path, requestId, profile);
         }).catch((conformanceError: unknown) => {
             BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
                 path,
@@ -603,7 +624,7 @@ export const usePdfFile = () => {
         workingCopyPath.value = path;
         pdfData.value = nextState.pdfData;
         pdfSrc.value = nextState.pdfSrc;
-        pdfConformanceProfile.value = null;
+        clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
             fileHistorySessionVersion.value += 1;
@@ -656,12 +677,13 @@ export const usePdfFile = () => {
 
     async function refreshPdfConformanceProfile(path: TDocumentRef | null) {
         if (!path) {
-            pdfConformanceProfile.value = null;
+            clearPdfConformanceProfile();
             return null;
         }
 
+        const requestId = ++conformanceProfileRequestId;
         const profile = await readPdfConformanceProfile(path);
-        pdfConformanceProfile.value = profile;
+        applyPdfConformanceProfile(path, requestId, profile);
         return profile;
     }
 
@@ -767,11 +789,7 @@ export const usePdfFile = () => {
             markCurrentHistoryEntryClean(nextState.pdfData);
         }
 
-        const profile = await readPdfConformanceProfile(path);
-        if (!isActiveWorkingCopy(path)) {
-            return false;
-        }
-        pdfConformanceProfile.value = profile;
+        deferPdfConformanceProfile(path);
         BrowserLogger.debug('workspace', 'Committed persisted PDF state', () => ({
             path,
             isDirty: isDirty.value,
@@ -958,14 +976,7 @@ export const usePdfFile = () => {
         }
 
         if (opts?.persistWorkingCopy && workingCopyPath.value) {
-            await refreshPdfConformanceProfile(workingCopyPath.value);
-            if (requestId !== latestLoadRequestId) {
-                BrowserLogger.debug('pdf-file', 'Skipped stale PDF data conformance refresh result', {
-                    requestId,
-                    latestLoadRequestId,
-                    bytes: snapshot.byteLength,
-                });
-            }
+            deferPdfConformanceProfile(workingCopyPath.value);
         }
     }
 
@@ -977,7 +988,7 @@ export const usePdfFile = () => {
 
         if (workingCopyPath.value) {
             await getDocumentsCapability().writeFile(workingCopyPath.value, snapshot);
-            await refreshPdfConformanceProfile(workingCopyPath.value);
+            deferPdfConformanceProfile(workingCopyPath.value);
         }
     }
 
@@ -1218,7 +1229,7 @@ export const usePdfFile = () => {
         originalPath.value = null;
         error.value = null;
         isDirty.value = false;
-        pdfConformanceProfile.value = null;
+        clearPdfConformanceProfile();
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
