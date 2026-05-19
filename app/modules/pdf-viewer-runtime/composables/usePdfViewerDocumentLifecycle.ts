@@ -129,6 +129,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
 
 export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLifecycleOptions) => {
     let documentLoadToken = 0;
+    let scheduledLoadToken = 0;
     const isLoadFromSourceActive = ref(false);
 
     function hasRenderedPageCanvas() {
@@ -436,6 +437,18 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         });
     }
 
+    function invalidateDocumentLoad() {
+        scheduledLoadToken += 1;
+        if (isLoadFromSourceActive.value) {
+            options.onDocumentLoadStateChange?.({
+                token: documentLoadToken,
+                phase: 'settled',
+            });
+        }
+        documentLoadToken += 1;
+        isLoadFromSourceActive.value = false;
+    }
+
     function pinReloadRecoveryPageIfNeeded(plan: IReloadPlan) {
         if (!plan.shouldPinReloadPage) {
             return;
@@ -641,7 +654,13 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     }
 
     function scheduleLoadFromSource(isReload = false) {
-        runGuardedTask(() => loadFromSource(isReload), {
+        const activeScheduledLoadToken = scheduledLoadToken;
+        runGuardedTask(async () => {
+            if (activeScheduledLoadToken !== scheduledLoadToken) {
+                return;
+            }
+            await loadFromSource(isReload);
+        }, {
             scope: 'pdf-viewer',
             message: 'Failed to load PDF source',
         });
@@ -649,6 +668,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
     return {
         isLoadFromSourceActive: readonly(isLoadFromSourceActive),
+        invalidateDocumentLoad,
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     };

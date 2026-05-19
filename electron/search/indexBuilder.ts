@@ -1,5 +1,6 @@
 import { existsSync } from 'fs';
 import {
+    rm,
     readFile,
     writeFile,
 } from 'fs/promises';
@@ -24,6 +25,10 @@ import {
 } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 export interface IPageIndex {
     pageNumber: number;
@@ -422,7 +427,15 @@ async function persistIndex(
 ): Promise<void> {
     throwIfAborted(signal);
     const indexPath = getIndexPath(pdfPath);
-    await writeFile(indexPath, JSON.stringify(index), 'utf-8');
+    const tempPath = makeSiblingTempPath(indexPath);
+    try {
+        await writeFile(tempPath, JSON.stringify(index), 'utf-8');
+        throwIfAborted(signal);
+        await atomicReplace(tempPath, indexPath);
+    } catch (error) {
+        await rm(tempPath, { force: true }).catch(() => undefined);
+        throw error;
+    }
     log.debug(`Index saved successfully: ${indexPath}`);
 }
 

@@ -9,7 +9,9 @@ import {
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(),
     readFile: vi.fn(),
+    rm: vi.fn(),
     writeFile: vi.fn(),
+    atomicReplace: vi.fn(),
     extractTextFromPdf: vi.fn(),
     extractTextWithPdfjs: vi.fn(),
 }));
@@ -18,12 +20,18 @@ vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 
 vi.mock('fs/promises', () => ({
     readFile: mocks.readFile,
+    rm: mocks.rm,
     writeFile: mocks.writeFile,
 }));
 
 vi.mock('@electron/search/pdfTextExtractor', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 
 vi.mock('@electron/search/pdfjsTextExtractor', () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs}));
+
+vi.mock('@electron/utils/atomicReplace', () => ({
+    atomicReplace: mocks.atomicReplace,
+    makeSiblingTempPath: (targetPath: string) => `${targetPath}.tmp`,
+}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -48,6 +56,8 @@ describe('buildSearchIndex cancellation', () => {
         vi.clearAllMocks();
         mocks.existsSync.mockReturnValue(false);
         mocks.readFile.mockRejectedValue(new Error('ENOENT'));
+        mocks.rm.mockResolvedValue(undefined);
+        mocks.atomicReplace.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
     });
 

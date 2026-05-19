@@ -70,8 +70,13 @@ async function writeOpfsLanguageData(code: string, data: Uint8Array) {
     const fileHandle = await directory.getFileHandle(`${code}.traineddata`, { create: true });
     const writable = await fileHandle.createWritable();
     const bytes = Uint8Array.from(data);
-    await writable.write(bytes);
-    await writable.close();
+    try {
+        await writable.write(bytes);
+        await writable.close();
+    } catch (error) {
+        await writable.abort().catch(() => undefined);
+        throw error;
+    }
     return true;
 }
 

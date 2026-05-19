@@ -111,7 +111,10 @@ async function createPdfjsDocumentInitFromBrowserDocument(
                 );
                 this.onDataProgress(this.loadedBytes, this.length);
             } catch {
-                this.abort();
+                if (!this.aborted) {
+                    this.aborted = true;
+                    this.onDataRange(begin, null);
+                }
             }
         }
     }

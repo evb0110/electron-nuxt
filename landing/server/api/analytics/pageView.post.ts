@@ -2,16 +2,22 @@ import { getHeader } from 'h3';
 import { getDb } from '~~/server/db';
 import { landingPageView } from '~~/server/db/schema';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event);
     const db = getDb(config.databaseUrl || process.env.DATABASE_URL);
 
-    const body = await readBody<{
-        path?: string,
-        referrer?: string 
-    }>(event);
+    const body = await readBody(event);
 
-    if (!body?.path || typeof body.path !== 'string') {
+    if (
+        !isRecord(body)
+        || typeof body.path !== 'string'
+        || !body.path
+        || (body.referrer !== undefined && body.referrer !== null && typeof body.referrer !== 'string')
+    ) {
         throw createError({
             statusCode: 400,
             statusMessage: 'Missing path', 

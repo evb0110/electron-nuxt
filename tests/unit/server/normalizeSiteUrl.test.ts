@@ -25,8 +25,11 @@ describe('resolveSiteUrl', () => {
         expect(resolveSiteUrl({} as H3Event)).toBe('https://canonical.example/');
     });
 
-    it('rejects unconfigured request hosts', async () => {
-        vi.stubGlobal('process', { env: { NODE_ENV: 'production' } });
+    it('rejects request hosts outside the explicit sitemap allowlist', async () => {
+        vi.stubGlobal('process', { env: {
+            NODE_ENV: 'production',
+            SITE_URL_ALLOWED_HOSTS: 'example.test',
+        } });
         requestUrlMock.value = new URL('https://hostile.example/sitemap.xml');
         const { resolveSiteUrl } = await import('../../../server/utils/normalizeSiteUrl');
 

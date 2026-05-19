@@ -248,16 +248,16 @@ async function renderPdfToTempPages(
     const paths = getNativeToolPaths();
     throwIfAborted(signal);
 
-    const detectedDpi = await detectSourceDpi(
-        pdfPath,
-        paths.pdfimages,
-        (level, message) => logger[level === 'error' ? 'error' : 'debug'](message),
-        undefined,
-        signal,
-    );
-    const renderDpi = clampDpi(detectedDpi ?? 300);
-
     try {
+        const detectedDpi = await detectSourceDpi(
+            pdfPath,
+            paths.pdfimages,
+            (level, message) => logger[level === 'error' ? 'error' : 'debug'](message),
+            undefined,
+            signal,
+        );
+        const renderDpi = clampDpi(detectedDpi ?? 300);
+
         throwIfAborted(signal);
         await runNativeToolCommand(paths.pdftoppm, [
             toPdftoppmFormatArg(format),

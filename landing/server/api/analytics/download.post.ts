@@ -2,18 +2,27 @@ import { getHeader } from 'h3';
 import { getDb } from '~~/server/db';
 import { landingDownload } from '~~/server/db/schema';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event);
     const db = getDb(config.databaseUrl || process.env.DATABASE_URL);
 
-    const body = await readBody<{
-        platform?: string
-        arch?: string
-        version?: string
-        fileName?: string
-    }>(event);
+    const body = await readBody(event);
 
-    if (!body?.platform || !body?.arch || !body?.version || !body?.fileName) {
+    if (
+        !isRecord(body)
+        || typeof body.platform !== 'string'
+        || typeof body.arch !== 'string'
+        || typeof body.version !== 'string'
+        || typeof body.fileName !== 'string'
+        || !body.platform
+        || !body.arch
+        || !body.version
+        || !body.fileName
+    ) {
         throw createError({
             statusCode: 400,
             statusMessage: 'Missing required fields', 

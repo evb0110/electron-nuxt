@@ -1,5 +1,12 @@
 /* eslint-disable no-restricted-imports */
+import de from '../locales/de';
 import en from '../locales/en';
+import es from '../locales/es';
+import fr from '../locales/fr';
+import it from '../locales/it';
+import nl from '../locales/nl';
+import pt from '../locales/pt';
+import ru from '../locales/ru';
 import type { EN_MESSAGE_SCHEMA } from './messageSchema';
 import {
     DEFAULT_LOCALE,
@@ -23,7 +30,14 @@ type TBaseLocaleSchema = typeof EN_MESSAGE_SCHEMA;
 export type TLocaleSchema = TLocaleSchemaFrom<TBaseLocaleSchema>;
 
 export const LOCALE_MESSAGES = {
+    de,
     en,
+    es,
+    fr,
+    it,
+    nl,
+    pt,
+    ru,
 } as const satisfies Record<TLocale, TLocaleSchema>;
 
 export type TTranslationKey = TTranslationKeyFromNode<TBaseLocaleSchema>;
