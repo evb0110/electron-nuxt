@@ -370,7 +370,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         throw new Error('saveDocument failed');
     }
 
-    function addPendingAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
+    function addExistingPdfAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
         const match = stableKey.trim().match(/^ann:\d+:(.+)$/u);
         const normalized = normalizePdfJsAnnotationId(match?.[1]);
         if (normalized) {
@@ -378,20 +378,41 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
     }
 
+    function addReplayableAnnotationId(ids: Set<string>, id: string | null | undefined) {
+        const normalized = normalizePdfJsAnnotationId(id);
+        if (!normalized) {
+            return;
+        }
+
+        ids.add(normalized);
+
+        const nestedEditorId = normalized.match(/^editor:\d+:(.+)$/u)?.[1];
+        if (nestedEditorId && nestedEditorId !== normalized) {
+            addReplayableAnnotationId(ids, nestedEditorId);
+        }
+    }
+
+    function addEditorRuntimeAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
+        const trimmed = stableKey.trim();
+        const match = trimmed.match(/^(?:uid|editor):\d+:(.+)$/u)
+            ?? trimmed.match(/^src:editor:\d+:(.+)$/u);
+        addReplayableAnnotationId(ids, match?.[1]);
+    }
+
     function collectReplayableEmbeddedAnnotationIds(
         pendingTexts: Map<string, string> | null | undefined,
         pendingDeletes: IAnnotationCommentSummary[] | null | undefined,
+        liveChanges?: ReturnType<typeof collectLivePdfJsAnnotationChangeIds>,
     ) {
         const ids = new Set<string>();
         pendingTexts?.forEach((_text, stableKey) => {
-            addPendingAnnotationIdFromStableKey(ids, stableKey);
+            addExistingPdfAnnotationIdFromStableKey(ids, stableKey);
+            addEditorRuntimeAnnotationIdFromStableKey(ids, stableKey);
         });
         pendingDeletes?.forEach((comment) => {
-            const annotationId = normalizePdfJsAnnotationId(comment.annotationId);
-            if (annotationId) {
-                ids.add(annotationId);
-            }
-            addPendingAnnotationIdFromStableKey(ids, comment.stableKey);
+            addReplayableAnnotationId(ids, comment.annotationId);
+            addExistingPdfAnnotationIdFromStableKey(ids, comment.stableKey);
+            addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
         });
         annotationComments.value
             .filter(isReplayableEditorOnlyFreeTextNote)
@@ -401,23 +422,21 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     comment.uid,
                     comment.id,
                 ].forEach((id) => {
-                    const normalized = normalizePdfJsAnnotationId(id);
-                    if (normalized) {
-                        ids.add(normalized);
-                    }
+                    addReplayableAnnotationId(ids, id);
                 });
-                const stableKeyRuntimeId = comment.stableKey.trim().match(/^(?:uid|editor):\d+:(.+)$/u)?.[1];
-                const normalizedStableKeyRuntimeId = normalizePdfJsAnnotationId(stableKeyRuntimeId);
-                if (normalizedStableKeyRuntimeId) {
-                    ids.add(normalizedStableKeyRuntimeId);
-                }
+                addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
             });
+        if (ids.size > 0) {
+            liveChanges?.replayableEditorNoteIds.forEach((id) => {
+                addReplayableAnnotationId(ids, id);
+            });
+        }
         return ids;
     }
 
     function canUseSourceBytesForReplayableEmbeddedChanges(opts?: ISerializationBasePdfBytesOptions) {
         const liveChanges = collectLivePdfJsAnnotationChangeIds(pdfDocument.value);
-        const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes);
+        const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes, liveChanges);
         const plan = buildPdfAnnotationSavePlan({
             hasPendingReplayableEmbeddedChanges: Boolean(
                 opts?.pendingTexts?.size
@@ -433,7 +452,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     async function getSerializationBasePdfBytes(opts?: ISerializationBasePdfBytesOptions) {
         const liveChanges = collectLivePdfJsAnnotationChangeIds(pdfDocument.value);
-        const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes);
+        const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes, liveChanges);
         const plan = buildPdfAnnotationSavePlan({
             hasPendingReplayableEmbeddedChanges: Boolean(
                 opts?.pendingTexts?.size
@@ -450,6 +469,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             expectedCost: plan.expectedCost,
             reason: plan.reason,
             liveAnnotationIds: Array.from(liveChanges.ids),
+            replayableLiveEditorNoteIds: Array.from(liveChanges.replayableEditorNoteIds),
             replayableAnnotationIds: Array.from(replayableIds),
             unreplayableLiveAnnotationIds: plan.unreplayableLiveAnnotationIds,
             pendingTexts: opts?.pendingTexts?.size ?? 0,

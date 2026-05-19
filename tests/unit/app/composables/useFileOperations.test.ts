@@ -828,4 +828,345 @@ describe('useFileOperations', () => {
             vi.useRealTimers();
         }
     });
+
+    it('replays new editor-only FreeText note saves from source bytes instead of calling PDF.js saveDocument', async () => {
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
+        } }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'editor:0:pdfjs_internal_editor_0',
+                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'persist me',
+                kindLabel: 'Note',
+                subtype: 'FreeText',
+                author: null,
+                modifiedAt: null,
+                color: null,
+                uid: 'pdfjs_internal_editor_0',
+                annotationId: null,
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.2,
+                    top: 0.2,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            } satisfies IAnnotationCommentSummary]),
+            pdfDocument: livePdfDocument,
+            consumePendingEmbeddedTextUpdates: vi.fn(() => new Map([[
+                'uid:0:pdfjs_internal_editor_0',
+                'persist me',
+            ]])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([1]),
+            expect.objectContaining({ pendingTexts: expect.any(Map) }),
+        );
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
+    it('treats PDF.js serializable FreeText editor storage as covered by pending embedded note text', async () => {
+        const annotationStorage = {
+            resetModified: vi.fn(),
+            serializable: { map: new Map([[
+                'pdfjs_internal_editor_0',
+                {
+                    annotationType: 3,
+                    pageIndex: 0,
+                    rect: [
+                        120,
+                        650,
+                        132,
+                        662,
+                    ],
+                    rotation: 0,
+                    fontSize: 10,
+                    color: [
+                        0,
+                        0,
+                        0,
+                    ],
+                    value: '',
+                    popup: {
+                        contents: 'persist me',
+                        deleted: false,
+                        rect: [
+                            133,
+                            562,
+                            313,
+                            662,
+                        ],
+                    },
+                },
+            ]]) },
+            modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
+        };
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'editor:0:pdfjs_internal_editor_0',
+                stableKey: 'src:editor:0:pdfjs_internal_editor_0',
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'persist me',
+                kindLabel: 'Note',
+                subtype: 'FreeText',
+                author: null,
+                modifiedAt: null,
+                color: null,
+                uid: null,
+                annotationId: null,
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.2,
+                    top: 0.2,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            } satisfies IAnnotationCommentSummary]),
+            pdfDocument: livePdfDocument,
+            consumePendingEmbeddedTextUpdates: vi.fn(() => new Map([[
+                'src:editor:0:pdfjs_internal_editor_0',
+                'persist me',
+            ]])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([1]),
+            expect.objectContaining({ pendingTexts: expect.any(Map) }),
+        );
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
+    it('matches nested editor stable keys to PDF.js runtime ids for replayable notes', async () => {
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
+        } }));
+        const nestedStableKey = 'src:editor:0:editor:0:pdfjs_internal_editor_0';
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'editor:0:pdfjs_internal_editor_0',
+                stableKey: nestedStableKey,
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'persist me',
+                kindLabel: 'Note',
+                subtype: 'Typewriter',
+                author: null,
+                modifiedAt: null,
+                color: null,
+                uid: null,
+                annotationId: null,
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.2,
+                    top: 0.2,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            } satisfies IAnnotationCommentSummary]),
+            pdfDocument: livePdfDocument,
+            consumePendingEmbeddedTextUpdates: vi.fn(() => new Map([[
+                nestedStableKey,
+                'persist me',
+            ]])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
+    it('treats blank PDF.js FreeText storage as replayable when app note ids drift', async () => {
+        const runtimeStableKey = 'src:editor:0:runtime-0-1';
+        const annotationStorage = {
+            resetModified: vi.fn(),
+            serializable: { map: new Map([[
+                'pdfjs_internal_editor_0',
+                {
+                    annotationType: 3,
+                    pageIndex: 0,
+                    rect: [
+                        120,
+                        650,
+                        121,
+                        651,
+                    ],
+                    rotation: 0,
+                    fontSize: 10,
+                    color: [
+                        0,
+                        0,
+                        0,
+                    ],
+                    value: '',
+                },
+            ]]) },
+            modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
+        };
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'runtime-0-1',
+                stableKey: runtimeStableKey,
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'persist me',
+                kindLabel: 'Note',
+                subtype: 'Typewriter',
+                author: null,
+                modifiedAt: null,
+                color: null,
+                uid: null,
+                annotationId: null,
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.2,
+                    top: 0.2,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            } satisfies IAnnotationCommentSummary]),
+            pdfDocument: livePdfDocument,
+            consumePendingEmbeddedTextUpdates: vi.fn(() => new Map([[
+                runtimeStableKey,
+                'persist me',
+            ]])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
+    it('ignores PDF.js nullish modified ids for replayable new FreeText notes', async () => {
+        const runtimeStableKey = 'src:editor:0:runtime-0-1';
+        const annotationStorage = {
+            resetModified: vi.fn(),
+            serializable: { map: new Map([[
+                'pdfjs_internal_editor_0',
+                {
+                    annotationType: 3,
+                    pageIndex: 0,
+                    rect: [
+                        120,
+                        650,
+                        121,
+                        651,
+                    ],
+                    rotation: 0,
+                    fontSize: 10,
+                    color: [
+                        0,
+                        0,
+                        0,
+                    ],
+                    value: '\u200B',
+                    comment: {
+                        text: 'persist me',
+                        deleted: false,
+                    },
+                },
+            ]]) },
+            modifiedIds: { ids: new Set([undefined]) },
+        };
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'runtime-0-1',
+                stableKey: runtimeStableKey,
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'persist me',
+                kindLabel: 'Note',
+                subtype: 'Typewriter',
+                author: null,
+                modifiedAt: null,
+                color: null,
+                uid: null,
+                annotationId: null,
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.2,
+                    top: 0.2,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            } satisfies IAnnotationCommentSummary]),
+            pdfDocument: livePdfDocument,
+            consumePendingEmbeddedTextUpdates: vi.fn(() => new Map([[
+                runtimeStableKey,
+                'persist me',
+            ]])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
 });

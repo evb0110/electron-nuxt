@@ -12,6 +12,7 @@ describe('buildPdfAnnotationSavePlan', () => {
             hasEditorOnlyAnnotationsPendingMaterialization: false,
             liveAnnotationChanges: {
                 ids: new Set(['3856R']),
+                replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: false,
             },
@@ -28,6 +29,7 @@ describe('buildPdfAnnotationSavePlan', () => {
             hasEditorOnlyAnnotationsPendingMaterialization: false,
             liveAnnotationChanges: {
                 ids: new Set(['pdfjs_internal_editor_0']),
+                replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: false,
             },
@@ -45,6 +47,7 @@ describe('buildPdfAnnotationSavePlan', () => {
             hasEditorOnlyAnnotationsPendingMaterialization: false,
             liveAnnotationChanges: {
                 ids: new Set(),
+                replayableEditorNoteIds: new Set(),
                 hasChanges: false,
                 hasUnknownChanges: false,
             },
@@ -61,6 +64,7 @@ describe('buildPdfAnnotationSavePlan', () => {
             hasEditorOnlyAnnotationsPendingMaterialization: false,
             liveAnnotationChanges: {
                 ids: new Set(),
+                replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: true,
             },
@@ -69,5 +73,22 @@ describe('buildPdfAnnotationSavePlan', () => {
 
         expect(plan.route).toBe('pdfjs-materialize');
         expect(plan.reason).toBe('unknown-live-pdfjs-annotation-storage');
+    });
+
+    it('replays pending embedded note operations even when live storage inspection is unknown', () => {
+        const plan = buildPdfAnnotationSavePlan({
+            hasPendingReplayableEmbeddedChanges: true,
+            hasEditorOnlyAnnotationsPendingMaterialization: false,
+            liveAnnotationChanges: {
+                ids: new Set(),
+                replayableEditorNoteIds: new Set(),
+                hasChanges: true,
+                hasUnknownChanges: true,
+            },
+            replayableEmbeddedAnnotationIds: new Set(['pdfjs_internal_editor_0']),
+        });
+
+        expect(plan.route).toBe('source-replay');
+        expect(plan.reason).toBe('pending-embedded-annotation-operations-with-unknown-live-storage');
     });
 });

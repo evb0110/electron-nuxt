@@ -12,7 +12,7 @@ import {
     PDFString,
 } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { normalizePageRotation} from '@app/composables/pdf/annotationGeometry';
+import type { normalizePageRotation } from '@app/composables/pdf/annotationGeometry';
 import {
     markerRectIoU,
     toMarkerRectFromPdfRect,
@@ -225,25 +225,65 @@ function findExistingReplayableNewFreeTextNote(
     doc: PDFDocument,
     annots: PDFArray | undefined,
     noteName: string | null,
+    comment?: IAnnotationCommentSummary,
+    pageView?: number[],
+    pageRotation?: ReturnType<typeof normalizePageRotation>,
 ) {
-    if (!annots || !noteName) {
+    if (!annots) {
         return null;
     }
 
     const nameKey = PDFName.of('NM');
+    const subtypeName = PDFName.of('Subtype');
+    const freeTextName = PDFName.of('FreeText');
+    const popupName = PDFName.of('Popup');
+    let fallback: {
+        dict: PDFDict;
+        ref: PDFRef;
+    } | null = null;
+
     for (const {
         dict,
         ref,
     } of iterateAnnotationRefDicts(doc, annots)) {
-        const name = getPdfStringValue(dict.get(nameKey));
-        if (name === noteName) {
+        if (noteName && getPdfStringValue(dict.get(nameKey)) === noteName) {
             return {
                 dict,
                 ref,
             };
         }
+
+        if (
+            fallback
+            || !comment
+            || !pageView
+            || pageRotation === undefined
+            || dict.get(subtypeName) !== freeTextName
+            || !dict.get(popupName)
+        ) {
+            continue;
+        }
+
+        const matchedComment = findFreeTextCommentMatch(
+            dict,
+            ref,
+            [comment],
+            1,
+            pageView,
+            pageRotation,
+        );
+        if (matchedComment) {
+            fallback = {
+                dict,
+                ref,
+            };
+        }
     }
-    return null;
+
+    if (fallback && noteName) {
+        fallback.dict.set(nameKey, PDFHexString.fromText(noteName));
+    }
+    return fallback;
 }
 
 function resolvePopupRefForAnnotation(doc: PDFDocument, annotDict: PDFDict) {
@@ -298,7 +338,14 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
             }
 
             const noteName = getReplayableNewFreeTextNoteName(comment);
-            const existing = findExistingReplayableNewFreeTextNote(doc, page.node.Annots(), noteName);
+            const existing = findExistingReplayableNewFreeTextNote(
+                doc,
+                page.node.Annots(),
+                noteName,
+                comment,
+                context.pageView,
+                context.pageRotation,
+            );
             const annotDict = existing?.dict ?? doc.context.obj({
                 Type: PDFName.of('Annot'),
                 Subtype: PDFName.of('FreeText'),

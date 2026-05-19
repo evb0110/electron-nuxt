@@ -230,6 +230,9 @@ function isBothStableRefMirror(facts: IEditorPdfMirrorFacts) {
             || facts.modifiedClose
         );
     }
+    if (facts.hasLeftText !== facts.hasRightText) {
+        return facts.iou >= 0.62 || facts.centerDistance <= 0.018;
+    }
     return facts.modifiedClose && (facts.iou >= 0.28 || facts.centerDistance <= 0.04);
 }
 
