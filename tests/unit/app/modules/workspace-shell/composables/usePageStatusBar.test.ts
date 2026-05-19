@@ -57,4 +57,13 @@ describe('usePageStatusBar', () => {
 
         expect(showItemInFolderMock).not.toHaveBeenCalled();
     });
+
+    it('explains browser-backed documents instead of saying no file is open', () => {
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const statusBar = usePageStatusBar(createDeps({ originalPath: ref('browser://documents/source/%D0%A2%D1%80%D1%83%D0%B4.pdf') }));
+
+        expect(statusBar.statusFilePath.value).toBe('Труд.pdf');
+        expect(statusBar.statusShowInFolderTooltip.value).toBe('status.showInFolderUnavailableWeb');
+        expect(statusBar.statusShowInFolderAriaLabel.value).toBe('status.showInFolderUnavailableWeb');
+    });
 });

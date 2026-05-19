@@ -671,6 +671,7 @@ export default {
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
         'showInFolder': 'Show in folder',
+        'showInFolderUnavailableWeb': 'Stored in this browser',
     },
     'relativeTime': {
         'yesterday': 'Yesterday',

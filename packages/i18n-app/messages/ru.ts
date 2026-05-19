@@ -689,6 +689,7 @@ export default {
         'zoomUnknown': 'Масштаб: -',
         'zoomValue': 'Масштаб: {zoom}%',
         'showInFolder': 'Показать в папке',
+        'showInFolderUnavailableWeb': 'Сохранено в этом браузере',
     },
     'relativeTime': {
         'yesterday': 'Вчера',

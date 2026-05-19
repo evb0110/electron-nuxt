@@ -679,6 +679,7 @@ export default {
         'zoomUnknown': 'Zoom : -',
         'zoomValue': 'Zoom : {zoom}%',
         'showInFolder': 'Afficher dans le dossier',
+        'showInFolderUnavailableWeb': 'Stocké dans ce navigateur',
     },
     'relativeTime': {
         'yesterday': 'Hier',

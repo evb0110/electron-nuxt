@@ -126,12 +126,18 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         const path = statusShowInFolderPath.value;
         return path !== null && !isBrowserDocumentRef(path);
     });
+    const statusShowInFolderUnavailableLabel = computed(() => {
+        const path = statusShowInFolderPath.value;
+        return path && isBrowserDocumentRef(path)
+            ? t('status.showInFolderUnavailableWeb')
+            : t('status.noFileOpen');
+    });
     const statusShowInFolderTooltip = computed(() => statusCanShowInFolder.value
         ? t('status.showInFolder')
-        : t('status.noFileOpen'));
+        : statusShowInFolderUnavailableLabel.value);
     const statusShowInFolderAriaLabel = computed(() => statusCanShowInFolder.value
         ? t('status.showInFolder')
-        : t('status.noFileOpen'));
+        : statusShowInFolderUnavailableLabel.value);
 
     async function handleStatusSaveClick() {
         if (!statusSaveDotCanSave.value) {
