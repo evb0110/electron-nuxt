@@ -45,7 +45,8 @@ async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
     }
 
     const normalizedPath = resolve(filePath);
-    if (!isKnownWorkingCopyOriginalPath(normalizedPath) || !existsSync(normalizedPath)) {
+    const ownerId = typeof owner === 'number' ? owner : owner?.id;
+    if (!isKnownWorkingCopyOriginalPath(normalizedPath, ownerId) || !existsSync(normalizedPath)) {
         return null;
     }
     return normalizedPath as TOpenPath;

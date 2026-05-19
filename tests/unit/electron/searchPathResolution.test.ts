@@ -52,11 +52,11 @@ describe('resolveSearchablePdfPath', () => {
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/pdf-work-2/working.pdf');
 
         const { resolveSearchablePdfPath } = await import('@electron/features/search/main/ipc');
-        const resolved = await resolveSearchablePdfPath('/Users/test/Documents/original.pdf');
+        const resolved = await resolveSearchablePdfPath('/Users/test/Documents/original.pdf', 42);
 
         expect(resolved).toBe('/tmp/pdf-work-2/working.pdf');
         expect(mocks.findWorkingCopyPathByOriginalPath)
-            .toHaveBeenCalledWith('/Users/test/Documents/original.pdf');
+            .toHaveBeenCalledWith('/Users/test/Documents/original.pdf', 42);
     });
 
     it('returns null when neither direct nor mapped paths are allowed', async () => {

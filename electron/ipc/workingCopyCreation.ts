@@ -32,7 +32,7 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('working-copy');
 
-export async function createWorkingCopy(originalPath: TOpenPath): Promise<string> {
+export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number): Promise<string> {
     const workDir = createWorkingDirectory();
     try {
         const fileName = basename(originalPath);
@@ -42,7 +42,7 @@ export async function createWorkingCopy(originalPath: TOpenPath): Promise<string
             await decryptPdfFileIfNeeded(workingPath);
         }
 
-        setWorkingCopyOriginalPath(workingPath, originalPath);
+        setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -54,6 +54,7 @@ export async function createWorkingCopy(originalPath: TOpenPath): Promise<string
 export async function createWorkingCopyFromPath(
     sourcePath: TOpenPath,
     originalPath?: string,
+    ownerWebContentsId?: number,
 ): Promise<string> {
     const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
@@ -73,7 +74,7 @@ export async function createWorkingCopyFromPath(
         await copyFileCopyOnWrite(sourcePath, workingPath);
         await decryptPdfFileIfNeeded(workingPath);
 
-        setWorkingCopyOriginalPath(workingPath, mappedOriginalPath);
+        setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -86,6 +87,7 @@ export async function createWorkingCopyFromData(
     fileName: string,
     data: Uint8Array,
     originalPath?: string,
+    ownerWebContentsId?: number,
 ): Promise<string> {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
@@ -106,7 +108,7 @@ export async function createWorkingCopyFromData(
         await decryptPdfFileIfNeeded(workingPath);
 
         if (normalizedOriginalPath) {
-            setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath);
+            setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId);
         }
 
         return workingPath;
@@ -116,12 +118,12 @@ export async function createWorkingCopyFromData(
     }
 }
 
-export async function ensureWorkingCopyDirectory(workingPath: string) {
+export async function ensureWorkingCopyDirectory(workingPath: string, senderWebContentsId?: number) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
     }
-    const mapping = getWorkingCopyOriginalPath(normalizedWorkingPath);
+    const mapping = getWorkingCopyOriginalPath(normalizedWorkingPath, senderWebContentsId);
     if (!mapping) {
         return false;
     }
@@ -152,19 +154,19 @@ export async function ensureWorkingCopyDirectory(workingPath: string) {
         await decryptPdfFileIfNeeded(normalizedWorkingPath);
     }
     if (mapping.retired) {
-        setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath);
+        setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId);
         forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
     }
     logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
     return true;
 }
 
-export async function requireManagedWorkingCopyPath(sourcePath: string): Promise<TOpenPath> {
+export async function requireManagedWorkingCopyPath(sourcePath: string, senderWebContentsId?: number): Promise<TOpenPath> {
     const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
     if (!normalizedSourcePath) {
         throw new Error('Invalid source path');
     }
-    const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedSourcePath);
+    const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedSourcePath, senderWebContentsId);
     if (!isManagedWorkingCopy) {
         throw new Error('Source path is not a managed working copy');
     }

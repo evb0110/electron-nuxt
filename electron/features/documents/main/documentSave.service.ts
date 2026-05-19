@@ -52,14 +52,14 @@ export async function savePdfAs(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
         throw new Error('Working copy path is not managed');
     }
     if (!existsSync(normalizedWorkingPath)) {
         throw new Error(`File not found: ${normalizedWorkingPath}`);
     }
 
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath;
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
         : basename(normalizedWorkingPath);
@@ -91,7 +91,7 @@ export async function savePdfAs(
         }
     }
 
-    setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath);
+    setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, event.sender.id);
     allowOpenPath(targetPath, event.sender);
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
@@ -117,7 +117,7 @@ export async function savePdfDataAs(
     }
 
     const payload = normalizeIpcWritePayload(data);
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath;
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
         : basename(normalizedWorkingPath);
@@ -149,11 +149,11 @@ export async function savePdfDataAs(
 
         await atomicReplace(tempPath, targetPath);
         replaced = true;
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
             throw new Error('Working copy path is not managed');
         }
         await copyFile(targetPath, normalizedWorkingPath);
-        setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath);
+        setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, event.sender.id);
         allowOpenPath(targetPath, event.sender);
         await addRecentFile(targetPath);
         updateRecentFilesMenu();
@@ -213,7 +213,7 @@ export async function saveDocxAs(
         return null;
     }
 
-    allowDocxWritePath(targetPath);
+    allowDocxWritePath(targetPath, event.sender.id);
 
     return targetPath;
 }

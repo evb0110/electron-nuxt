@@ -13,9 +13,13 @@ export async function detectSourceDpi(
     pdfimagesBinary: string | undefined,
     log: TWorkerLog,
     commandEnv?: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
 ): Promise<number | null> {
     if (!pdfimagesBinary) {
         return null;
+    }
+    if (signal?.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new Error('OCR job aborted');
     }
 
     try {
@@ -26,6 +30,9 @@ export async function detectSourceDpi(
         };
         if (commandEnv !== undefined) {
             commandOptions.env = commandEnv;
+        }
+        if (signal !== undefined) {
+            commandOptions.signal = signal;
         }
 
         const result = await runOcrCommand(pdfimagesBinary, [
@@ -58,6 +65,9 @@ export async function detectSourceDpi(
             return best;
         }
     } catch (err) {
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error ? signal.reason : err;
+        }
         log('debug', `pdfimages detection failed: ${getErrorMessage(err)}`);
     }
 

@@ -20,6 +20,7 @@ export interface IBrowserPersistedDocumentRecord {
     storageMode?: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;
+    chunkGeneration?: string;
 }
 
 export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
@@ -31,6 +32,7 @@ export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
     storageMode: TBrowserDocumentStorageMode;
     chunkCount: number;
     chunkSize: number;
+    chunkGeneration?: string;
 }
 
 export interface IRegisterFileOptions {
@@ -51,6 +53,7 @@ export interface ICreateStoredDocumentOptions {
     storageMode?: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;
+    chunkGeneration?: string;
 }
 
 export interface IWriteDocumentOptions { unloadAfterPersist?: boolean; }
@@ -59,12 +62,14 @@ export interface IBrowserDocumentChunkRecord {
     key: string;
     ref: string;
     index: number;
+    generation?: string;
     data: Uint8Array;
 }
 
 export interface IChunkKeyRecord {
     ref: string;
     index: number;
+    generation?: string;
 }
 
 export interface IBrowserDocumentEntryInput {
@@ -81,4 +86,5 @@ export interface IBrowserDocumentEntryInput {
     storageMode: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;
+    chunkGeneration?: string;
 }

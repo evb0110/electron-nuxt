@@ -292,6 +292,7 @@ describe('image export', () => {
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
 
         expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(outputPath);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(`${tempPath}.tmp`, tempPath);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, outputPath);
         expect(await readFile(outputPath, 'utf8')).toBe('page-1-png');
         expect(existsSync(tempPath)).toBe(false);
@@ -313,5 +314,37 @@ describe('image export', () => {
 
         expect(await readFile(outputPath, 'utf8')).toBe('old-target');
         expect(existsSync(tempPath)).toBe(false);
+    });
+
+    it('removes staged image outputs when export is canceled before promotion', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        const controller = new AbortController();
+        mocks.runCommand.mockImplementationOnce(async () => ({
+            stdout: '1',
+            stderr: '',
+            exitCode: 0,
+        })).mockImplementationOnce(async (command: string, args: string[]) => {
+            const prefix = args[args.length - 1];
+            if (command !== '/mock/pdftoppm' || typeof prefix !== 'string') {
+                throw new Error('Unexpected command');
+            }
+            await writeFile(`${prefix}-1.png`, 'page-1-png');
+            controller.abort();
+            return {
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        const outputPath = join(tempDir, 'canceled.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath, { signal: controller.signal }))
+            .rejects
+            .toThrow('The operation was aborted');
+
+        expect(existsSync(outputPath)).toBe(false);
+        expect(existsSync(`${outputPath}.tmp`)).toBe(false);
     });
 });

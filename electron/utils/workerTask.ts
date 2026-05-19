@@ -62,6 +62,18 @@ function getAbortReason(signal: AbortSignal) {
     return new DOMException('The operation was aborted', 'AbortError');
 }
 
+function settleWorkerAfterTask(worker: Worker) {
+    const ignoreLateWorkerError = () => undefined;
+    worker.removeAllListeners('message');
+    worker.removeAllListeners('online');
+    worker.removeAllListeners('exit');
+    worker.removeAllListeners('error');
+    worker.on('error', ignoreLateWorkerError);
+    void worker.terminate().catch(() => undefined).finally(() => {
+        worker.removeListener('error', ignoreLateWorkerError);
+    });
+}
+
 interface IAttachWorkerHandlersOptions<T> {
     worker: Worker;
     options: IRunResultWorkerTaskOptions<T>;
@@ -97,9 +109,8 @@ function attachWorkerHandlers<T>({
             clearTimeout(timeout);
             timeout = null;
         }
-        worker.removeAllListeners();
         options.signal?.removeEventListener('abort', handleAbort);
-        void worker.terminate().catch(() => {});
+        settleWorkerAfterTask(worker);
         callback();
     };
 

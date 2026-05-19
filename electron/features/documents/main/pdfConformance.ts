@@ -76,10 +76,10 @@ function runPdfConformanceWorker(filePath: string) {
         let workerOnline = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let drainHandle: NodeJS.Timeout | null = null;
+        let ignoreLateWorkerError: (() => undefined) | null = null;
 
         const cleanupWorker = () => {
             worker.removeAllListeners('message');
-            worker.removeAllListeners('error');
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
@@ -88,18 +88,34 @@ function runPdfConformanceWorker(filePath: string) {
 
         const clearDrainTimer = () => {
             if (!drainHandle) {
+                if (ignoreLateWorkerError) {
+                    worker.removeListener('error', ignoreLateWorkerError);
+                    ignoreLateWorkerError = null;
+                }
                 return;
             }
 
             clearTimeout(drainHandle);
             drainHandle = null;
+            if (ignoreLateWorkerError) {
+                worker.removeListener('error', ignoreLateWorkerError);
+                ignoreLateWorkerError = null;
+            }
         };
 
         const scheduleWorkerDrain = () => {
             clearDrainTimer();
+            ignoreLateWorkerError = () => undefined;
+            worker.removeAllListeners('error');
+            worker.on('error', ignoreLateWorkerError);
             drainHandle = setTimeout(() => {
                 drainHandle = null;
-                void worker.terminate().catch(() => undefined);
+                void worker.terminate().catch(() => undefined).finally(() => {
+                    if (ignoreLateWorkerError) {
+                        worker.removeListener('error', ignoreLateWorkerError);
+                        ignoreLateWorkerError = null;
+                    }
+                });
             }, PDF_CONFORMANCE_WORKER_DRAIN_TIMEOUT_MS);
             drainHandle.unref?.();
         };

@@ -17,7 +17,10 @@ const DOCX_WRITE_PATH_TTL_MS = (() => {
     }
     return parsed;
 })();
-const allowedDocxWritePaths = new Map<string, number>();
+const allowedDocxWritePaths = new Map<string, {
+    expiresAt: number;
+    senderWebContentsId: number;
+}>();
 
 function normalizePath(filePath: string): string {
     return resolve(filePath.trim());
@@ -34,9 +37,9 @@ export function normalizeDocxPath(filePath: string): string {
 function pruneAllowedDocxWritePaths(now = Date.now()) {
     for (const [
         docxPath,
-        expiresAt,
+        grant,
     ] of allowedDocxWritePaths.entries()) {
-        if (expiresAt <= now) {
+        if (grant.expiresAt <= now) {
             allowedDocxWritePaths.delete(docxPath);
         }
     }
@@ -55,24 +58,33 @@ function pruneAllowedDocxWritePaths(now = Date.now()) {
     }
 }
 
-export function allowDocxWritePath(filePath: string) {
+export function allowDocxWritePath(filePath: string, senderWebContentsId: number) {
     const normalizedPath = normalizeDocxPath(filePath);
     const now = Date.now();
     pruneAllowedDocxWritePaths(now);
     if (allowedDocxWritePaths.has(normalizedPath)) {
         allowedDocxWritePaths.delete(normalizedPath);
     }
-    allowedDocxWritePaths.set(normalizedPath, now + DOCX_WRITE_PATH_TTL_MS);
+    allowedDocxWritePaths.set(normalizedPath, {
+        expiresAt: now + DOCX_WRITE_PATH_TTL_MS,
+        senderWebContentsId,
+    });
     pruneAllowedDocxWritePaths(now);
 }
 
-export function consumeAllowedDocxWritePath(filePath: string): boolean {
+export function consumeAllowedDocxWritePath(filePath: string, senderWebContentsId: number): boolean {
     const normalizedPath = normalizeDocxPath(filePath);
     const now = Date.now();
     pruneAllowedDocxWritePaths(now);
-    const expiresAt = allowedDocxWritePaths.get(normalizedPath);
-    if (expiresAt === undefined || expiresAt <= now) {
+    const grant = allowedDocxWritePaths.get(normalizedPath);
+    if (!grant) {
+        return false;
+    }
+    if (grant.expiresAt <= now) {
         allowedDocxWritePaths.delete(normalizedPath);
+        return false;
+    }
+    if (grant.senderWebContentsId !== senderWebContentsId) {
         return false;
     }
     allowedDocxWritePaths.delete(normalizedPath);

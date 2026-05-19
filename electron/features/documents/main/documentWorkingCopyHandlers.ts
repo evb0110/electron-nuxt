@@ -19,6 +19,7 @@ interface ITrustedOriginalPathOptions {
 function resolveTrustedOriginalPath(
     originalPath: string | undefined,
     options: ITrustedOriginalPathOptions,
+    senderWebContentsId?: number,
 ) {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
@@ -29,7 +30,7 @@ function resolveTrustedOriginalPath(
 
     const trustedOriginalPath = normalizedOriginalPath && (
         normalizedOriginalPath === options.sourcePath
-        || isKnownWorkingCopyOriginalPath(normalizedOriginalPath)
+        || isKnownWorkingCopyOriginalPath(normalizedOriginalPath, senderWebContentsId)
     )
         ? normalizedOriginalPath
         : undefined;
@@ -41,7 +42,7 @@ function resolveTrustedOriginalPath(
 }
 
 export async function handleCreateWorkingCopyFromData(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     fileName: string,
     data: Uint8Array,
     originalPath?: string,
@@ -54,13 +55,17 @@ export async function handleCreateWorkingCopyFromData(
         throw new Error('Invalid PDF payload');
     }
 
-    const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {warningContext: 'createWorkingCopyFromData'});
+    const trustedOriginalPath = resolveTrustedOriginalPath(
+        originalPath,
+        {warningContext: 'createWorkingCopyFromData'},
+        event.sender.id,
+    );
 
-    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath);
+    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, event.sender.id);
 }
 
 export async function handleCreateWorkingCopyFromPath(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     sourcePath: TOpenPath,
     originalPath?: string,
 ): Promise<string> {
@@ -74,7 +79,7 @@ export async function handleCreateWorkingCopyFromPath(
     const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {
         sourcePath,
         warningContext: 'createWorkingCopyFromPath',
-    });
+    }, event.sender.id);
 
-    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath);
+    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath, event.sender.id);
 }

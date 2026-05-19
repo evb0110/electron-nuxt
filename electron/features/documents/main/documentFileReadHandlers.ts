@@ -86,7 +86,7 @@ export async function handleFileReadRange(
 }
 
 export async function handleFileReadText(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<string> {
     const normalizedPath = normalizeNonEmptyPath(filePath);
@@ -96,7 +96,7 @@ export async function handleFileReadText(
         throw new Error('Invalid file type: only .json, .txt, and .tsv files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension, event.sender?.id);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -110,7 +110,7 @@ export async function handleFileReadText(
 }
 
 export function handleFileExists(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): boolean {
     if (typeof filePath !== 'string') {
@@ -122,7 +122,7 @@ export function handleFileExists(
         return false;
     }
 
-    const resolvedPath = resolveReadablePathSync(normalizedPath);
+    const resolvedPath = resolveReadablePathSync(normalizedPath, event.sender?.id);
     if (!resolvedPath) {
         return false;
     }

@@ -128,8 +128,9 @@ describe('workingCopy', () => {
         const workingPath = join(workingDir, 'missing-original.pdf');
         setWorkingCopyOriginalPath(workingPath, originalPath);
 
-        await expect(handleFileSave({} as never, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
-        await expect(handleFileSave({} as never, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
+        const event = {sender: {id: 1}} as Electron.IpcMainInvokeEvent;
+        await expect(handleFileSave(event, workingPath)).rejects.toBeInstanceOf(WorkingCopyMissingError);
+        await expect(handleFileSave(event, workingPath)).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
 
         await clearAllWorkingCopies();
     });
@@ -163,6 +164,25 @@ describe('workingCopy', () => {
 
         expect(findWorkingCopyPathByOriginalPath('c:/users/alice/documents/book.pdf')).toBe(workingPath);
         expect(isKnownWorkingCopyOriginalPath('\\\\?\\C:\\Users\\Alice\\Documents\\Book.pdf')).toBe(true);
+
+        await clearAllWorkingCopies();
+    });
+
+    it('keeps original-path remapping scoped to the owning sender', async () => {
+        const {
+            findWorkingCopyPathByOriginalPath,
+            isKnownWorkingCopyOriginalPath,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/ipc/workingCopyStore');
+        const { clearAllWorkingCopies } = await import('@electron/ipc/workingCopyCleanup');
+        const workingPath = join(tempRoot, 'pdf-work-owned', 'Book.pdf');
+        const originalPath = join(tempRoot, 'Book.pdf');
+        setWorkingCopyOriginalPath(workingPath, originalPath, 10);
+
+        expect(findWorkingCopyPathByOriginalPath(originalPath, 10)).toBe(workingPath);
+        expect(isKnownWorkingCopyOriginalPath(originalPath, 10)).toBe(true);
+        expect(findWorkingCopyPathByOriginalPath(originalPath, 11)).toBeNull();
+        expect(isKnownWorkingCopyOriginalPath(originalPath, 11)).toBe(false);
 
         await clearAllWorkingCopies();
     });

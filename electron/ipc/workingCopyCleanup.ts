@@ -16,6 +16,7 @@ import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     clearRetiredWorkingCopyOriginals,
+    getWorkingCopyOwnerWebContentsId,
     rememberRetiredWorkingCopyOriginal,
     workingCopyMap,
 } from '@electron/ipc/workingCopyStore';
@@ -156,13 +157,17 @@ export function cleanupWorkingCopy(workingPath: string) {
         return;
     }
 
-    const originalPath = workingCopyMap.get(normalizedPath);
-    if (!originalPath) {
+    const originalEntry = workingCopyMap.get(normalizedPath);
+    if (!originalEntry) {
         logger.warn(`Rejected cleanup for unmanaged working copy path "${normalizedPath}"`);
         return;
     }
 
-    rememberRetiredWorkingCopyOriginal(normalizedPath, originalPath);
+    rememberRetiredWorkingCopyOriginal(
+        normalizedPath,
+        originalEntry.originalPath,
+        getWorkingCopyOwnerWebContentsId(normalizedPath),
+    );
     workingCopyMap.delete(normalizedPath);
     cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {
         logger.warn(`Failed to cleanup working copy directory "${normalizedPath}": ${getErrorMessage(err)}`);

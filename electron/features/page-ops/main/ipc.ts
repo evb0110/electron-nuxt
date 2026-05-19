@@ -45,13 +45,13 @@ import {
     enqueueWorkingCopyMutation,
 } from '@electron/ipc/workingCopyMutationQueue';
 
-async function validateWorkingCopyPath(path: unknown): Promise<string> {
+async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: number): Promise<string> {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
         throw new Error('Invalid working copy path');
     }
 
-    const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedPath);
+    const isManagedWorkingCopy = await ensureWorkingCopyDirectory(normalizedPath, senderWebContentsId);
     if (!isManagedWorkingCopy) {
         throw new Error('Path is not a managed working copy');
     }
@@ -67,20 +67,20 @@ async function validateWorkingCopyPath(path: unknown): Promise<string> {
     return resolvedPath;
 }
 
-async function validateQueuedWorkingCopyPath(path: string): Promise<string> {
-    return validateWorkingCopyPath(path);
+async function validateQueuedWorkingCopyPath(path: string, senderWebContentsId?: number): Promise<string> {
+    return validateWorkingCopyPath(path, senderWebContentsId);
 }
 
-async function resolveWorkingCopyPath(path: unknown): Promise<string> {
+async function resolveWorkingCopyPath(path: unknown, senderWebContentsId?: number): Promise<string> {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
         throw new Error('Invalid working copy path');
     }
 
-    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderWebContentsId);
     const workingCopyPath = mappedWorkingCopyPath ?? normalizedPath;
 
-    return validateWorkingCopyPath(workingCopyPath);
+    return validateWorkingCopyPath(workingCopyPath, senderWebContentsId);
 }
 
 function validateInsertPageArgs(
@@ -115,12 +115,12 @@ function validateInsertPageArgs(
 }
 
 async function handlePageOpsDelete(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
     totalPages: number,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
     }
@@ -130,7 +130,7 @@ async function handlePageOpsDelete(
     });
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -146,7 +146,7 @@ async function handlePageOpsExtract(
     workingCopyPath: string,
     pages: number[],
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     validatePageNumbers(pages, 'extractPages', {requireUnique: true});
 
     const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
@@ -178,7 +178,7 @@ async function handlePageOpsExtract(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await extractPages(queuedWorkingCopyPath, destPath, pages);
     });
     allowOpenPath(destPath, event.sender);
@@ -189,16 +189,16 @@ async function handlePageOpsExtract(
 }
 
 async function handlePageOpsReorder(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     newOrder: number[],
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     validatePageNumbers(newOrder, 'reorderPages', {requireUnique: true});
     validateReorderPermutation(newOrder);
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -216,7 +216,7 @@ async function handlePageOpsInsert(
     afterPage: number,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, event.sender?.id);
 
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions = {
@@ -248,7 +248,7 @@ async function handlePageOpsInsert(
         .map(path => requireOpenPath(path, event.sender));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
@@ -261,12 +261,12 @@ async function handlePageOpsInsert(
 }
 
 async function handlePageOpsRotate(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
     angle: TRotationAngle,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     validatePageNumbers(pages, 'rotatePages', {requireUnique: true});
 
     if (![
@@ -278,7 +278,7 @@ async function handlePageOpsRotate(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await rotatePages(queuedWorkingCopyPath, pages, angle);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -294,7 +294,7 @@ async function handlePageOpsInsertFile(
     _requestId?: string,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, event.sender?.id);
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
@@ -302,7 +302,7 @@ async function handlePageOpsInsertFile(
         .map(path => requireOpenPath(path, event.sender));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
@@ -315,12 +315,12 @@ async function handlePageOpsInsertFile(
 }
 
 async function handlePageOpsCrop(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     validatePageNumbers(pages, 'cropPages', {requireUnique: true});
     if (
         !margins
@@ -337,7 +337,7 @@ async function handlePageOpsCrop(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await cropPages(queuedWorkingCopyPath, pages, margins);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -345,15 +345,15 @@ async function handlePageOpsCrop(
 }
 
 async function handlePageOpsRemoveCrop(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath);
+        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await removeCropFromPages(queuedWorkingCopyPath, pages);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -361,11 +361,11 @@ async function handlePageOpsRemoveCrop(
 }
 
 async function handlePageOpsGetPageGeometry(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pageNumber: number,
 ) {
-    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, event.sender?.id);
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
         throw new Error('Invalid page number');
     }

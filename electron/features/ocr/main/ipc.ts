@@ -198,10 +198,10 @@ async function handleOcrValidateTools() {
     }
 }
 
-async function validateOcrSourcePdfPath(sourcePdfPath: string): Promise<string> {
+async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number): Promise<string> {
     let managedSourcePdfPath: string;
     try {
-        managedSourcePdfPath = await requireManagedWorkingCopyPath(sourcePdfPath);
+        managedSourcePdfPath = await requireManagedWorkingCopyPath(sourcePdfPath, senderWebContentsId);
     } catch (error) {
         throw new OcrPayloadValidationError(`sourcePdfPath is not a managed working copy: ${getErrorMessage(error)}`);
     }
@@ -240,7 +240,7 @@ async function handleOcrCreateSearchablePdf(
         );
 
         jobId = payload.requestId;
-        const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath);
+        const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, event.sender.id);
         const result = await handleOcrCreateSearchablePdfAsync(
             event,
             validatedSourcePdfPath,

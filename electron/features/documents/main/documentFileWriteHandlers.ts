@@ -10,7 +10,7 @@ import {
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
 
 export async function handleFileWrite(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
     data: unknown,
 ): Promise<boolean> {
@@ -22,7 +22,7 @@ export async function handleFileWrite(
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
 
-    if (!await ensureWorkingCopyDirectory(resolvedPath)) {
+    if (!await ensureWorkingCopyDirectory(resolvedPath, event.sender?.id)) {
         throw new Error('Invalid file path: writes require a managed working copy');
     }
     try {
@@ -32,7 +32,7 @@ export async function handleFileWrite(
         if (code !== 'ENOENT' && code !== 'ENOTDIR') {
             throw error;
         }
-        if (!await ensureWorkingCopyDirectory(resolvedPath)) {
+        if (!await ensureWorkingCopyDirectory(resolvedPath, event.sender?.id)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
         await writeFileAtomic(resolvedPath, payload);
@@ -41,13 +41,13 @@ export async function handleFileWrite(
 }
 
 export async function handleFileWriteDocx(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
     data: unknown,
 ): Promise<boolean> {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const payload = normalizeIpcWritePayload(data);
-    if (!consumeAllowedDocxWritePath(normalizedPath)) {
+    if (!consumeAllowedDocxWritePath(normalizedPath, event.sender.id)) {
         throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');
     }
 

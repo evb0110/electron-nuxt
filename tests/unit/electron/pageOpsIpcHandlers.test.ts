@@ -344,7 +344,7 @@ describe('registerPageOpsHandlers', () => {
                 destPath: '/tmp/extracted-pages.pdf',
             });
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
         expect(mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.resolveAllowedWritePath.mock.invocationCallOrder[0]!,
         );
@@ -365,7 +365,11 @@ describe('registerPageOpsHandlers', () => {
                 destPath: '/tmp/extracted-pages.pdf',
             });
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
+        expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith(
+            'C:\\Users\\Rustaveli15\\Documents\\book.pdf',
+            1,
+        );
         expect(mocks.extractPages).toHaveBeenCalledWith(
             '/tmp/pdf-work-1/work.pdf',
             '/tmp/extracted-pages.pdf',

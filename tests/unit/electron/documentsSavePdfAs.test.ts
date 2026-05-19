@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
-    setWorkingCopyOriginalPath: vi.fn<(workingPath: string, originalPath: string) => void>(),
+    setWorkingCopyOriginalPath: vi.fn<(workingPath: string, originalPath: string, senderId?: number) => void>(),
     workingCopyMap: new Map<string, string>(),
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
@@ -74,7 +74,7 @@ vi.mock('@electron/ipc/workingCopyCreation', () => ({
 vi.mock('@electron/ipc/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     isKnownWorkingCopyOriginalPath: vi.fn(() => false),
-    setWorkingCopyOriginalPath: (...args: [string, string]) => mocks.setWorkingCopyOriginalPath(...args),
+    setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
 vi.mock('@electron/ipc/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
@@ -140,7 +140,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs({sender: {}} as never, workingPath)).resolves.toBe(targetPath);
+        await expect(handleSavePdfAs({sender: {id: 42}} as never, workingPath)).resolves.toBe(targetPath);
 
         expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(targetPath);
         expect(mocks.validatePdfFile).toHaveBeenCalledWith(workingPath);
@@ -148,7 +148,7 @@ describe('handleSavePdfAs', () => {
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
         expect(mocks.workingCopyMap.get(workingPath)).toBe(targetPath);
-        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, {});
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, {id: 42});
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
         expect(
@@ -178,7 +178,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs({sender: {}} as never, workingPath))
+        await expect(handleSavePdfAs({sender: {id: 42}} as never, workingPath))
             .rejects
             .toThrow('Working copy is not a valid PDF');
 
@@ -205,7 +205,7 @@ describe('handleSavePdfAs', () => {
 
         const { handleSavePdfAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
 
-        await expect(handleSavePdfAs({sender: {}} as never, workingPath))
+        await expect(handleSavePdfAs({sender: {id: 42}} as never, workingPath))
             .rejects
             .toThrow('replace failed');
 

@@ -182,6 +182,28 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
+async function promoteStagedFiles(
+    stagedFiles: Array<{
+        stagedPath: string;
+        targetPath: string;
+        targetExisted: boolean;
+    }>,
+) {
+    const promotedPaths: string[] = [];
+    try {
+        for (const stagedFile of stagedFiles) {
+            await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
+            promotedPaths.push(stagedFile.targetPath);
+        }
+    } catch (error) {
+        await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
+        await Promise.all(stagedFiles
+            .filter(stagedFile => !stagedFile.targetExisted && promotedPaths.includes(stagedFile.targetPath))
+            .map(stagedFile => rm(stagedFile.targetPath, { force: true }).catch(() => undefined)));
+        throw error;
+    }
+}
+
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw new Error('The operation was aborted');
@@ -230,6 +252,8 @@ async function renderPdfToTempPages(
         pdfPath,
         paths.pdfimages,
         (level, message) => logger[level === 'error' ? 'error' : 'debug'](message),
+        undefined,
+        signal,
     );
     const renderDpi = clampDpi(detectedDpi ?? 300);
 
@@ -433,33 +457,51 @@ export async function exportPdfPagesAsImages(
             : await getPdfPageCount(preparedSourcePdf.pdfPath);
         assertExportPageCountWithinLimit(pageCount);
 
+        const stagedFiles: Array<{
+            stagedPath: string;
+            targetPath: string;
+            targetExisted: boolean;
+        }> = [];
         const exportedPaths: string[] = [];
         const isSinglePageExport = pageCount === 1;
-        for (const pageRange of createPageRanges(pageCount)) {
-            throwIfAborted(options.signal);
-            const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format, pageRange, options.signal);
+        try {
+            for (const pageRange of createPageRanges(pageCount)) {
+                throwIfAborted(options.signal);
+                const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format, pageRange, options.signal);
 
-            try {
-                for (const source of pageFiles) {
-                    const outputIndex = exportedPaths.length + 1;
-                    const targetPath = isSinglePageExport
-                        ? normalizedPath
-                        : join(
-                            outputDirectory,
-                            `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`,
-                        );
+                try {
+                    for (const source of pageFiles) {
+                        const outputIndex = exportedPaths.length + 1;
+                        const targetPath = isSinglePageExport
+                            ? normalizedPath
+                            : join(
+                                outputDirectory,
+                                `${outputStem}-${String(outputIndex).padStart(3, '0')}${outputExtension}`,
+                            );
+                        const stagedPath = makeSiblingTempPath(targetPath);
 
-                    throwIfAborted(options.signal);
-                    await moveFile(source.path, targetPath);
-                    exportedPaths.push(targetPath);
+                        throwIfAborted(options.signal);
+                        await moveFile(source.path, stagedPath);
+                        stagedFiles.push({
+                            stagedPath,
+                            targetPath,
+                            targetExisted: existsSync(targetPath),
+                        });
+                        exportedPaths.push(targetPath);
+                    }
+                } finally {
+                    const tempDir = dirname(pageFiles[0]!.path);
+                    await rm(tempDir, {
+                        recursive: true,
+                        force: true,
+                    });
                 }
-            } finally {
-                const tempDir = dirname(pageFiles[0]!.path);
-                await rm(tempDir, {
-                    recursive: true,
-                    force: true,
-                });
             }
+            throwIfAborted(options.signal);
+            await promoteStagedFiles(stagedFiles);
+        } catch (error) {
+            await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
+            throw error;
         }
         return exportedPaths;
     } finally {
@@ -506,7 +548,8 @@ function getTiffCombineFallbackDisabledError() {
     );
 }
 
-async function runLocalTiffCombine(pagePaths: string[], outputPath: string) {
+async function runLocalTiffCombine(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
+    throwIfAborted(signal);
     await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath), {
         thresholdMs: 25,
         details: {
@@ -514,9 +557,11 @@ async function runLocalTiffCombine(pagePaths: string[], outputPath: string) {
             outputPath,
         },
     });
+    throwIfAborted(signal);
 }
 
-async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
+async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
+    throwIfAborted(signal);
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replacedOutput = false;
 
@@ -530,7 +575,8 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
             }
 
             logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath);
+            await runLocalTiffCombine(pagePaths, tempOutputPath, signal);
+            throwIfAborted(signal);
             await atomicReplace(tempOutputPath, outputPath);
             replacedOutput = true;
             return;
@@ -554,6 +600,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
                     `TIFF combine worker exited during startup with code ${code}`,
                 ),
                 createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
+                ...(signal ? { signal } : {}),
                 timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
             }), {
                 thresholdMs: 25,
@@ -573,9 +620,10 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
             }
 
             logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath);
+            await runLocalTiffCombine(pagePaths, tempOutputPath, signal);
         }
 
+        throwIfAborted(signal);
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
     } finally {
@@ -616,7 +664,7 @@ export async function exportPdfAsMultiPageTiff(
                 .sort((left, right) => left.page - right.page)
                 .map(pageFile => pageFile.path);
 
-            await combinePagesIntoMultiPageTiff(orderedPagePaths, targetPath);
+            await combinePagesIntoMultiPageTiff(orderedPagePaths, targetPath, options.signal);
 
             if (!existsSync(targetPath)) {
                 throw new Error('Multi-page TIFF export did not produce an output file');

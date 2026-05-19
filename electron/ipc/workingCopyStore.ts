@@ -3,11 +3,17 @@ import {
     win32,
 } from 'path';
 
-export const workingCopyMap = new Map<string, string>();
+interface IWorkingCopyOriginalEntry {
+    originalPath: string;
+    ownerWebContentsId?: number;
+}
+
+export const workingCopyMap = new Map<string, IWorkingCopyOriginalEntry>();
 
 const retiredWorkingCopyOriginalMap = new Map<string, {
     expiresAtMs: number;
     originalPath: string;
+    ownerWebContentsId?: number;
 }>();
 const RETIRED_WORKING_COPY_TTL_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_RETIRED_WORKING_COPY_TTL_MS ?? `${10 * 60 * 1000}`, 10);
@@ -57,11 +63,15 @@ function pruneRetiredWorkingCopyOriginals() {
     }
 }
 
-export function getWorkingCopyOriginalPath(workingPath: string) {
-    const activeOriginalPath = workingCopyMap.get(workingPath);
-    if (activeOriginalPath) {
+export function getWorkingCopyOriginalPath(workingPath: string, senderWebContentsId?: number) {
+    const activeEntry = workingCopyMap.get(workingPath);
+    if (activeEntry) {
+        if (!canUseWorkingCopyEntry(activeEntry, senderWebContentsId)) {
+            return null;
+        }
         return {
-            originalPath: activeOriginalPath,
+            originalPath: activeEntry.originalPath,
+            ...(activeEntry.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: activeEntry.ownerWebContentsId}),
             retired: false,
         };
     }
@@ -71,23 +81,35 @@ export function getWorkingCopyOriginalPath(workingPath: string) {
     if (!retired) {
         return null;
     }
+    if (!canUseWorkingCopyEntry(retired, senderWebContentsId)) {
+        return null;
+    }
 
     return {
         originalPath: retired.originalPath,
+        ...(retired.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: retired.ownerWebContentsId}),
         retired: true,
     };
 }
 
-export function setWorkingCopyOriginalPath(workingPath: string, originalPath: string) {
-    workingCopyMap.set(workingPath, originalPath);
+export function setWorkingCopyOriginalPath(workingPath: string, originalPath: string, ownerWebContentsId?: number) {
+    workingCopyMap.set(workingPath, {
+        originalPath,
+        ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
+    });
 }
 
-export function rememberRetiredWorkingCopyOriginal(workingPath: string, originalPath: string | undefined) {
+export function rememberRetiredWorkingCopyOriginal(
+    workingPath: string,
+    originalPath: string | undefined,
+    ownerWebContentsId?: number,
+) {
     if (!originalPath) {
         return;
     }
     retiredWorkingCopyOriginalMap.set(workingPath, {
         originalPath,
+        ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
         expiresAtMs: Date.now() + RETIRED_WORKING_COPY_TTL_MS,
     });
 }
@@ -100,7 +122,11 @@ export function forgetRetiredWorkingCopyOriginal(workingPath: string) {
     retiredWorkingCopyOriginalMap.delete(workingPath);
 }
 
-export function findWorkingCopyPathByOriginalPath(originalPath: string): string | null {
+function canUseWorkingCopyEntry(entry: IWorkingCopyOriginalEntry, senderWebContentsId?: number) {
+    return entry.ownerWebContentsId === undefined || entry.ownerWebContentsId === senderWebContentsId;
+}
+
+export function findWorkingCopyPathByOriginalPath(originalPath: string, senderWebContentsId?: number): string | null {
     const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
     if (!normalizedOriginalPath) {
         return null;
@@ -110,9 +136,12 @@ export function findWorkingCopyPathByOriginalPath(originalPath: string): string 
     let latestMatch: string | null = null;
     for (const [
         workingPath,
-        mappedOriginalPath,
+        entry,
     ] of workingCopyMap.entries()) {
-        if (normalizePathForLookup(mappedOriginalPath) === lookupOriginalPath) {
+        if (
+            canUseWorkingCopyEntry(entry, senderWebContentsId)
+            && normalizePathForLookup(entry.originalPath) === lookupOriginalPath
+        ) {
             latestMatch = workingPath;
         }
     }
@@ -120,12 +149,19 @@ export function findWorkingCopyPathByOriginalPath(originalPath: string): string 
     return latestMatch;
 }
 
-export function isKnownWorkingCopyOriginalPath(originalPath: string) {
+export function isKnownWorkingCopyOriginalPath(originalPath: string, senderWebContentsId?: number) {
     const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
     if (!normalizedOriginalPath) {
         return false;
     }
     const lookupOriginalPath = normalizePathForLookup(normalizedOriginalPath);
     return Array.from(workingCopyMap.values())
-        .some(mappedOriginalPath => normalizePathForLookup(mappedOriginalPath) === lookupOriginalPath);
+        .some(entry => (
+            canUseWorkingCopyEntry(entry, senderWebContentsId)
+            && normalizePathForLookup(entry.originalPath) === lookupOriginalPath
+        ));
+}
+
+export function getWorkingCopyOwnerWebContentsId(workingPath: string): number | undefined {
+    return workingCopyMap.get(workingPath)?.ownerWebContentsId;
 }

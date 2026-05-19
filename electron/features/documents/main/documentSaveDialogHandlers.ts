@@ -42,7 +42,7 @@ export async function handleBeginSavePdfDataAs(
 ): Promise<IBeginSerializedPdfSaveAsResult> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     const originalPath = normalizedWorkingPath
-        ? getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath
+        ? getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath
         : null;
     const suggestedName = originalPath
         ? basename(originalPath)

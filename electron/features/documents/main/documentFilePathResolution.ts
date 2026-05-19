@@ -88,7 +88,7 @@ export async function resolveReadablePath(
 
     // When renderer still references the original path, remap it to the active
     // working copy path to preserve temp-sandboxed reads.
-    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
     if (!mappedWorkingCopyPath) {
         return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
     }
@@ -127,14 +127,14 @@ export async function resolveExistingReadableBinaryPath(
     return resolvedPath;
 }
 
-export async function resolveExistingReadablePdfPath(filePath: unknown) {
+export async function resolveExistingReadablePdfPath(filePath: unknown, senderId?: number) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension, senderId);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -146,12 +146,12 @@ export async function resolveExistingReadablePdfPath(filePath: unknown) {
     return resolvedPath;
 }
 
-export function resolveReadablePathSync(normalizedPath: string): string | null {
+export function resolveReadablePathSync(normalizedPath: string, senderId?: number): string | null {
     if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
         return normalizedPath;
     }
 
-    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
     if (!mappedWorkingCopyPath) {
         return null;
     }
