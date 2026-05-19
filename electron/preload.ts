@@ -243,6 +243,14 @@ function installStartupOverlayLifecycle() {
         unmountStartupOverlay(reason);
     }
 
+    function mountOverlayIfActive() {
+        if (overlayRemoved) {
+            return;
+        }
+
+        mountStartupOverlay();
+    }
+
     function requestOverlayUnmount(reason: string) {
         if (!process.defaultApp) {
             removeOverlay(reason);
@@ -384,7 +392,7 @@ function installStartupOverlayLifecycle() {
         }
     }
 
-    mountStartupOverlay();
+    mountOverlayIfActive();
 
     const start = Date.now();
     checkInterval = window.setInterval(() => {
@@ -402,6 +410,13 @@ function installStartupOverlayLifecycle() {
     window.addEventListener(APP_READY_EVENT_NAME, handleAppReady, { once: true });
     window.addEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed, { once: true });
     window.addEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady, { once: true });
+
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            tracePreload('DOMContentLoaded observed');
+            mountOverlayIfActive();
+        }, { once: true });
+    }
 }
 
 const preloadState = globalThis as Record<string, unknown>;
@@ -485,9 +500,3 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
 }
 
 installStartupOverlayLifecycle();
-if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', () => {
-        tracePreload('DOMContentLoaded observed');
-        mountStartupOverlay();
-    }, { once: true });
-}
