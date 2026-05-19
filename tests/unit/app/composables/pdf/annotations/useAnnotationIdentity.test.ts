@@ -426,8 +426,25 @@ describe('likelyEditorPdfMirror', () => {
                 modifiedAt: null,
                 markerRect: makeRect(0.10, 0.10, 0.20, 0.05),
             });
-            // both stable refs path: no modifiedClose, IoU=1 >= 0.28 -> false (needs modifiedClose)
-            expect(likelyEditorPdfMirror(left, right)).toBe(false);
+            expect(likelyEditorPdfMirror(left, right)).toBe(true);
+        });
+
+        it('matches a reloaded PDF sticky note when the editor-side text is temporarily empty', () => {
+            const left = makeSummary({
+                source: 'editor',
+                uid: 'pdfjs_internal_editor_0',
+                text: '',
+                modifiedAt: null,
+                markerRect: makeRect(0.10, 0.10, 0.01, 0.01),
+            });
+            const right = makeSummary({
+                source: 'pdf',
+                annotationId: '3856R',
+                text: 'note',
+                modifiedAt: null,
+                markerRect: makeRect(0.10, 0.10, 0.01, 0.01),
+            });
+            expect(likelyEditorPdfMirror(left, right)).toBe(true);
         });
 
         it('treats whitespace-only text as empty', () => {

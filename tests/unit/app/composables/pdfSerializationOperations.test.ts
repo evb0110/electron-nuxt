@@ -25,7 +25,10 @@ import {
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
-import { getPdfDictContents } from '@app/utils/pdfDict';
+import {
+    getPdfDictContents,
+    getPdfStringValue,
+} from '@app/utils/pdfDict';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {
@@ -1344,6 +1347,82 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(freeTextRectSize?.width).toBeLessThanOrEqual(2);
         expect(freeTextRectSize?.height).toBeLessThanOrEqual(2);
         expect(getRectNumbers(popupDict!)).toEqual(getRectNumbers(freeTextDict!));
+    });
+
+    it('adopts PDF.js-created FreeText popup notes without adding a duplicate', async () => {
+        const doc = await PDFDocument.create();
+        const page = doc.addPage([
+            600,
+            800,
+        ]);
+        const annotDict = doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('FreeText'),
+            Rect: [
+                PDFNumber.of(60),
+                PDFNumber.of(632),
+                PDFNumber.of(61),
+                PDFNumber.of(633),
+            ],
+            Contents: PDFHexString.fromText('large file note'),
+        });
+        const annotRef = doc.context.register(annotDict);
+        const popupDict = doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Popup'),
+            Parent: annotRef,
+            Rect: [
+                PDFNumber.of(60),
+                PDFNumber.of(632),
+                PDFNumber.of(61),
+                PDFNumber.of(633),
+            ],
+            Contents: PDFHexString.fromText('large file note'),
+        });
+        const popupRef = doc.context.register(popupDict);
+        annotDict.set(PDFName.of('Popup'), popupRef);
+        page.node.set(PDFName.of('Annots'), doc.context.obj([
+            annotRef,
+            popupRef,
+        ]));
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            id: 'pdfjs_internal_editor_0',
+            uid: 'pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            subtype: 'FreeText',
+            hasNote: true,
+            text: 'large file note',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.01,
+                height: 0.01,
+            },
+        })];
+
+        const result = await serializePdfEdits(new Uint8Array(await doc.save()), payload);
+        const saved = await PDFDocument.load(result, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(saved);
+        const freeTextRefs = annotRefs.filter((ref) => (
+            getAnnotDict(saved, ref)?.get(PDFName.of('Subtype'))?.toString() === '/FreeText'
+        ));
+        const popupRefs = annotRefs.filter((ref) => (
+            getAnnotDict(saved, ref)?.get(PDFName.of('Subtype'))?.toString() === '/Popup'
+        ));
+
+        expect(annotRefs).toHaveLength(2);
+        expect(freeTextRefs).toHaveLength(1);
+        expect(popupRefs).toHaveLength(1);
+
+        const freeTextDict = getAnnotDict(saved, freeTextRefs[0]!);
+        expect(getPdfStringValue(freeTextDict?.get(PDFName.of('NM')))).toBe('evb-note:uid:0:pdfjs_internal_editor_0');
+        expect(getPdfDictContents(freeTextDict ?? null)).toBe('large file note');
+        expect(freeTextDict?.get(PDFName.of('Popup'))).toBe(popupRefs[0]);
     });
 
     it('upserts directly-created FreeText popup notes by stable editor key', async () => {
