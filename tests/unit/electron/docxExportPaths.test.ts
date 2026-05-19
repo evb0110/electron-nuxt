@@ -15,15 +15,25 @@ describe('docxExportPaths', () => {
         const filePath = './tmp-test-export.docx';
         const absolutePath = resolve(filePath);
 
-        allowDocxWritePath(filePath);
+        allowDocxWritePath(filePath, 10);
 
-        expect(consumeAllowedDocxWritePath(absolutePath)).toBe(true);
-        expect(consumeAllowedDocxWritePath(absolutePath)).toBe(false);
+        expect(consumeAllowedDocxWritePath(absolutePath, 10)).toBe(true);
+        expect(consumeAllowedDocxWritePath(absolutePath, 10)).toBe(false);
+    });
+
+    it('rejects consuming a grant from a different sender', () => {
+        const filePath = './tmp-cross-sender-export.docx';
+        const absolutePath = resolve(filePath);
+
+        allowDocxWritePath(filePath, 10);
+
+        expect(consumeAllowedDocxWritePath(absolutePath, 11)).toBe(false);
+        expect(consumeAllowedDocxWritePath(absolutePath, 10)).toBe(true);
     });
 
     it('rejects paths that were never allowed', () => {
         const filePath = resolve('./tmp-never-allowed.docx');
-        expect(consumeAllowedDocxWritePath(filePath)).toBe(false);
+        expect(consumeAllowedDocxWritePath(filePath, 10)).toBe(false);
     });
 
     it('validates docx extension', () => {

@@ -84,7 +84,7 @@ async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePat
     try {
         return requireOpenPath(sourcePath, getSenderId(event));
     } catch {
-        return requireManagedWorkingCopyPath(sourcePath);
+        return requireManagedWorkingCopyPath(sourcePath, getSenderId(event));
     }
 }
 

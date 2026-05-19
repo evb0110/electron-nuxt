@@ -34,6 +34,7 @@ interface IPersistedSaveTarget {
 interface IPersistedChunkLayout {
     chunkCount?: number;
     chunkSize?: number;
+    chunkGeneration?: string;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -132,10 +133,15 @@ function normalizePersistedChunkLayout(
         typeof value.chunkSize === 'number' && value.chunkSize > 0
             ? Math.floor(value.chunkSize)
             : undefined;
+    const chunkGeneration =
+        typeof value.chunkGeneration === 'string' && value.chunkGeneration.length > 0
+            ? value.chunkGeneration
+            : undefined;
 
     return {
         ...(chunkCount !== undefined ? { chunkCount } : {}),
         ...(chunkSize !== undefined ? { chunkSize } : {}),
+        ...(chunkGeneration ? { chunkGeneration } : {}),
     };
 }
 
@@ -194,17 +200,18 @@ export function createEntryFromPersistedRecord(
         storageMode: record.storageMode ?? 'inline',
         chunkCount: record.chunkCount ?? 0,
         chunkSize: record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
+        ...(record.chunkGeneration ? { chunkGeneration: record.chunkGeneration } : {}),
     };
 }
 
 export function collectChunkIndicesByRef(chunkKeys: IChunkKeyRecord[]) {
     return new Map(
-        Object.entries(groupBy(chunkKeys, chunkKey => chunkKey.ref))
+        Object.entries(groupBy(chunkKeys, chunkKey => `${chunkKey.ref}\0${chunkKey.generation ?? ''}`))
             .map(([
-                ref,
+                key,
                 chunks,
             ]) => ([
-                ref,
+                key,
                 new Set(chunks.map(chunk => chunk.index)),
             ])),
     );
@@ -219,7 +226,7 @@ export function isChunkedRecordMissingChunks(
         return false;
     }
 
-    const chunkIndices = chunkIndicesByRef.get(record.ref);
+    const chunkIndices = chunkIndicesByRef.get(`${record.ref}\0${record.chunkGeneration ?? ''}`);
     if (!chunkIndices) {
         return true;
     }
@@ -282,5 +289,6 @@ export function createBrowserDocumentEntry(
         storageMode: input.storageMode,
         chunkCount: input.chunkCount ?? 0,
         chunkSize: input.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
+        ...(input.chunkGeneration ? { chunkGeneration: input.chunkGeneration } : {}),
     };
 }

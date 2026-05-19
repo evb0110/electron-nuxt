@@ -770,6 +770,31 @@ describe('BrowserDocumentStore', () => {
         await expect(store.readRange(ref, largeBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([7]));
     });
 
+    it('replaces chunk generations after a large rewrite and removes superseded chunks', async () => {
+        const store = new BrowserDocumentStore();
+        const firstBytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        firstBytes[0] = 1;
+        firstBytes[firstBytes.byteLength - 1] = 2;
+        const ref = await store.createStoredDocument('rewrite-generations.pdf', firstBytes, {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+        });
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+        const firstChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
+
+        const secondBytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        secondBytes[0] = 3;
+        secondBytes[secondBytes.byteLength - 1] = 4;
+        await store.write(ref, secondBytes);
+
+        const secondChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
+        expect(secondChunkKeys).not.toEqual(firstChunkKeys);
+        expect(secondChunkKeys.some(key => firstChunkKeys.includes(key))).toBe(false);
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([3]));
+        await expect(store.readRange(ref, secondBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([4]));
+    });
+
     it('rejects full reads for browser documents above the in-memory safety limit', async () => {
         const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         bytes[0] = 5;

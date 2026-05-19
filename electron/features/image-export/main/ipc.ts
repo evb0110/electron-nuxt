@@ -14,12 +14,12 @@ import {
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/i18n';
 
-async function validateWorkingPdfPath(path: unknown): Promise<string> {
+async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number): Promise<string> {
     if (!path || typeof path !== 'string' || path.trim() === '') {
         throw new Error('Invalid working copy path');
     }
 
-    if (!await ensureWorkingCopyDirectory(path)) {
+    if (!await ensureWorkingCopyDirectory(path, senderWebContentsId)) {
         throw new Error('Path is not a managed working copy');
     }
 
@@ -137,7 +137,7 @@ export async function handlePdfExportImages(
     canceled?: boolean;
     outputPaths?: string[];
 }> {
-    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
 
@@ -167,7 +167,7 @@ export async function handlePdfExportMultiPageTiff(
     canceled?: boolean;
     outputPath?: string;
 }> {
-    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
 

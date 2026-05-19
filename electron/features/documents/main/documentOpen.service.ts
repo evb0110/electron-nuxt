@@ -47,6 +47,13 @@ function toRecentDocumentPaths(paths: string[]) {
     return paths.filter(path => isPdfPath(path) || isDjvuPath(path));
 }
 
+function getOwnerWebContentsId(owner?: TOpenPathOwner) {
+    if (typeof owner === 'number') {
+        return owner;
+    }
+    return owner?.id;
+}
+
 export async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
@@ -85,7 +92,7 @@ export async function openInputPaths(
     if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const originalPath = normalizedPaths[0]!;
         logger.info(`openInputPaths creating working copy for PDF: ${originalPath}`);
-        const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner));
+        const workingPath = await createWorkingCopy(requireOpenPath(originalPath, owner), getOwnerWebContentsId(owner));
         await addRecentInputs([originalPath], owner);
         return {
             kind: 'pdf',
@@ -101,6 +108,7 @@ export async function openInputPaths(
         basename(outputPath),
         mergedPdf,
         outputPath,
+        getOwnerWebContentsId(owner),
     );
 
     const recentDocumentPaths = toRecentDocumentPaths(normalizedPaths);

@@ -22,11 +22,22 @@ interface IBuildDjvuRuntimeEnvOptions {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_UTF8_LOCALE = 'C.UTF-8';
 
+function hasExpectedDjvuResources(resourcesBase: string): boolean {
+    return existsSync(join(resourcesBase, 'djvulibre'));
+}
+
 function getResourcesBase(): string {
     if (app.isPackaged) {
         return process.resourcesPath;
     }
-    return join(__dirname, '..', '..', 'resources');
+
+    const candidates = [
+        join(process.cwd(), 'resources'),
+        join(__dirname, '..', '..', 'resources'),
+        join(__dirname, '..', '..', '..', 'resources'),
+    ];
+    const resolved = candidates.find(hasExpectedDjvuResources);
+    return resolved ?? candidates[0]!;
 }
 
 function getBinaryPath(dir: string, name: string): string {

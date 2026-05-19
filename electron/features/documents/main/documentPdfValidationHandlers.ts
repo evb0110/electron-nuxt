@@ -10,10 +10,10 @@ import {
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 
 export async function handleAnalyzePdfConformance(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<IPdfConformanceProfile> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath, event.sender?.id);
     return analyzePdfConformanceFile(resolvedPath);
 }
 
@@ -33,9 +33,9 @@ export async function handleValidatePdfData(
 }
 
 export async function handleValidatePdfPath(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<IPdfValidationResult> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath, event.sender?.id);
     return validatePdfFile(resolvedPath);
 }

@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
     validatePdfFile: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
-    setWorkingCopyOriginalPath: vi.fn<(workingPath: string, originalPath: string) => void>(),
+    setWorkingCopyOriginalPath: vi.fn<(workingPath: string, originalPath: string, senderId?: number) => void>(),
     allowOpenPath: vi.fn(),
     addRecentFile: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
@@ -42,7 +42,7 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfF
 vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/ipc/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
-    setWorkingCopyOriginalPath: (...args: [string, string]) => mocks.setWorkingCopyOriginalPath(...args),
+    setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
 vi.mock('@electron/ipc/workingCopyValidation', () => ({isAllowedOriginalSavePath: vi.fn(() => true)}));
 vi.mock('@electron/ipc/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
@@ -96,15 +96,46 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(workingPath);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(workingPath, 42);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath);
         expect(
             mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
-        expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath);
+        expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, 42);
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
+    });
+
+    it('routes Save As working-copy replacement through the shared mutation queue', async () => {
+        const workingPath = join(tempRoot, 'queued-working.pdf');
+        const targetPath = join(tempRoot, 'queued-saved.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        const queuedMutation = deferred<undefined>();
+        const { enqueueWorkingCopyMutation } = await import('@electron/ipc/workingCopyMutationQueue');
+        const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
+
+        const resultPromise = runSaveAsSession({
+            workingPath,
+            targetPath,
+            bytes: Buffer.from('new-pdf'),
+        });
+        await waitForSettledQueueTurn();
+
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+
+        queuedMutation.resolve(undefined);
+        await blockingMutation;
+        await expect(resultPromise).resolves.toMatchObject({
+            type: 'result',
+            path: targetPath,
+            validation: { isValid: true },
+        });
+        expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
+        expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
     });
 
     it('preserves the Save As target when working-copy setup fails after validation', async () => {
@@ -336,4 +367,23 @@ async function waitForCondition(assertion: () => void) {
     }
 
     throw lastError;
+}
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
+
+async function waitForSettledQueueTurn() {
+    await new Promise(resolve => setTimeout(resolve, 20));
 }

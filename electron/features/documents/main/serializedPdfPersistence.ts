@@ -26,6 +26,7 @@ import { validatePdfFile } from '@electron/features/documents/main/pdfConformanc
 import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
+import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 
@@ -95,8 +96,8 @@ function normalizeTotalBytes(totalBytes: unknown): number {
     return totalBytes;
 }
 
-function getValidatedOriginalPath(workingPath: string) {
-    const originalPath = getWorkingCopyOriginalPath(workingPath)?.originalPath;
+function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
+    const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
     if (!originalPath) {
         throw new Error('No original path found for this working copy');
     }
@@ -194,9 +195,9 @@ export async function beginSerializedPdfSaveToOriginal(
 ): Promise<IBeginSerializedPdfPersistenceResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
         throw new Error('Working copy path is not managed');
     }
     const session = await createSession({
@@ -253,20 +254,23 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         return validation;
     }
 
-    if (session.mode === 'save_as') {
-        if (!await ensureWorkingCopyDirectory(session.workingPath)) {
+    await enqueueWorkingCopyMutation(session.workingPath, async () => {
+        if (!await ensureWorkingCopyDirectory(session.workingPath, session.senderId)) {
             throw new Error('Working copy path is not managed');
         }
-        await copyFile(session.tempPath, session.workingPath);
-        await atomicReplace(session.tempPath, session.targetPath);
-        setWorkingCopyOriginalPath(session.workingPath, session.targetPath);
-        allowOpenPath(session.targetPath, session.senderId);
-        await addRecentFile(session.targetPath);
-        updateRecentFilesMenu();
-    } else {
-        await atomicReplace(session.tempPath, session.targetPath);
-        await copyFile(session.targetPath, session.workingPath);
-    }
+
+        if (session.mode === 'save_as') {
+            await copyFile(session.tempPath, session.workingPath);
+            await atomicReplace(session.tempPath, session.targetPath);
+            setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
+            allowOpenPath(session.targetPath, session.senderId);
+            await addRecentFile(session.targetPath);
+            updateRecentFilesMenu();
+        } else {
+            await atomicReplace(session.tempPath, session.targetPath);
+            await copyFile(session.targetPath, session.workingPath);
+        }
+    });
 
     return validation;
 }

@@ -347,6 +347,9 @@ async function preparePdfForPoppler(
         log('debug', `Prepared Poppler input via qpdf: ${normalizedPdfPath} (${normalizedStat.size} bytes)`);
         return normalizedPdfPath;
     } catch (err) {
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error ? signal.reason : err;
+        }
         log('warn', `qpdf preflight failed; falling back to original PDF for Poppler commands: ${getErrorMessage(err)}`);
         return sourcePdfPath;
     }
@@ -729,7 +732,13 @@ async function buildOcrPageProcessingPlan(
     baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber'>,
 ) {
     const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
-    const detectedDpi = renderDpi ?? await detectSourceDpi(popplerSourcePdfPath, paths.pdfimagesBinary, log, popplerEnv);
+    const detectedDpi = renderDpi ?? await detectSourceDpi(
+        popplerSourcePdfPath,
+        paths.pdfimagesBinary,
+        log,
+        popplerEnv,
+        baseContext.signal,
+    );
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);

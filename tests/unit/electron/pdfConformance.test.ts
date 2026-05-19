@@ -99,6 +99,12 @@ vi.mock('worker_threads', () => ({Worker: class {
         return this;
     }
 
+    removeListener(event: string, callback: (arg: unknown) => void) {
+        this.onceHandlers.get(event)?.delete(callback);
+        this.onHandlers.get(event)?.delete(callback);
+        return this;
+    }
+
     terminate() {
         return Promise.resolve(0);
     }

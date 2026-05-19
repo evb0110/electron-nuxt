@@ -329,6 +329,7 @@ function createPdfFromInputPathsWorker(
         let cleanedUp = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let workerOnline = false;
+        let ignoreLateWorkerError: (() => undefined) | null = null;
 
         const cleanupWorker = () => {
             if (cleanedUp) {
@@ -346,7 +347,14 @@ function createPdfFromInputPathsWorker(
 
         const terminateWorker = () => {
             cleanupWorker();
-            void worker.terminate().catch(() => undefined);
+            ignoreLateWorkerError = () => undefined;
+            worker.on('error', ignoreLateWorkerError);
+            void worker.terminate().catch(() => undefined).finally(() => {
+                if (ignoreLateWorkerError) {
+                    worker.removeListener('error', ignoreLateWorkerError);
+                    ignoreLateWorkerError = null;
+                }
+            });
         };
 
         worker.once('online', () => {

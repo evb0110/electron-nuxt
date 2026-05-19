@@ -169,7 +169,7 @@ export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
     return defaultPath;
 }
 
-export async function resolveSearchablePdfPath(pdfPath: string): Promise<string | null> {
+export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number): Promise<string | null> {
     if (isWorkingCopyPathCandidate(pdfPath)) {
         const directResolvedPath = await resolveAllowedReadPath(pdfPath);
         if (directResolvedPath) {
@@ -177,7 +177,7 @@ export async function resolveSearchablePdfPath(pdfPath: string): Promise<string 
         }
     }
 
-    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath);
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath, senderWebContentsId);
     if (mappedWorkingCopyPath) {
         const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
         if (mappedResolvedPath) {
@@ -221,7 +221,7 @@ async function handlePdfSearch(
         throw new Error('Invalid PDF path');
     }
 
-    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath);
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, event.sender?.id);
     if (!resolvedPdfPath) {
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
@@ -260,7 +260,7 @@ async function handlePdfSearchWarmIndex(
         throw new Error('Invalid PDF path');
     }
 
-    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath);
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath, event.sender?.id);
     if (!resolvedPdfPath) {
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }

@@ -74,6 +74,17 @@ export class BrowserDocumentStore {
     private maintenancePromise: Promise<void> | null = null;
     private maintenanceComplete = false;
 
+    private createChunkGeneration() {
+        const randomValue = crypto.randomUUID?.() ?? this.createFallbackChunkGenerationId();
+        return `${Date.now().toString(36)}-${randomValue}`;
+    }
+
+    private createFallbackChunkGenerationId() {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
     public getRefForFile(file: File) {
         const existingEntry = Array.from(this.entries.values()).find(
             (entry) =>
@@ -236,14 +247,15 @@ export class BrowserDocumentStore {
             await persistRecord(this.toPersistedRecord(entry, entry.data, false));
 
             for (let index = 0; index < sourceEntry.chunkCount; index += 1) {
-                const chunk = await this.loadChunk(sourceEntry.ref, index);
+                const chunk = await this.loadChunk(sourceEntry.ref, index, sourceEntry.chunkGeneration);
                 if (!chunk) {
                     throw new Error(`Browser document chunk missing: ${sourceEntry.ref}#${index}`);
                 }
                 await persistChunkRecord({
-                    key: createChunkKey(ref, index),
+                    key: createChunkKey(ref, index, entry.chunkGeneration),
                     ref,
                     index,
+                    ...(entry.chunkGeneration ? { generation: entry.chunkGeneration } : {}),
                     data: cloneBytes(chunk),
                 });
                 entry.chunkCount = index + 1;
@@ -339,20 +351,53 @@ export class BrowserDocumentStore {
             ? normalizePersistedWriteBytes(data, false)
             : normalizePersistedWriteBytes(data);
         const nextStorageMode = resolveByteBackedStorageMode(bytes.byteLength);
-        await this.clearExternalStorage(entry);
-        entry.storageMode = nextStorageMode;
-        entry.chunkCount = 0;
-        entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
-        entry.fileSize = bytes.byteLength;
-        entry.updatedAt = Date.now();
+        const previousEntryState = {
+            storageMode: entry.storageMode,
+            chunkCount: entry.chunkCount,
+            chunkSize: entry.chunkSize,
+            chunkGeneration: entry.chunkGeneration,
+            fileSize: entry.fileSize,
+            updatedAt: entry.updatedAt,
+            data: entry.data,
+        };
+        const previousChunkGeneration = entry.chunkGeneration;
+        const previousChunkCount = entry.storageMode === 'chunked' ? entry.chunkCount : 0;
 
-        if (nextStorageMode === 'chunked') {
-            entry.data = new Uint8Array();
-            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-            await this.consumeBytesIntoChunkedEntry(entry, bytes);
-        } else {
-            await persistRecord(this.toPersistedRecord(entry, bytes, false));
-            entry.data = bytes;
+        try {
+            entry.storageMode = nextStorageMode;
+            entry.chunkCount = 0;
+            entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
+            entry.fileSize = bytes.byteLength;
+            entry.updatedAt = Date.now();
+
+            if (nextStorageMode === 'chunked') {
+                entry.data = new Uint8Array();
+                entry.chunkGeneration = this.createChunkGeneration();
+                await this.consumeBytesIntoChunkedEntry(entry, bytes, { publishInitialRecord: false });
+            } else {
+                delete entry.chunkGeneration;
+                await persistRecord(this.toPersistedRecord(entry, bytes, false));
+                entry.data = bytes;
+            }
+            await this.deleteChunks(entry.ref, previousChunkCount, previousChunkGeneration);
+        } catch (error) {
+            const failedGeneration = entry.chunkGeneration;
+            entry.storageMode = previousEntryState.storageMode;
+            entry.chunkCount = previousEntryState.chunkCount;
+            entry.chunkSize = previousEntryState.chunkSize;
+            entry.fileSize = previousEntryState.fileSize;
+            entry.updatedAt = previousEntryState.updatedAt;
+            entry.data = previousEntryState.data;
+            if (previousEntryState.chunkGeneration) {
+                entry.chunkGeneration = previousEntryState.chunkGeneration;
+            } else {
+                delete entry.chunkGeneration;
+            }
+            if (failedGeneration && failedGeneration !== previousChunkGeneration) {
+                await this.deleteChunks(entry.ref, Math.ceil(bytes.byteLength / BROWSER_DOCUMENT_CHUNK_SIZE), failedGeneration)
+                    .catch(() => undefined);
+            }
+            throw error;
         }
 
         if (options.unloadAfterPersist) {
@@ -693,7 +738,7 @@ export class BrowserDocumentStore {
         ) {
             writeRecentFilesToStorage(recentFiles);
         }
-        const recentRefs = new Set(recentFiles.map((file) => file.originalPath));
+        const recentRefs = new Set<string>(recentFiles.map((file) => file.originalPath));
         const nonWorkingDependentCounts = countNonWorkingDependents(records);
         const refsToRemove = records
             .filter((record) => shouldRemovePersistedRecord(
@@ -732,9 +777,12 @@ export class BrowserDocumentStore {
                     return true;
                 }
 
-                return chunkKey.index >= (record.chunkCount ?? 0);
+                return (
+                    chunkKey.generation !== (record.chunkGeneration ?? undefined)
+                    || chunkKey.index >= (record.chunkCount ?? 0)
+                );
             })
-            .map((chunkKey) => deleteChunkRecord(chunkKey.ref, chunkKey.index));
+            .map((chunkKey) => deleteChunkRecord(chunkKey.ref, chunkKey.index, chunkKey.generation));
 
         if (refsToRemoveSet.size === 0 && chunkDeletes.length === 0) {
             return;
@@ -817,8 +865,9 @@ export class BrowserDocumentStore {
     private async consumeBytesIntoChunkedEntry(
         entry: IBrowserDocumentEntry,
         bytes: Uint8Array,
+        options: { publishInitialRecord?: boolean } = {},
     ): Promise<void> {
-        await this.resetChunkedEntry(entry, bytes.byteLength, Math.max(1, entry.chunkSize));
+        await this.resetChunkedEntry(entry, bytes.byteLength, Math.max(1, entry.chunkSize), options.publishInitialRecord);
 
         let chunkIndex = 0;
         for (
@@ -843,13 +892,17 @@ export class BrowserDocumentStore {
         entry: IBrowserDocumentEntry,
         fileSize: number,
         chunkSize: number,
+        publishInitialRecord = true,
     ) {
         entry.data = new Uint8Array();
         entry.chunkCount = 0;
         entry.chunkSize = chunkSize;
+        entry.chunkGeneration = this.createChunkGeneration();
         entry.fileSize = fileSize;
         entry.updatedAt = Date.now();
-        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        if (publishInitialRecord) {
+            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        }
     }
 
     private async persistEntryChunk(
@@ -858,9 +911,10 @@ export class BrowserDocumentStore {
         chunk: Uint8Array,
     ) {
         await persistChunkRecord({
-            key: createChunkKey(entry.ref, index),
+            key: createChunkKey(entry.ref, index, entry.chunkGeneration),
             ref: entry.ref,
             index,
+            ...(entry.chunkGeneration ? { generation: entry.chunkGeneration } : {}),
             data: cloneBytes(chunk),
         });
     }
@@ -903,7 +957,7 @@ export class BrowserDocumentStore {
                 const bytes = new Uint8Array(entry.fileSize);
                 let writeOffset = 0;
                 for (let index = 0; index < entry.chunkCount; index += 1) {
-                    const chunk = await this.loadChunk(entry.ref, index);
+                    const chunk = await this.loadChunk(entry.ref, index, entry.chunkGeneration);
                     if (!chunk) {
                         throw new Error(`Browser document chunk missing: ${entry.ref}#${index}`);
                     }
@@ -981,7 +1035,7 @@ export class BrowserDocumentStore {
             chunkIndex <= lastChunkIndex;
             chunkIndex += 1
         ) {
-            const chunk = await this.loadChunk(entry.ref, chunkIndex);
+            const chunk = await this.loadChunk(entry.ref, chunkIndex, entry.chunkGeneration);
             if (!chunk) {
                 throw new Error(`Browser document chunk missing: ${entry.ref}#${chunkIndex}`);
             }
@@ -997,24 +1051,24 @@ export class BrowserDocumentStore {
         return output;
     }
 
-    private async loadChunk(ref: string, index: number): Promise<Uint8Array | null> {
-        const rawChunk = await loadChunkRecord(ref, index);
+    private async loadChunk(ref: string, index: number, generation?: string): Promise<Uint8Array | null> {
+        const rawChunk = await loadChunkRecord(ref, index, generation);
         const normalizedChunk = toPersistedChunkRecord(rawChunk);
         return normalizedChunk ? cloneBytes(normalizedChunk.data) : null;
     }
 
-    private async deleteChunks(ref: string, chunkCount: number) {
+    private async deleteChunks(ref: string, chunkCount: number, generation?: string) {
         if (chunkCount <= 0) {
             return;
         }
         await Promise.all(Array.from({ length: chunkCount }, async (_value, index) => {
-            await deleteChunkRecord(ref, index);
+            await deleteChunkRecord(ref, index, generation);
         }));
     }
 
     private async clearExternalStorage(entry: IBrowserDocumentEntry) {
         if (entry.storageMode === 'chunked' && entry.chunkCount > 0) {
-            await this.deleteChunks(entry.ref, entry.chunkCount);
+            await this.deleteChunks(entry.ref, entry.chunkCount, entry.chunkGeneration);
         }
     }
 
@@ -1039,6 +1093,7 @@ export class BrowserDocumentStore {
             storageMode: entry.storageMode,
             chunkCount: entry.chunkCount,
             chunkSize: entry.chunkSize,
+            ...(entry.chunkGeneration ? { chunkGeneration: entry.chunkGeneration } : {}),
         };
     }
 }

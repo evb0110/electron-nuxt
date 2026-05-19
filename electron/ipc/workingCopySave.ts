@@ -15,9 +15,10 @@ import { isAllowedOriginalSavePath } from '@electron/ipc/workingCopyValidation';
 import { WorkingCopyMissingError } from '@electron/ipc/workingCopyMissingError';
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
+import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
 
-function getValidatedOriginalPath(workingPath: string) {
-    const originalPath = getWorkingCopyOriginalPath(workingPath)?.originalPath;
+function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
+    const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
 
     if (!originalPath) {
         throw new Error('No original path found for this working copy');
@@ -53,7 +54,7 @@ async function replaceOriginalWithValidatedTemp(
 }
 
 export async function handleFileSave(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingPath: string,
 ): Promise<boolean> {
     if (!workingPath || workingPath.trim() === '') {
@@ -61,16 +62,19 @@ export async function handleFileSave(
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
 
     try {
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
-            throw new Error('Working copy path is not managed');
-        }
-        const validation = await replaceOriginalWithValidatedTemp(
-            originalPath,
-            tempPath => copyFile(normalizedWorkingPath, tempPath),
-        );
+        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+                throw new Error('Working copy path is not managed');
+            }
+
+            return replaceOriginalWithValidatedTemp(
+                originalPath,
+                tempPath => copyFile(normalizedWorkingPath, tempPath),
+            );
+        });
         if (!validation.isValid) {
             throw new Error(`PDF validation failed: ${validation.errors.join('; ')}`);
         }
@@ -84,7 +88,7 @@ export async function handleFileSave(
 }
 
 export async function handleSerializedPdfSave(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingPath: string,
     data: unknown,
 ): Promise<IPdfValidationResult> {
@@ -93,22 +97,29 @@ export async function handleSerializedPdfSave(
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getValidatedOriginalPath(normalizedWorkingPath);
+    const originalPath = getValidatedOriginalPath(normalizedWorkingPath, event.sender.id);
     const payload = normalizeIpcWritePayload(data);
 
     try {
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath)) {
-            throw new Error('Working copy path is not managed');
-        }
-        const validation = await replaceOriginalWithValidatedTemp(
-            originalPath,
-            tempPath => writeFile(tempPath, payload),
-        );
+        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+                throw new Error('Working copy path is not managed');
+            }
+
+            const queuedValidation = await replaceOriginalWithValidatedTemp(
+                originalPath,
+                tempPath => writeFile(tempPath, payload),
+            );
+            if (queuedValidation.isValid) {
+                await copyFile(originalPath, normalizedWorkingPath);
+            }
+
+            return queuedValidation;
+        });
         if (!validation.isValid) {
             return validation;
         }
 
-        await copyFile(originalPath, normalizedWorkingPath);
         return validation;
     } catch (err) {
         if (err instanceof WorkingCopyMissingError) {
