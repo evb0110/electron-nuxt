@@ -13,10 +13,71 @@ import {
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
 
-const rendererFileOpenTokens = new Map<number, Set<string>>();
+interface IRendererFileOpenToken {expiresAtMs: number;}
+
+const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
+const MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER = 16;
+const rendererFileOpenTokens = new Map<number, Map<string, IRendererFileOpenToken>>();
+const rendererFileOpenTokenCleanupSenders = new Set<number>();
 
 function getSenderId(event: IpcMainInvokeEvent) {
     return event.sender.id;
+}
+
+function pruneRendererFileOpenTokens(senderId: number, now = Date.now()) {
+    const tokens = rendererFileOpenTokens.get(senderId);
+    if (!tokens) {
+        return;
+    }
+
+    for (const [
+        token,
+        grant,
+    ] of tokens.entries()) {
+        if (grant.expiresAtMs <= now) {
+            tokens.delete(token);
+        }
+    }
+
+    while (tokens.size > MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER) {
+        const oldestToken = tokens.keys().next().value;
+        if (!oldestToken) {
+            break;
+        }
+        tokens.delete(oldestToken);
+    }
+
+    if (tokens.size === 0) {
+        rendererFileOpenTokens.delete(senderId);
+    }
+}
+
+function registerRendererFileOpenTokenCleanup(event: IpcMainInvokeEvent, senderId: number) {
+    if (rendererFileOpenTokenCleanupSenders.has(senderId)) {
+        return;
+    }
+
+    rendererFileOpenTokenCleanupSenders.add(senderId);
+    event.sender.once('destroyed', () => {
+        rendererFileOpenTokens.delete(senderId);
+        rendererFileOpenTokenCleanupSenders.delete(senderId);
+    });
+}
+
+function consumeRendererFileOpenToken(senderId: number, token: string) {
+    pruneRendererFileOpenTokens(senderId);
+    const tokens = rendererFileOpenTokens.get(senderId);
+    const grant = tokens?.get(token);
+    if (!tokens || !grant || grant.expiresAtMs <= Date.now()) {
+        tokens?.delete(token);
+        return false;
+    }
+
+    tokens.delete(token);
+    if (tokens.size === 0) {
+        rendererFileOpenTokens.delete(senderId);
+    }
+    return true;
 }
 
 async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePath: string): Promise<TOpenPath> {
@@ -50,12 +111,12 @@ export function registerDocumentsIpcAdapter(
         }
 
         const senderId = getSenderId(event);
-        const tokens = rendererFileOpenTokens.get(senderId) ?? new Set<string>();
-        tokens.add(normalizedToken);
+        const tokens = rendererFileOpenTokens.get(senderId) ?? new Map<string, IRendererFileOpenToken>();
+        tokens.delete(normalizedToken);
+        tokens.set(normalizedToken, {expiresAtMs: Date.now() + RENDERER_FILE_OPEN_TOKEN_TTL_MS});
         rendererFileOpenTokens.set(senderId, tokens);
-        event.sender.once('destroyed', () => {
-            rendererFileOpenTokens.delete(senderId);
-        });
+        pruneRendererFileOpenTokens(senderId);
+        registerRendererFileOpenTokenCleanup(event, senderId);
         return true;
     });
     registrar.handle(DOCUMENTS_CHANNELS.allowRendererFileOpen, (event: IpcMainInvokeEvent, request: unknown) => {
@@ -66,7 +127,7 @@ export function registerDocumentsIpcAdapter(
         const token = typeof request === 'object' && request !== null && 'token' in request
             ? (request as {token?: unknown;}).token
             : '';
-        if (typeof token !== 'string' || !rendererFileOpenTokens.get(senderId)?.has(token)) {
+        if (typeof token !== 'string' || !consumeRendererFileOpenToken(senderId, token)) {
             return false;
         }
 

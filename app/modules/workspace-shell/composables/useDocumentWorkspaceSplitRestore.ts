@@ -62,8 +62,17 @@ function normalizeRestoredPage(page: number | undefined) {
     return Math.max(1, Math.floor(page));
 }
 
+function isCachedSplitEntryCurrent(
+    cache: IWorkspaceSplitCacheLike,
+    tabId: string,
+    entryId: string,
+) {
+    return cache.peek(tabId)?.id === entryId;
+}
+
 export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceSplitRestoreOptions) => {
     let splitPayloadCaptureGeneration = 0;
+    let isWorkspaceMounted = true;
     const hasQueuedSplitRestore = computed(() => options.workspaceSplitCache.has(options.tabId));
     const isExternallyRestoring = computed(() => options.workspaceRestoreTracker.has(options.tabId));
     const suppressEmptyState = computed(() => (
@@ -124,8 +133,19 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
             });
 
             await options.restoreSplitPayload(payload);
+            if (!isWorkspaceMounted || !isCachedSplitEntryCurrent(options.workspaceSplitCache, options.tabId, cached.id)) {
+                return;
+            }
             options.workspaceSplitCache.consume(options.tabId, cached.id);
         } catch (error) {
+            if (!isWorkspaceMounted || !isCachedSplitEntryCurrent(options.workspaceSplitCache, options.tabId, cached.id)) {
+                BrowserLogger.warn('workspace', 'Cached split payload restore finished after workspace became stale', {
+                    tabId: options.tabId,
+                    payloadKind: payload.kind,
+                    error,
+                });
+                return;
+            }
             const consumedPayload = options.workspaceSplitCache.consume(options.tabId, cached.id) ?? payload;
             BrowserLogger.warn('workspace', 'Failed to restore cached split payload', {
                 tabId: options.tabId,
@@ -237,6 +257,7 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
     );
 
     onBeforeUnmount(() => {
+        isWorkspaceMounted = false;
         void cacheSplitPayloadForRemount();
     });
 

@@ -22,6 +22,15 @@ const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
 
 type TRunCommandOptionsExpectation = { allowedExitCodes?: number[] };
 
+async function readQpdfArgFile(args: string[]) {
+    const argFile = args[0];
+    if (!argFile?.startsWith('@')) {
+        throw new Error(`Expected qpdf arg file invocation, got ${JSON.stringify(args)}`);
+    }
+
+    return (await readFile(argFile.slice(1), 'utf8')).split('\n');
+}
+
 vi.mock('node:crypto', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeCrypto>();
     return {
@@ -54,7 +63,9 @@ describe('page-ops qpdf extract', () => {
         try {
             await writeFile(srcPath, '%PDF-1.7\n');
             await writeFile(destPath, '');
-            runNativeToolCommandMock.mockImplementationOnce(async () => {
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
                 await writeFile(tempOutputPath, new Uint8Array());
                 return {
                     exitCode: 0,
@@ -89,7 +100,8 @@ describe('page-ops qpdf extract', () => {
         try {
             await writeFile(srcPath, '%PDF-1.7\n');
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-                expect(args.at(-1)).toBe(tempOutputPath);
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
                 await writeFile(tempOutputPath, '%PDF-1.7\nextracted');
                 return {
                     exitCode: 0,
@@ -125,7 +137,8 @@ describe('page-ops qpdf extract', () => {
                 args: string[],
                 options: TRunCommandOptionsExpectation,
             ) => {
-                expect(args.at(-1)).toBe(tempOutputPath);
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
                 expect(options.allowedExitCodes).toEqual([
                     0,
                     3,
@@ -167,7 +180,8 @@ describe('page-ops qpdf working-copy mutations', () => {
         try {
             await writeFile(workingCopyPath, '%PDF-1.7\n');
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-                expect(args.at(-1)).toBe(tempOutputPath);
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
                 await writeFile(tempOutputPath, '%PDF-1.7\nrotated');
                 return {
                     exitCode: 0,

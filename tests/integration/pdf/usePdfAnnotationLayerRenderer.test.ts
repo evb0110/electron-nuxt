@@ -264,7 +264,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         drawLayerInstances.length = 0;
     });
 
-    it('passes a PDF.js-compatible text layer object to AnnotationEditorLayer', () => {
+    it('passes a PDF.js-compatible text layer object to AnnotationEditorLayer', async () => {
         const uiManager = createUiManager(false);
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(1),
@@ -280,7 +280,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const annotationEditorLayerDiv = createDiv();
         const textLayerDiv = createDiv();
 
-        const result = renderer.renderAnnotationEditorLayer(
+        const result = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             textLayerDiv,
@@ -296,7 +296,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(uiManager.addLayer).toHaveBeenCalledTimes(1);
         expect(loggerWarn).not.toHaveBeenCalled();
 
-        const secondResult = renderer.renderAnnotationEditorLayer(
+        const secondResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             textLayerDiv,
@@ -310,7 +310,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(editorLayerInstances[0]?.update).toHaveBeenCalledTimes(1);
     });
 
-    it('disables the annotation editor layer for the current document after a render crash', () => {
+    it('disables the annotation editor layer for the current document after a render crash', async () => {
         const firstDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
         const secondDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
         const pdfDocument = cast<Ref<PDFDocumentProxy | null>>(ref(firstDocument));
@@ -328,7 +328,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const container = createContainer(pageCanvas);
         const annotationEditorLayerDiv = createDiv();
 
-        const firstResult = renderer.renderAnnotationEditorLayer(
+        const firstResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             null,
@@ -342,7 +342,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
         expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
 
-        const secondResult = renderer.renderAnnotationEditorLayer(
+        const secondResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             createDiv(),
@@ -357,7 +357,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         pdfDocument.value = secondDocument;
 
-        const thirdResult = renderer.renderAnnotationEditorLayer(
+        const thirdResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             createDiv(),
@@ -431,7 +431,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(annotationLayer?.getEditableAnnotation?.('42R')).not.toBeNull();
     });
 
-    it('rebuilds the editor layer when managed hidden annotation ids change', () => {
+    it('rebuilds the editor layer when managed hidden annotation ids change', async () => {
         const hiddenAnnotationIds = ref<Set<string>>(new Set());
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(1),
@@ -448,7 +448,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const annotationEditorLayerDiv = createDiv();
         const textLayerDiv = createDiv();
 
-        const firstResult = renderer.renderAnnotationEditorLayer(
+        const firstResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             textLayerDiv,
@@ -462,7 +462,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         hiddenAnnotationIds.value = new Set(['12R0']);
 
-        const secondResult = renderer.renderAnnotationEditorLayer(
+        const secondResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             textLayerDiv,
@@ -476,7 +476,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
     });
 
-    it('rebuilds the editor layer when managed annotation ownership changes even if hidden ids stay the same', () => {
+    it('rebuilds the editor layer when managed annotation ownership changes even if hidden ids stay the same', async () => {
         const hiddenAnnotationIds = ref<Set<string>>(new Set([
             '12R',
             '42R',
@@ -498,7 +498,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const annotationEditorLayerDiv = createDiv();
         const textLayerDiv = createDiv();
 
-        const firstResult = renderer.renderAnnotationEditorLayer(
+        const firstResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             textLayerDiv,
@@ -512,7 +512,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         managedAnnotationIds.value = new Set(['42R']);
 
-        const secondResult = renderer.renderAnnotationEditorLayer(
+        const secondResult = await renderer.renderAnnotationEditorLayer(
             container,
             annotationEditorLayerDiv,
             textLayerDiv,

@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    effectScope,
+    ref,
+} from 'vue';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 
 describe('useDirtyTabCloseDialog', () => {
@@ -35,5 +38,21 @@ describe('useDirtyTabCloseDialog', () => {
 
         dialog.resolveDirtyTabCloseDialog(false);
         await expect(confirmationPromise).resolves.toBe(false);
+    });
+
+    it('settles a pending confirmation when its scope is disposed', async () => {
+        const tabs = ref([]);
+        const scope = effectScope();
+        const dialog = scope.run(() => useDirtyTabCloseDialog({tabs}));
+
+        if (!dialog) {
+            throw new Error('Expected dialog composable to initialize in scope');
+        }
+
+        const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('tab-1');
+        scope.stop();
+
+        await expect(confirmationPromise).resolves.toBe(false);
+        expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 });

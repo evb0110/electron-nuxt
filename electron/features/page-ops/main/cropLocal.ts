@@ -35,6 +35,18 @@ function assertValidMargins(margins: ICropMargins) {
     }
 }
 
+function assertValidRequestedPages(pages: number[], totalPages: number) {
+    if (pages.length === 0) {
+        throw new Error('At least one page must be selected');
+    }
+
+    for (const pageNumber of pages) {
+        if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > totalPages) {
+            throw new Error(`Page ${pageNumber} is outside the document page range 1-${totalPages}`);
+        }
+    }
+}
+
 function boxesEqual(
     left: {
         x: number;
@@ -79,7 +91,8 @@ async function mutatePdfPages(
     }
     const pdfBytes = await readFile(workingCopyPath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
-    mutate(pdfDoc.getPages());
+    const pages = pdfDoc.getPages();
+    mutate(pages);
     await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
@@ -91,9 +104,9 @@ export async function cropPagesLocal(
     assertValidMargins(margins);
 
     await mutatePdfPages(workingCopyPath, (allPages) => {
+        assertValidRequestedPages(pages, allPages.length);
         for (const pageNum of pages) {
-            const page = allPages[pageNum - 1];
-            if (!page) continue;
+            const page = allPages[pageNum - 1]!;
 
             const mediaBox = page.getMediaBox();
             const cropX = mediaBox.x + margins.left;
@@ -116,9 +129,9 @@ export async function removeCropFromPagesLocal(
     pages: number[],
 ) {
     await mutatePdfPages(workingCopyPath, (allPages) => {
+        assertValidRequestedPages(pages, allPages.length);
         for (const pageNum of pages) {
-            const page = allPages[pageNum - 1];
-            if (!page) continue;
+            const page = allPages[pageNum - 1]!;
 
             const mediaBox = page.getMediaBox();
             const cropBox = page.getCropBox();

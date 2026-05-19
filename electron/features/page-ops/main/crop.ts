@@ -1,4 +1,5 @@
 import { existsSync } from 'fs';
+import { stat } from 'fs/promises';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type {
@@ -22,6 +23,8 @@ const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CROP_WORKER_FILENAME = 'page-ops-cropWorker.js';
 const CROP_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
+const CROP_LOCAL_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
+const CROP_LOCAL_FALLBACK_MAX_REQUESTED_PAGES = 100;
 
 class CropWorkerUnavailableError extends Error {
     constructor(message: string) {
@@ -79,6 +82,20 @@ function shouldFallbackToLocalCrop(error: unknown) {
     return error instanceof CropWorkerUnavailableError;
 }
 
+async function assertLocalCropFallbackAllowed(workingCopyPath: string, requestedPageCount: number) {
+    if (requestedPageCount > CROP_LOCAL_FALLBACK_MAX_REQUESTED_PAGES) {
+        throw new Error(
+            `Crop worker unavailable and in-process fallback is capped at ${CROP_LOCAL_FALLBACK_MAX_REQUESTED_PAGES} requested pages`,
+        );
+    }
+
+    const inputStat = await stat(workingCopyPath);
+    if (inputStat.size > CROP_LOCAL_FALLBACK_MAX_BYTES) {
+        const maxMb = Math.floor(CROP_LOCAL_FALLBACK_MAX_BYTES / (1024 * 1024));
+        throw new Error(`Crop worker unavailable and in-process fallback is capped at ${maxMb}MB PDFs`);
+    }
+}
+
 export async function cropPages(
     workingCopyPath: string,
     pages: number[],
@@ -95,6 +112,7 @@ export async function cropPages(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
+        await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
         await cropPagesLocal(workingCopyPath, pages, margins);
     }
@@ -114,6 +132,7 @@ export async function removeCropFromPages(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
+        await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
         await removeCropFromPagesLocal(workingCopyPath, pages);
     }
@@ -133,6 +152,7 @@ export async function getPageGeometry(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
+        await assertLocalCropFallbackAllowed(workingCopyPath, 1);
         log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
         return getPageGeometryLocal(workingCopyPath, pageNumber);
     }

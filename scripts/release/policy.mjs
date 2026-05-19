@@ -117,8 +117,11 @@ export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.
         if (/^latest-mac.*\.yml$/u.test(fileName)) {
             return !hasMacPolicy;
         }
-        if (/^latest.*\.yml$/u.test(fileName)) {
+        if (/^latest(?:-win(?:-.*)?)?\.yml$/u.test(fileName)) {
             return !hasWindowsPolicy;
+        }
+        if (/^latest.*\.yml$/u.test(fileName)) {
+            return true;
         }
         if (fileName.endsWith('.dmg.blockmap') || fileName.endsWith('.zip.blockmap')) {
             return !hasMacPolicy;

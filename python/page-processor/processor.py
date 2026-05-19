@@ -310,11 +310,13 @@ class PageProcessor:
             output_path = Path(output_dir) / output_filename
 
             progress("saving", f"Saving {output_filename}")
-            cv2.imwrite(
+            ok = cv2.imwrite(
                 str(output_path),
                 page,
                 [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
             )
+            if not ok:
+                raise RuntimeError(f"Failed to write output image: {output_path}")
             output_paths.append(str(output_path))
             ph, pw = page.shape[:2]
             output_sizes.append({"width": int(pw), "height": int(ph)})

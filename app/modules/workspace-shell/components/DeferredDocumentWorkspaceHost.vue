@@ -1044,19 +1044,20 @@ async function ensureWorkspaceLoaded(reason: string) {
     return loadedWorkspace;
 }
 
-async function withLoadedWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
+async function withLoadedWorkspace<T = void>(action: string, run: (workspace: IWorkspaceExpose) => Promise<T> | T) {
     const workspace = mountedWorkspace.value;
     if (!workspace) {
-        return;
+        return undefined;
     }
 
     try {
-        await run(workspace);
+        return await run(workspace);
     } catch (error) {
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
             tabId: tabId,
             error,
         });
+        return undefined;
     }
 }
 
@@ -1277,7 +1278,7 @@ const workspaceExpose: IWorkspaceExpose = {
         ));
     },
     handleCloseFileFromUi: async (options) => {
-        await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options));
+        return await withLoadedWorkspace('handleCloseFileFromUi', workspace => workspace.handleCloseFileFromUi(options)) ?? false;
     },
     openRecentFile: async (file: IRecentFile) => {
         return enqueueDocumentOpen({

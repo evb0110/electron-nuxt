@@ -43,6 +43,7 @@ const SINGLE_PAGE_PRINT_SAFE_MARGIN_PT = 0;
 const BROWSER_PRINT_RESOLUTION_DPI = 300;
 const PDF_POINTS_PER_INCH = 72;
 const BROWSER_PRINT_RENDER_SCALE = BROWSER_PRINT_RESOLUTION_DPI / PDF_POINTS_PER_INCH;
+const BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT = 0.5;
 const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
     {
         key: 'a4' as const,
@@ -233,6 +234,28 @@ function setBrowserPrintPageSize(
     head.appendChild(style);
 }
 
+function assertBrowserPrintPageMatchesFirstPage(
+    pageNumber: number,
+    width: number,
+    height: number,
+    firstPageSize: {
+        width: number;
+        height: number;
+    },
+) {
+    const widthDelta = Math.abs(width - firstPageSize.width);
+    const heightDelta = Math.abs(height - firstPageSize.height);
+
+    if (
+        widthDelta > BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT
+        || heightDelta > BROWSER_PRINT_PAGE_SIZE_TOLERANCE_PT
+    ) {
+        throw new Error(
+            `Browser printing does not support mixed page sizes or orientations. Page ${pageNumber} is ${width.toFixed(2)}x${height.toFixed(2)}pt, but page 1 is ${firstPageSize.width.toFixed(2)}x${firstPageSize.height.toFixed(2)}pt.`,
+        );
+    }
+}
+
 export async function renderPdfPagesForBrowserPrint(
     targetDocument: IBrowserPrintDocument,
     printablePdf: Blob | Uint8Array,
@@ -257,13 +280,28 @@ export async function renderPdfPagesForBrowserPrint(
     const pdfDocument = await loadingTask.promise;
 
     try {
+        let firstPageSize: {
+            width: number;
+            height: number;
+        } | null = null;
         for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
             const page = await pdfDocument.getPage(pageNumber);
 
             try {
                 const displayViewport = page.getViewport({ scale: 1 });
                 if (pageNumber === 1) {
+                    firstPageSize = {
+                        width: displayViewport.width,
+                        height: displayViewport.height,
+                    };
                     setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
+                } else if (firstPageSize) {
+                    assertBrowserPrintPageMatchesFirstPage(
+                        pageNumber,
+                        displayViewport.width,
+                        displayViewport.height,
+                        firstPageSize,
+                    );
                 }
 
                 const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });

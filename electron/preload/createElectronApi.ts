@@ -169,14 +169,13 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pendingRendererFileOpenAllows = new Map<string, Promise<unknown>>();
-    const rendererFileOpenToken = globalThis.crypto.randomUUID();
-    const rendererFileOpenTokenRegistration = ipcRenderer.invoke(
-        DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
-        rendererFileOpenToken,
-    );
 
     function allowRendererFileOpen(filePath: string) {
-        const allowPromise = rendererFileOpenTokenRegistration
+        const rendererFileOpenToken = globalThis.crypto.randomUUID();
+        const allowPromise = ipcRenderer.invoke(
+            DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
+            rendererFileOpenToken,
+        )
             .then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
                 filePath,
                 token: rendererFileOpenToken,

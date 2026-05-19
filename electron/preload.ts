@@ -470,14 +470,13 @@ contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 
 if (isRendererAutomationFileOpenHelperEnabled()) {
-    const automationFileOpenToken = globalThis.crypto.randomUUID();
-    const automationFileOpenTokenRegistration = ipcRenderer.invoke(
-        DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
-        automationFileOpenToken,
-    );
     contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
         const path = typeof filePath === 'string' ? filePath : '';
-        return automationFileOpenTokenRegistration.then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+        const automationFileOpenToken = globalThis.crypto.randomUUID();
+        return ipcRenderer.invoke(
+            DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
+            automationFileOpenToken,
+        ).then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
             filePath: path,
             token: automationFileOpenToken,
         }));

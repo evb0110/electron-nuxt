@@ -160,6 +160,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         new WeakSet<PDFDocumentProxy>();
     let annotationEditorLayerDisabledWithoutDocument = false;
     let activeEditorDocument: PDFDocumentProxy | null = deps.pdfDocument.value;
+    let annotationLayerRenderToken = 0;
+    const annotationLayerPageRenderTokens = new Map<number, number>();
     const fallbackL10n: IL10n = {
         getLanguage: () => 'en',
         getDirection: () => 'ltr',
@@ -543,12 +545,17 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pdfPage: PDFPageProxy,
         annotationLayerDiv: HTMLElement,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
-        _pageNumber: number,
+        pageNumber: number,
         annotationCanvasMap?: Map<string, HTMLCanvasElement> | null,
     ) {
         annotationLayerDiv.innerHTML = '';
 
+        const renderToken = ++annotationLayerRenderToken;
+        annotationLayerPageRenderTokens.set(pageNumber, renderToken);
         const annotations = await pdfPage.getAnnotations();
+        if (annotationLayerPageRenderTokens.get(pageNumber) !== renderToken) {
+            return null;
+        }
         const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
         const visibleAnnotations = hiddenAnnotationIds.size === 0
             ? annotations
@@ -649,7 +656,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return applyHiddenEditableAnnotationFilter(annotationLayerInstance);
     }
 
-    function renderAnnotationEditorLayer(
+    async function renderAnnotationEditorLayer(
         container: HTMLElement,
         annotationEditorLayerDiv: HTMLElement,
         textLayerDiv: HTMLDivElement | null,
@@ -684,7 +691,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 );
             }
 
-            const activeLayer = renderOrUpdateAnnotationEditorLayer({
+            const activeLayer = await renderOrUpdateAnnotationEditorLayer({
                 annotationEditorLayerDiv,
                 annotationLayerInstance,
                 annotationUiManager,
@@ -771,7 +778,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         }
     }
 
-    function renderOrUpdateAnnotationEditorLayer(params: {
+    async function renderOrUpdateAnnotationEditorLayer(params: {
         annotationEditorLayerDiv: HTMLElement;
         annotationLayerInstance: TAnnotationLayer | null;
         annotationUiManager: AnnotationEditorUIManager;
@@ -813,7 +820,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             editorLayer.update({ viewport: pageMetrics.editorViewport });
         } else {
             annotationEditorLayers.set(pageNumber, activeLayer);
-            void activeLayer.render({ viewport: pageMetrics.editorViewport });
+            await Promise.resolve(activeLayer.render({ viewport: pageMetrics.editorViewport }));
         }
 
         return activeLayer;
@@ -892,6 +899,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function clearAllLayers() {
+        annotationLayerPageRenderTokens.clear();
         for (const pageNumber of [...annotationEditorLayers.keys()]) {
             cleanupEditorLayer(pageNumber);
         }

@@ -811,7 +811,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             toValue(options.annotationUiManager)
         ) {
             try {
-                annotationLayerRenderer.renderAnnotationEditorLayer(
+                await annotationLayerRenderer.renderAnnotationEditorLayer(
                     container,
                     annotationEditorLayerDiv,
                     textLayerDiv,

@@ -2,13 +2,20 @@ import {
     createWriteStream,
     type WriteStream,
 } from 'fs';
-import { readFile } from 'fs/promises';
+import {
+    readFile,
+    rm,
+} from 'fs/promises';
 import { sumBy } from 'es-toolkit/math';
 import * as utifModule from 'utif';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@contracts/tiffEncoding';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 interface IUtifFrame {
     width?: number;
@@ -273,7 +280,9 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
         throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
     }
 
-    const stream = createWriteStream(outputPath, { flags: 'w' });
+    const tempOutputPath = makeSiblingTempPath(outputPath);
+    const stream = createWriteStream(tempOutputPath, { flags: 'w' });
+    let replacedOutput = false;
 
     try {
         await writeChunkToStream(stream, header);
@@ -299,8 +308,14 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
         }
 
         await closeWriteStream(stream);
+        await atomicReplace(tempOutputPath, outputPath);
+        replacedOutput = true;
     } catch (error) {
         stream.destroy();
         throw error;
+    } finally {
+        if (!replacedOutput) {
+            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+        }
     }
 }

@@ -1,7 +1,12 @@
 import {
+    mkdtemp,
+    rm,
     stat,
     unlink,
+    writeFile,
 } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
@@ -37,7 +42,56 @@ function buildComplementRanges(pagesToRemove: number[], totalPages: number) {
 }
 
 function formatPageList(pages: number[]) {
-    return pages.join(',');
+    const ranges: string[] = [];
+    let rangeStart: number | null = null;
+    let previous: number | null = null;
+
+    for (const page of pages) {
+        if (rangeStart === null || previous === null) {
+            rangeStart = page;
+            previous = page;
+            continue;
+        }
+
+        if (page === previous + 1) {
+            previous = page;
+            continue;
+        }
+
+        ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+        rangeStart = page;
+        previous = page;
+    }
+
+    if (rangeStart !== null && previous !== null) {
+        ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+    }
+
+    return ranges.join(',');
+}
+
+async function writeQpdfArgsFile(args: string[]) {
+    const tempDir = await mkdtemp(join(tmpdir(), 'qpdfArgs-'));
+    const argsPath = join(tempDir, 'args.txt');
+    await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
+    return {
+        argsPath,
+        cleanup: async () => {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
+        },
+    };
+}
+
+async function runQpdfCommand(args: string[], options: Parameters<typeof runNativeToolCommand>[2]) {
+    const argsFile = await writeQpdfArgsFile(args);
+    try {
+        await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], options);
+    } finally {
+        await argsFile.cleanup();
+    }
 }
 
 async function replaceQpdfOutput(tempPath: string, targetPath: string) {
@@ -84,18 +138,16 @@ export async function extractPages(
     destPath: string,
     pages: number[],
 ) {
-    const qpdf = getQpdfBinary();
     const tempPath = makeTempPdfOutputPath(destPath);
     try {
-        const args = [
+        await runQpdfCommand([
             srcPath,
             '--pages',
             srcPath,
             formatPageList(pages),
             '--',
             tempPath,
-        ];
-        await runNativeToolCommand(qpdf, args, {
+        ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(extract-pages)',
@@ -119,22 +171,20 @@ export async function deletePages(
         throw new Error('Cannot delete all pages from the document');
     }
 
-    const qpdf = getQpdfBinary();
     if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
         throw new Error('Working copy path is not managed');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
-        const args = [
+        await runQpdfCommand([
             workingCopyPath,
             '--pages',
             workingCopyPath,
             formatPageList(kept),
             '--',
             tempPath,
-        ];
-        await runNativeToolCommand(qpdf, args, {
+        ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(delete-pages)',
@@ -153,22 +203,20 @@ export async function reorderPages(
     workingCopyPath: string,
     newOrder: number[],
 ) {
-    const qpdf = getQpdfBinary();
     if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
         throw new Error('Working copy path is not managed');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
-        const args = [
+        await runQpdfCommand([
             workingCopyPath,
             '--pages',
             workingCopyPath,
             formatPageList(newOrder),
             '--',
             tempPath,
-        ];
-        await runNativeToolCommand(qpdf, args, {
+        ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(reorder-pages)',
@@ -190,19 +238,17 @@ export async function rotatePages(
     pages: number[],
     angle: TRotationAngle,
 ) {
-    const qpdf = getQpdfBinary();
     if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
         throw new Error('Working copy path is not managed');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
-        const args = [
+        await runQpdfCommand([
             workingCopyPath,
             `--rotate=+${angle}:${formatPageList(pages)}`,
             tempPath,
-        ];
-        await runNativeToolCommand(qpdf, args, {
+        ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(rotate-pages)',

@@ -56,6 +56,12 @@ export const useDirtyTabCloseDialog = (
         });
     }
 
+    if (getCurrentScope()) {
+        onScopeDispose(() => {
+            resolveDirtyTabCloseDialog(false);
+        });
+    }
+
     return {
         dirtyTabCloseDialogOpen,
         dirtyTabCloseTargetId,

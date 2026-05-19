@@ -303,40 +303,59 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         if (shouldPersist) {
             const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
             if (!canProceed) {
-                return;
+                return false;
             }
         } else {
             await waitUntilAllIdle();
             if (hasBusyOperation()) {
-                return;
+                return false;
             }
         }
 
         await closeFile();
         closeAllDropdowns();
+        return true;
     }
 
     async function recentFilePathExists(path: TDocumentRef) {
         try {
             await getDocumentsCapability().readFileRange(path, 0, 1);
-            return true;
+            return {
+                exists: true,
+                permissionDenied: false,
+            };
         } catch (probeError) {
+            const errorMessage = stringifyError(probeError);
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file probe failed', {
                 path,
-                error: stringifyError(probeError),
+                error: errorMessage,
             });
-            return false;
+            return {
+                exists: false,
+                permissionDenied: isRecentFileProbePermissionDenied(errorMessage),
+            };
         }
+    }
+
+    function isRecentFileProbePermissionDenied(errorMessage: string) {
+        return /\b(?:capability|permission|token)\b/i.test(errorMessage)
+            && /\bden(?:ied|y)|\bunauthori[sz]ed\b|\bforbidden\b|\bnot allowed\b/i.test(errorMessage);
     }
 
     async function openRecentFile(file: IRecentFile) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
 
-        if (isBrowserDocumentRef(file.originalPath) && !await recentFilePathExists(file.originalPath)) {
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
-            await removeRecentFile(file);
-            notifyMissingRecentFile(file);
-            return false;
+        if (isBrowserDocumentRef(file.originalPath)) {
+            const probeResult = await recentFilePathExists(file.originalPath);
+            if (probeResult.permissionDenied) {
+                return handleOpenFileDirectWithPersist(file.originalPath);
+            }
+            if (!probeResult.exists) {
+                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
+                await removeRecentFile(file);
+                notifyMissingRecentFile(file);
+                return false;
+            }
         }
 
         return handleOpenFileDirectWithPersist(file.originalPath);

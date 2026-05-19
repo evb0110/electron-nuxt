@@ -56,10 +56,7 @@ import {
     getRecentFiles,
     removeRecentFile,
 } from '@electron/recentFiles';
-import {
-    allowOpenPaths,
-    removeAllowedOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+import { removeAllowedOpenPath } from '@electron/ipc/openPathCapabilities';
 import {
     setMenuDocumentState,
     setMenuTabCount,
@@ -129,10 +126,9 @@ export function createDocumentsService(): IDocumentsService {
 
             setMenuTabCount(window.id, tabCount);
         },
-        getRecentFiles: async (event) => {
+        getRecentFiles: async (_event) => {
             const startedAt = Date.now();
             const files = await getRecentFiles();
-            allowOpenPaths(files.map(file => file.originalPath), event.sender);
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC recentFiles:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
