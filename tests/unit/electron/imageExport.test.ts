@@ -129,6 +129,14 @@ describe('image export', () => {
             await rm(sourcePath, { force: true });
         });
         mocks.runCommand.mockImplementation(async (command: string, args: string[]) => {
+            if (command === '/mock/qpdf' && args[0] === '--show-npages') {
+                return {
+                    stdout: String(mocks.pdfPageCount),
+                    stderr: '',
+                    exitCode: 0,
+                };
+            }
+
             if (command !== '/mock/pdftoppm') {
                 throw new Error(`Unexpected command: ${command}`);
             }
@@ -212,7 +220,6 @@ describe('image export', () => {
             255,
         ]);
 
-        expect(mocks.runCommand).toHaveBeenCalledTimes(1);
         expect(mocks.runCommand).toHaveBeenCalledWith(
             '/mock/pdftoppm',
             expect.any(Array),

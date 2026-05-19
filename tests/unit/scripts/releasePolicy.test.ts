@@ -122,6 +122,14 @@ describe('release policy', () => {
         })).toThrow('latest.yml');
 
         expect(() => assertPublishUpdaterMetadataPolicy([
+            'EVB Viewer-0.1.0.AppImage',
+            'latest-linux.yml',
+        ], {
+            EVB_RELEASE_HAS_MAC_SIGNING: 'false',
+            EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
+        })).toThrow('latest-linux.yml');
+
+        expect(() => assertPublishUpdaterMetadataPolicy([
             'EVB Viewer-0.1.0-arm64.dmg',
             'latest-mac.yml',
             'EVB Viewer-0.1.0-arm64.dmg.blockmap',

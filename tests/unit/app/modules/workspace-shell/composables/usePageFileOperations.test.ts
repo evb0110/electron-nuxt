@@ -399,7 +399,7 @@ describe('usePageFileOperations', () => {
         });
         const { handleCloseFileFromUi } = usePageFileOperations(deps);
 
-        await expect(handleCloseFileFromUi()).resolves.toBeUndefined();
+        await expect(handleCloseFileFromUi()).resolves.toBe(false);
 
         expect(deps.closeFile).not.toHaveBeenCalled();
         expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
@@ -408,5 +408,23 @@ describe('usePageFileOperations', () => {
             'Switch blocked: save before switch threw',
             { error: 'cannot save' },
         );
+    });
+
+    it('keeps a browser recent entry when the probe is denied by capability or token policy', async () => {
+        mockReadFileRange.mockRejectedValueOnce(new Error('Capability token denied'));
+        const deps = createDeps();
+        const { openRecentFile } = usePageFileOperations(deps);
+        const file = {
+            originalPath: 'browser://documents/uuid/denied.pdf',
+            fileName: 'denied.pdf',
+            timestamp: 0,
+            fileSize: 4096,
+        };
+
+        await openRecentFile(file);
+
+        expect(deps.openFileDirect).toHaveBeenCalledWith('browser://documents/uuid/denied.pdf');
+        expect(deps.removeRecentFile).not.toHaveBeenCalled();
+        expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
     });
 });

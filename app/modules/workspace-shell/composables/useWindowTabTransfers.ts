@@ -288,8 +288,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
         options.workspaceRestoreTracker.start(tabId);
         try {
-            await workspace.handleCloseFileFromUi({persist: false});
-            return true;
+            return await workspace.handleCloseFileFromUi({persist: false});
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                 tabId,

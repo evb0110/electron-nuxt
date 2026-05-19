@@ -403,13 +403,14 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         shouldPersistBeforeClose: boolean,
     ) {
         workspaceRestoreTracker.start(tabId);
+        let closed = false;
         try {
-            await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
+            closed = await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
         } finally {
             workspaceRestoreTracker.finish(tabId);
         }
 
-        if (!workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
+        if (closed && !workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
             closeResolvedTabInState(groupId, tabId);
         }
     }

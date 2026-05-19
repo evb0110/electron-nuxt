@@ -3,12 +3,12 @@ import {
     copyFile,
     mkdir,
     mkdtemp,
-    readFile,
     readdir,
     stat,
     rename,
     rm,
     unlink,
+    writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import {
@@ -23,7 +23,6 @@ import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
-import { PDFDocument } from 'pdf-lib';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
@@ -190,11 +189,18 @@ function throwIfAborted(signal?: AbortSignal) {
 }
 
 async function getPdfPageCount(pdfPath: string): Promise<number> {
-    const pdf = await PDFDocument.load(await readFile(pdfPath), {
-        ignoreEncryption: true,
-        updateMetadata: false,
+    const result = await runNativeToolCommand(getNativeToolPaths().qpdf, [
+        '--show-npages',
+        pdfPath,
+    ], {
+        timeoutMs: QPDF_TIMEOUT_MS,
+        commandLabel: 'qpdf(export-page-count)',
     });
-    return pdf.getPageCount();
+    const pageCount = Number.parseInt(result.stdout.trim(), 10);
+    if (!Number.isInteger(pageCount) || pageCount < 1) {
+        throw new Error('Failed to read PDF page count');
+    }
+    return pageCount;
 }
 
 function assertExportPageCountWithinLimit(pageCount: number) {
@@ -293,7 +299,47 @@ function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | nul
 }
 
 function formatPageList(pageNumbers: number[]): string {
-    return pageNumbers.join(',');
+    const ranges: string[] = [];
+    let rangeStart: number | null = null;
+    let previous: number | null = null;
+
+    for (const pageNumber of pageNumbers) {
+        if (rangeStart === null || previous === null) {
+            rangeStart = pageNumber;
+            previous = pageNumber;
+            continue;
+        }
+
+        if (pageNumber === previous + 1) {
+            previous = pageNumber;
+            continue;
+        }
+
+        ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+        rangeStart = pageNumber;
+        previous = pageNumber;
+    }
+
+    if (rangeStart !== null && previous !== null) {
+        ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+    }
+
+    return ranges.join(',');
+}
+
+async function writeQpdfArgsFile(args: string[]) {
+    const tempDir = await mkdtemp(join(tmpdir(), 'qpdfArgs-'));
+    const argsPath = join(tempDir, 'args.txt');
+    await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
+    return {
+        argsPath,
+        cleanup: async () => {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
+        },
+    };
 }
 
 async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOptions): Promise<IPreparedSourcePdf> {
@@ -312,18 +358,24 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
 
     try {
         throwIfAborted(options.signal);
-        await runNativeToolCommand(qpdf, [
+        const qpdfArgs = [
             pdfPath,
             '--pages',
             pdfPath,
             formatPageList(normalizedPages),
             '--',
             subsetPdfPath,
-        ], {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            commandLabel: 'qpdf(export-subset)',
-            ...(options.signal ? { signal: options.signal } : {}),
-        });
+        ];
+        const argsFile = await writeQpdfArgsFile(qpdfArgs);
+        try {
+            await runNativeToolCommand(qpdf, [`@${argsFile.argsPath}`], {
+                timeoutMs: QPDF_TIMEOUT_MS,
+                commandLabel: 'qpdf(export-subset)',
+                ...(options.signal ? { signal: options.signal } : {}),
+            });
+        } finally {
+            await argsFile.cleanup();
+        }
 
         return {
             pdfPath: subsetPdfPath,
@@ -465,56 +517,71 @@ async function runLocalTiffCombine(pagePaths: string[], outputPath: string) {
 }
 
 async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
-    const workerPath = resolveTiffCombineWorkerPath();
-    if (!existsSync(workerPath)) {
-        if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
-            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
-            throw getTiffCombineFallbackDisabledError();
-        }
+    const tempOutputPath = makeSiblingTempPath(outputPath);
+    let replacedOutput = false;
 
-        logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-        await runLocalTiffCombine(pagePaths, outputPath);
-        return;
-    }
+    const workerPath = resolveTiffCombineWorkerPath();
 
     try {
-        await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
-            workerPath,
-            workerData: {
-                pagePaths,
-                outputPath,
-            },
-            invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
-            createStartError: message => new TiffCombineWorkerStartupError(
-                `TIFF combine worker failed to start: ${message}`,
-            ),
-            createStartupError: message => new TiffCombineWorkerStartupError(
-                `TIFF combine worker failed before becoming ready: ${message}`,
-            ),
-            createStartupExitError: code => new TiffCombineWorkerStartupError(
-                `TIFF combine worker exited during startup with code ${code}`,
-            ),
-            createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
-            timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
-        }), {
-            thresholdMs: 25,
-            details: {
-                pageCount: pagePaths.length,
-                outputPath,
-            },
-        });
-    } catch (error) {
-        if (!(error instanceof TiffCombineWorkerStartupError)) {
-            throw error;
+        if (!existsSync(workerPath)) {
+            if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
+                logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
+                throw getTiffCombineFallbackDisabledError();
+            }
+
+            logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
+            await runLocalTiffCombine(pagePaths, tempOutputPath);
+            await atomicReplace(tempOutputPath, outputPath);
+            replacedOutput = true;
+            return;
         }
 
-        if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
-            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
-            throw getTiffCombineFallbackDisabledError();
+        try {
+            await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
+                workerPath,
+                workerData: {
+                    pagePaths,
+                    outputPath: tempOutputPath,
+                },
+                invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
+                createStartError: message => new TiffCombineWorkerStartupError(
+                    `TIFF combine worker failed to start: ${message}`,
+                ),
+                createStartupError: message => new TiffCombineWorkerStartupError(
+                    `TIFF combine worker failed before becoming ready: ${message}`,
+                ),
+                createStartupExitError: code => new TiffCombineWorkerStartupError(
+                    `TIFF combine worker exited during startup with code ${code}`,
+                ),
+                createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
+                timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
+            }), {
+                thresholdMs: 25,
+                details: {
+                    pageCount: pagePaths.length,
+                    outputPath,
+                },
+            });
+        } catch (error) {
+            if (!(error instanceof TiffCombineWorkerStartupError)) {
+                throw error;
+            }
+
+            if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
+                logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
+                throw getTiffCombineFallbackDisabledError();
+            }
+
+            logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
+            await runLocalTiffCombine(pagePaths, tempOutputPath);
         }
 
-        logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-        await runLocalTiffCombine(pagePaths, outputPath);
+        await atomicReplace(tempOutputPath, outputPath);
+        replacedOutput = true;
+    } finally {
+        if (!replacedOutput) {
+            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+        }
     }
 }
 

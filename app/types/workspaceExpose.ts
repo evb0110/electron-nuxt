@@ -90,7 +90,7 @@ export interface IWorkspaceFilePort {
     handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
-    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
+    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<boolean>;
     openRecentFile: (file: IRecentFile) => Promise<boolean>;
 }
 

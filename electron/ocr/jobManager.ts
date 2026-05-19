@@ -143,8 +143,14 @@ type TQueueCapacityResult = { ok: true; } | {
     error: string;
 };
 
-function ensureQueueCapacity(additionalBytes: number): TQueueCapacityResult {
-    if (queuedJobs.length + preparingJobs.size > OCR_QUEUE_MAX_SIZE) {
+function ensureQueueCapacity(
+    additionalBytes: number,
+    options: { excludePreparingJobId?: string } = {},
+): TQueueCapacityResult {
+    const preparingCount = options.excludePreparingJobId === undefined
+        ? preparingJobs.size
+        : preparingJobs.size - (preparingJobs.has(options.excludePreparingJobId) ? 1 : 0);
+    if (queuedJobs.length + preparingCount >= OCR_QUEUE_MAX_SIZE) {
         return {
             ok: false,
             error: `OCR queue is full (${OCR_QUEUE_MAX_SIZE} jobs)`,
@@ -823,7 +829,7 @@ export async function handleOcrCreateSearchablePdfAsync(
 
         const requestBytes = await estimateRequestBytes(sourcePdfPath, pages);
         preparingJob.requestedBytes = requestBytes;
-        const capacityResult = ensureQueueCapacity(0);
+        const capacityResult = ensureQueueCapacity(0, { excludePreparingJobId: scopedJobId });
         if (!capacityResult.ok) {
             return createQueueFailure(requestId, capacityResult.error);
         }
@@ -847,7 +853,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (recheckBlock) {
             return recheckBlock;
         }
-        const recheckedCapacityResult = ensureQueueCapacity(0);
+        const recheckedCapacityResult = ensureQueueCapacity(0, { excludePreparingJobId: scopedJobId });
         if (!recheckedCapacityResult.ok) {
             return createQueueFailure(requestId, recheckedCapacityResult.error);
         }

@@ -398,12 +398,12 @@ describe('pdfPrint', () => {
             cleanup: vi.fn(),
             getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
                 ? {
-                    width: 120,
-                    height: 180,
+                    width: 100,
+                    height: 200,
                 }
                 : {
-                    width: 500,
-                    height: 750,
+                    width: 416.6666666666667,
+                    height: 833.3333333333334,
                 }),
             render: vi.fn(() => ({ promise: Promise.resolve() })),
         };
@@ -440,8 +440,8 @@ describe('pdfPrint', () => {
             canvas: secondCanvas,
             canvasContext: expect.any(Object),
             viewport: {
-                width: 500,
-                height: 750,
+                width: 416.6666666666667,
+                height: 833.3333333333334,
             },
         }));
         expect(firstCanvas.style).toEqual({
@@ -449,8 +449,8 @@ describe('pdfPrint', () => {
             width: '1.3889in',
         });
         expect(secondCanvas.style).toEqual({
-            height: '2.5in',
-            width: '1.6667in',
+            height: '2.7778in',
+            width: '1.3889in',
         });
         expect(createdSections[0]?.style).toEqual({});
         expect(createdSections[1]?.style).toEqual({});
@@ -458,6 +458,59 @@ describe('pdfPrint', () => {
         expect(secondPage.cleanup).toHaveBeenCalledTimes(1);
         expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
         expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects browser printing for mixed page sizes or orientations', async () => {
+        const root = {
+            append: vi.fn(),
+            replaceChildren: vi.fn(),
+        };
+        const targetDocument: IBrowserPrintDocument & { head: { appendChild: ReturnType<typeof vi.fn> } } = {
+            createElement: vi.fn((tag: 'canvas' | 'section' | 'style') => {
+                if (tag === 'style') {
+                    return { textContent: '' };
+                }
+                return {
+                    append: vi.fn(),
+                    className: '',
+                    getContext: vi.fn(() => ({ canvas: {} })),
+                    height: 0,
+                    style: {},
+                    width: 0,
+                };
+            }),
+            head: { appendChild: vi.fn() },
+            querySelector: () => root,
+        };
+        const firstPage = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(() => ({
+                width: 100,
+                height: 200,
+            })),
+            render: vi.fn(() => ({ promise: Promise.resolve() })),
+        };
+        const secondPage = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+            })),
+            render: vi.fn(() => ({ promise: Promise.resolve() })),
+        };
+        pdfjsModule.getDocument.mockReturnValue({
+            destroy: vi.fn(async () => {}),
+            promise: Promise.resolve({
+                destroy: vi.fn(async () => {}),
+                getPage: vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage),
+                numPages: 2,
+            }),
+        });
+
+        await expect(renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3)))
+            .rejects
+            .toThrow('Browser printing does not support mixed page sizes or orientations');
+        expect(secondPage.render).not.toHaveBeenCalled();
     });
 
     it('renders print bitmaps on host-document canvases before appending them to the print frame', async () => {
