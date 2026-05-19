@@ -671,6 +671,7 @@ export default {
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
         'showInFolder': 'Weergeven in map',
+        'showInFolderUnavailableWeb': 'Opgeslagen in deze browser',
     },
     'relativeTime': {
         'yesterday': 'Gisteren',
