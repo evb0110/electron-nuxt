@@ -144,6 +144,7 @@ const mocks = vi.hoisted(() => {
             isMac: false,
             renderer: {
                 trustedOrigin: 'evb-viewer://app',
+                trustedUrl: 'evb-viewer://app/electron',
                 url: 'evb-viewer://app/electron',
             },
             server: {url: 'http://127.0.0.1:3235'},

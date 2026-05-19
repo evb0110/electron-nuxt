@@ -25,11 +25,12 @@ const mockDocumentsCapability = {
 vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockDocumentsCapability }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 
-function createComposable() {
+function createComposable(options: {ensureWorkingCopyFreshForRead?: () => Promise<boolean>;} = {}) {
     const scope = effectScope();
     const state = scope.run(() => useWorkspaceExport({
         workingCopyPath: ref('/tmp/work.pdf'),
         totalPages: ref(5),
+        ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
     }));
 
     if (!state) {
@@ -142,6 +143,51 @@ describe('useWorkspaceExport', () => {
 
             expect(state.exportOverlay.value).toBeNull();
             expect(cleanupFileMock).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('persists pending changes before image export reads the working copy', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        exportImagesMock.mockResolvedValueOnce({
+            success: true,
+            outputPaths: ['/tmp/page-1.png'],
+        });
+
+        const {
+            scope,
+            state,
+        } = createComposable({ ensureWorkingCopyFreshForRead });
+
+        try {
+            const exportPromise = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await exportPromise;
+
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+            expect(exportImagesMock).toHaveBeenCalledWith('/tmp/work.pdf', [1]);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cancels image export when pending changes cannot be persisted', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
+
+        const {
+            scope,
+            state,
+        } = createComposable({ ensureWorkingCopyFreshForRead });
+
+        try {
+            const exportPromise = state.handleExportImages([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await exportPromise;
+
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+            expect(exportImagesMock).not.toHaveBeenCalled();
+            expect(state.exportOverlay.value).toBeNull();
         } finally {
             scope.stop();
         }

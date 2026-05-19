@@ -9,6 +9,7 @@ import { app } from 'electron';
 import { createLogger } from '@electron/utils/logger';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
+import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
 
 const log = createLogger('preprocessing');
 
@@ -74,17 +75,7 @@ function killPreprocessingProcess(proc: ReturnType<typeof spawn>, signal: NodeJS
 }
 
 function getPreprocessingBinaries(): IPreprocessingBinaries {
-    let resourcesBase: string;
-
-    if (app.isPackaged) {
-        resourcesBase = process.resourcesPath;
-    } else {
-        // Development: in bundled code, __dirname is dist-electron, so go up one level
-        // In source code from dist-electron/ocr, we'd go ../.. but esbuild bundles to dist-electron/main.js
-        // So __dirname will be dist-electron, and we need to go up once: ../resources
-        resourcesBase = join(__dirname, '..', 'resources');
-    }
-
+    const resourcesBase = resolveOcrResourcesBase(__dirname, app.isPackaged);
     const tesseractDir = join(resourcesBase, 'tesseract');
     const arch = resolvePlatformArchTag();
 

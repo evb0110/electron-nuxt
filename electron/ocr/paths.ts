@@ -12,6 +12,7 @@ import {
     ensureRuntimeTessdataSeeded,
     getRuntimeTessdataDir,
 } from '@electron/ocr/languageModels';
+import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
 interface IOcrPaths {
@@ -70,10 +71,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 
 function getResourcesBase(): string {
-    if (isPackaged) {
-        return process.resourcesPath;
-    }
-    return join(__dirname, '..', 'resources');
+    return resolveOcrResourcesBase(__dirname, isPackaged);
 }
 
 function findOnSystemPath(name: string): string {

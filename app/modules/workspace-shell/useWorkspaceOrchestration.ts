@@ -158,12 +158,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markBookmarksSaved,
     } = bookmarkState;
 
-    const exportControls = useWorkspaceExport({
-        workingCopyPath,
-        totalPages,
-    });
-    const { handleExportImages } = exportControls;
-
     const pageContextMenuControls = usePageContextMenu();
     const {
         pageContextMenu,
@@ -325,7 +319,22 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canSave,
         embedPlacedImageToPage,
         serializePdfForSave,
+        saveForExternalRead,
     } = pageSaveOrchestration;
+
+    async function ensureWorkingCopyFreshForRead() {
+        if (!hasPendingUnsavedChanges.value) {
+            return true;
+        }
+        return saveForExternalRead();
+    }
+
+    const exportControls = useWorkspaceExport({
+        workingCopyPath,
+        totalPages,
+        ensureWorkingCopyFreshForRead,
+    });
+    const { handleExportImages } = exportControls;
 
     const programmaticPageNavigationTarget = ref<number | null>(null);
     let programmaticPageNavigationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -486,6 +495,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preparePdfReloadWaiter,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
+        ensureWorkingCopyFreshForRead,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         annotationNoteWindows,

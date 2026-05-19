@@ -69,7 +69,7 @@ vi.mock('@electron/updates', () => ({
 }));
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/config', () => ({config: {renderer: {trustedOrigin: 'https://trusted.example'}}}));
+vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://trusted.example/electron'}}}));
 
 function createSender(id: number) {
     const once = vi.fn();
@@ -77,7 +77,7 @@ function createSender(id: number) {
         id,
         once,
         isDestroyed: () => false,
-        getURL: () => 'https://trusted.example/app',
+        getURL: () => 'https://trusted.example/electron',
         mainFrame: null,
     };
 }

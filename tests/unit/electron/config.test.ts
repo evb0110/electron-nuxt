@@ -43,6 +43,7 @@ describe('electron config runtime mode', () => {
         expect(config.isDev).toBe(true);
         expect(config.renderer.url).toBe(config.server.url);
         expect(config.renderer.trustedOrigin).toBe(new URL(config.server.url).origin);
+        expect(config.renderer.trustedUrl).toBe(config.server.url);
         expect(config.renderer.staticRoot).toContain('nuxt-output/public');
     });
 
@@ -58,6 +59,7 @@ describe('electron config runtime mode', () => {
         expect(config.isDev).toBe(false);
         expect(config.renderer.url).toBe('evb-viewer://app/electron');
         expect(config.renderer.trustedOrigin).toBe('evb-viewer://app');
+        expect(config.renderer.trustedUrl).toBe('evb-viewer://app/electron');
         expect(config.renderer.staticRoot).toBe('/Applications/EVB Viewer.app/Contents/Resources/app.asar/nuxt-output/public');
     });
 });

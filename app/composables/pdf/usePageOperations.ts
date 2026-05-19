@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
+import type { IPageOpsExtractResult } from '@contracts/electronApiPageOps';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -42,6 +43,7 @@ export const usePageOperations = (deps: {
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
 }) => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
@@ -53,6 +55,7 @@ export const usePageOperations = (deps: {
         clearOcrCache,
         resetSearchCache,
         onExtractedDocument,
+        ensureWorkingCopyFreshForRead,
     } = deps;
 
     const isOperationInProgress = ref(false);
@@ -68,6 +71,7 @@ export const usePageOperations = (deps: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;
+        beforeRun?: () => Promise<boolean>;
         shouldReload?: boolean;
         isSuccessful?: TPageOperationSuccess<TResult>;
         onSuccess?: (result: TResult) => Promise<void> | void;
@@ -91,6 +95,13 @@ export const usePageOperations = (deps: {
                     return false;
                 }
                 if (workingCopyPath.value !== path) {
+                    return false;
+                }
+            }
+
+            if (options.beforeRun) {
+                const canRun = await options.beforeRun();
+                if (!canRun || workingCopyPath.value !== path) {
                     return false;
                 }
             }
@@ -164,8 +175,9 @@ export const usePageOperations = (deps: {
             operationName: 'extractPages',
             errorKey: 'errors.pageOps.extract',
             run: (path) => getPageOpsCapability().extract(path, [...pages]),
+            ...(ensureWorkingCopyFreshForRead ? { beforeRun: ensureWorkingCopyFreshForRead } : {}),
             isSuccessful: result => result.success && !result.canceled,
-            onSuccess: async (result) => {
+            onSuccess: async (result: IPageOpsExtractResult) => {
                 if (result.destPath) {
                     await onExtractedDocument?.(result.destPath);
                 }

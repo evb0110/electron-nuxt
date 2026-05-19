@@ -33,6 +33,7 @@ import { measureElectronPerfAsync } from '@electron/utils/devPerf';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/env';
+import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
 
 const log = createLogger('ocr-languageModels');
 const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/main';
@@ -337,11 +338,7 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
 }
 
 function getBundledTessdataDir() {
-    if (isPackaged) {
-        return join(process.resourcesPath, 'tesseract', 'tessdata');
-    }
-
-    return join(__dirname, '..', 'resources', 'tesseract', 'tessdata');
+    return join(resolveOcrResourcesBase(__dirname, isPackaged), 'tesseract', 'tessdata');
 }
 
 export function getRuntimeTessdataDir() {

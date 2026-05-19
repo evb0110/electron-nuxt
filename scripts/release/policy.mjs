@@ -140,6 +140,62 @@ export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.
     }
 }
 
+export function getUpdaterMetadataFileNames(artifactNames) {
+    return [...artifactNames].filter(fileName => /^latest.*\.yml$/u.test(fileName));
+}
+
+export function parseUpdaterMetadataPath(metadataFileName, metadataText) {
+    const pathLine = metadataText
+        .split(/\r?\n/u)
+        .find(line => /^path:\s*/u.test(line));
+
+    if (!pathLine) {
+        throw new Error(`Missing path entry in ${metadataFileName}`);
+    }
+
+    const match = pathLine.match(/^path:\s*(?:"([^"]+)"|'([^']+)'|([^#\s]+))\s*(?:#.*)?$/u);
+    if (!match) {
+        throw new Error(`Unsupported path entry in ${metadataFileName}: ${pathLine}`);
+    }
+
+    const artifactPath = match[1] ?? match[2] ?? match[3];
+    if (
+        artifactPath.startsWith('/')
+        || /^[A-Za-z]:[\\/]/u.test(artifactPath)
+        || artifactPath.split(/[\\/]/u).some(segment => segment === '' || segment === '.' || segment === '..')
+    ) {
+        throw new Error(`Unsafe path entry in ${metadataFileName}: ${artifactPath}`);
+    }
+
+    return artifactPath;
+}
+
+export function assertPublishUpdaterMetadataReferences(artifactNames, readMetadataText) {
+    const files = [...artifactNames];
+    const artifactSet = new Set(files);
+    const metadataFileNames = getUpdaterMetadataFileNames(files);
+
+    if (metadataFileNames.length === 0) {
+        return false;
+    }
+
+    for (const metadataFileName of metadataFileNames) {
+        const artifactPath = parseUpdaterMetadataPath(
+            metadataFileName,
+            readMetadataText(metadataFileName),
+        );
+
+        if (!artifactSet.has(artifactPath)) {
+            throw new Error(
+                `Updater metadata mismatch in ${metadataFileName} -> ${artifactPath} not found. `
+                + `Available artifacts: ${files.sort().join(', ')}`,
+            );
+        }
+    }
+
+    return true;
+}
+
 export function createReleaseVerificationEnvs(baseEnv = process.env) {
     const releaseCiEnv = {
         ...baseEnv,

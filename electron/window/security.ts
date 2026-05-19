@@ -2,49 +2,18 @@ import type { BrowserWindow } from 'electron';
 import { shell } from 'electron';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import { getErrorMessage } from '@electron/utils/error';
+import { isTrustedRendererUrl as matchesTrustedRendererUrl } from '@electron/security/trustedRendererUrl';
 
 interface ILogger {warn(message: string): void;}
 
 interface ICreateWindowSecurityOptions {
-    getTrustedRendererOrigin: () => string;
+    getTrustedRendererUrl: () => string;
     logger: ILogger;
 }
 
 export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
-    function parseUrl(value: string): URL | null {
-        try {
-            return new URL(value);
-        } catch {
-            return null;
-        }
-    }
-
-    function getTrustedServerOrigin() {
-        return options.getTrustedRendererOrigin();
-    }
-
-    function hasTrustedOrigin(parsed: URL, trustedOrigin: string) {
-        const trustedUrl = parseUrl(trustedOrigin);
-        if (!trustedUrl) {
-            return false;
-        }
-        if (trustedUrl.protocol === 'evb-viewer:') {
-            return parsed.protocol === trustedUrl.protocol
-                && parsed.hostname === trustedUrl.hostname;
-        }
-        return parsed.origin === trustedUrl.origin;
-    }
-
     function isTrustedRendererUrl(value: string) {
-        const trustedOrigin = getTrustedServerOrigin();
-        if (!trustedOrigin) {
-            return false;
-        }
-        const parsed = parseUrl(value);
-        if (!parsed) {
-            return false;
-        }
-        return hasTrustedOrigin(parsed, trustedOrigin);
+        return matchesTrustedRendererUrl(value, options.getTrustedRendererUrl());
     }
 
     function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
