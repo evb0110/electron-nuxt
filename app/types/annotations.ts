@@ -69,6 +69,8 @@ export interface IAnnotationEditorState {
     hasSelectedEditor: boolean;
 }
 
+export interface IAnnotationModifiedPayload { forceDirty?: boolean }
+
 export interface IAnnotationMarkerRect {
     left: number;
     top: number;

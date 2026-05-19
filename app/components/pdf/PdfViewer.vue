@@ -122,6 +122,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationMarkerRect,
+    IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
@@ -234,7 +235,7 @@ const emit = defineEmits<{
     (e: 'update:document', document: PDFDocumentProxy | null): void;
     (e: 'loading', loading: boolean): void;
     (e: 'annotation-state', state: IAnnotationEditorState): void;
-    (e: 'annotation-modified'): void;
+    (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
     (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
@@ -751,7 +752,7 @@ function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnot
     next[index] = updated;
     annotationCommentsCache.value = next;
     emit('annotation-comments', next);
-    emit('annotation-modified');
+    emit('annotation-modified', { forceDirty: true });
 }
 
 const {

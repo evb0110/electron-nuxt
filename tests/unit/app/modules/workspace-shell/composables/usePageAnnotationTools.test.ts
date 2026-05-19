@@ -251,6 +251,19 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationDirty.value).toBe(false);
     });
 
+    it('marks dirty from a forced modified signal even when PDF.js reports no live changes', () => {
+        const {
+            deps,
+            tools,
+        } = createHarness();
+
+        deps.hasAnnotationChanges.mockReturnValue(false);
+
+        tools.handleAnnotationModified({ forceDirty: true });
+
+        expect(tools.annotationDirty.value).toBe(true);
+    });
+
     it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {
         const {
             deps,
