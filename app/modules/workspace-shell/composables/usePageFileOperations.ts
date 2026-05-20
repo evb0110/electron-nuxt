@@ -23,6 +23,7 @@ const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 export interface IPageFileOperationsDeps {
     pdfSrc: Ref<TPdfSource | null>;
+    hasDocument: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
     isExportingDocx: Ref<boolean>;
@@ -49,6 +50,7 @@ export interface IPageFileOperationsDeps {
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     const {
         pdfSrc,
+        hasDocument,
         isAnySaving,
         isHistoryBusy,
         isExportingDocx,
@@ -199,7 +201,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             options.openGeneratedInNewTab
             && result.kind === 'pdf'
             && result.isGenerated
-            && pdfSrc.value
+            && hasDocument.value
         ) {
             emitOpenInNewTab(result);
             closeAllDropdowns();

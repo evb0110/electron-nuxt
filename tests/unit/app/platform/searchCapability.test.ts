@@ -337,6 +337,19 @@ describe('createBrowserSearchCapability', () => {
         expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
     });
 
+    it('returns no browser search results for empty queries before loading PDF.js', async () => {
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.run('/tmp/test.pdf', '   ')).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
+        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+    });
+
     it('streams uncached browser search results as direct extraction scans pages', async () => {
         const pageTexts = [
             'alpha sign',

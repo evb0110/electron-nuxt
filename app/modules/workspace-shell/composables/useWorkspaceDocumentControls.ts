@@ -127,6 +127,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
 
     const pageFileOperations = usePageFileOperations({
         pdfSrc,
+        hasDocument,
         isAnySaving,
         isHistoryBusy,
         isExportingDocx,

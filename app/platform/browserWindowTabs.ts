@@ -551,7 +551,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             };
         }
 
-        const transferId = crypto.randomUUID();
+        const transferId = createTransferNonce();
         const nonce = createTransferNonce();
         const payload: TBrowserTransferEnvelope = {
             transferId,

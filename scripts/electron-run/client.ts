@@ -11,6 +11,13 @@ import {
 } from './electronRunProtocol';
 import type { ISessionInfo } from './electronRunSessionTypes';
 
+class ElectronRunCommandError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ElectronRunCommandError';
+    }
+}
+
 async function postCommand(
     info: ISessionInfo,
     command: TElectronRunCommand,
@@ -28,10 +35,10 @@ async function postCommand(
     });
     const data = parseElectronRunCommandResponse(await res.json());
     if (!data) {
-        throw new Error('Session returned malformed response payload');
+        throw new ElectronRunCommandError('Session returned malformed response payload');
     }
     if (!data.success) {
-        throw new Error(data.error ?? 'Unknown error');
+        throw new ElectronRunCommandError(data.error ?? 'Unknown error');
     }
     return data.result;
 }
@@ -80,6 +87,9 @@ export async function sendCommand(
         } catch (error) {
             if (isRequestTimeout(error)) {
                 throw new Error(`Command "${command}" timed out after ${Math.round(requestTimeoutMs / 1000)}s`);
+            }
+            if (error instanceof ElectronRunCommandError) {
+                throw error;
             }
             waitLogger.sessionReady();
             await delay(250);

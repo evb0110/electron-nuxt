@@ -1849,7 +1849,7 @@ function listenForSessionCommands(options: {
     nuxtProcess: ChildProcess | null;
     logTiming: (message: string) => void;
 }) {
-    options.server.listen(options.serverPort, () => {
+    options.server.listen(options.serverPort, '127.0.0.1', () => {
         mkdirSync(sessionDir(), { recursive: true });
         writeFileSync(sessionFilePath(), JSON.stringify({
             port: options.serverPort,

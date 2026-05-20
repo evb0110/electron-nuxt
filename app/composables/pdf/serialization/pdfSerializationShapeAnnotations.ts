@@ -414,8 +414,9 @@ function applyEmbeddedShapeUpdate(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    return updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, pageView, pageRotation)
-        || writeManagedShapeStableKey(annotDict, shape.stableKey);
+    const updatedShape = updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, pageView, pageRotation);
+    const wroteStableKey = writeManagedShapeStableKey(annotDict, shape.stableKey);
+    return updatedShape || wroteStableKey;
 }
 
 interface IShapeConsumptionState {

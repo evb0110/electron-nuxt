@@ -66,13 +66,14 @@ function insertBookmarkItems(
     inserted: boolean;
 } {
     if (destination.kind === 'root-end') {
+        const nextItems = [
+            ...items,
+            ...draggedItems,
+        ];
         return {
-            items: [
-                ...items,
-                ...draggedItems,
-            ],
+            items: nextItems,
             expandedBookmarkId: null,
-            inserted: true,
+            inserted: JSON.stringify(nextItems) !== JSON.stringify(items),
         };
     }
 
@@ -141,10 +142,11 @@ function moveBookmarkNodes(
     }
 
     const insertion = insertBookmarkItems(extraction.items, draggedItems, destination);
+    const moved = insertion.inserted && JSON.stringify(insertion.items) !== JSON.stringify(items);
     return {
         bookmarks: insertion.items,
         expandedBookmarkId: insertion.expandedBookmarkId,
-        moved: insertion.inserted,
+        moved,
     };
 }
 
@@ -215,9 +217,10 @@ export const usePdfOutlineDragDrop = (
     function moveBookmarksToRootEnd(draggedRootIds: string[]) {
         const result = moveBookmarkNodes(bookmarks.value, draggedRootIds, { kind: 'root-end' });
         if (!result.moved) {
-            return;
+            return false;
         }
         bookmarks.value = result.bookmarks;
+        return true;
     }
 
     function handleBookmarkDragStart(payload: { id: string }) {
@@ -310,9 +313,10 @@ export const usePdfOutlineDragDrop = (
             return;
         }
 
-        moveBookmarksToRootEnd(draggingRoots);
-        activeItemId.value = draggingRoots[0] ?? null;
-        emitBookmarksChange();
+        if (moveBookmarksToRootEnd(draggingRoots)) {
+            activeItemId.value = draggingRoots[0] ?? null;
+            emitBookmarksChange();
+        }
         resetDragState();
     }
 

@@ -6,7 +6,7 @@ import type {
 import {
     buildPdfSearchExcerpt,
     buildPdfSearchRegex,
-    findPdfSearchMatches,
+    iteratePdfSearchMatches,
 } from '@contracts/search';
 import type { ISearchCapability } from '@contracts/platformApi';
 import {
@@ -707,6 +707,13 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     const capability: ISearchCapability = {
         async run(pdfPath, query, options = {}) {
+            if (!query || query.trim().length === 0) {
+                return {
+                    results: [],
+                    truncated: false,
+                };
+            }
+
             await assertSearchWithinBrowserBudget(pdfPath);
             const { size } = await browserDocumentStore.stat(pdfPath);
             const requestId = options.requestId ?? crypto.randomUUID();
@@ -728,8 +735,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             return false;
                         }
 
-                        const pageMatches = findPdfSearchMatches(text, matcher);
-                        for (const match of pageMatches) {
+                        for (const match of iteratePdfSearchMatches(text, matcher)) {
                             const pageMatchIndex = pageMatchCounts.get(pageNumber) ?? 0;
                             pageMatchCounts.set(pageNumber, pageMatchIndex + 1);
                             results.push({

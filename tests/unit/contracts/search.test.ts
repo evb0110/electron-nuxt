@@ -3,7 +3,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
+import {
+    collapseRepeatedPdfSearchPageText,
+    findPdfSearchMatches,
+    iteratePdfSearchMatches,
+} from '@contracts/search';
 
 describe('collapseRepeatedPdfSearchPageText', () => {
     it('collapses large exact repeated PDF page text streams', () => {
@@ -26,5 +30,25 @@ describe('collapseRepeatedPdfSearchPageText', () => {
         const pageText = 'alpha beta gamma\nalpha beta delta\n';
 
         expect(collapseRepeatedPdfSearchPageText(pageText)).toBe(pageText);
+    });
+});
+
+describe('findPdfSearchMatches', () => {
+    it('ignores zero-width regex matches without looping forever', () => {
+        expect(findPdfSearchMatches('aaa', /(?=a)/gu)).toEqual([]);
+    });
+
+    it('iterates matches incrementally', () => {
+        const iterator = iteratePdfSearchMatches('foo bar foo', 'foo');
+
+        expect(iterator.next().value).toEqual({
+            startOffset: 0,
+            endOffset: 3,
+        });
+        expect(iterator.next().value).toEqual({
+            startOffset: 8,
+            endOffset: 11,
+        });
+        expect(iterator.next().done).toBe(true);
     });
 });

@@ -53,6 +53,7 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
 
     return cast<Parameters<typeof usePageFileOperations>[0]>({
         pdfSrc: ref<unknown>({}),
+        hasDocument: ref(true),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
         isExportingDocx: ref(false),
@@ -311,7 +312,7 @@ describe('usePageFileOperations', () => {
         expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
     });
 
-    it('opens combined generated PDF in a new tab only when pdfSrc is set', async () => {
+    it('opens combined generated PDF in a new tab only when a document is already open', async () => {
         const generated = {
             kind: 'pdf' as const,
             originalPath: '/tmp/generated.pdf',
@@ -320,7 +321,7 @@ describe('usePageFileOperations', () => {
         };
         mockOpenCombineDialog.mockResolvedValue(generated);
 
-        const depsWithDoc = createDeps(cast({ pdfSrc: ref<unknown>({}) }));
+        const depsWithDoc = createDeps({ hasDocument: ref(true) });
         const opsWithDoc = usePageFileOperations(depsWithDoc);
         await opsWithDoc.handleCombineImages();
 
@@ -329,13 +330,34 @@ describe('usePageFileOperations', () => {
         expect(depsWithDoc.closeAllDropdowns).toHaveBeenCalledOnce();
 
         mockOpenCombineDialog.mockResolvedValue(generated);
-        const depsNoDoc = createDeps(cast({ pdfSrc: ref<unknown>(null) }));
+        const depsNoDoc = createDeps({ hasDocument: ref(false) });
         const opsNoDoc = usePageFileOperations(depsNoDoc);
         await opsNoDoc.handleCombineImages();
 
         expect(depsNoDoc.emitOpenInNewTab).not.toHaveBeenCalled();
         expect(depsNoDoc.openFile).toHaveBeenCalledWith(generated);
         expect(depsNoDoc.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('opens combined generated PDF in a new tab while a DjVu document is open', async () => {
+        const generated = {
+            kind: 'pdf' as const,
+            originalPath: '/tmp/generated-from-djvu.pdf',
+            workingPath: '/tmp/working-from-djvu.pdf',
+            isGenerated: true,
+        };
+        mockOpenCombineDialog.mockResolvedValue(generated);
+        const deps = createDeps({
+            pdfSrc: ref(null),
+            hasDocument: ref(true),
+        });
+        const { handleCombineImages } = usePageFileOperations(deps);
+
+        await handleCombineImages();
+
+        expect(deps.emitOpenInNewTab).toHaveBeenCalledWith(generated);
+        expect(deps.openFile).not.toHaveBeenCalled();
+        expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
     it('removes a missing browser recent file and notifies instead of opening it', async () => {

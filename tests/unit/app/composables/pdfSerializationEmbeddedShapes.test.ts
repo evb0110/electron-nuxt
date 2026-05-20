@@ -13,6 +13,7 @@ import {
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { serializePdfEdits } from '@app/composables/pdf/pdfSerializationOperations';
+import { readManagedShapeStableKey } from '@app/composables/pdf/pdfSerializationRefs';
 
 async function createPdfWithEmbeddedShapes() {
     const doc = await PDFDocument.create();
@@ -332,5 +333,61 @@ describe('serializePdfEdits embedded shapes', () => {
         ]);
         expect(inkDict.get(PDFName.of('Subtype'))?.toString()).toBe('/Ink');
         expect(inkDict.lookupMaybe(PDFName.of('InkList'), PDFArray)).toBeInstanceOf(PDFArray);
+    });
+
+    it('writes a stable key when updating an embedded annotation in place', async () => {
+        const {
+            data,
+            squareRef,
+        } = await createPdfWithEmbeddedShapes();
+        const squareTag = `${squareRef.objectNumber}R${squareRef.generationNumber}`;
+
+        const shapes: IShapeAnnotation[] = [{
+            id: 'shape-square',
+            stableKey: 'evb-shape:updated-square',
+            type: 'rectangle',
+            pageIndex: 0,
+            x: 0.2,
+            y: 0.1,
+            width: 0.25,
+            height: 0.3,
+            color: '#ff0000',
+            fillColor: '#00ff00',
+            opacity: 0.5,
+            strokeWidth: 5,
+            source: 'embedded',
+            annotationId: squareTag,
+            pdfSubtype: 'Square',
+        }];
+
+        const result = await serializePdfEdits(data, {
+            markupSubtypeOverrides: [],
+            markupSubtypeHints: [],
+            rewriteShapeState: false,
+            shapes,
+            deletedShapeAnnotationIds: [],
+            deletedShapeStableKeys: [],
+            freeTextComments: [],
+            annotationComments: [],
+            pendingEmbeddedTextUpdates: [],
+            pendingEmbeddedAnnotationDeletes: [],
+            pageLabelsDirty: false,
+            pageLabelRanges: [],
+            totalPages: 1,
+            bookmarksDirty: false,
+            bookmarkItems: [],
+            untitledBookmarkLabel: '',
+            placedImage: null,
+        });
+
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const squareDict = getAnnotDict(doc, squareRef)!;
+        expect(readManagedShapeStableKey(squareDict)).toBe('evb-shape:updated-square');
+        expect(getRectNumbers(squareDict)).toEqual([
+            expect.closeTo(120, 6),
+            expect.closeTo(480, 6),
+            expect.closeTo(270, 6),
+            expect.closeTo(720, 6),
+        ]);
     });
 });
