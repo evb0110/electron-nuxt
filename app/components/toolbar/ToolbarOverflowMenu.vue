@@ -21,56 +21,56 @@
         </span>
 
         <template #content>
-            <div class="overflow-menu">
+            <div class="overflow-menu toolbar-menu-panel">
                 <template v-if="hasDocumentItems">
-                    <div class="overflow-menu-section-header">{{ t('menu.file') }}</div>
-                    <div class="overflow-menu-section">
+                    <div class="overflow-menu-section-header toolbar-menu-section-header">{{ t('menu.file') }}</div>
+                    <div class="overflow-menu-section toolbar-menu-section">
                         <button
                             v-if="canCombineFiles"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             @click="handleMenuCommand('combine-images')"
                         >
-                            <UIcon name="i-ph-stack-plus" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('menu.combineFiles') }}</span>
+                            <UIcon name="i-ph-stack-plus" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('menu.combineFiles') }}</span>
                         </button>
                         <button
                             v-if="canPrintCurrentPage"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
                             @click="handleMenuCommand('print-current-page')"
                         >
                             <UIcon
                                 v-if="isPreparingCurrentPagePrint"
                                 name="i-ph-circle-notch"
-                                class="overflow-menu-icon animate-spin"
+                                class="overflow-menu-icon toolbar-menu-icon animate-spin"
                             />
-                            <PrintCurrentPageIcon v-else class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('menu.printCurrentPage') }}</span>
+                            <PrintCurrentPageIcon v-else class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('menu.printCurrentPage') }}</span>
                         </button>
                         <button
                             v-if="canConvertToPdf"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('convert-to-pdf')"
                         >
-                            <UIcon name="i-ph-arrows-clockwise" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('menu.convertToPdf') }}</span>
+                            <UIcon name="i-ph-arrows-clockwise" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('menu.convertToPdf') }}</span>
                         </button>
                     </div>
                 </template>
 
                 <template v-if="hasToolItems">
-                    <div v-if="hasDocumentItems" class="overflow-menu-divider" />
-                    <div class="overflow-menu-section-header">{{ t('toolbar.annotations') }}</div>
-                    <div class="overflow-menu-section">
+                    <div v-if="hasDocumentItems" class="overflow-menu-divider toolbar-menu-divider" />
+                    <div class="overflow-menu-section-header toolbar-menu-section-header">{{ t('toolbar.annotations') }}</div>
+                    <div class="overflow-menu-section toolbar-menu-section">
                         <button
                             v-if="shouldShowMenuCommand('capture-region', 3) && canCaptureRegion"
-                            :class="['overflow-menu-item', { 'is-active': isCapturingRegion }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': isCapturingRegion }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="handleMenuCommand('capture-region')"
                         >
-                            <UIcon name="i-ph-scan" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.captureRegion') }}</span>
+                            <UIcon name="i-ph-scan" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('toolbar.captureRegion') }}</span>
                             <UIcon
                                 v-if="isCapturingRegion"
                                 name="i-ph-check"
@@ -79,12 +79,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('crop', 3) && canCrop"
-                            :class="['overflow-menu-item', { 'is-active': isCropSelecting }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': isCropSelecting }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="handleMenuCommand('crop')"
                         >
-                            <UIcon name="i-ph-crop" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.crop') }}</span>
+                            <UIcon name="i-ph-crop" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('toolbar.crop') }}</span>
                             <UIcon
                                 v-if="isCropSelecting"
                                 name="i-ph-check"
@@ -93,12 +93,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('quick-note', 4) && canQuickNote"
-                            :class="['overflow-menu-item', { 'is-active': isPlacingPageNote }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': isPlacingPageNote }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="handleMenuCommand('quick-note')"
                         >
-                            <UIcon name="i-ph-chat-circle-dots" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('annotations.createNotes') }}</span>
+                            <UIcon name="i-ph-chat-circle-dots" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('annotations.createNotes') }}</span>
                             <UIcon
                                 v-if="isPlacingPageNote"
                                 name="i-ph-check"
@@ -107,28 +107,28 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('ocr', 3) && canUseOcr"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="handleMenuCommand('open-ocr')"
                         >
-                            <UIcon name="i-ph-scan" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('ocr.button') }}</span>
+                            <UIcon name="i-ph-scan" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('ocr.button') }}</span>
                         </button>
                     </div>
                 </template>
 
                 <template v-if="hasViewItems">
-                    <div v-if="hasDocumentItems || hasToolItems" class="overflow-menu-divider" />
-                    <div class="overflow-menu-section-header">{{ t('menu.view') }}</div>
-                    <div class="overflow-menu-section">
+                    <div v-if="hasDocumentItems || hasToolItems" class="overflow-menu-divider toolbar-menu-divider" />
+                    <div class="overflow-menu-section-header toolbar-menu-section-header">{{ t('menu.view') }}</div>
+                    <div class="overflow-menu-section toolbar-menu-section">
                         <button
                             v-if="shouldShowMenuCommand('toggle-sidebar')"
-                            :class="['overflow-menu-item', { 'is-active': showSidebar }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': showSidebar }]"
                             :disabled="!hasInteractiveDocument || canToggleSidebar === false"
                             @click="handleMenuCommand('toggle-sidebar')"
                         >
-                            <UIcon name="i-ph-sidebar-simple" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.toggleSidebar') }}</span>
+                            <UIcon name="i-ph-sidebar-simple" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('toolbar.toggleSidebar') }}</span>
                             <UIcon
                                 v-if="showSidebar"
                                 name="i-ph-check"
@@ -137,12 +137,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('view-mode', 2)"
-                            :class="['overflow-menu-item', { 'is-active': viewMode === 'single' }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': viewMode === 'single' }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleViewModeCommand('single')"
                         >
-                            <UIcon name="i-ph-file" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.singlePage') }}</span>
+                            <UIcon name="i-ph-file" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.singlePage') }}</span>
                             <UIcon
                                 v-if="viewMode === 'single'"
                                 name="i-ph-check"
@@ -151,12 +151,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('view-mode', 2)"
-                            :class="['overflow-menu-item', { 'is-active': viewMode === 'facing' }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': viewMode === 'facing' }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleViewModeCommand('facing')"
                         >
-                            <UIcon name="i-ph-book-open" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.facingPages') }}</span>
+                            <UIcon name="i-ph-book-open" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.facingPages') }}</span>
                             <UIcon
                                 v-if="viewMode === 'facing'"
                                 name="i-ph-check"
@@ -165,7 +165,7 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('view-mode', 2)"
-                            :class="['overflow-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleViewModeCommand('facing-first-single')"
                         >
@@ -173,7 +173,7 @@
                                 <UIcon name="i-ph-book-open" class="size-[1.125rem]" />
                                 <span class="overflow-menu-icon-badge">1</span>
                             </span>
-                            <span class="overflow-menu-label">{{ t('zoom.facingWithFirstSingle') }}</span>
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.facingWithFirstSingle') }}</span>
                             <UIcon
                                 v-if="viewMode === 'facing-first-single'"
                                 name="i-ph-check"
@@ -182,21 +182,21 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('actual-size', 3)"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('actual-size')"
                         >
-                            <UIcon name="i-ph-magnifying-glass" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.actualSize') }}</span>
+                            <UIcon name="i-ph-magnifying-glass" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.actualSize') }}</span>
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('fit-width', 3)"
-                            :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': isFitWidthActive }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('fit-width')"
                         >
-                            <UIcon name="i-ph-arrows-out-line-horizontal" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.fitWidth') }}</span>
+                            <UIcon name="i-ph-arrows-out-line-horizontal" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.fitWidth') }}</span>
                             <UIcon
                                 v-if="isFitWidthActive"
                                 name="i-ph-check"
@@ -205,12 +205,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('fit-height', 3)"
-                            :class="['overflow-menu-item', { 'is-active': isFitHeightActive }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': isFitHeightActive }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('fit-height')"
                         >
-                            <UIcon name="i-ph-arrows-out-line-vertical" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.fitHeight') }}</span>
+                            <UIcon name="i-ph-arrows-out-line-vertical" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.fitHeight') }}</span>
                             <UIcon
                                 v-if="isFitHeightActive"
                                 name="i-ph-check"
@@ -219,12 +219,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('continuous-scroll', 2)"
-                            :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': continuousScroll }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('toggle-continuous-scroll')"
                         >
-                            <UIcon name="i-ph-scroll" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.continuousScroll') }}</span>
+                            <UIcon name="i-ph-scroll" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.continuousScroll') }}</span>
                             <UIcon
                                 v-if="continuousScroll"
                                 name="i-ph-check"
@@ -233,12 +233,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('drag-mode', 4)"
-                            :class="['overflow-menu-item', { 'is-active': dragMode }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': dragMode }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('enable-drag')"
                         >
-                            <UIcon name="i-ph-hand" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.handTool') }}</span>
+                            <UIcon name="i-ph-hand" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.handTool') }}</span>
                             <UIcon
                                 v-if="dragMode"
                                 name="i-ph-check"
@@ -247,12 +247,12 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('text-select', 4)"
-                            :class="['overflow-menu-item', { 'is-active': !dragMode }]"
+                            :class="['overflow-menu-item', 'toolbar-menu-item', { 'is-active': !dragMode }]"
                             :disabled="!hasInteractiveDocument"
                             @click="handleMenuCommand('disable-drag')"
                         >
-                            <UIcon name="i-ph-cursor-text" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('zoom.textSelect') }}</span>
+                            <UIcon name="i-ph-cursor-text" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('zoom.textSelect') }}</span>
                             <UIcon
                                 v-if="!dragMode"
                                 name="i-ph-check"
@@ -261,27 +261,27 @@
                         </button>
                         <button
                             v-if="shouldShowMenuCommand('fullscreen')"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             :disabled="!hasInteractiveDocument || !fullscreenSupported"
                             @click="handleMenuCommand('toggle-fullscreen')"
                         >
-                            <UIcon :name="isFullscreen ? 'i-ph-corners-in' : 'i-ph-corners-out'" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.fullscreen') }}</span>
+                            <UIcon :name="isFullscreen ? 'i-ph-corners-in' : 'i-ph-corners-out'" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('toolbar.fullscreen') }}</span>
                         </button>
                     </div>
                 </template>
 
                 <template v-if="hasShellItems">
-                    <div v-if="hasDocumentItems || hasToolItems || hasViewItems" class="overflow-menu-divider" />
-                    <div class="overflow-menu-section-header">{{ t('toolbar.moreTools') }}</div>
-                    <div class="overflow-menu-section">
+                    <div v-if="hasDocumentItems || hasToolItems || hasViewItems" class="overflow-menu-divider toolbar-menu-divider" />
+                    <div class="overflow-menu-section-header toolbar-menu-section-header">{{ t('toolbar.moreTools') }}</div>
+                    <div class="overflow-menu-section toolbar-menu-section">
                         <button
                             v-if="shouldShowMenuCommand('settings')"
-                            class="overflow-menu-item"
+                            class="overflow-menu-item toolbar-menu-item"
                             @click="handleMenuCommand('open-settings')"
                         >
-                            <UIcon name="i-ph-gear" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.settings') }}</span>
+                            <UIcon name="i-ph-gear" class="overflow-menu-icon toolbar-menu-icon" />
+                            <span class="overflow-menu-label toolbar-menu-label">{{ t('toolbar.settings') }}</span>
                         </button>
                     </div>
                 </template>
@@ -409,25 +409,6 @@ const contentOptions = {
     hideWhenDetached: true,
 };
 
-const menuCommandHandlers = {
-    'open-ocr': () => emit('open-ocr'),
-    'toggle-sidebar': () => emit('toggle-sidebar'),
-    'actual-size': () => emit('actual-size'),
-    'fit-width': () => emit('fit-width'),
-    'fit-height': () => emit('fit-height'),
-    'enable-drag': () => emit('enable-drag'),
-    'disable-drag': () => emit('disable-drag'),
-    'toggle-continuous-scroll': () => emit('toggle-continuous-scroll'),
-    'capture-region': () => emit('capture-region'),
-    'crop': () => emit('crop'),
-    'quick-note': () => emit('quick-note'),
-    'toggle-fullscreen': () => emit('toggle-fullscreen'),
-    'open-settings': () => emit('open-settings'),
-    'combine-images': () => emit('combine-images'),
-    'print-current-page': () => emit('print-current-page'),
-    'convert-to-pdf': () => emit('convert-to-pdf'),
-} satisfies Record<TMenuCommand, () => void>;
-
 const hasDocumentItems = computed(() => (
     showDocumentSection === true
     && (canCombineFiles === true
@@ -461,7 +442,7 @@ function close() {
 }
 
 function handleMenuCommand(command: TMenuCommand) {
-    menuCommandHandlers[command]();
+    emit(command as never);
     close();
 }
 
@@ -484,10 +465,10 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 </script>
 
 <style scoped>
+@use '@app/assets/css/toolbarMenuShared';
+
 .overflow-menu {
-    padding: 0.3125rem;
     min-width: 14rem;
-    background: var(--app-toolbar-menu-popover-bg);
 }
 
 .toolbar-icon-button {
@@ -520,74 +501,6 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
     display: inline-flex;
 }
 
-.overflow-menu-section {
-    display: flex;
-    flex-direction: column;
-}
-
-.overflow-menu-divider {
-    height: 1px;
-    background-color: var(--app-toolbar-separator);
-    margin: 0.25rem 0;
-}
-
-.overflow-menu-section-header {
-    padding: 0.5rem 0.75rem 0.25rem;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--ui-text-muted);
-}
-
-.overflow-menu-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid transparent;
-    background: transparent;
-    cursor: pointer;
-    border-radius: 0.375rem;
-    color: var(--ui-text);
-    font-size: 0.875rem;
-    text-align: left;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
-}
-
-.overflow-menu-item:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.overflow-menu-item:hover:not(:disabled) {
-    background-color: var(--app-toolbar-menu-item-hover-bg);
-    border-color: var(--app-toolbar-control-hover-border);
-}
-
-.overflow-menu-item.is-active {
-    background-color: var(--app-toolbar-menu-item-active-bg);
-    border-color: var(--app-toolbar-menu-item-active-border);
-    color: var(--ui-text);
-}
-
-.overflow-menu-item.is-active:hover:not(:disabled) {
-    background-color: var(--app-toolbar-menu-item-active-hover-bg);
-    border-color: var(--app-toolbar-menu-item-active-hover-border);
-}
-
-.overflow-menu-icon {
-    width: 1.125rem;
-    height: 1.125rem;
-    flex-shrink: 0;
-    color: var(--ui-text-muted);
-}
-
-.overflow-menu-item.is-active .overflow-menu-icon {
-    color: var(--ui-text);
-}
-
 .overflow-menu-icon--facing-first-single {
     position: relative;
 }
@@ -613,17 +526,6 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 
 .overflow-menu-item.is-active .overflow-menu-icon-badge {
     color: var(--ui-text);
-}
-
-.overflow-menu-label {
-    flex: 1;
-}
-
-.overflow-menu-shortcut {
-    margin-left: 1rem;
-    flex-shrink: 0;
-    color: var(--ui-text-muted);
-    font-size: 0.75rem;
 }
 
 .overflow-menu-check {

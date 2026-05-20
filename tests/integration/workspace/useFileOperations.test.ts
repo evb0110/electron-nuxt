@@ -44,11 +44,6 @@ function createDeps() {
             2,
             3,
         ])),
-        readWorkingCopyBytes: vi.fn(async () => new Uint8Array([
-            1,
-            2,
-            3,
-        ])),
         validatePdfPath: vi.fn(async () => ({
             isValid: true,
             tool: 'qpdf' as const,

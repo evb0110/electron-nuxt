@@ -1,33 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
+source "$(dirname "$0")/release/platform-arch.sh"
+
 if [ "$#" -ne 2 ]; then
-  echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64>"
+  release_target_usage "$0"
   exit 1
 fi
 
 platform="$1"
 arch="$2"
 release_dir="release"
-
-case "$platform" in
-  mac)
-    platform_arch="darwin-$arch"
-    exe_suffix=""
-    ;;
-  win)
-    platform_arch="win32-$arch"
-    exe_suffix=".exe"
-    ;;
-  linux)
-    platform_arch="linux-$arch"
-    exe_suffix=""
-    ;;
-  *)
-    echo "Error: Unsupported platform '$platform'"
-    exit 1
-    ;;
-esac
+resolve_release_target_platform_arch "$platform" "$arch"
+platform_arch="$RELEASE_PLATFORM_ARCH"
+exe_suffix="$RELEASE_EXE_SUFFIX"
 
 resource_root=""
 while IFS= read -r -d '' candidate; do

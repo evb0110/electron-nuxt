@@ -193,9 +193,13 @@ import { formatBytes } from '@app/utils/formatters';
 import { getErrorMessage } from '@app/utils/error';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { hasElectronAPI } from '@app/utils/platform';
-import { BROWSER_COMBINE_IMAGE_EXTENSIONS } from '@app/platform/browser-api/browserPlatformHelpers';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import { createCombinedPdfFromPaths } from '@app/platform/browser-api/documentsFileCapability';
+import {
+    getDocumentKindFromPath,
+    isSupportedWorkspaceDocumentPath,
+    WORKSPACE_DOCUMENT_EXTENSIONS,
+} from '@app/utils/supportedDocumentPaths';
 
 type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
@@ -243,43 +247,16 @@ const isCombining = ref(false);
 const progress = ref<ICombineProgress | null>(null);
 const combineError = ref<string | null>(null);
 const lastRejectedCount = ref(0);
-const COMBINE_FILE_ACCEPT = [
-    '.pdf',
-    '.djvu',
-    '.djv',
-    ...BROWSER_COMBINE_IMAGE_EXTENSIONS,
-].join(',');
-const supportedExtensions = new Set([
-    '.pdf',
-    '.djvu',
-    '.djv',
-    ...BROWSER_COMBINE_IMAGE_EXTENSIONS,
-]);
+const COMBINE_FILE_ACCEPT = WORKSPACE_DOCUMENT_EXTENSIONS.join(',');
 
 const filesLabel = computed(() => t('combinePdf.fileCount', { count: files.value.length }));
 
-function getFileExtension(fileName: string) {
-    const normalized = fileName.toLocaleLowerCase();
-    const dotIndex = normalized.lastIndexOf('.');
-    return dotIndex >= 0 ? normalized.slice(dotIndex) : '';
-}
-
 function isSupportedCombineFile(file: File) {
-    return supportedExtensions.has(getFileExtension(file.name));
+    return isSupportedWorkspaceDocumentPath(file.name);
 }
 
 function getFileKind(fileName: string): TCombineFileKind {
-    const extension = getFileExtension(fileName);
-    if (extension === '.pdf') {
-        return 'pdf';
-    }
-    if (extension === '.djvu' || extension === '.djv') {
-        return 'djvu';
-    }
-    if (BROWSER_COMBINE_IMAGE_EXTENSIONS.has(extension)) {
-        return 'image';
-    }
-    return 'document';
+    return getDocumentKindFromPath(fileName);
 }
 
 function createFileSignature(file: File) {

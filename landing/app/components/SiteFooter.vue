@@ -8,7 +8,7 @@
     <div class="footer-links">
       <UButton
         :label="t('footer.viewSource')"
-        :to="repositoryUrl"
+        :to="GITHUB_REPOSITORY_URL"
         target="_blank"
         color="neutral"
         variant="ghost"
@@ -19,6 +19,7 @@
 </template>
 
 <script setup lang="ts">
+import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
+
 const { t } = useTypedI18n();
-const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 </script>

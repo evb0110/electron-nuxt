@@ -1,9 +1,9 @@
 <template>
-    <fieldset class="settings-group flex flex-col gap-2.5">
-        <legend class="settings-legend">{{ t('settings.general') }}</legend>
+    <fieldset class="settings-section flex flex-col gap-2.5">
+        <legend class="settings-section-title">{{ t('settings.general') }}</legend>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label" for="settings-author">
+            <label class="settings-field-label" for="settings-author">
                 {{ t('settings.author') }}
             </label>
             <UInput
@@ -13,17 +13,17 @@
                 icon="i-ph-user"
                 @update:model-value="updateAuthorName"
             />
-            <p class="settings-hint">{{ t('settings.authorDescription') }}</p>
+            <p class="settings-field-hint">{{ t('settings.authorDescription') }}</p>
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.theme') }}</label>
+            <label class="settings-field-label">{{ t('settings.theme') }}</label>
             <div class="settings-segmented">
                 <button
                     type="button"
                     class="settings-seg-btn"
                     :class="{ 'is-active': settings.theme === 'light' }"
-                    @click="updateThemeLight"
+                    @click="emit('update:theme', 'light')"
                 >
                     <UIcon name="i-ph-sun" class="settings-seg-icon" />
                     {{ t('settings.themeLight') }}
@@ -32,7 +32,7 @@
                     type="button"
                     class="settings-seg-btn"
                     :class="{ 'is-active': settings.theme === 'dark' }"
-                    @click="updateThemeDark"
+                    @click="emit('update:theme', 'dark')"
                 >
                     <UIcon name="i-ph-moon" class="settings-seg-icon" />
                     {{ t('settings.themeDark') }}
@@ -41,19 +41,19 @@
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.language') }}</label>
+            <label class="settings-field-label">{{ t('settings.language') }}</label>
             <USelectMenu
                 :model-value="settings.locale"
                 :items="localeItems"
                 value-key="value"
                 :icon="selectedFlagIcon"
                 :search-input="false"
-                @update:model-value="updateLocale"
+                @update:model-value="emit('update:locale', $event)"
             />
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.uiScale') }}</label>
+            <label class="settings-field-label">{{ t('settings.uiScale') }}</label>
             <div class="settings-segmented settings-segmented--five">
                 <button
                     v-for="option in uiScaleOptions"
@@ -61,12 +61,12 @@
                     type="button"
                     class="settings-seg-btn"
                     :class="{ 'is-active': settings.uiScale === option.value }"
-                    @click="updateUiScale(option.value)"
+                    @click="emit('update:ui-scale', option.value)"
                 >
                     {{ option.label }}
                 </button>
             </div>
-            <p class="settings-hint">{{ t('settings.uiScaleDescription') }}</p>
+            <p class="settings-field-hint">{{ t('settings.uiScaleDescription') }}</p>
         </div>
     </fieldset>
 </template>
@@ -129,52 +129,10 @@ function updateAuthorName(value: string | number) {
     emit('update:author-name', String(value));
 }
 
-function updateThemeLight() {
-    emit('update:theme', 'light');
-}
-
-function updateThemeDark() {
-    emit('update:theme', 'dark');
-}
-
-function updateLocale(value: string | { value: string }) {
-    emit('update:locale', value);
-}
-
-function updateUiScale(value: TUiScalePreference) {
-    emit('update:ui-scale', value);
-}
 </script>
 
 <style lang="scss" scoped>
-.settings-group {
-    border: none;
-    padding: 0;
-    margin: 0;
-}
-
-.settings-legend {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--ui-text-dimmed);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0;
-    margin-bottom: 0.125rem;
-}
-
-.settings-label {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--ui-text);
-}
-
-.settings-hint {
-    margin: 0;
-    font-size: 0.75rem;
-    line-height: 1.35;
-    color: var(--ui-text-dimmed);
-}
+@use '@app/assets/css/settingsPanelShared';
 
 .settings-segmented {
     display: flex;

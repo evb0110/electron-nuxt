@@ -170,7 +170,7 @@ import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorGroupsHost from '@app/modules/workspace-shell/components/EditorGroupsHost.vue';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import FallbackWorkspaceToolbar from '@app/modules/workspace-shell/components/FallbackWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
@@ -705,7 +705,7 @@ function setTabStartSection(tabId: string, section: TStartSection) {
 
 function isTabEmpty(tabId: string) {
     const tab = getTabById(tabId);
-    if (!tab || hasDocumentMountHint(tab)) {
+    if (!tab || tabHasDocumentHint(tab)) {
         return false;
     }
 

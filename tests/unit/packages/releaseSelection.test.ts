@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import type { IReleaseInstaller } from '@contracts';
-import { recommendInstaller } from '@releaseSelection';
+import {
+    isLegacyInstallerAsset,
+    recommendInstaller,
+} from '@releaseSelection';
 
 function createInstaller(partial: Partial<IReleaseInstaller> & Pick<IReleaseInstaller, 'id' | 'name' | 'extension' | 'arch'>): IReleaseInstaller {
     return {
@@ -19,6 +22,11 @@ function createInstaller(partial: Partial<IReleaseInstaller> & Pick<IReleaseInst
 }
 
 describe('release selection', () => {
+    it('classifies legacy installers by filename', () => {
+        expect(isLegacyInstallerAsset('EVB-Viewer-win7-legacy-x64.exe')).toBe(true);
+        expect(isLegacyInstallerAsset('EVB-Viewer-win-x64.exe')).toBe(false);
+    });
+
     it('prefers mac x64 compatible installers before extension rank', () => {
         const recommended = recommendInstaller([
             createInstaller({

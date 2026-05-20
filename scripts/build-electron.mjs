@@ -5,6 +5,8 @@ import {
 } from 'node:fs/promises';
 import esbuild from 'esbuild';
 
+const { WORKER_BUNDLES } = await import(new URL('../packages/contracts/electronWorkerBundles.js', import.meta.url).href);
+
 const builds = [
     {
         entryPoints: ['electron/main.ts'],
@@ -23,48 +25,12 @@ const builds = [
         outfile: 'dist-electron/preload.js',
         external: ['electron'],
     },
-    {
-        entryPoints: ['electron/image/pdfCombineWorker.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/pdfCombineWorker.js',
+    ...WORKER_BUNDLES.map(bundle => ({
+        entryPoints: [bundle.entryPoint],
+        format: bundle.format,
+        outfile: `dist-electron/${bundle.fileName}`,
         external: ['electron'],
-    },
-    {
-        entryPoints: ['electron/features/documents/main/pdfConformanceWorker.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/pdfConformanceWorker.js',
-        external: ['electron'],
-    },
-    {
-        entryPoints: ['electron/ocr/worker/main.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/ocr-worker.js',
-        external: ['electron'],
-    },
-    {
-        entryPoints: ['electron/search/worker.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/search-worker.js',
-        external: ['electron'],
-    },
-    {
-        entryPoints: ['electron/features/page-ops/main/cropWorker.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/page-ops-cropWorker.js',
-        external: ['electron'],
-    },
-    {
-        entryPoints: ['electron/features/image-export/main/tiffCombineWorker.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/image-export-tiff-worker.js',
-        external: ['electron'],
-    },
-    {
-        entryPoints: ['electron/features/djvu/main/pdfWorker.ts'],
-        format: 'esm',
-        outfile: 'dist-electron/djvu-pdfWorker.js',
-        external: ['electron'],
-    },
+    })),
 ];
 
 await rm('dist-electron', {

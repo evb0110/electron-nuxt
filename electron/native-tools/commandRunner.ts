@@ -10,10 +10,13 @@ import {
     getCommandDirectory,
     prependDirectoryToPath,
 } from '@electron/native-tools/toolRegistry';
-import { terminateProcessTree } from '@electron/utils/processTree';
 import { getErrorMessage } from '@electron/utils/error';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
 import { parseIntegerEnv } from '@electron/utils/env';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -107,16 +110,15 @@ function spawnNativeProcess(
     context: ICommandRunContext,
     windowsHide: boolean,
 ) {
-    const spawnOptions: Parameters<typeof spawn>[2] = {
+    const spawnOptions = createDetachedChildProcessSpawnOptions({
         shell: false,
         windowsHide,
-        detached: process.platform !== 'win32',
         stdio: [
             'ignore',
             'pipe',
             'pipe',
         ],
-    };
+    });
     if (context.effectiveCwd !== undefined) {
         spawnOptions.cwd = context.effectiveCwd;
     }
@@ -135,19 +137,7 @@ function killProcessBestEffort(proc: TNativeProcess) {
 }
 
 async function terminateNativeProcessBestEffort(proc: TNativeProcess) {
-    const pid = proc.pid;
-    if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-        await terminateProcessTree(pid, {
-            graceMs: 1_000,
-            preferProcessGroup: process.platform !== 'win32',
-        });
-        return;
-    }
-    try {
-        proc.kill('SIGTERM');
-    } catch {
-        // Process may already be gone.
-    }
+    await terminateDetachedChildProcess(proc, 1_000);
 }
 
 function getTruncatedOutputMessage(label: 'stdout' | 'stderr', truncated: boolean, maxBytes: number, text: string) {

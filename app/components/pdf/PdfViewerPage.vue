@@ -16,13 +16,12 @@
         <PdfImagePlacementOverlay
             :placement="placedImage"
             :busy="placedImageBusy"
-            @update-rect="updatePlacedImageRect"
-            @finalize="finalizePlacedImage"
-            @cancel="cancelPlacedImage"
+            @update-rect="emit('update-placed-image-rect', $event)"
+            @finalize="emit('finalize-placed-image')"
+            @cancel="emit('cancel-placed-image')"
         />
         <PdfShapeOverlay
             v-if="shapeContext"
-            :page-index="page - 1"
             :shapes="pageShapes"
             :drawing-shape="pageDrawingShape"
             :selected-shape-id="shapeContext.selectedShapeId.value"
@@ -30,7 +29,6 @@
             :is-annotation-tool-active="shapeContext.isAnyAnnotationToolActive.value"
             :selection-enabled="shapeContext.isSelectionToolActive.value"
             :tool="shapeContext.activeShapeTool.value"
-            :settings="shapeContext.settings.value"
             @start-drawing="startDrawingShape"
             @continue-drawing="continueDrawingShape"
             @finish-drawing="finishDrawingShape"
@@ -93,18 +91,6 @@ const emit = defineEmits<{
     'finalize-placed-image': [];
     'cancel-placed-image': [];
 }>();
-
-function updatePlacedImageRect(payload: IPdfImagePlacementRectUpdate) {
-    emit('update-placed-image-rect', payload);
-}
-
-function finalizePlacedImage() {
-    emit('finalize-placed-image');
-}
-
-function cancelPlacedImage() {
-    emit('cancel-placed-image');
-}
 
 const {
     scaledSkeletonPadding,

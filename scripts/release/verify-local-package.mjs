@@ -16,6 +16,7 @@ import {
     expectsUpdaterMetadata,
     getLocalReleaseTargets,
     getRequiredArtifactPatterns,
+    parseUpdaterMetadataPath,
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
 
@@ -83,19 +84,6 @@ function assertReleaseArtifactsExist(target, env = process.env) {
     }
 }
 
-function readUpdaterArtifactPath(yamlPath) {
-    const raw = readFileSync(yamlPath, 'utf8');
-    const match = raw.match(/^path:\s*(.+)\s*$/m);
-    if (!match) {
-        throw new Error(`Missing path entry in ${yamlPath}`);
-    }
-
-    return match[1]
-        .trim()
-        .replace(/^['"]/, '')
-        .replace(/['"]$/, '');
-}
-
 function validateUpdaterMetadata(target, env = process.env) {
     const shouldExist = expectsUpdaterMetadata(target, env);
     const distDir = resolve(process.cwd(), RELEASE_DIR);
@@ -120,7 +108,7 @@ function validateUpdaterMetadata(target, env = process.env) {
     }
 
     for (const ymlPath of ymlFiles) {
-        const relPath = readUpdaterArtifactPath(ymlPath);
+        const relPath = parseUpdaterMetadataPath(ymlPath, readFileSync(ymlPath, 'utf8'));
         if (!relPath) {
             throw new Error(`Missing path entry in ${ymlPath}`);
         }

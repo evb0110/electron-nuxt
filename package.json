@@ -70,6 +70,7 @@
     "check:resources:host": "bash scripts/check-native-tools-source-matrix.sh",
     "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh --all",
     "check:electron:install": "node scripts/check-electron-install.mjs",
+    "check:ocr-language-model-registry": "pnpm exec tsx scripts/checkOcrLanguageModelRegistry.ts",
     "check:locales": "pnpm exec tsx scripts/checkLocales.ts",
     "check:icons:bundle": "pnpm exec tsx scripts/checkIconBundle.ts",
     "check:commonjs-imports": "pnpm exec tsx scripts/checkCommonjsImports.ts",

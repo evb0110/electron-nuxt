@@ -40,10 +40,13 @@ describe('macOS native tool workflow', () => {
 
     it('retries transient macOS packaged tool kills after checking the signature', async () => {
         const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+        const helper = await readProjectFile('scripts/release/platform-arch.sh');
 
+        expect(verifier).toContain('source "$(dirname "$0")/release/platform-arch.sh"');
         expect(verifier).toContain('exit_code" -ne 137');
         expect(verifier).toContain('codesign --verify --strict --verbose=2 "$tool_path"');
         expect(verifier).toContain('retrying once');
+        expect(helper).toContain('resolve_release_target_platform_arch');
     });
 
     it('fails deterministically when packaged macOS unpaper is absent or unrunnable', async () => {

@@ -232,10 +232,7 @@ export const usePdfDocument = () => {
         version: number,
     ) {
         if (document.numPages <= 0) {
-            pageMetrics.value = [];
-            basePageWidth.value = null;
-            basePageHeight.value = null;
-            bumpPageMetricsVersion();
+            resetLoadMetadata();
             return;
         }
 
@@ -246,10 +243,7 @@ export const usePdfDocument = () => {
 
         const firstMetric = pageMetrics.value[0];
         if (!isValidPageMetric(firstMetric)) {
-            pageMetrics.value = [];
-            basePageWidth.value = null;
-            basePageHeight.value = null;
-            bumpPageMetricsVersion();
+            resetLoadMetadata();
             return;
         }
 

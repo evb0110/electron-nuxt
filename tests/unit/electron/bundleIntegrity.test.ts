@@ -13,6 +13,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -27,7 +28,7 @@ interface IBundleCheck {
 
 const BUNDLE_CHECKS: IBundleCheck[] = [
     {
-        file: 'pdfCombineWorker.js',
+        file: WORKER_BUNDLES_BY_ID['pdf-combine'].fileName,
         requiredSymbols: [
             'readImageDpi',
             'pixelsToPdfPoints',
@@ -36,11 +37,11 @@ const BUNDLE_CHECKS: IBundleCheck[] = [
         ],
     },
     {
-        file: 'ocr-worker.js',
+        file: WORKER_BUNDLES_BY_ID.ocr.fileName,
         requiredSymbols: ['detectSourceDpi'],
     },
     {
-        file: 'search-worker.js',
+        file: WORKER_BUNDLES_BY_ID.search.fileName,
         requiredSymbols: ['SEARCH_INDEX_CACHE_MAX_ENTRIES'],
     },
 ];

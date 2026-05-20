@@ -19,9 +19,9 @@ import {
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 
 const log = createLogger('page-ops-qpdf');
-const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+export const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 // qpdf exits with 3 when it completed the write but found warnings in the input.
-const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
+export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
     0,
     3,
 ];
@@ -85,7 +85,7 @@ async function writeQpdfArgsFile(args: string[]) {
     };
 }
 
-async function runQpdfCommand(args: string[], options: Parameters<typeof runNativeToolCommand>[2]) {
+export async function runQpdfCommand(args: string[], options: Parameters<typeof runNativeToolCommand>[2]) {
     const argsFile = await writeQpdfArgsFile(args);
     try {
         await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], options);
@@ -95,7 +95,7 @@ async function runQpdfCommand(args: string[], options: Parameters<typeof runNati
 }
 
 async function replaceQpdfOutput(tempPath: string, targetPath: string) {
-    await replaceTempOutput(tempPath, targetPath, { replaceExistingTargetOnFailure: true });
+    await replaceTempOutput(tempPath, targetPath);
 }
 
 async function cleanupQpdfTemp(tempPath: string) {
@@ -120,7 +120,7 @@ async function cleanupEmptyTarget(targetPath: string) {
     }
 }
 
-async function assertNonEmptyPdfOutput(outputPath: string, operationLabel: string) {
+export async function assertNonEmptyPdfOutput(outputPath: string, operationLabel: string) {
     let outputStat: Awaited<ReturnType<typeof stat>>;
     try {
         outputStat = await stat(outputPath);

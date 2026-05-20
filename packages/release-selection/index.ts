@@ -11,6 +11,7 @@ export {
     getAssetExtension,
     INSTALLER_PLATFORM_ORDER,
     isInstallerAsset,
+    isLegacyInstallerAsset,
     normalizeInstallers,
     parseArchitectureHint,
     parsePlatformHint,

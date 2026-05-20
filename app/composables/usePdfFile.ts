@@ -249,20 +249,11 @@ export const usePdfFile = () => {
                     result,
                 } satisfies TDocumentOpenOutcome;
             }
-            await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
-            if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
-                return {
-                    status: 'stale',
-                    result,
-                } satisfies TDocumentOpenOutcome;
-            }
-            originalPath.value = result.originalPath;
-            requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-            await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
-            return {
-                status: 'opened',
+            return await finishPdfOpenResult(
+                openRequestId,
                 result,
-            } satisfies TDocumentOpenOutcome;
+                preSelected ? 'preselected' : 'picker',
+            );
         } catch (e) {
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
@@ -277,6 +268,27 @@ export const usePdfFile = () => {
                 error: message,
             } satisfies TDocumentOpenOutcome;
         }
+    }
+
+    async function finishPdfOpenResult(
+        openRequestId: number,
+        result: Extract<TOpenFileResult, { kind: 'pdf' }>,
+        openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
+    ) {
+        await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+        if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
+            return {
+                status: 'stale',
+                result,
+            } satisfies TDocumentOpenOutcome;
+        }
+        originalPath.value = result.originalPath;
+        requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+        await trackOpenedDocument(result, openMethod);
+        return {
+            status: 'opened',
+            result,
+        } satisfies TDocumentOpenOutcome;
     }
 
     async function openFileDirect(path: TDocumentRef) {
@@ -341,7 +353,6 @@ export const usePdfFile = () => {
                     result,
                 } satisfies TDocumentOpenOutcome;
             }
-
             BrowserLogger.debug(
                 RECENT_OPEN_LOG_SECTION,
                 'Loading PDF from working path',
@@ -353,8 +364,8 @@ export const usePdfFile = () => {
             if (pdfSrc.value) {
                 pdfSrc.value = null;
             }
-            await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
-            if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
+            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct');
+            if (outcome.status === 'stale') {
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,
                     'openFileDirect skipped stale load result',
@@ -363,24 +374,15 @@ export const usePdfFile = () => {
                         workingPath: result.workingPath,
                     },
                 );
-                return {
-                    status: 'stale',
-                    result,
-                } satisfies TDocumentOpenOutcome;
+                return outcome;
             }
-            originalPath.value = result.originalPath;
-            requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-            await trackOpenedDocument(result, 'direct');
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
                 path,
                 workingPath: result.workingPath,
                 originalPath: result.originalPath,
                 requiresSaveAsOnFirstSave: requiresSaveAsOnFirstSave.value,
             });
-            return {
-                status: 'opened',
-                result,
-            } satisfies TDocumentOpenOutcome;
+            return outcome;
         } catch (e) {
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
@@ -503,22 +505,8 @@ export const usePdfFile = () => {
                     result,
                 } satisfies TDocumentOpenOutcome;
             }
-            await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
-            if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
-                openBatchProgress.value = null;
-                return {
-                    status: 'stale',
-                    result,
-                } satisfies TDocumentOpenOutcome;
-            }
-            originalPath.value = result.originalPath;
-            requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             openBatchProgress.value = null;
-            await trackOpenedDocument(result, 'batch');
-            return {
-                status: 'opened',
-                result,
-            } satisfies TDocumentOpenOutcome;
+            return await finishPdfOpenResult(openRequestId, result, 'batch');
         } catch (e) {
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {

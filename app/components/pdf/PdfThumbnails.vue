@@ -1186,21 +1186,6 @@ function cancelRenderForPage(page: number) {
     renderingCanvasKeys.delete(page);
 }
 
-function cancelStaleThumbnailRender(pageNum: number) {
-    const activeTask = renderTasks.get(pageNum);
-    if (activeTask) {
-        try {
-            activeTask.cancel();
-        } catch {
-            // Ignore cancellation errors
-        }
-        renderTasks.delete(pageNum);
-    }
-    renderingPages.delete(pageNum);
-    renderingCanvases.delete(pageNum);
-    renderingCanvasKeys.delete(pageNum);
-}
-
 function pruneDetachedThumbnailState() {
     const mountedPages = new Set(virtualPages.value);
 
@@ -1239,7 +1224,7 @@ function prepareThumbnailCanvas(pageNum: number) {
         ) {
             return null;
         }
-        cancelStaleThumbnailRender(pageNum);
+        cancelRenderForPage(pageNum);
     }
 
     clearThumbnailCanvas(canvas, renderKey);

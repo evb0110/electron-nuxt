@@ -4,12 +4,17 @@ import {
     it,
 } from 'vitest';
 import {
+    PACKAGED_STARTUP_READY_MARKER,
     isAllowedPackagedToolExitCode,
     isPackagedStartupReady,
     parseAllowedToolExitCodes,
 } from '../../../scripts/releaseVerificationHelpers';
 
 describe('release verification helpers', () => {
+    it('exposes a stable packaged-startup ready marker token', () => {
+        expect(PACKAGED_STARTUP_READY_MARKER).toBe('[packaged-startup-ready]');
+    });
+
     it('requires both a ready renderer and live process for packaged startup readiness', () => {
         expect(isPackagedStartupReady({
             appAlive: true,

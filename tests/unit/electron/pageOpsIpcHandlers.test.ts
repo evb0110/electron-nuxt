@@ -93,9 +93,16 @@ vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (path:
 vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/ipc/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
+    QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
+        0,
+        3,
+    ],
+    QPDF_TIMEOUT_MS: 120000,
+    assertNonEmptyPdfOutput: vi.fn(),
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
+    runQpdfCommand: (...args: unknown[]) => mocks.runCommand(...args),
     rotatePages: (...args: unknown[]) => mocks.rotatePages(...args),
 }));
 vi.mock('@electron/features/page-ops/main/crop', () => ({

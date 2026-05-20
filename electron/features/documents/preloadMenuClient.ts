@@ -14,73 +14,86 @@ import type {
     IMenuEventUnsubscribe,
 } from '@electron/features/documents/preloadShared';
 
+type TNoArgDocumentMenuSubscriptions = Pick<
+    IDocumentsMenuCapability,
+    | 'onMenuOpenPdf'
+    | 'onMenuInsertImageFromFile'
+    | 'onMenuPasteImageFromClipboard'
+    | 'onMenuSave'
+    | 'onMenuSaveAs'
+    | 'onMenuPrint'
+    | 'onMenuPrintCurrentPage'
+    | 'onMenuExportDocx'
+    | 'onMenuExportImages'
+    | 'onMenuExportMultiPageTiff'
+    | 'onMenuZoomIn'
+    | 'onMenuZoomOut'
+    | 'onMenuActualSize'
+    | 'onMenuFitWidth'
+    | 'onMenuFitHeight'
+    | 'onMenuViewModeSingle'
+    | 'onMenuViewModeFacing'
+    | 'onMenuViewModeFacingFirstSingle'
+    | 'onMenuUndo'
+    | 'onMenuRedo'
+    | 'onMenuDeletePages'
+    | 'onMenuExtractPages'
+    | 'onMenuRotateCw'
+    | 'onMenuRotateCcw'
+    | 'onMenuInsertPages'
+    | 'onMenuClearRecentFiles'
+>;
+
+type TNoArgDocumentMenuChannel = Extract<{
+    [TChannel in keyof IDocumentsEventMap]: IDocumentsEventMap[TChannel] extends undefined ? TChannel : never;
+}[keyof IDocumentsEventMap], string>;
+
 export function createDocumentsPreloadMenuClient(
     ipcRenderer: IpcRenderer,
 ): IDocumentsMenuCapability {
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsEventMap>(ipcRenderer);
     const invoke = createIpcInvoker(ipcRenderer);
+    const onNoArg = (channel: TNoArgDocumentMenuChannel) =>
+        (callback: IMenuEventCallback): IMenuEventUnsubscribe => eventSubscriber.onNoArg(channel, callback);
+    const noArgMenuSubscriptions = {
+        onMenuOpenPdf: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuOpenPdf),
+        onMenuInsertImageFromFile: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile),
+        onMenuPasteImageFromClipboard: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard),
+        onMenuSave: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSave),
+        onMenuSaveAs: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSaveAs),
+        onMenuPrint: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrint),
+        onMenuPrintCurrentPage: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage),
+        onMenuExportDocx: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportDocx),
+        onMenuExportImages: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportImages),
+        onMenuExportMultiPageTiff: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff),
+        onMenuZoomIn: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuZoomIn),
+        onMenuZoomOut: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuZoomOut),
+        onMenuActualSize: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuActualSize),
+        onMenuFitWidth: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitWidth),
+        onMenuFitHeight: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitHeight),
+        onMenuViewModeSingle: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle),
+        onMenuViewModeFacing: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing),
+        onMenuViewModeFacingFirstSingle: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle),
+        onMenuUndo: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuUndo),
+        onMenuRedo: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRedo),
+        onMenuDeletePages: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuDeletePages),
+        onMenuExtractPages: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExtractPages),
+        onMenuRotateCw: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRotateCw),
+        onMenuRotateCcw: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRotateCcw),
+        onMenuInsertPages: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertPages),
+        onMenuClearRecentFiles: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles),
+    } satisfies TNoArgDocumentMenuSubscriptions;
 
     return {
         setMenuDocumentState: (hasDocument: boolean) =>
             invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, hasDocument),
         setMenuTabCount: (tabCount: number) =>
             invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
-        onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuOpenPdf, callback),
-        onMenuInsertImageFromFile: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile, callback),
-        onMenuPasteImageFromClipboard: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard, callback),
-        onMenuSave: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSave, callback),
-        onMenuSaveAs: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSaveAs, callback),
-        onMenuPrint: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrint, callback),
-        onMenuPrintCurrentPage: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage, callback),
-        onMenuExportDocx: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportDocx, callback),
-        onMenuExportImages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportImages, callback),
-        onMenuExportMultiPageTiff: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff, callback),
-        onMenuZoomIn: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuZoomIn, callback),
-        onMenuZoomOut: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuZoomOut, callback),
-        onMenuActualSize: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuActualSize, callback),
-        onMenuFitWidth: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitWidth, callback),
-        onMenuFitHeight: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitHeight, callback),
-        onMenuViewModeSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle, callback),
-        onMenuViewModeFacing: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing, callback),
-        onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle, callback),
-        onMenuUndo: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuUndo, callback),
-        onMenuRedo: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRedo, callback),
-        onMenuDeletePages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuDeletePages, callback),
-        onMenuExtractPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExtractPages, callback),
-        onMenuRotateCw: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRotateCw, callback),
-        onMenuRotateCcw: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRotateCcw, callback),
-        onMenuInsertPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertPages, callback),
+        ...noArgMenuSubscriptions,
         onMenuOpenRecentFile: (callback: (filePath: string) => void): IMenuEventUnsubscribe =>
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
         onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe =>
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
-        onMenuClearRecentFiles: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles, callback),
         onOpenPdfDirectBatchProgress: (callback: (progress: {
             requestId: string;
             processed: number;

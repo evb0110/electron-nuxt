@@ -25,8 +25,11 @@ import {
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { describeProcessExitCode } from '@electron/utils/processExit';
-import { terminateProcessTree } from '@electron/utils/processTree';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 
 interface IDjvuConvertOptions {
     subsample?: number;
@@ -499,20 +502,7 @@ export async function cancelConversion(jobId: string): Promise<boolean> {
 }
 
 async function killProcess(proc: ChildProcess) {
-    const pid = proc.pid;
-    if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-        await terminateProcessTree(pid, {
-            graceMs: DJVU_KILL_GRACE_MS,
-            preferProcessGroup: process.platform !== 'win32',
-        });
-        return;
-    }
-
-    try {
-        proc.kill('SIGTERM');
-    } catch {
-        // Process may have already exited
-    }
+    await terminateDetachedChildProcess(proc, DJVU_KILL_GRACE_MS);
 }
 
 interface IRunProcessOptions {
@@ -564,16 +554,15 @@ async function runProcess(
         const maxStderrBytes = options.maxStderrBytes ?? DJVU_MAX_STDERR_BYTES;
         let proc: ChildProcess;
         try {
-            proc = spawn(command, args, {
+            proc = spawn(command, args, createDetachedChildProcessSpawnOptions({
                 shell: false,
-                detached: process.platform !== 'win32',
                 stdio: [
                     'ignore',
                     'pipe',
                     'pipe',
                 ],
                 ...(options.env ? { env: options.env } : {}),
-            });
+            }));
         } catch (error) {
             resolve({
                 success: false,
@@ -627,10 +616,7 @@ async function runProcess(
                 timedOut = true;
                 const pid = proc.pid;
                 if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-                    void terminateProcessTree(pid, {
-                        graceMs: DJVU_KILL_GRACE_MS,
-                        preferProcessGroup: process.platform !== 'win32',
-                    }).finally(() => {
+                    void terminateDetachedChildProcess(proc, DJVU_KILL_GRACE_MS).finally(() => {
                         finalize({
                             success: false,
                             error: `${command} timed out after ${timeoutMs}ms`,

@@ -11,6 +11,14 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
     const pendingWorkspaceWaiters = new Map<string, Set<(workspace: IWorkspaceExpose) => void>>();
     const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
 
+    function removePendingWaiter(tabId: string, waiter: (workspace: IWorkspaceExpose) => void) {
+        const waiters = pendingWorkspaceWaiters.get(tabId);
+        waiters?.delete(waiter);
+        if (waiters && waiters.size === 0) {
+            pendingWorkspaceWaiters.delete(tabId);
+        }
+    }
+
     function setWorkspaceRef(tabId: string, el: unknown) {
         if (isWorkspaceExpose(el)) {
             if (workspaceRefs.value.get(tabId) === el) {
@@ -52,11 +60,7 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
             if (!waiter) {
                 return;
             }
-            const activeWaiters = pendingWorkspaceWaiters.get(tabId);
-            activeWaiters?.delete(waiter);
-            if (activeWaiters && activeWaiters.size === 0) {
-                pendingWorkspaceWaiters.delete(tabId);
-            }
+            removePendingWaiter(tabId, waiter);
             waiter = null;
         };
 
@@ -74,11 +78,7 @@ export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions
 
             const currentWorkspace = workspaceRefs.value.get(tabId) ?? null;
             if (currentWorkspace && waiter) {
-                const currentWaiters = pendingWorkspaceWaiters.get(tabId);
-                currentWaiters?.delete(waiter);
-                if (currentWaiters && currentWaiters.size === 0) {
-                    pendingWorkspaceWaiters.delete(tabId);
-                }
+                removePendingWaiter(tabId, waiter);
                 waiter = null;
                 resolve(currentWorkspace);
             }

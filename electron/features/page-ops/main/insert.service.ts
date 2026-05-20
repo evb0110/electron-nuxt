@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
 import {
-    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -13,8 +12,6 @@ import {
     createPdfFromInputPaths,
     isPdfOrImagePath,
 } from '@electron/image/pdfConversion';
-import { runNativeToolCommand } from '@electron/native-tools/exec';
-import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
@@ -23,27 +20,15 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
+import {
+    assertNonEmptyPdfOutput,
+    QPDF_OUTPUT_SUCCESS_EXIT_CODES,
+    QPDF_TIMEOUT_MS,
+    runQpdfCommand,
+} from '@electron/features/page-ops/main/qpdf';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
-const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
-    0,
-    3,
-];
-
-async function assertNonEmptyPdfOutput(outputPath: string) {
-    let outputStat: Awaited<ReturnType<typeof stat>>;
-    try {
-        outputStat = await stat(outputPath);
-    } catch (error) {
-        throw new Error('Inserting pages failed: qpdf did not produce an output file', {cause: error});
-    }
-
-    if (outputStat.size === 0) {
-        throw new Error('Inserting pages failed: qpdf produced an empty PDF');
-    }
-}
 
 async function prepareInsertionSourcePdf(
     workingCopyPath: string,
@@ -107,7 +92,6 @@ export async function insertPagesFromSourcePaths(
     if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
-    const qpdf = getNativeToolPaths().qpdf;
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     const {
@@ -135,12 +119,12 @@ export async function insertPagesFromSourcePaths(
             '--',
             tempPath,
         ];
-        await runNativeToolCommand(qpdf, args, {
+        await runQpdfCommand(args, {
             timeoutMs: QPDF_TIMEOUT_MS,
             allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
             commandLabel: 'qpdf(insert-pages)',
         });
-        await assertNonEmptyPdfOutput(tempPath);
+        await assertNonEmptyPdfOutput(tempPath, 'Inserting pages');
         await replaceTempOutput(tempPath, workingCopyPath);
     } catch (err) {
         await cleanupTempOutput(tempPath, log, 'temporary insert output');

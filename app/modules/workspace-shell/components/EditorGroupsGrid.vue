@@ -29,7 +29,7 @@
                         :ref="workspaceRefHandler(tab.id)"
                         :tab-id="tab.id"
                         :document-path="tab.originalPath"
-                        :has-document-hint="hasDocumentMountHint(tab)"
+                        :has-document-hint="tabHasDocumentHint(tab)"
                         :initial-view-state="viewStateByTabId[tab.id] ?? null"
                         :is-startup-open-claim-pending="isStartupOpenClaimPending"
                         :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
@@ -169,7 +169,7 @@ import type {
     TGroupOrientation,
 } from '@app/types/editorGroups';
 import type { TOpenFileResult } from '@contracts/platformApi';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
 import type { TStartSection } from '@app/types/startPage';

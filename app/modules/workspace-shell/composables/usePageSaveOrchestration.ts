@@ -58,7 +58,6 @@ interface IOcrCompletePayload {
 
 type TSharedSaveOperationDeps = Pick<
     IFileOperationsDeps,
-    | 'readWorkingCopyBytes'
     | 'validatePdfPath'
     | 'saveFile'
     | 'saveWorkingCopy'
@@ -133,7 +132,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markBookmarksSaved,
         isDirty,
         hasPendingUnsavedChanges,
-        readWorkingCopyBytes,
         validatePdfPath,
         saveFile,
         saveWorkingCopy,
@@ -191,7 +189,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdfDocument,
         saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
         getSourcePdfData,
-        readWorkingCopyBytes,
         validatePdfPath,
         saveFile,
         saveWorkingCopy,

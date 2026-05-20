@@ -1,42 +1,42 @@
 <template>
-    <fieldset class="settings-group flex flex-col gap-2.5">
-        <legend class="settings-legend">{{ t('settings.viewerDefaults') }}</legend>
+    <fieldset class="settings-section flex flex-col gap-2.5">
+        <legend class="settings-section-title">{{ t('settings.viewerDefaults') }}</legend>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.defaultZoom') }}</label>
+            <label class="settings-field-label">{{ t('settings.defaultZoom') }}</label>
             <USelectMenu
                 :model-value="settings.defaultZoomPreset"
                 :items="zoomPresetItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="updateZoomPreset"
+                @update:model-value="emit('update:zoom-preset', $event)"
             />
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.defaultViewMode') }}</label>
+            <label class="settings-field-label">{{ t('settings.defaultViewMode') }}</label>
             <USelectMenu
                 :model-value="settings.defaultViewMode"
                 :items="viewModeItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="updateViewMode"
+                @update:model-value="emit('update:view-mode', $event)"
             />
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.defaultScrollMode') }}</label>
+            <label class="settings-field-label">{{ t('settings.defaultScrollMode') }}</label>
             <USelectMenu
                 :model-value="settings.defaultContinuousScroll"
                 :items="scrollModeItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="updateScrollMode"
+                @update:model-value="emit('update:scroll-mode', $event)"
             />
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.defaultAnnotationColor') }}</label>
+            <label class="settings-field-label">{{ t('settings.defaultAnnotationColor') }}</label>
             <div class="settings-swatch-track">
                 <button
                     v-for="swatch in annotationColorSwatches"
@@ -46,19 +46,19 @@
                     :class="{ 'is-active': settings.defaultAnnotationColor === swatch }"
                     :style="{ '--swatch-color': swatch }"
                     :aria-label="t('settings.annotationColorLabel', { color: swatch })"
-                    @click="updateAnnotationColor(swatch)"
+                    @click="emit('update:annotation-color', swatch)"
                 />
             </div>
         </div>
 
         <div class="settings-field flex flex-col gap-1">
-            <label class="settings-label">{{ t('settings.tabMemoryPolicy') }}</label>
+            <label class="settings-field-label">{{ t('settings.tabMemoryPolicy') }}</label>
             <USelectMenu
                 :model-value="settings.tabMemoryPolicy"
                 :items="tabMemoryPolicyItems"
                 value-key="value"
                 :search-input="false"
-                @update:model-value="updateTabMemoryPolicy"
+                @update:model-value="emit('update:tab-memory-policy', $event)"
             />
         </div>
     </fieldset>
@@ -96,49 +96,10 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
-function updateZoomPreset(value: string | { value: string }) {
-    emit('update:zoom-preset', value);
-}
-
-function updateViewMode(value: string | { value: string }) {
-    emit('update:view-mode', value);
-}
-
-function updateScrollMode(value: boolean | { value: boolean }) {
-    emit('update:scroll-mode', value);
-}
-
-function updateTabMemoryPolicy(value: string | { value: string }) {
-    emit('update:tab-memory-policy', value);
-}
-
-function updateAnnotationColor(value: string) {
-    emit('update:annotation-color', value);
-}
 </script>
 
 <style lang="scss" scoped>
-.settings-group {
-    border: none;
-    padding: 0;
-    margin: 0;
-}
-
-.settings-legend {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--ui-text-dimmed);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0;
-    margin-bottom: 0.125rem;
-}
-
-.settings-label {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--ui-text);
-}
+@use '@app/assets/css/settingsPanelShared';
 
 .settings-swatch {
     width: 1.5rem;

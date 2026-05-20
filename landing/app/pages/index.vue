@@ -33,7 +33,7 @@
         />
 
         <UButton
-          :to="repositoryUrl"
+          :to="GITHUB_REPOSITORY_URL"
           target="_blank"
           rel="noreferrer"
           color="neutral"
@@ -166,11 +166,7 @@
 
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
-import {
-    buildAbsoluteUrl,
-    normalizeSiteUrl,
-    SEO_IMAGE_PATH,
-} from '~~/shared/seo';
+import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
 import { selectInstallersForPlatform } from '~~/shared/releaseAssets';
 import {
     formatFileSize,
@@ -185,7 +181,7 @@ import {
     type TReleaseArch,
     type IUserAgentProfile,
     type TReleasePlatform,
-} from '~~/shared/releaseInstallers';
+} from '@releaseSelection';
 
 interface INavigatorUADataLike {
     platform?: string
@@ -193,26 +189,18 @@ interface INavigatorUADataLike {
 }
 
 const { t } = useTypedI18n();
-const route = useRoute();
 const runtimeConfig = useRuntimeConfig();
 
-const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
-const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
-const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('home.seo.ogDescription'));
 
-useSeoMeta({
+const {
+    canonicalUrl,
+    ogImage,
+} = useLandingPageSeo({
     title: () => t('home.seo.title'),
     description: () => pageDescription.value,
     ogTitle: () => t('home.seo.ogTitle'),
-    ogDescription: () => pageDescription.value,
-    ogUrl: () => canonicalUrl.value,
-    ogImage: () => ogImage.value,
-    twitterTitle: () => t('home.seo.ogTitle'),
-    twitterDescription: () => pageDescription.value,
-    twitterImage: () => ogImage.value,
 });
 
 const clientProfile = ref<IUserAgentProfile>({
@@ -284,7 +272,7 @@ const installersForSelectedPlatform = computed(() => {
     return base;
 });
 
-const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || `${repositoryUrl}/releases/latest`);
+const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || `${GITHUB_REPOSITORY_URL}/releases/latest`);
 const softwareApplicationSchema = computed(() => {
     const latestRelease = releaseData.value?.release;
 
@@ -323,10 +311,7 @@ const {
     start: startIframeCleanup,
     stop: stopIframeCleanup,
 } = useTimeoutFn(() => {
-    for (const iframe of pendingDownloadIframes) {
-        iframe.remove();
-    }
-    pendingDownloadIframes.clear();
+    cleanupPendingDownloadIframes();
 }, 60_000, { immediate: false });
 
 onMounted(async () => {
@@ -335,10 +320,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     stopIframeCleanup();
-    for (const iframe of pendingDownloadIframes) {
-        iframe.remove();
-    }
-    pendingDownloadIframes.clear();
+    cleanupPendingDownloadIframes();
 });
 
 async function detectClientProfile(): Promise<IUserAgentProfile> {
@@ -367,6 +349,13 @@ async function detectClientProfile(): Promise<IUserAgentProfile> {
     };
 }
 
+function cleanupPendingDownloadIframes() {
+    for (const iframe of pendingDownloadIframes) {
+        iframe.remove();
+    }
+    pendingDownloadIframes.clear();
+}
+
 function triggerIframeDownload(url: string) {
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
@@ -377,25 +366,17 @@ function triggerIframeDownload(url: string) {
     startIframeCleanup();
 }
 
-function trackDownload(installer: IReleaseInstaller) {
-    if (typeof fetch !== 'function') {
-        return;
-    }
-
-    fetch('/api/analytics/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            platform: installer.platform,
-            arch: installer.arch,
-            version: releaseData.value?.release.tag ?? 'unknown',
-            fileName: installer.name,
-        }),
-    }).catch(() => {});
+function trackInstallerDownload(installer: IReleaseInstaller) {
+    trackDownload({
+        platform: installer.platform,
+        arch: installer.arch,
+        version: releaseData.value?.release.tag ?? 'unknown',
+        fileName: installer.name,
+    });
 }
 
 function downloadInstaller(installer: IReleaseInstaller) {
-    trackDownload(installer);
+    trackInstallerDownload(installer);
     triggerIframeDownload(installer.downloadUrl);
 }
 

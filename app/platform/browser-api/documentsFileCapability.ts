@@ -55,18 +55,14 @@ interface ICreateBrowserDocumentsFileCapabilityOptions {
 const defaultBrowserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
-let browserLargeSaveHandleHintProvider = defaultBrowserLargeSaveHandleHintProvider;
-
-function getBrowserLargeSaveHandleHint(): string {
-    return browserLargeSaveHandleHintProvider();
-}
 
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
 ): IDocumentsFileCapability {
     const { clearSearchCaches } = options;
-    browserLargeSaveHandleHintProvider = options.errorMessageProvider?.largeSaveHandleHint
+    const browserLargeSaveHandleHintProvider = options.errorMessageProvider?.largeSaveHandleHint
         ?? defaultBrowserLargeSaveHandleHintProvider;
+    const getBrowserLargeSaveHandleHint = () => browserLargeSaveHandleHintProvider();
 
     async function cleanupTransientOpenRefs(paths: string[]) {
         await Promise.all(paths.map(async (path) => {
@@ -481,10 +477,6 @@ export function createBrowserDocumentsFileCapability(
                 },
             );
             await decryptBrowserWorkingCopy(workingPath);
-
-            if (sourceEntry.kind !== 'working') {
-                browserDocumentStore.unload(sourcePath);
-            }
             return workingPath;
         },
         async saveFile(path) {

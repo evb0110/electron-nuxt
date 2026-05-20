@@ -4,7 +4,7 @@ import {
 } from '@electron/native-tools/commandRunner';
 import type { IProcessResult } from '@electron/native-tools/processResult';
 
-interface IRunNativeToolCommandOptions {
+export interface IRunNativeToolCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;

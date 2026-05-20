@@ -69,6 +69,8 @@ interface IUseAnnotationOrchestratorOptions {
 }
 
 export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOptions) => {
+    const { t } = useTypedI18n();
+
     const {
         viewerContainer,
         pdfDocument,
@@ -191,6 +193,11 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         viewerContainer,
         annotationCommentsCache,
         activeCommentStableKey,
+        labels: {
+            annotation: t('annotations.annotationLabel'),
+            note: t('annotations.stickyNoteLabel'),
+            moreNotes: count => t('annotations.moreNotes', { count }),
+        },
     });
 
     const highlight = useAnnotationHighlight({

@@ -100,67 +100,13 @@ import {
     matchesCommentQuery,
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
+import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
 
 interface IProps {
     comments: IAnnotationCommentSummary[];
     activeCommentStableKey?: string | null | undefined;
     authorName?: string | null | undefined;
 }
-
-const COMMENT_SUBTYPE_LABELS = [
-    {
-        needle: 'highlight',
-        labelKey: 'annotations.highlightLabel',
-    },
-    {
-        needle: 'underline',
-        labelKey: 'annotations.underlineLabel',
-    },
-    {
-        needle: 'strike',
-        labelKey: 'annotations.strikeOutLabel',
-    },
-    {
-        needle: 'squiggly',
-        labelKey: 'annotations.squiggleLabel',
-    },
-    {
-        needle: 'ink',
-        labelKey: 'annotations.inkLabel',
-    },
-    {
-        needle: 'text',
-        labelKey: 'annotations.stickyNoteLabel',
-    },
-    {
-        needle: 'popup',
-        labelKey: 'annotations.stickyNoteLabel',
-    },
-    {
-        needle: 'note',
-        labelKey: 'annotations.stickyNoteLabel',
-    },
-    {
-        needle: 'square',
-        labelKey: 'annotations.rectangleLabel',
-    },
-    {
-        needle: 'rectangle',
-        labelKey: 'annotations.rectangleLabel',
-    },
-    {
-        needle: 'circle',
-        labelKey: 'annotations.circleLabel',
-    },
-    {
-        needle: 'line',
-        labelKey: 'annotations.lineLabel',
-    },
-    {
-        needle: 'arrow',
-        labelKey: 'annotations.arrowLabel',
-    },
-] as const;
 
 const { t } = useTypedI18n();
 
@@ -212,10 +158,7 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
         return kind;
     }
 
-    const subtype = (comment.subtype ?? '').toLowerCase();
-    const labelKey = COMMENT_SUBTYPE_LABELS.find(({ needle }) => subtype.includes(needle))?.labelKey
-        ?? 'annotations.annotationLabel';
-    return t(labelKey);
+    return t(annotationKindLabelFromSubtype(comment.subtype).key);
 }
 
 function notePreview(comment: IAnnotationCommentSummary) {

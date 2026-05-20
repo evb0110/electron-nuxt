@@ -1,0 +1,28 @@
+.settings-section {
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-section-title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--ui-text-dimmed);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0;
+    margin-bottom: 0.125rem;
+}
+
+.settings-field-label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--ui-text);
+}
+
+.settings-field-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--ui-text-dimmed);
+}

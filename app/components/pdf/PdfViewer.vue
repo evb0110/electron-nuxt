@@ -1003,11 +1003,6 @@ const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
     viewerContainer,
     holdOverlayVisible: isVisualReloadTransitionActive,
 });
-const isLocalViewerLoadingOverlayVisible = computed(() => (
-    isViewerLoadingOverlayVisible.value
-    && isVisualReloadTransitionActive.value
-    && !suppressLoadingOverlay.value
-));
 const isInitialSkeletonGeometryPending = computed(() => (
     Boolean(src.value)
     && Boolean(pdfDocument.value)
@@ -1015,7 +1010,11 @@ const isInitialSkeletonGeometryPending = computed(() => (
     && skeletonContentInsets.value === null
 ));
 const shouldBlockPageSkeletons = computed(() => (
-    isLocalViewerLoadingOverlayVisible.value
+    (
+        isViewerLoadingOverlayVisible.value
+        && isVisualReloadTransitionActive.value
+        && !suppressLoadingOverlay.value
+    )
     || suppressLoadingOverlay.value
     || isInitialSkeletonGeometryPending.value
 ));

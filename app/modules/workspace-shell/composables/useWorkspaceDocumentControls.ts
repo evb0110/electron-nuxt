@@ -36,7 +36,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     requestThumbnailInvalidation: (pages: number[]) => void;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     handleExportImages: (pages: number[]) => Promise<void>;
-    pickFileToOpenWithDjvuCleanup: () => Promise<TOpenFileResult | null>;
+    pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
@@ -72,13 +72,13 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         annotationNoteWindows,
+        hasPendingUnsavedChanges,
         annotationDirty,
         isDirty,
         pageLabelsDirty,
         bookmarksDirty,
-        hasAnnotationChanges,
         persistAllAnnotationNotes,
-        pickFileToOpenWithDjvuCleanup,
+        pickFileToOpen,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,
@@ -132,14 +132,14 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         annotationNoteWindows,
+        hasPendingUnsavedChanges,
         annotationDirty,
         isDirty,
         pageLabelsDirty,
         bookmarksDirty,
-        hasAnnotationChanges,
         persistAllAnnotationNotes,
         handleSave,
-        pickFileToOpen: pickFileToOpenWithDjvuCleanup,
+        pickFileToOpen,
         openFile: openFileWithDjvuCleanup,
         openFileDirect: openFileDirectWithDjvuCleanup,
         openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,

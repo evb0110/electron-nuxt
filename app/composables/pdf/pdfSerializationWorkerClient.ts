@@ -92,10 +92,6 @@ function buildWorkerRequestWithTransfers(
     }
 }
 
-function canUseSerializationWorker() {
-    return canUseBrowserWorker();
-}
-
 const serializationWorkerClient = new BrowserWorkerClient<
     TSerializationWorkerResult,
     IPendingBrowserWorkerRequest<Uint8Array | null>
@@ -154,7 +150,7 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
     };
     const typedRequest = request as TSerializationWorkerRequest;
 
-    if (!canUseSerializationWorker()) {
+    if (!canUseBrowserWorker()) {
         return runDirectWithYield(typedRequest);
     }
 

@@ -24,6 +24,15 @@ const createPdfFromInputPathsMock = vi.hoisted(() => vi.fn());
 
 type TRunCommandOptionsExpectation = { allowedExitCodes?: number[] };
 
+async function readQpdfArgFile(args: string[]) {
+    const argFile = args[0];
+    if (!argFile?.startsWith('@')) {
+        throw new Error(`Expected qpdf arg file invocation, got ${JSON.stringify(args)}`);
+    }
+
+    return (await readFile(argFile.slice(1), 'utf8')).split('\n');
+}
+
 vi.mock('node:crypto', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeCrypto>();
     return {
@@ -67,7 +76,8 @@ describe('page-ops insert service', () => {
                 args: string[],
                 options: TRunCommandOptionsExpectation,
             ) => {
-                expect(args.at(-1)).toBe(tempOutputPath);
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
                 expect(options.allowedExitCodes).toEqual([
                     0,
                     3,
@@ -104,7 +114,8 @@ describe('page-ops insert service', () => {
             await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
             await writeFile(sourcePath, '%PDF-1.7\nsource');
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
-                expect(args.at(-1)).toBe(tempOutputPath);
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
                 await writeFile(tempOutputPath, new Uint8Array());
                 return {
                     exitCode: 0,

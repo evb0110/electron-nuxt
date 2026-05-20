@@ -45,7 +45,6 @@ import type {
     TTabMemoryPolicy,
     TPdfViewMode,
 } from '@contracts/shared';
-import { LOCALE_CODES } from '@i18n-core';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
@@ -53,23 +52,117 @@ import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
-const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
-const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<TDefaultZoomPreset>([
-    'fit-width',
-    'fit-height',
-    '100',
-    '125',
-    '150',
-]);
-const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>([
-    'single',
-    'facing',
-    'facing-first-single',
-]);
-const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<TTabMemoryPolicy>([
-    'conservative',
-    'aggressive',
-]);
+const LOCALE_OPTION_DEFINITIONS = [
+    {
+        value: 'en',
+        icon: 'i-circle-flags-gb',
+        labelKey: 'settings.languageEnglish',
+    },
+    {
+        value: 'ru',
+        icon: 'i-circle-flags-ru',
+        labelKey: 'settings.languageRussian',
+    },
+    {
+        value: 'fr',
+        icon: 'i-circle-flags-fr',
+        labelKey: 'settings.languageFrench',
+    },
+    {
+        value: 'de',
+        icon: 'i-circle-flags-de',
+        labelKey: 'settings.languageGerman',
+    },
+    {
+        value: 'es',
+        icon: 'i-circle-flags-es',
+        labelKey: 'settings.languageSpanish',
+    },
+    {
+        value: 'it',
+        icon: 'i-circle-flags-it',
+        labelKey: 'settings.languageItalian',
+    },
+    {
+        value: 'pt',
+        icon: 'i-circle-flags-pt',
+        labelKey: 'settings.languagePortuguese',
+    },
+    {
+        value: 'nl',
+        icon: 'i-circle-flags-nl',
+        labelKey: 'settings.languageDutch',
+    },
+] as const satisfies ReadonlyArray<{
+    value: TAppLocale;
+    icon: string;
+    labelKey: string;
+}>;
+const ZOOM_PRESET_OPTION_DEFINITIONS = [
+    {
+        value: 'fit-width',
+        labelKey: 'zoom.fitWidth',
+        label: null,
+    },
+    {
+        value: 'fit-height',
+        labelKey: 'zoom.fitHeight',
+        label: null,
+    },
+    {
+        value: '100',
+        labelKey: null,
+        label: '100%',
+    },
+    {
+        value: '125',
+        labelKey: null,
+        label: '125%',
+    },
+    {
+        value: '150',
+        labelKey: null,
+        label: '150%',
+    },
+] as const satisfies ReadonlyArray<{
+    value: TDefaultZoomPreset;
+    labelKey: string | null;
+    label: string | null;
+}>;
+const VIEW_MODE_OPTION_DEFINITIONS = [
+    {
+        value: 'single',
+        labelKey: 'zoom.singlePage',
+    },
+    {
+        value: 'facing',
+        labelKey: 'zoom.facingPages',
+    },
+    {
+        value: 'facing-first-single',
+        labelKey: 'zoom.facingWithFirstSingle',
+    },
+] as const satisfies ReadonlyArray<{
+    value: TPdfViewMode;
+    labelKey: string;
+}>;
+const TAB_MEMORY_POLICY_OPTION_DEFINITIONS = [
+    {
+        value: 'conservative',
+        labelKey: 'settings.tabMemoryConservative',
+    },
+    {
+        value: 'aggressive',
+        labelKey: 'settings.tabMemoryAggressive',
+    },
+] as const satisfies ReadonlyArray<{
+    value: TTabMemoryPolicy;
+    labelKey: string;
+}>;
+const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_OPTION_DEFINITIONS.map(option => option.value));
+const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<TDefaultZoomPreset>(ZOOM_PRESET_OPTION_DEFINITIONS.map(option => option.value));
+const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>(VIEW_MODE_OPTION_DEFINITIONS.map(option => option.value));
+const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<TTabMemoryPolicy>(TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => option.value));
 
 const {
     t,
@@ -87,109 +180,40 @@ const {
     isUpdateSupported,
 } = useAppUpdates();
 
-const LOCALE_FLAGS: Record<string, string> = {
-    en: 'i-circle-flags-gb',
-    ru: 'i-circle-flags-ru',
-    fr: 'i-circle-flags-fr',
-    de: 'i-circle-flags-de',
-    es: 'i-circle-flags-es',
-    it: 'i-circle-flags-it',
-    pt: 'i-circle-flags-pt',
-    nl: 'i-circle-flags-nl',
-};
+const LOCALE_FLAGS: Record<TAppLocale, string> = Object.fromEntries(
+    LOCALE_OPTION_DEFINITIONS.map(option => [
+        option.value,
+        option.icon,
+    ]),
+) as Record<TAppLocale, string>;
 
-const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en!);
+const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
 const shortcutsDescription = computed(() => isDesktopRuntime
     ? t('settings.shortcutsDescription')
     : t('settings.browserShortcutsDescription'));
 
-const localeItems = computed(() => [
-    {
-        label: t('settings.languageEnglish'),
-        value: 'en',
-        icon: LOCALE_FLAGS.en!,
-    },
-    {
-        label: t('settings.languageRussian'),
-        value: 'ru',
-        icon: LOCALE_FLAGS.ru!,
-    },
-    {
-        label: t('settings.languageFrench'),
-        value: 'fr',
-        icon: LOCALE_FLAGS.fr!,
-    },
-    {
-        label: t('settings.languageGerman'),
-        value: 'de',
-        icon: LOCALE_FLAGS.de!,
-    },
-    {
-        label: t('settings.languageSpanish'),
-        value: 'es',
-        icon: LOCALE_FLAGS.es!,
-    },
-    {
-        label: t('settings.languageItalian'),
-        value: 'it',
-        icon: LOCALE_FLAGS.it!,
-    },
-    {
-        label: t('settings.languagePortuguese'),
-        value: 'pt',
-        icon: LOCALE_FLAGS.pt!,
-    },
-    {
-        label: t('settings.languageDutch'),
-        value: 'nl',
-        icon: LOCALE_FLAGS.nl!,
-    },
-]);
+const localeItems = computed(() => LOCALE_OPTION_DEFINITIONS.map(option => ({
+    label: t(option.labelKey),
+    value: option.value,
+    icon: option.icon,
+})));
 
 const zoomPresetItems = computed<Array<{
     value: TDefaultZoomPreset;
     label: string;
-}>>(() => [
-    {
-        value: 'fit-width',
-        label: t('zoom.fitWidth'),
-    },
-    {
-        value: 'fit-height',
-        label: t('zoom.fitHeight'),
-    },
-    {
-        value: '100',
-        label: '100%',
-    },
-    {
-        value: '125',
-        label: '125%',
-    },
-    {
-        value: '150',
-        label: '150%',
-    },
-]);
+}>>(() => ZOOM_PRESET_OPTION_DEFINITIONS.map(option => ({
+    value: option.value,
+    label: option.labelKey ? t(option.labelKey) : option.label ?? '',
+})));
 
 const viewModeItems = computed<Array<{
     value: TPdfViewMode;
     label: string;
-}>>(() => [
-    {
-        value: 'single',
-        label: t('zoom.singlePage'),
-    },
-    {
-        value: 'facing',
-        label: t('zoom.facingPages'),
-    },
-    {
-        value: 'facing-first-single',
-        label: t('zoom.facingWithFirstSingle'),
-    },
-]);
+}>>(() => VIEW_MODE_OPTION_DEFINITIONS.map(option => ({
+    value: option.value,
+    label: t(option.labelKey),
+})));
 
 const scrollModeItems = computed(() => [
     {
@@ -205,16 +229,10 @@ const scrollModeItems = computed(() => [
 const tabMemoryPolicyItems = computed<Array<{
     value: TTabMemoryPolicy;
     label: string;
-}>>(() => [
-    {
-        value: 'conservative',
-        label: t('settings.tabMemoryConservative'),
-    },
-    {
-        value: 'aggressive',
-        label: t('settings.tabMemoryAggressive'),
-    },
-]);
+}>>(() => TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => ({
+    value: option.value,
+    label: t(option.labelKey),
+})));
 
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 const mod = isMac ? '\u2318' : 'Ctrl';

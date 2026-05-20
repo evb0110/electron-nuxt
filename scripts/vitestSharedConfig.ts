@@ -1,0 +1,13 @@
+import { resolve } from 'node:path';
+
+const projectRoot = resolve(__dirname, '..');
+
+export const vitestResolveAlias = {
+    '@app': resolve(projectRoot, 'app'),
+    '@electron': resolve(projectRoot, 'electron'),
+    '@contracts': resolve(projectRoot, 'packages/contracts'),
+    '@i18n-core': resolve(projectRoot, 'packages/i18n-core'),
+    '@i18n-app': resolve(projectRoot, 'packages/i18n-app'),
+    '@releaseSelection': resolve(projectRoot, 'packages/release-selection'),
+    electron: resolve(projectRoot, 'tests/mocks/electron.ts'),
+} as const;

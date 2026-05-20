@@ -1,9 +1,9 @@
 <template>
     <details class="settings-details flex flex-col">
-        <summary class="settings-legend is-toggle">
+        <summary class="settings-section-title is-toggle">
             {{ t('settings.shortcuts') }}
         </summary>
-        <p class="settings-hint">
+        <p class="settings-field-hint">
             {{ description }}
         </p>
         <div class="flex flex-col">
@@ -40,21 +40,13 @@ const { t } = useTypedI18n();
 </script>
 
 <style lang="scss" scoped>
+@use '@app/assets/css/settingsPanelShared';
+
 .settings-details[open] {
     gap: 0.375rem;
 }
 
-.settings-legend {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--ui-text-dimmed);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0;
-    margin-bottom: 0.125rem;
-}
-
-.settings-legend.is-toggle {
+.settings-section-title.is-toggle {
     cursor: pointer;
     list-style: none;
     display: flex;
@@ -62,11 +54,11 @@ const { t } = useTypedI18n();
     gap: 0.375rem;
 }
 
-.settings-legend.is-toggle::-webkit-details-marker {
+.settings-section-title.is-toggle::-webkit-details-marker {
     display: none;
 }
 
-.settings-legend.is-toggle::before {
+.settings-section-title.is-toggle::before {
     content: "";
     display: inline-block;
     width: 0;
@@ -78,15 +70,8 @@ const { t } = useTypedI18n();
     flex-shrink: 0;
 }
 
-.settings-details[open] > .settings-legend.is-toggle::before {
+.settings-details[open] > .settings-section-title.is-toggle::before {
     transform: rotate(90deg);
-}
-
-.settings-hint {
-    margin: 0;
-    font-size: 0.75rem;
-    line-height: 1.35;
-    color: var(--ui-text-dimmed);
 }
 
 .settings-shortcut-row {

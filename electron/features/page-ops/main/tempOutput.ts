@@ -16,9 +16,7 @@ export function makeTempPdfOutputPath(targetPath: string) {
 export async function replaceTempOutput(
     tempPath: string,
     targetPath: string,
-    options: { replaceExistingTargetOnFailure?: boolean } = {},
 ) {
-    void options;
     await atomicReplace(tempPath, targetPath);
 }
 

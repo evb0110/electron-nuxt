@@ -1,31 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
+source "$(dirname "$0")/release/platform-arch.sh"
+
 if [ "$#" -ne 2 ]; then
-  echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64>"
+  release_target_usage "$0"
   exit 1
 fi
 
 platform="$1"
 arch="$2"
 release_dir="release"
+resolve_release_target_platform_arch "$platform" "$arch" >/dev/null
 
-host_platform=""
-case "$(uname -s)" in
-  Darwin)
-    host_platform="mac"
-    ;;
-  Linux)
-    host_platform="linux"
-    ;;
-  MINGW*|MSYS*|CYGWIN*)
-    host_platform="win"
-    ;;
-  *)
-    echo "Error: Unsupported host platform $(uname -s)"
-    exit 1
-    ;;
-esac
+detect_release_host_platform
+host_platform="$RELEASE_HOST_PLATFORM"
 
 if [ "$platform" != "$host_platform" ]; then
   echo "Skipping startup check for $platform-$arch on host $host_platform"
@@ -76,13 +65,14 @@ app_pid=$!
 
 main_log="$log_dir/main.log"
 window_log="$log_dir/window.log"
+ready_marker="$(pnpm exec tsx scripts/release/printPackagedStartupReadyMarker.ts)"
 
 timeout_secs=50
 deadline=$((SECONDS + timeout_secs))
 ready=0
 while [ "$SECONDS" -lt "$deadline" ]; do
   renderer_ready=0
-  if [ -f "$main_log" ] && grep -q 'Main renderer signaled ready' "$main_log"; then
+  if [ -f "$main_log" ] && grep -F -q "$ready_marker" "$main_log"; then
     renderer_ready=1
   fi
 

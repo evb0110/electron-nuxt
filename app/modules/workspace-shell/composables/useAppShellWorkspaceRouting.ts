@@ -4,8 +4,10 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
-import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
+import {
+    buildPendingTabDocumentHint,
+    tabHasDocumentHint,
+} from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import type { IEditorGroupState } from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
@@ -95,7 +97,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     function canReuseTabForDocument(tab: ITab | null, workspace: IWorkspaceExpose | null) {
         return Boolean(
             tab
-            && !hasDocumentMountHint(tab)
+            && !tabHasDocumentHint(tab)
             && (!workspace || !workspaceOccupiesTab(workspace)),
         );
     }
@@ -119,7 +121,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const tab = getTabById(tabId);
-        if (!tab || hasDocumentMountHint(tab)) {
+        if (!tab || tabHasDocumentHint(tab)) {
             return;
         }
 

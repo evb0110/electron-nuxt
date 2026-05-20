@@ -2,17 +2,9 @@ export default defineNuxtPlugin(() => {
     const router = useRouter();
 
     router.afterEach((to) => {
-        if (typeof fetch !== 'function') {
-            return;
-        }
-
-        fetch('/api/analytics/pageView', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                path: to.path,
-                referrer: document.referrer || null,
-            }),
-        }).catch(() => {});
+        trackPageView({
+            path: to.path,
+            referrer: document.referrer || null,
+        });
     });
 });
