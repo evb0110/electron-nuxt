@@ -49,6 +49,9 @@ export async function readDocumentFileFully(path: TDocumentRef) {
     while (offset < size) {
         const length = Math.min(FULL_READ_FALLBACK_CHUNK_SIZE, size - offset);
         const chunk = await documents.readFileRange(path, offset, length);
+        if (chunk.byteLength === 0) {
+            throw new Error(`Range read returned no bytes before EOF at offset ${offset} of ${size}`);
+        }
         output.set(chunk, offset);
         offset += chunk.byteLength;
         if (offset < size) {

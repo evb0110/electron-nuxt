@@ -569,14 +569,34 @@ const {
     startSection?: TStartSection | undefined;
 }>();
 
-const canTeleportToolbar = computed(() => (
-    import.meta.client
-    && Boolean(document.getElementById('editor-global-toolbar-host'))
-));
-const canTeleportStatus = computed(() => (
-    import.meta.client
-    && Boolean(document.getElementById('editor-global-status-host'))
-));
+const canTeleportToolbar = ref(false);
+const canTeleportStatus = ref(false);
+
+function refreshTeleportHosts() {
+    if (!import.meta.client) {
+        return;
+    }
+
+    canTeleportToolbar.value = Boolean(document.getElementById('editor-global-toolbar-host'));
+    canTeleportStatus.value = Boolean(document.getElementById('editor-global-status-host'));
+}
+
+let teleportHostObserver: MutationObserver | null = null;
+
+onMounted(() => {
+    refreshTeleportHosts();
+
+    teleportHostObserver = new MutationObserver(refreshTeleportHosts);
+    teleportHostObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+    });
+});
+
+onUnmounted(() => {
+    teleportHostObserver?.disconnect();
+    teleportHostObserver = null;
+});
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;

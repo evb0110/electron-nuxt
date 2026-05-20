@@ -1,20 +1,33 @@
-import { join } from 'node:path';
+import {
+    isAbsolute,
+    join,
+} from 'node:path';
 import { projectRoot } from './electronRunProjectPaths';
 
 let currentSessionName = 'default';
+
+export function validateSessionName(name: string) {
+    if (!name || name === '.' || name === '..') {
+        throw new Error('Session name must not be empty, "." or ".."');
+    }
+    if (name.includes('/') || name.includes('\\') || name.includes('..') || isAbsolute(name)) {
+        throw new Error('Session name must not contain path separators or traversal segments');
+    }
+    return name;
+}
 
 export function getCurrentSessionName() {
     return currentSessionName;
 }
 
 export function setCurrentSessionName(name: string) {
-    currentSessionName = name;
+    currentSessionName = validateSessionName(name);
 }
 
 export const sessionsBaseDir = join(projectRoot, '.devkit', 'sessions');
 
 export function sessionDir(name = getCurrentSessionName()) {
-    return join(sessionsBaseDir, name);
+    return join(sessionsBaseDir, validateSessionName(name));
 }
 
 export function sessionFilePath(name = getCurrentSessionName()) {

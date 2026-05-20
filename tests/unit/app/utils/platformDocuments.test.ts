@@ -123,6 +123,22 @@ describe('platformDocuments', () => {
         expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
     });
 
+    it('fails the fallback read when a range read returns no bytes before EOF', async () => {
+        documentsMock.readFile.mockRejectedValueOnce(new Error(
+            'Browser document is too large to load fully into memory (huge.pdf: 128MB > 64MB limit)',
+        ));
+        documentsMock.statFile.mockResolvedValueOnce({ size: 4 });
+        documentsMock.readFileRange.mockResolvedValueOnce(new Uint8Array());
+
+        const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
+        await expect(readDocumentFileFully('browser://huge.pdf')).rejects.toThrow(
+            'Range read returned no bytes before EOF at offset 0 of 4',
+        );
+
+        expect(documentsMock.readFileRange).toHaveBeenCalledTimes(1);
+        expect(yieldToBrowserMock).not.toHaveBeenCalled();
+    });
+
     it('does not swallow unrelated read failures', async () => {
         documentsMock.readFile.mockRejectedValueOnce(new Error('Permission denied'));
 

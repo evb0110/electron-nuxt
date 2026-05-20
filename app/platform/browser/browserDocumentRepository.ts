@@ -263,26 +263,34 @@ export class BrowserDocumentStore {
             };
 
             this.entries.set(ref, entry);
-            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-
-            for (let index = 0; index < sourceEntry.chunkCount; index += 1) {
-                const chunk = await this.loadChunk(sourceEntry.ref, index, sourceEntry.chunkGeneration);
-                if (!chunk) {
-                    throw new Error(`Browser document chunk missing: ${sourceEntry.ref}#${index}`);
-                }
-                await persistChunkRecord({
-                    key: createChunkKey(ref, index, entry.chunkGeneration),
-                    ref,
-                    index,
-                    ...(entry.chunkGeneration ? { generation: entry.chunkGeneration } : {}),
-                    data: cloneBytes(chunk),
-                });
-                entry.chunkCount = index + 1;
-                entry.updatedAt = Date.now();
+            try {
                 await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-                if (entry.chunkCount % BROWSER_CHUNK_WRITE_YIELD_EVERY === 0) {
-                    await yieldToBrowser();
+
+                for (let index = 0; index < sourceEntry.chunkCount; index += 1) {
+                    const chunk = await this.loadChunk(sourceEntry.ref, index, sourceEntry.chunkGeneration);
+                    if (!chunk) {
+                        throw new Error(`Browser document chunk missing: ${sourceEntry.ref}#${index}`);
+                    }
+                    await persistChunkRecord({
+                        key: createChunkKey(ref, index, entry.chunkGeneration),
+                        ref,
+                        index,
+                        ...(entry.chunkGeneration ? { generation: entry.chunkGeneration } : {}),
+                        data: cloneBytes(chunk),
+                    });
+                    entry.chunkCount = index + 1;
+                    entry.updatedAt = Date.now();
+                    await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                    if (entry.chunkCount % BROWSER_CHUNK_WRITE_YIELD_EVERY === 0) {
+                        await yieldToBrowser();
+                    }
                 }
+            } catch (error) {
+                this.entries.delete(ref);
+                await this.deleteChunks(ref, entry.chunkCount, entry.chunkGeneration)
+                    .catch(() => undefined);
+                await deleteRecord(ref).catch(() => undefined);
+                throw error;
             }
 
             return ref;

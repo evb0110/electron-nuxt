@@ -734,13 +734,14 @@ export const browserDjvuCapability: IDjvuCapability = {
             };
         }
 
-        const worker = await createDjvuWorkerFromPath(djvuPath);
-        const pageSizes = await worker.doc.getPagesSizes().run();
-        const pageCount = pageSizes.length;
         const jobId = `djvu-convert-${crypto.randomUUID()}`;
+        const worker = await createDjvuWorkerFromPath(djvuPath);
         const abortController = createDjvuJob(jobId, worker);
 
         try {
+            const pageSizes = await worker.doc.getPagesSizes().run();
+            const pageCount = pageSizes.length;
+
             if (pageCount <= 0) {
                 throw new Error('DjVu document has no pages');
             }

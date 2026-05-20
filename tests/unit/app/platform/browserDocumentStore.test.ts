@@ -663,6 +663,71 @@ describe('BrowserDocumentStore', () => {
         ]));
     });
 
+    it('removes partial chunked clone records when source chunk copy fails', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'chunked.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        await store.writeChunk(ref, 1, new Uint8Array([
+            5,
+            6,
+            7,
+            8,
+        ]));
+        await store.finalizeChunkedDocument(ref, {
+            fileSize: 8,
+            chunkCount: 2,
+            chunkSize: 4,
+        });
+
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+        const chunks = database?.getStoreRecords('document-chunks');
+        const missingChunkKey = Array.from(chunks?.entries() ?? []).find(([
+            _key,
+            chunk,
+        ]) => (
+            typeof chunk === 'object'
+            && chunk !== null
+            && 'ref' in chunk
+            && chunk.ref === ref
+            && 'index' in chunk
+            && chunk.index === 1
+        ))?.[0];
+        expect(missingChunkKey).toBeTruthy();
+        chunks?.delete(missingChunkKey as string);
+
+        await expect(store.cloneStoredDocument(ref, {
+            fileName: 'clone.pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        })).rejects.toThrow(`Browser document chunk missing: ${ref}#1`);
+
+        const documents = Array.from(database?.getStoreRecords('documents').values() ?? []);
+        expect(documents).not.toEqual(expect.arrayContaining([expect.objectContaining({ fileName: 'clone.pdf' })]));
+        expect(Array.from(chunks?.values() ?? []).every((chunk) => (
+            typeof chunk === 'object'
+            && chunk !== null
+            && 'ref' in chunk
+            && chunk.ref === ref
+        ))).toBe(true);
+    });
+
     it('reads handle-backed documents lazily', async () => {
         const bytes = new Uint8Array([
             9,
