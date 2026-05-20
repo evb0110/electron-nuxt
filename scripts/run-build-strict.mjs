@@ -12,6 +12,7 @@ import {
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 const buildLogPath = path.join(projectRoot, '.tmp', 'build.log');
+const STRICT_BUILD_NODE_OPTIONS = '--max-old-space-size=6144';
 
 export function getPnpmInvocation(args, platform = process.platform) {
     if (platform === 'win32') {
@@ -30,6 +31,23 @@ export function getPnpmInvocation(args, platform = process.platform) {
     return {
         command: 'pnpm',
         args,
+    };
+}
+
+export function getStrictBuildEnv(env = process.env) {
+    const nodeOptions = env.NODE_OPTIONS?.trim();
+    const hasHeapLimit = nodeOptions
+        ? /(?:^|\s)--max-old-space-size(?:=|\s)/u.test(nodeOptions)
+        : false;
+
+    return {
+        ...env,
+        NODE_OPTIONS: hasHeapLimit
+            ? nodeOptions
+            : [
+                nodeOptions,
+                STRICT_BUILD_NODE_OPTIONS,
+            ].filter(Boolean).join(' '),
     };
 }
 
@@ -151,7 +169,7 @@ async function main() {
         'run',
         'build:desktop',
     ]);
-    const output = await run(buildInvocation.command, buildInvocation.args);
+    const output = await run(buildInvocation.command, buildInvocation.args, { env: getStrictBuildEnv() });
     writeFileSync(buildLogPath, output);
     await run('node', [
         'scripts/check-build-warnings.mjs',
