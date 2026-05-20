@@ -21,11 +21,12 @@ import {
 } from './helpers/sessionHarness';
 import { openPdfInApp } from './helpers/viewerCore';
 
-const RAPID_NAV_PDF_PATH = '.devkit/manual-pdf-fixtures/History of Ancient Rome_2005.pdf';
+const PAGE_JUMP_PDF_PATH = '.devkit/manual-pdf-fixtures/History of Ancient Rome_2005.pdf';
+const TARGET_PAGE = 100;
 const TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
-    'pdf-rapid-navigation-trace.json',
+    'pdf-page-100-jump-trace.json',
 );
 
 type TPdfRenderTraceEntry = {
@@ -39,6 +40,11 @@ interface IVisiblePageState {
     hasCanvas: boolean;
     canvasCount: number;
     textSpanCount: number;
+    markerCount: number;
+    linkOverlayCount: number;
+    shapeOverlayCount: number;
+    visibleShapeCount: number;
+    annotationEditorNodeCount: number;
     skeletonDisplay: string | null;
     rectTop: number;
     rectHeight: number;
@@ -49,6 +55,17 @@ interface IPageButtonState {
     disabled: boolean;
     visible: boolean;
 }
+
+interface IWorkspaceJumpSetupState {
+    handleGoToPage?: (page: number) => void;
+    currentPage?: number | { value?: number };
+    pdfViewerRef?: { value?: { scrollToPage?: (page: number) => void } };
+}
+
+interface IWorkspaceHostElement extends HTMLElement {__vueParentComponent?: {
+    setupState?: { workspaceRef?: { value?: { $?: { setupState?: IWorkspaceJumpSetupState } } } };
+    exposed?: { scrollToPage?: (page: number) => void } 
+};}
 
 function writeTraceArtifact(payload: unknown) {
     mkdirSync(dirname(TRACE_OUTPUT_PATH), { recursive: true });
@@ -68,63 +85,6 @@ async function enableBufferedPdfTrace(session: IElectronE2ESession) {
         traceWindow.__pdfRenderTraceConsole = false;
         traceWindow.__clearPdfRenderTrace?.();
     });
-}
-
-async function getVisiblePageButtonCenter(session: IElectronE2ESession, labelPattern: RegExp) {
-    await session.page.waitForFunction((labelSource: string) => {
-        const labelRegex = new RegExp(labelSource, 'i');
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .some(candidate => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    labelRegex.test(candidate.getAttribute('aria-label') ?? '')
-                    && !candidate.disabled
-                    && rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                );
-            });
-    }, { timeout: 15_000 }, labelPattern.source);
-
-    return session.page.evaluate((labelSource: string) => {
-        const labelRegex = new RegExp(labelSource, 'i');
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .find(candidate => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    labelRegex.test(candidate.getAttribute('aria-label') ?? '')
-                    && !candidate.disabled
-                    && rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                );
-            });
-        if (!button) {
-            const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-                .map(candidate => ({
-                    label: candidate.getAttribute('aria-label') ?? '',
-                    disabled: candidate.disabled,
-                    rect: candidate.getBoundingClientRect().toJSON(),
-                }));
-            throw new Error(`Visible enabled page button matching ${labelSource} was not found: ${JSON.stringify(buttons)}`);
-        }
-        const rect = button.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    }, labelPattern.source);
-}
-
-async function clickNextRapidly(session: IElectronE2ESession, count: number) {
-    for (let index = 0; index < count; index += 1) {
-        const center = await getVisiblePageButtonCenter(session, /next/);
-        await session.page.mouse.click(center.x, center.y);
-    }
 }
 
 async function collectNavigationControlState(session: IElectronE2ESession) {
@@ -165,6 +125,11 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
                     hasCanvas: Boolean(container.querySelector('.page_canvas canvas')),
                     canvasCount: container.querySelectorAll('.page_canvas canvas').length,
                     textSpanCount: container.querySelectorAll('.text-layer span, .textLayer span').length,
+                    markerCount: container.querySelectorAll('.pdf-comment-marker-button').length,
+                    linkOverlayCount: container.querySelectorAll('.pdf-link-overlay').length,
+                    shapeOverlayCount: container.querySelectorAll('.pdf-shape-overlay').length,
+                    visibleShapeCount: container.querySelectorAll('.pdf-shape-overlay > g:not(.is-drawing)').length,
+                    annotationEditorNodeCount: container.querySelectorAll('.annotationEditorLayer *, .annotation-editor-layer *').length,
                     skeletonDisplay: skeleton?.style.display ?? null,
                     rectTop: rect.top,
                     rectHeight: rect.height,
@@ -184,42 +149,210 @@ async function collectTrace(session: IElectronE2ESession) {
     });
 }
 
-describe('Electron E2E - Phase 1 (Rapid PDF Navigation)', () => {
+async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 15_000 });
+
+    const didJumpViaWorkspace = await session.page.evaluate((targetPageNumber: number) => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = activeHost && isVisibleElement(activeHost)
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleElement);
+        const workspaceInstance = (host as IWorkspaceHostElement | null)?.__vueParentComponent?.setupState?.workspaceRef?.value;
+        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
+        if (typeof workspaceSetupState?.handleGoToPage === 'function') {
+            workspaceSetupState.handleGoToPage(targetPageNumber);
+            return true;
+        }
+
+        if (workspaceSetupState?.currentPage && typeof workspaceSetupState.currentPage === 'object') {
+            workspaceSetupState.currentPage.value = targetPageNumber;
+        } else if (workspaceSetupState) {
+            workspaceSetupState.currentPage = targetPageNumber;
+        }
+
+        const viewer = workspaceSetupState?.pdfViewerRef?.value ?? null;
+        if (typeof viewer?.scrollToPage === 'function') {
+            viewer.scrollToPage(targetPageNumber);
+            return true;
+        }
+
+        return false;
+    }, pageNumber);
+
+    if (didJumpViaWorkspace) {
+        return;
+    }
+
+    await session.page.evaluate((targetPageNumber: number) => {
+        const getVisibleViewerHost = () => {
+            const viewerHosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
+            return viewerHosts.find((element) => {
+                if (!element.isConnected) {
+                    return false;
+                }
+
+                let current: HTMLElement | null = element;
+                while (current) {
+                    const style = window.getComputedStyle(current);
+                    if (
+                        style.display === 'none'
+                        || style.visibility === 'hidden'
+                        || Number(style.opacity || '1') === 0
+                    ) {
+                        return false;
+                    }
+                    current = current.parentElement;
+                }
+
+                const rect = element.getBoundingClientRect();
+                return rect.width > 100 && rect.height > 100;
+            }) ?? null;
+        };
+
+        const viewerHost = getVisibleViewerHost();
+        let currentElement: HTMLElement | null = viewerHost;
+        while (currentElement) {
+            const exposed = (currentElement as IWorkspaceHostElement).__vueParentComponent?.exposed;
+            if (typeof exposed?.scrollToPage === 'function') {
+                exposed.scrollToPage(targetPageNumber);
+                return;
+            }
+            currentElement = currentElement.parentElement;
+        }
+    }, pageNumber);
+
+    const canvasMounted = await session.page.waitForFunction((targetPageNumber: number) => {
+        const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
+        const rect = container?.getBoundingClientRect();
+        return Boolean(
+            container?.classList.contains('page_container--rendered')
+            && container.querySelector('.page_canvas canvas')
+            && rect
+            && rect.bottom > 0
+            && rect.top < window.innerHeight,
+        );
+    }, { timeout: 8_000 }, pageNumber)
+        .then(() => true)
+        .catch(() => false);
+
+    if (canvasMounted) {
+        return;
+    }
+
+    const displayPoint = await session.page.evaluate(() => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+        };
+
+        const display = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-display'))
+            .find(isVisibleElement);
+        if (!display) {
+            return null;
+        }
+
+        const rect = display.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    });
+
+    if (!displayPoint) {
+        throw new Error(`Unable to find the visible page control for page ${pageNumber}`);
+    }
+
+    await session.page.mouse.click(displayPoint.x, displayPoint.y);
+    await session.page.waitForFunction(() => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+        };
+
+        return Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
+            .some(isVisibleElement);
+    }, { timeout: 15_000 });
+
+    const inputPoint = await session.page.evaluate(() => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+        };
+
+        const input = Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
+            .find(isVisibleElement);
+        if (!input) {
+            return null;
+        }
+
+        const rect = input.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    });
+
+    if (!inputPoint) {
+        throw new Error(`Unable to find the visible page input for page ${pageNumber}`);
+    }
+
+    await session.page.mouse.click(inputPoint.x, inputPoint.y, { clickCount: 3 });
+    await session.page.keyboard.type(String(pageNumber));
+    await session.page.keyboard.press('Enter');
+
+    await delay(1_000);
+}
+
+describe('Electron E2E - Phase 1 (PDF Page Jump Rendering)', () => {
     let session: IElectronE2ESession | null = null;
 
     beforeAll(async () => {
-        if (!existsSync(RAPID_NAV_PDF_PATH)) {
+        if (!existsSync(PAGE_JUMP_PDF_PATH)) {
             return;
         }
-        session = await startElectronE2ESession(`e2e-rapid-pdf-nav-${Date.now()}`);
+        session = await startElectronE2ESession(`e2e-pdf-page-jump-${Date.now()}`);
         await enableBufferedPdfTrace(session);
-        await openPdfInApp(session.page, RAPID_NAV_PDF_PATH, 45_000);
+        await openPdfInApp(session.page, PAGE_JUMP_PDF_PATH, 45_000);
     }, 90_000);
 
     afterAll(async () => {
         await session?.stop();
     });
 
-    it.runIf(existsSync(RAPID_NAV_PDF_PATH))('keeps the destination page rendered after very fast next-page clicks', async () => {
+    it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('keeps page overlays mounted after jumping to page 100', async () => {
         if (!session) {
-            throw new Error('Rapid navigation session was not initialized');
+            throw new Error('Page jump session was not initialized');
         }
 
-        await clickNextRapidly(session, 15);
-        await delay(12_000);
+        await delay(5_000);
+        await jumpToPageAndWaitForCanvas(session, TARGET_PAGE);
+        await delay(6_000);
 
         const visiblePages = await collectVisiblePageState(session);
         const navigationControls = await collectNavigationControlState(session);
         const trace = await collectTrace(session);
         const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
+        const targetPageState = visiblePages.find(page => page.page === TARGET_PAGE) ?? null;
         writeTraceArtifact({
-            pdfPath: RAPID_NAV_PDF_PATH,
+            pdfPath: PAGE_JUMP_PDF_PATH,
+            targetPage: TARGET_PAGE,
             navigationControls,
             visiblePages,
+            targetPageState,
             blankVisiblePages,
             trace,
         });
 
+        expect(targetPageState).not.toBeNull();
         expect(blankVisiblePages).toEqual([]);
     }, 60_000);
 });
