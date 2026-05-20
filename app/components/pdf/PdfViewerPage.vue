@@ -21,7 +21,7 @@
             @cancel="emit('cancel-placed-image')"
         />
         <PdfShapeOverlay
-            v-if="shapeContext"
+            v-if="shapeContext && rendered"
             :shapes="pageShapes"
             :drawing-shape="pageDrawingShape"
             :selected-shape-id="shapeContext.selectedShapeId.value"

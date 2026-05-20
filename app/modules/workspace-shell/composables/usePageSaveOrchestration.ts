@@ -37,6 +37,10 @@ interface IPdfViewerForSave {
         snapshot: IScrollSnapshot | null,
         options?: { fallbackPage?: number | null; },
     ) => void;
+    preserveNextSourceReloadVisibleContent?: (request?: {
+        scrollSnapshot?: IScrollSnapshot | null;
+        pageToRestore?: number | null;
+    }) => void;
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
     saveDocument: () => Promise<Uint8Array | null>;
@@ -208,7 +212,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         loadRecentFiles,
         preparePostSaveReload: () => {
             const capturedReloadState = capturePdfReloadSnapshot(pdfViewerRef.value, currentPage.value);
-            currentPage.value = capturedReloadState.pageToRestore;
+            pdfViewerRef.value?.preserveNextSourceReloadVisibleContent?.({
+                scrollSnapshot: capturedReloadState.scrollSnapshot,
+                pageToRestore: capturedReloadState.pageToRestore,
+            });
 
             return createPdfReloadWaiter({
                 pdfDocument,
@@ -216,6 +223,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 resetSearchCache,
                 pageToRestore: capturedReloadState.pageToRestore,
                 scrollSnapshot: capturedReloadState.scrollSnapshot,
+                restoreScroll: capturedReloadState.scrollSnapshot !== null,
             });
         },
         markShapeStateSaved: () => pdfViewerRef.value?.markSavedShapeState?.(),

@@ -9,6 +9,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
+    IScrollSnapshot,
     PDFDocumentProxy,
     PDFPageProxy,
     TPdfSource,
@@ -27,6 +28,8 @@ interface IReloadPlan {
     displayZoomToRestore: number | null;
     pagesToInvalidate: number[] | null;
     isSelectiveReload: boolean;
+    preservedVisibleContent: IPreservedVisibleContentState | null;
+    shouldPreserveVisibleContent: boolean;
     shouldPreserveReloadDisplayZoom: boolean;
     shouldPinReloadPage: boolean;
 }
@@ -34,6 +37,21 @@ interface IReloadPlan {
 interface IVisualReloadTransition {
     token: number | null;
     settle: (reason: string) => void;
+}
+
+interface IPreservedScrollPosition {
+    left: number;
+    top: number;
+}
+
+interface IPreservedVisibleContentRequest {
+    scrollSnapshot?: IScrollSnapshot | null;
+    pageToRestore?: number | null;
+}
+
+interface IPreservedVisibleContentState {
+    scrollPosition: IPreservedScrollPosition | null;
+    pageToRestore: number | null;
 }
 
 interface ICommentSyncLike {
@@ -131,6 +149,8 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     let documentLoadToken = 0;
     let scheduledLoadToken = 0;
     const isLoadFromSourceActive = ref(false);
+    let shouldPreserveNextSourceReloadVisibleContent = false;
+    let nextPreservedVisibleContentState: IPreservedVisibleContentState | null = null;
 
     function hasRenderedPageCanvas() {
         const container = options.viewerContainer.value;
@@ -243,14 +263,46 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         options.emit('annotation-comments', []);
     }
 
+    function normalizePreservedPageNumber(value: number | null | undefined) {
+        return typeof value === 'number' && Number.isFinite(value)
+            ? Math.max(1, Math.floor(value))
+            : null;
+    }
+
+    function capturePreservedVisibleContentState(
+        request?: IPreservedVisibleContentRequest,
+    ): IPreservedVisibleContentState {
+        const container = options.viewerContainer.value;
+        const requestPage = normalizePreservedPageNumber(request?.pageToRestore);
+        const snapshotPage = normalizePreservedPageNumber(request?.scrollSnapshot?.anchorPage);
+        return {
+            scrollPosition: container
+                ? {
+                    left: container.scrollLeft,
+                    top: container.scrollTop,
+                }
+                : null,
+            pageToRestore: requestPage ?? snapshotPage,
+        };
+    }
+
     function computeReloadPlan(isReload: boolean): IReloadPlan {
-        const pageToRestore = isReload ? options.currentPage.value : 1;
+        const preservedVisibleContentRequest = shouldPreserveNextSourceReloadVisibleContent
+            ? nextPreservedVisibleContentState
+            : null;
+        const pageToRestore = isReload
+            ? preservedVisibleContentRequest?.pageToRestore ?? options.currentPage.value
+            : 1;
         const resolvedPageToRestore = Math.max(1, Math.floor(pageToRestore));
         const displayZoomToRestore = isReload && options.zoomMode.value === 'custom'
             ? options.effectiveScale.value
             : null;
         const pagesToInvalidate = options.consumePendingInvalidation();
         const isSelectiveReload = isReload && pagesToInvalidate !== null;
+        const shouldPreserveVisibleContent =
+            isReload && !isSelectiveReload && preservedVisibleContentRequest !== null;
+        shouldPreserveNextSourceReloadVisibleContent = false;
+        nextPreservedVisibleContentState = null;
         const shouldPreserveReloadDisplayZoom = isReload
             && !isSelectiveReload
             && displayZoomToRestore !== null;
@@ -261,6 +313,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             displayZoomToRestore,
             pagesToInvalidate,
             isSelectiveReload,
+            preservedVisibleContent: shouldPreserveVisibleContent
+                ? preservedVisibleContentRequest
+                : null,
+            shouldPreserveVisibleContent,
             shouldPreserveReloadDisplayZoom,
             shouldPinReloadPage,
         };
@@ -285,12 +341,19 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     }
 
     function applyPreLoadStateReset(plan: IReloadPlan, isReload: boolean) {
-        options.emit('update:document', null);
+        if (!plan.shouldPreserveVisibleContent) {
+            options.emit('update:document', null);
+        }
         if (!isReload) options.emit('update:totalPages', 0);
         options.emit('update:currentPage', plan.pageToRestore);
 
         if (plan.isSelectiveReload && plan.pagesToInvalidate) {
             options.invalidateRenderedPages(plan.pagesToInvalidate);
+        } else if (plan.shouldPreserveVisibleContent) {
+            if (isReload || plan.shouldPreserveReloadDisplayZoom) {
+                options.invalidateScaleCache();
+            }
+            options.currentPage.value = plan.pageToRestore;
         } else {
             options.cleanupRenderedPages();
             if (isReload || plan.shouldPreserveReloadDisplayZoom) {
@@ -305,7 +368,24 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 end: plan.pageToRestore,
             };
         }
+        if (!plan.shouldPreserveVisibleContent) {
+            options.editor.destroyAnnotationEditor();
+        }
+    }
+
+    function cleanupPreservedVisibleContentAfterLoadFailure(plan: IReloadPlan) {
+        if (!plan.shouldPreserveVisibleContent) {
+            return;
+        }
+
+        options.emit('update:document', null);
+        options.cleanupRenderedPages();
         options.editor.destroyAnnotationEditor();
+        options.resetInsets();
+        options.visibleRange.value = {
+            start: plan.pageToRestore,
+            end: plan.pageToRestore,
+        };
     }
 
     function restoreSelectiveReloadBaseDimensions(
@@ -374,6 +454,10 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             async () => {
                 try {
                     if (!isActiveLoadedDocument(activeLoadToken, documentVersion)) {
+                        return;
+                    }
+                    if (plan.shouldPreserveVisibleContent) {
+                        pinCurrentPageToRestoreTarget(plan);
                         return;
                     }
                     await options.renderVisiblePages(options.getVisibleRange());
@@ -475,7 +559,9 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
     function loadPdfForPlan(plan: IReloadPlan) {
         return options.loadPdf(
             options.src.value as TPdfSource,
-            plan.isSelectiveReload ? { preservePageStructure: true } : undefined,
+            plan.isSelectiveReload || plan.shouldPreserveVisibleContent
+                ? { preservePageStructure: true }
+                : undefined,
         );
     }
 
@@ -498,6 +584,14 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         visualReload: IVisualReloadTransition,
         settleVisualReloadTransition: (reason: string) => void,
     ) {
+        if (plan.shouldPreserveVisibleContent) {
+            options.applySearchHighlights();
+            options.commentSync.scheduleAnnotationCommentsSync(true);
+            settleVisualReloadTransition('preserved-load-complete');
+            settleDocumentLoad(activeLoadToken);
+            return true;
+        }
+
         const visualReloadTransitionHandledByWarmRender = visualReload.token !== null;
         scheduleWarmBufferedRender(
             plan,
@@ -517,6 +611,48 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         return true;
     }
 
+    function capturePreservedScrollPosition(plan: IReloadPlan): IPreservedScrollPosition | null {
+        if (!plan.shouldPreserveVisibleContent) {
+            return null;
+        }
+
+        return plan.preservedVisibleContent?.scrollPosition ?? null;
+    }
+
+    function restorePreservedScrollPosition(
+        plan: IReloadPlan,
+        position: IPreservedScrollPosition | null,
+    ) {
+        if (!plan.shouldPreserveVisibleContent || !position) {
+            return;
+        }
+
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return;
+        }
+
+        container.scrollLeft = position.left;
+        container.scrollTop = position.top;
+    }
+
+    async function renderInitialLoadedPage(
+        plan: IReloadPlan,
+        preservedScrollPosition: IPreservedScrollPosition | null,
+    ) {
+        const initialRange = {
+            start: options.currentPage.value,
+            end: options.currentPage.value,
+        } satisfies IPageRange;
+
+        if (plan.shouldPreserveVisibleContent) {
+            restorePreservedScrollPosition(plan, preservedScrollPosition);
+            return;
+        }
+
+        await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
+    }
+
     async function loadFromSource(isReload = false) {
         if (!options.src.value) {
             clearAnnotationCacheForEmptySource();
@@ -530,6 +666,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             const plan = computeReloadPlan(isReload);
             const visualReload = createVisualReloadTransition(plan.shouldPinReloadPage);
             const settleVisualReloadTransition = visualReload.settle;
+            const preservedScrollPosition = capturePreservedScrollPosition(plan);
 
             pinReloadRecoveryPageIfNeeded(plan);
             const {
@@ -546,6 +683,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 return;
             }
             if (!loaded) {
+                cleanupPreservedVisibleContentAfterLoadFailure(plan);
                 settleVisualReloadTransition('load-aborted');
                 return;
             }
@@ -556,27 +694,31 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
             restoreSelectiveReloadBaseDimensions(plan, savedBaseWidth, savedBaseHeight);
             applyPostLoadDocumentMetadata(plan);
-            await options.ensurePageMetricsInRange(
-                resolveMetricHydrationStartPage(plan, isReload),
-                options.currentPage.value,
-            );
-            if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
-                settleVisualReloadTransition('metric-prime-superseded');
-                return;
+            restorePreservedScrollPosition(plan, preservedScrollPosition);
+            if (!plan.shouldPreserveVisibleContent) {
+                await options.ensurePageMetricsInRange(
+                    resolveMetricHydrationStartPage(plan, isReload),
+                    options.currentPage.value,
+                );
+                if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
+                    settleVisualReloadTransition('metric-prime-superseded');
+                    return;
+                }
             }
 
-            if (!plan.isSelectiveReload) {
+            if (!plan.isSelectiveReload && !plan.shouldPreserveVisibleContent) {
                 scheduleSkeletonInsetsCompute(loaded.version);
             }
 
             await nextTick();
+            restorePreservedScrollPosition(plan, preservedScrollPosition);
             await options.beforeInitialRender?.();
             if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                 settleVisualReloadTransition('before-initial-render-superseded');
                 return;
             }
 
-            if (!plan.isSelectiveReload) {
+            if (!plan.isSelectiveReload && !plan.shouldPreserveVisibleContent) {
                 options.computeFitWidthScale(options.viewerContainer.value);
                 const nextZoom = resolveCustomReloadZoomToApply(plan);
                 if (nextZoom !== null && Math.abs(nextZoom - options.zoom.value) > 0.001) {
@@ -601,19 +743,21 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                 options.visibleRange.value = savedVisibleRange;
             }
 
-            options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+            if (!plan.shouldPreserveVisibleContent) {
+                options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+            }
             try {
-                const initialRange = {
-                    start: options.currentPage.value,
-                    end: options.currentPage.value,
-                } satisfies IPageRange;
-
-                await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
+                await renderInitialLoadedPage(plan, preservedScrollPosition);
                 if (!isActiveLoadedDocument(activeLoadToken, loaded.version)) {
                     settleVisualReloadTransition('initial-render-superseded');
                     return;
                 }
-                if (!plan.isSelectiveReload && isReload && options.currentPage.value > 1) {
+                if (
+                    !plan.shouldPreserveVisibleContent
+                    && !plan.isSelectiveReload
+                    && isReload
+                    && options.currentPage.value > 1
+                ) {
                     // Crop and other geometry-changing reloads can shift placeholder
                     // offsets enough that the pre-render jump lands on the wrong page.
                     // Re-apply the intended page target once the first real page render
@@ -666,9 +810,15 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         });
     }
 
+    function preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
+        shouldPreserveNextSourceReloadVisibleContent = true;
+        nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
+    }
+
     return {
         isLoadFromSourceActive: readonly(isLoadFromSourceActive),
         invalidateDocumentLoad,
+        preserveNextSourceReloadVisibleContent,
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     };

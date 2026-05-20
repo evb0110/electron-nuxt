@@ -280,7 +280,11 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(cancelInFlightPageRenders).toHaveBeenCalled();
         expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
             expect.any(Function),
-            expect.objectContaining({ rerenderSource: 'fit-width-current-page' }),
+            expect.objectContaining({
+                preserveExistingPages: true,
+                renderBufferOverride: 0,
+                rerenderSource: 'fit-width-current-page',
+            }),
         );
         expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
             expect.objectContaining({ source: 'fit-width-current-page' }),

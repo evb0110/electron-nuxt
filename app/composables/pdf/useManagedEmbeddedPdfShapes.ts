@@ -13,6 +13,7 @@ import { resolveEmbeddedShapeImportLoadPolicy } from '@app/composables/pdf/pdfEm
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import type { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { readDocumentBytes } from '@app/utils/documentBytes';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IManagedEmbeddedPdfShapesPageRange {
     start: number;
@@ -301,9 +302,20 @@ export function useManagedEmbeddedPdfShapes({
 
     async function rerenderManagedEmbeddedShapesIfNeeded() {
         if (!hasRenderedViewerCanvas()) {
+            logPdfRenderTrace('managed-shapes-rerender-skip-no-canvas', {
+                currentPage: currentPage.value,
+                visibleRange: visibleRange.value,
+                shapeCount: shapeComposable.getAllShapes().length,
+            });
             return;
         }
 
+        logPdfRenderTrace('managed-shapes-rerender-check', {
+            currentPage: currentPage.value,
+            visibleRange: visibleRange.value,
+            renderBuffer: bufferPages.value,
+            shapeCount: shapeComposable.getAllShapes().length,
+        });
         await rerenderRenderedManagedEmbeddedShapePages({
             shapes: shapeComposable.getAllShapes(),
             visibleRange: visibleRange.value,
@@ -323,6 +335,14 @@ export function useManagedEmbeddedPdfShapes({
         const localToken = ++embeddedShapeImportToken;
 
         embeddedShapeImportPromise = (async () => {
+            logPdfRenderTrace('managed-shapes-import-start', {
+                path,
+                hasData: Boolean(data),
+                dataBytes: data?.byteLength ?? 0,
+                token: localToken,
+                currentPage: currentPage.value,
+                visibleRange: visibleRange.value,
+            });
             logger.debug('pdf-shapes', 'Importing embedded shapes for source', () => ({
                 path,
                 hasData: Boolean(data),
@@ -359,6 +379,13 @@ export function useManagedEmbeddedPdfShapes({
                 return;
             }
             await rerenderManagedEmbeddedShapesIfNeeded();
+            logPdfRenderTrace('managed-shapes-import-end', {
+                path,
+                token: localToken,
+                currentPage: currentPage.value,
+                visibleRange: visibleRange.value,
+                shapeCount: shapeComposable.getAllShapes().length,
+            });
         })();
 
         return embeddedShapeImportPromise;

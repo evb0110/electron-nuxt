@@ -12,6 +12,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { stepBySpread } from '@app/utils/pdfViewMode';
 import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     getPageContainerByNumber,
     getPageScrollBounds as getPageScrollBoundsForContainer,
@@ -464,6 +465,15 @@ export const usePdfSinglePageScroll = (
 
     function setPagedNavigationTarget(pageNumber: number) {
         const targetPage = beginPagedNavigation(pageNumber);
+        logPdfRenderTrace('single-page-set-paged-target', {
+            requestedPage: pageNumber,
+            targetPage,
+            currentPageBefore: currentPage.value,
+            visibleRangeBefore: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
         setVisibleRangeToPageRow(targetPage);
         if (currentPage.value !== targetPage) {
             currentPage.value = targetPage;
@@ -474,6 +484,15 @@ export const usePdfSinglePageScroll = (
 
     function queuePagedRowRenderAfterNavigation(pageNumber: number, message: string) {
         const targetPage = clamp(pageNumber, 1, numPages.value);
+        logPdfRenderTrace('single-page-queue-row-render', {
+            targetPage,
+            message,
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
         void nextTick(() => {
             if (
                 isDisposed
@@ -481,10 +500,24 @@ export const usePdfSinglePageScroll = (
                 || isLoading.value
                 || !pdfDocument.value
             ) {
+                logPdfRenderTrace('single-page-row-render-skipped', {
+                    targetPage,
+                    message,
+                    isDisposed,
+                    continuousScroll: continuousScroll.value,
+                    isLoading: isLoading.value,
+                    hasDocument: Boolean(pdfDocument.value),
+                });
                 return;
             }
 
             const range = setVisibleRangeToPageRow(targetPage);
+            logPdfRenderTrace('single-page-row-render-run', {
+                targetPage,
+                message,
+                range,
+                currentPage: currentPage.value,
+            });
             runGuardedTask(() => renderVisiblePages(
                 range,
                 { preserveRenderedPages: true },
@@ -649,11 +682,27 @@ export const usePdfSinglePageScroll = (
         }
 
         const targetPage = clamp(pageNumber, 1, numPages.value);
+        logPdfRenderTrace('single-page-snap-to-page', {
+            requestedPage: pageNumber,
+            targetPage,
+            anchor,
+            continuousScroll: continuousScroll.value,
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
         if (!continuousScroll.value) {
             const runId = ++pagedNavigationRunId;
             setPagedNavigationTarget(targetPage);
 
             if (applySnapToMountedPage(targetPage, anchor)) {
+                logPdfRenderTrace('single-page-snap-mounted', {
+                    targetPage,
+                    anchor,
+                    runId,
+                });
                 setVisibleRangeToPageRow(targetPage);
                 queuePagedRowRenderAfterNavigation(
                     targetPage,
@@ -674,13 +723,32 @@ export const usePdfSinglePageScroll = (
                     || continuousScroll.value
                     || currentPage.value !== targetPage
                 ) {
+                    logPdfRenderTrace('single-page-snap-next-tick-skipped', {
+                        targetPage,
+                        runId,
+                        activeRunId: pagedNavigationRunId,
+                        isDisposed,
+                        continuousScroll: continuousScroll.value,
+                        currentPage: currentPage.value,
+                    });
                     isSnapping.value = false;
                     return;
                 }
 
                 if (!applySnapToMountedPage(targetPage, anchor)) {
+                    logPdfRenderTrace('single-page-snap-next-tick-missing-target', {
+                        targetPage,
+                        runId,
+                        anchor,
+                    });
                     isSnapping.value = false;
+                    return;
                 }
+                logPdfRenderTrace('single-page-snap-next-tick-mounted', {
+                    targetPage,
+                    runId,
+                    anchor,
+                });
             });
             return;
         }
@@ -840,6 +908,13 @@ export const usePdfSinglePageScroll = (
         const container = viewerContainer.value;
         if (!continuousScroll.value && (isSnapping.value || pagedNavigationTargetPage.value !== null)) {
             const targetPage = pagedNavigationTargetPage.value ?? currentPage.value;
+            logPdfRenderTrace('single-page-scroll-paged-navigation-active', {
+                targetPage,
+                currentPage: currentPage.value,
+                isSnapping: isSnapping.value,
+                pagedNavigationTargetPage: pagedNavigationTargetPage.value,
+                scrollTop: container?.scrollTop ?? null,
+            });
             if (currentPage.value !== targetPage) {
                 currentPage.value = targetPage;
                 emitCurrentPage(targetPage);
@@ -869,7 +944,20 @@ export const usePdfSinglePageScroll = (
             return;
         }
 
-        void debouncedRenderOnScroll();
+        if (isProgrammaticNavigationActive.value || Date.now() < snapSuppressUntil.value) {
+            logPdfRenderTrace('single-page-scroll-skip-debounced-render-programmatic', {
+                currentPage: currentPage.value,
+                visibleRange: {
+                    start: visibleRange.value.start,
+                    end: visibleRange.value.end,
+                },
+                isProgrammaticNavigationActive: isProgrammaticNavigationActive.value,
+                snapSuppressUntil: snapSuppressUntil.value,
+                now: Date.now(),
+            });
+        } else {
+            void debouncedRenderOnScroll();
+        }
         maybeReleaseProgrammaticNavigation();
 
         if (!continuousScroll.value && !isSnapping.value) {
@@ -892,6 +980,17 @@ export const usePdfSinglePageScroll = (
             + ` currentPage(before)=${currentPage.value}`
             + ` scrollTop(before)=${Math.round(viewerContainer.value.scrollTop)}`,
         );
+        logPdfRenderTrace('single-page-scroll-to-page', {
+            requestedPage: pageNumber,
+            continuousScroll: continuousScroll.value,
+            preferExactDom: options?.preferExactDom === true,
+            currentPageBefore: currentPage.value,
+            scrollTopBefore: viewerContainer.value.scrollTop,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
 
         if (continuousScroll.value) {
             markProgrammaticNavigation(220);

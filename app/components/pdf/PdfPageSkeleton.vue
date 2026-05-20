@@ -125,6 +125,7 @@ const repeatParagraphs = computed(() => {
     pointer-events: none;
     animation: pdf-page-skeleton-pulse 0.9s ease-in-out infinite;
     box-sizing: border-box;
+    z-index: 7;
 }
 
 .inner {

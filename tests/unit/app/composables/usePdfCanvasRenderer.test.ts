@@ -8,6 +8,10 @@ import {
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 
+function cast<T>(value: unknown): T {
+    return value as T;
+}
+
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     ENABLE: 1,
     ENABLE_FORMS: 2,
@@ -56,6 +60,27 @@ describe('usePdfCanvasRenderer', () => {
             canvas,
         }));
         expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
+    });
+
+    it('replaces the existing page canvas without clearing sibling overlay layers', () => {
+        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
+        const nextCanvas = {} as HTMLCanvasElement;
+        const canvasHost = cast<HTMLElement>({
+            prepend: vi.fn(),
+            querySelector: vi.fn(() => null),
+        });
+        const previousCanvas = cast<HTMLCanvasElement>({
+            parentElement: canvasHost,
+            replaceWith: vi.fn(),
+        });
+        renderer.mountCanvas(
+            canvasHost,
+            nextCanvas,
+            previousCanvas,
+        );
+
+        expect(previousCanvas.replaceWith).toHaveBeenCalledWith(nextCanvas);
+        expect(canvasHost.prepend).not.toHaveBeenCalled();
     });
 
     it('cleans prepared canvases when renderCanvas fails before mounting', async () => {

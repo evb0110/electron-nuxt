@@ -19,8 +19,8 @@ export function resolveEmbeddedShapeImportLoadPolicy(
 
     if (hasWorkingCopyPath) {
         return {
-            awaitBeforeInitialRender: false,
-            deferUntilAfterInitialRender: true,
+            awaitBeforeInitialRender: true,
+            deferUntilAfterInitialRender: false,
         };
     }
 

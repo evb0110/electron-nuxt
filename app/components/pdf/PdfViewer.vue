@@ -134,6 +134,7 @@ import {
 } from '@app/composables/pdf/annotations/annotationRules';
 import { logPdfNav } from '@app/utils/pdfNavLog';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
@@ -267,7 +268,7 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
-const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 320;
+const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 0;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 const renderedPageStateVersion = ref(0);
@@ -284,8 +285,11 @@ function settleViewerLoadSettledWithManagedShapes(token: number) {
     managedEmbeddedPdfShapes.settleViewerLoadSettledWithManagedShapes(token, settleViewerLoadSettle);
 }
 
-function handlePageRendered(pageNumber: number) {
+function handleRenderedPageStateChanged() {
     renderedPageStateVersion.value += 1;
+}
+
+function handlePageRendered(pageNumber: number) {
     delayedSkeleton.markPageRendered(pageNumber);
     managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
 
@@ -562,6 +566,7 @@ const {
     workingCopyPath,
     onRenderStall: relayPageRenderStall,
     onPageRendered: handlePageRendered,
+    onRenderedPageStateChanged: handleRenderedPageStateChanged,
 });
 
 function cleanupRenderedPages() {
@@ -570,7 +575,7 @@ function cleanupRenderedPages() {
 }
 
 function isPageRenderedForClass(page: number) {
-    return renderedPageStateVersion.value >= 0 && isPageRendered(page);
+    return renderedPageStateVersion.value >= 0 && isPageRendered(page) && hasMountedPageCanvas(page);
 }
 
 const singlePageScroll = usePdfSinglePageScroll({
@@ -612,9 +617,23 @@ watch(
             numPages.value,
         );
         if (targetPage === viewerCurrentPage.value) {
+            logPdfRenderTrace('viewer-requested-current-page-skip', {
+                requestedPage: pageNumber,
+                targetPage,
+                viewerCurrentPage: viewerCurrentPage.value,
+            });
             return;
         }
 
+        logPdfRenderTrace('viewer-requested-current-page-scroll', {
+            requestedPage: pageNumber,
+            targetPage,
+            viewerCurrentPage: viewerCurrentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
         cancelPendingSearchScroll();
         singlePageScroll.scrollToPage(targetPage);
     },
@@ -830,6 +849,7 @@ const {
     redoAnnotation,
     invalidatePages,
     handlePageRenderStall: handlePageRenderStallFromCore,
+    preserveNextSourceReloadVisibleContent,
 } = usePdfViewerCore({
     viewerContainer,
     src,
@@ -1030,13 +1050,13 @@ const emptyLinksByPage: Record<number, never[]> = {};
 const visibleMarkersByPage = computed(() => (
     isViewerLoadingOverlayVisible.value
         ? emptyMarkersByPage
-        : new Map([...markersByPage.value].filter(([page]) => !shouldShowSkeleton(page)))
+        : new Map([...markersByPage.value].filter(([page]) => isPageRenderedForClass(page)))
 ));
 const visibleLinksByPage = computed(() => (
     isViewerLoadingOverlayVisible.value
         ? emptyLinksByPage
         : Object.fromEntries(
-            Object.entries(linksByPage.value).filter(([page]) => !shouldShowSkeleton(Number(page))),
+            Object.entries(linksByPage.value).filter(([page]) => isPageRenderedForClass(Number(page))),
         )
 ));
 function shouldShowPageSkeleton(page: number) {
@@ -1044,7 +1064,7 @@ function shouldShowPageSkeleton(page: number) {
         delayedSkeleton.hidePage(page);
         return false;
     }
-    if (hasMountedPageCanvas(page)) {
+    if (isPageRenderedForClass(page)) {
         delayedSkeleton.markPageRendered(page);
         return false;
     }
@@ -1062,6 +1082,15 @@ let pagedBufferRenderToken = 0;
 
 function schedulePagedBufferRender() {
     const token = ++pagedBufferRenderToken;
+    logPdfRenderTrace('paged-buffer-render-scheduled', {
+        token,
+        currentPage: viewerCurrentPage.value,
+        visibleRange: {
+            start: visibleRange.value.start,
+            end: visibleRange.value.end,
+        },
+        pagesToRender: pagesToRender.value,
+    });
     void nextTick(() => {
         const mountedPages = pagesToRender.value;
         const firstMountedPage = mountedPages[0];
@@ -1075,9 +1104,30 @@ function schedulePagedBufferRender() {
             || firstMountedPage === undefined
             || lastMountedPage === undefined
         ) {
+            logPdfRenderTrace('paged-buffer-render-skipped', {
+                token,
+                activeToken: pagedBufferRenderToken,
+                continuousScroll: continuousScroll.value,
+                isLoading: isLoading.value,
+                hasDocument: Boolean(pdfDocument.value),
+                mountedPages,
+                firstMountedPage,
+                lastMountedPage,
+            });
             return;
         }
 
+        logPdfRenderTrace('paged-buffer-render-run', {
+            token,
+            currentPage: viewerCurrentPage.value,
+            firstMountedPage,
+            lastMountedPage,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+            mountedPages,
+        });
         runGuardedTask(
             () => renderVisiblePages(
                 {
@@ -1391,6 +1441,7 @@ defineExpose({
     ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
     getPageMetricsSnapshot: () => pageMetrics.value.map(metric => ({ ...metric })),
     waitForViewerLoadSettled,
+    preserveNextSourceReloadVisibleContent,
     adoptPersistedManagedShapesOnNextImport,
     clearPendingManagedShapeImportAdoption,
     preparePersistedManagedShapesForSave,
@@ -1480,6 +1531,16 @@ defineExpose({
 
 .pdfViewer .page_container--rendered .pdf-page-skeleton {
     display: none;
+}
+
+.pdfViewer .page_container:not(.page_container--rendered) .text-layer,
+.pdfViewer .page_container:not(.page_container--rendered) .textLayer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotation-layer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotationLayer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotation-editor-layer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotationEditorLayer {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .page_canvas {

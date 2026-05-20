@@ -90,6 +90,38 @@ describe('createPdfReloadWaiter', () => {
         expect(restoreScrollSnapshot).not.toHaveBeenCalled();
     });
 
+    it('can wait for reload completion without restoring scroll', async () => {
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const scrollToPage = vi.fn();
+        const restoreScrollSnapshot = vi.fn();
+        const resetSearchCache = vi.fn();
+
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({
+                scrollToPage,
+                restoreScrollSnapshot,
+            }),
+            resetSearchCache,
+            pageToRestore: 8,
+            scrollSnapshot: {
+                width: 300,
+                height: 400,
+                centerX: 120,
+                centerY: 220,
+                anchorPage: 8,
+            },
+            restoreScroll: false,
+        });
+
+        pdfDocument.value = cast({ id: 'after' });
+        await waiter.promise;
+
+        expect(resetSearchCache).toHaveBeenCalledTimes(1);
+        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
+    });
+
     it('waits for the viewer load-settle hook before restoring scroll state', async () => {
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
         const restoreScrollSnapshot = vi.fn();

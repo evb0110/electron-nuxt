@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 const includeExtendedDrawShapeLifecycle = process.env.EVB_E2E_DRAW_SHAPES_EXTENDED === '1';
 const includeLargePdfAnnotationSave = process.env.EVB_E2E_LARGE_PDF === '1';
+const includeRapidPdfNavigation = process.env.EVB_E2E_RAPID_PDF_NAVIGATION === '1';
 
 export default defineConfig({ test: {
     // Keep smoke focused on deterministic startup coverage.
@@ -18,6 +19,9 @@ export default defineConfig({ test: {
             : []),
         ...(includeLargePdfAnnotationSave
             ? ['tests/e2e/electron/phase1LargePdfAnnotationSave.e2e.test.ts']
+            : []),
+        ...(includeRapidPdfNavigation
+            ? ['tests/e2e/electron/phase1RapidPdfNavigation.e2e.test.ts']
             : []),
     ],
     globals: false,

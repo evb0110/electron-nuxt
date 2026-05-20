@@ -22,6 +22,7 @@ describe('rerenderStrategy', () => {
         expect(isAnchoredCurrentPageSyncSource('resize-settle')).toBe(true);
         expect(isAnchoredCurrentPageSyncSource('zoom-change')).toBe(true);
         expect(isAnchoredCurrentPageSyncSource('zoom-settle')).toBe(true);
+        expect(isAnchoredCurrentPageSyncSource('fit-width-current-page')).toBe(true);
         expect(isAnchoredCurrentPageSyncSource('re-render')).toBe(false);
     });
 
@@ -55,6 +56,15 @@ describe('rerenderStrategy', () => {
 
         expect(shouldPreserveExistingRerenderContent({
             source: 'fit-mode',
+            visibleRange: {
+                start: 4,
+                end: 6,
+            },
+            isPageRendered: () => false,
+        })).toBe(true);
+
+        expect(shouldPreserveExistingRerenderContent({
+            source: 'fit-width-current-page',
             visibleRange: {
                 start: 4,
                 end: 6,

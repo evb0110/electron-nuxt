@@ -1,6 +1,7 @@
 import { uniq } from 'es-toolkit/array';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IPageRange {
     start: number;
@@ -138,9 +139,20 @@ export async function rerenderRenderedManagedEmbeddedShapePages({
     ).sort((left, right) => left - right);
 
     if (renderedManagedPages.length === 0) {
+        logPdfRenderTrace('embedded-shape-rerender-skip', {
+            shapeCount: shapes.length,
+            visibleRange,
+            renderBuffer,
+        });
         return;
     }
 
+    logPdfRenderTrace('embedded-shape-rerender-invalidate', {
+        renderedManagedPages,
+        shapeCount: shapes.length,
+        visibleRange,
+        renderBuffer,
+    });
     invalidatePages(renderedManagedPages);
 
     await renderVisiblePages(
