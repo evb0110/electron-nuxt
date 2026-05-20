@@ -58,6 +58,54 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
     });
 
+    it('cleans prepared canvases when renderCanvas fails before mounting', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        const annotationCanvas = {
+            width: 32,
+            height: 16,
+            style: {} as CSSStyleDeclaration,
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderError = new Error('cancelled');
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            render: vi.fn((context: { annotationCanvasMap: Map<string, HTMLCanvasElement>; }) => {
+                context.annotationCanvasMap.set('annotation-1', annotationCanvas as never);
+                return {
+                    cancel: vi.fn(),
+                    promise: Promise.reject(renderError),
+                };
+            }),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
+
+        await expect(renderer.renderCanvas(pdfPage as never, 1)).rejects.toBe(renderError);
+        expect(canvas.width).toBe(0);
+        expect(canvas.height).toBe(0);
+        expect(canvas.remove).toHaveBeenCalled();
+        expect(annotationCanvas.width).toBe(0);
+        expect(annotationCanvas.height).toBe(0);
+        expect(annotationCanvas.remove).toHaveBeenCalled();
+    });
+
     it('filters hidden annotation appearance ops out of the page canvas render', async () => {
         const canvas = {
             width: 0,

@@ -1,3 +1,4 @@
+import {randomUUID} from 'crypto';
 import {
     lstat,
     mkdir,
@@ -139,6 +140,10 @@ function copyPreservedPageMappings(
     return pages;
 }
 
+function createUniqueTempPath(targetPath: string) {
+    return `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
+}
+
 export async function resolveSafeOcrIndexBasePath(
     indexPath: string,
     tempDirPath: string,
@@ -230,7 +235,7 @@ export async function writeOcrIndexV2(
         };
 
         const pagePath = join(ocrDir, pageFile);
-        const tempPath = `${pagePath}.tmp`;
+        const tempPath = createUniqueTempPath(pagePath);
         await writeFile(tempPath, JSON.stringify(pageData), 'utf-8');
         await rename(tempPath, pagePath);
 
@@ -238,7 +243,7 @@ export async function writeOcrIndexV2(
     }
 
     const manifestPath = join(ocrDir, 'manifest.json');
-    const tempManifestPath = `${manifestPath}.tmp`;
+    const tempManifestPath = createUniqueTempPath(manifestPath);
     await writeFile(tempManifestPath, JSON.stringify(manifest), 'utf-8');
     await rename(tempManifestPath, manifestPath);
 

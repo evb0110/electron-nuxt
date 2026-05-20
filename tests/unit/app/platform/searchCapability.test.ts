@@ -204,6 +204,7 @@ vi.mock('pdfjs-dist', () => pdfjsModule);
 describe('createBrowserSearchCapability', () => {
     beforeEach(() => {
         vi.resetModules();
+        vi.doUnmock('@app/platform/browser-api/browserSearchLimits');
         vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         yieldToBrowserMock.mockClear();
         browserDocumentStoreMock.stat.mockReset();
@@ -387,6 +388,51 @@ describe('createBrowserSearchCapability', () => {
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
         expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not persist page text after truncated streaming search', async () => {
+        vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
+            SEARCH_EXCERPT_CONTEXT_CHARS: 10,
+            SEARCH_RESULT_LIMIT: 2,
+        }));
+        const pageTexts = [
+            'alpha foo',
+            'beta foo',
+            'gamma foo',
+        ];
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: pageTexts.length,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const firstCapability = createBrowserSearchCapability().capability;
+        const firstRun = await firstCapability.run('/tmp/test.pdf', 'foo');
+        const secondCapability = createBrowserSearchCapability().capability;
+        const secondRun = await secondCapability.run('/tmp/test.pdf', 'foo');
+
+        expect(firstRun).toEqual({
+            results: expect.arrayContaining([
+                expect.objectContaining({ pageNumber: 1 }),
+                expect.objectContaining({ pageNumber: 2 }),
+            ]),
+            truncated: true,
+        });
+        expect(secondRun.truncated).toBe(true);
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
+        expect(getPage).toHaveBeenCalledTimes(4);
     });
 
     it('assigns page match indexes without scanning prior results', async () => {

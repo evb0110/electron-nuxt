@@ -674,7 +674,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
             cache.pageCount = pageCount;
             pageTexts = Array.from({ length: pageCount }, (_value, index) => pageTexts[index] ?? '');
-            if (!canceled && canPersistPageTexts(pageTexts)) {
+            if (!canceled && !stopped && canPersistPageTexts(pageTexts)) {
                 await persistSearchCacheRecord(createPersistedSearchCacheRecord(
                     pdfPath,
                     fileSize,

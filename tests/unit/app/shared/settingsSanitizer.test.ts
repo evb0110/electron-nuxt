@@ -60,6 +60,16 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({tabMemoryPolicy: 'unsupported' as never}).tabMemoryPolicy).toBe(DEFAULT_SETTINGS.tabMemoryPolicy);
     });
 
+    it('trims and clamps unbounded string settings', () => {
+        expect(sanitizeSettings({
+            authorName: `  ${'A'.repeat(300)}  `,
+            skippedUpdateVersion: `  ${'1'.repeat(160)}  `,
+        })).toMatchObject({
+            authorName: 'A'.repeat(256),
+            skippedUpdateVersion: '1'.repeat(128),
+        });
+    });
+
     it('exposes locale/theme normalizers for shared callers', () => {
         expect(normalizeTheme('dark')).toBe('dark');
         expect(normalizeTheme('contrast')).toBe('light');

@@ -1,6 +1,7 @@
 import {
     cp,
     mkdir,
+    rm,
 } from 'node:fs/promises';
 import {
     dirname,
@@ -23,6 +24,10 @@ const ASSET_DIRECTORIES = [
 async function copyPdfjsAssets() {
     await mkdir(publicPdfRoot, { recursive: true });
     for (const directory of ASSET_DIRECTORIES) {
+        await rm(join(publicPdfRoot, directory), {
+            recursive: true,
+            force: true,
+        });
         await mkdir(join(publicPdfRoot, directory), { recursive: true });
     }
 

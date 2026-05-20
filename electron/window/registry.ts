@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 
 const appWindows = new Map<number, BrowserWindow>();
 let mainWindowId: number | null = null;
@@ -21,21 +21,15 @@ export function unregisterAppWindow(windowId: number) {
 }
 
 function syncWindowRegistry() {
-    const allWindows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed());
-    const activeIds = new Set(allWindows.map(window => window.id));
-
-    for (const window of allWindows) {
-        appWindows.set(window.id, window);
-    }
-
     for (const windowId of appWindows.keys()) {
-        if (!activeIds.has(windowId)) {
+        const window = appWindows.get(windowId);
+        if (!window || window.isDestroyed()) {
             appWindows.delete(windowId);
         }
     }
 
-    if (mainWindowId !== null && !activeIds.has(mainWindowId)) {
-        mainWindowId = allWindows[0]?.id ?? null;
+    if (mainWindowId !== null && !appWindows.has(mainWindowId)) {
+        mainWindowId = appWindows.keys().next().value ?? null;
     }
 }
 
@@ -45,14 +39,8 @@ export function getWindowByIdFromRegistry(windowId: number) {
         return fromRegistry;
     }
 
-    const fromElectron = BrowserWindow.fromId(windowId);
-    if (!fromElectron || fromElectron.isDestroyed()) {
-        appWindows.delete(windowId);
-        return null;
-    }
-
-    appWindows.set(windowId, fromElectron);
-    return fromElectron;
+    appWindows.delete(windowId);
+    return null;
 }
 
 export function getAllRegisteredAppWindows() {

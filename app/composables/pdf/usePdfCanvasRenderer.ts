@@ -205,6 +205,16 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         canvas.remove();
     }
 
+    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap'>) {
+        cleanupCanvas(renderResult.canvas);
+        renderResult.annotationCanvasMap.forEach((annotationCanvas) => {
+            if (annotationCanvas !== renderResult.canvas) {
+                cleanupCanvas(annotationCanvas);
+            }
+        });
+        renderResult.annotationCanvasMap.clear();
+    }
+
     function isValidViewportSize(width: number, height: number) {
         return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0;
     }
@@ -374,8 +384,13 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         } = preparedRender;
         const renderTask = startRender();
         options?.onRenderTask?.(renderTask);
-        await renderTask.promise;
-        return renderResult;
+        try {
+            await renderTask.promise;
+            return renderResult;
+        } catch (error) {
+            cleanupCanvasRenderResult(renderResult);
+            throw error;
+        }
     }
 
     function applyContainerDimensions(
@@ -413,6 +428,7 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
 
     return {
         cleanupCanvas,
+        cleanupCanvasRenderResult,
         prepareCanvasRender,
         renderCanvas,
         applyContainerDimensions,

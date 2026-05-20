@@ -82,7 +82,7 @@ function consumeRendererFileOpenToken(senderId: number, token: string) {
 
 async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePath: string): Promise<TOpenPath> {
     try {
-        return requireOpenPath(sourcePath, getSenderId(event));
+        return requireOpenPath(sourcePath, event.sender);
     } catch {
         return requireManagedWorkingCopyPath(sourcePath, getSenderId(event));
     }
@@ -136,7 +136,7 @@ export function registerDocumentsIpcAdapter(
             return false;
         }
 
-        return allowOpenPath(normalizedPath, senderId) !== null;
+        return allowOpenPath(normalizedPath, event.sender) !== null;
     });
     registrar.handle(
         DOCUMENTS_CHANNELS.createWorkingCopyFromData,

@@ -37,6 +37,19 @@ function isPidAlive(pid: number) {
     }
 }
 
+function isProcessGroupAlive(pid: number) {
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+        return false;
+    }
+
+    try {
+        processTreeRuntime.kill(-pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 async function waitForExit(pid: number, timeoutMs: number) {
     const deadline = processTreeRuntime.now() + Math.max(0, timeoutMs);
     while (processTreeRuntime.now() < deadline) {
@@ -47,6 +60,18 @@ async function waitForExit(pid: number, timeoutMs: number) {
     }
 
     return !isPidAlive(pid);
+}
+
+async function waitForProcessGroupExit(pid: number, timeoutMs: number) {
+    const deadline = processTreeRuntime.now() + Math.max(0, timeoutMs);
+    while (processTreeRuntime.now() < deadline) {
+        if (!isProcessGroupAlive(pid)) {
+            return true;
+        }
+        await processTreeRuntime.delay(100);
+    }
+
+    return !isProcessGroupAlive(pid);
 }
 
 function sendPosixSignal(
@@ -115,12 +140,21 @@ export async function terminateProcessTree(
     }
 
     sendPosixSignal(pid, 'SIGTERM', preferProcessGroup);
-    const exitedGracefully = await waitForExit(pid, graceMs);
-    if (exitedGracefully || !isPidAlive(pid)) {
+    const exitedGracefully = preferProcessGroup
+        ? await waitForProcessGroupExit(pid, graceMs)
+        : await waitForExit(pid, graceMs);
+    const stillAlive = preferProcessGroup
+        ? isProcessGroupAlive(pid)
+        : isPidAlive(pid);
+    if (exitedGracefully || !stillAlive) {
         return;
     }
 
     sendPosixSignal(pid, 'SIGKILL', preferProcessGroup);
     const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
-    await waitForExit(pid, forceKillWaitMs);
+    if (preferProcessGroup) {
+        await waitForProcessGroupExit(pid, forceKillWaitMs);
+    } else {
+        await waitForExit(pid, forceKillWaitMs);
+    }
 }

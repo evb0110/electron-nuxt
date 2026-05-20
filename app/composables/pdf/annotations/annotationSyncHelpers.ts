@@ -439,8 +439,9 @@ export async function loadPdfPageAnnotations(
     doc: PDFDocumentProxy,
     pageNumber: number,
 ): Promise<IPdfPageAnnotationBundle | null> {
+    let page: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
     try {
-        const page = await doc.getPage(pageNumber);
+        page = await doc.getPage(pageNumber);
         const rawAnnotations: unknown = await page.getAnnotations();
         const annotations = Array.isArray(rawAnnotations)
             ? rawAnnotations as IPdfAnnotationRecord[]
@@ -457,5 +458,15 @@ export async function loadPdfPageAnnotations(
             error,
         );
         return null;
+    } finally {
+        try {
+            page?.cleanup();
+        } catch (cleanupError) {
+            BrowserLogger.debug(
+                'annotations',
+                `Failed to cleanup annotation page ${pageNumber}`,
+                cleanupError,
+            );
+        }
     }
 }

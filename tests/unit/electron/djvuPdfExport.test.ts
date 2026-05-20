@@ -290,6 +290,48 @@ describe('handleDjvuConvertToPdf', () => {
         });
     });
 
+    it('emits initial progress immediately after registering the active job', async () => {
+        mocks.getDjvuPageCount.mockImplementationOnce((
+            _filePath: string,
+            options?: { signal?: AbortSignal },
+        ) => new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+                const error = new Error('DjVu conversion canceled');
+                error.name = 'AbortError';
+                reject(error);
+            });
+        }));
+
+        const convertPromise = handleDjvuConvertToPdf(
+            createEvent(7) as never,
+            trustedDjvuPath,
+            '/tmp/output.pdf',
+            {preserveBookmarks: true},
+        );
+
+        await Promise.resolve();
+
+        expect(mocks.safeSendToWindow).toHaveBeenCalledWith(null, 'djvu:progress', {
+            jobId: 'djvu-convert-convert-123',
+            phase: 'converting',
+            percent: 0,
+        });
+        expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
+
+        const cancelResult = await handleDjvuCancel(
+            createEvent(7) as never,
+            'djvu-convert-convert-123',
+        );
+        const result = await convertPromise;
+
+        expect(cancelResult).toEqual({canceled: true});
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: 'DjVu conversion canceled',
+        });
+    });
+
     it('atomically replaces the output file', async () => {
         const result = await handleDjvuConvertToPdf(
             createEvent(7) as never,

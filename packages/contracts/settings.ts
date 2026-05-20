@@ -34,6 +34,8 @@ const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<ISettingsData['tabMemor
     'conservative',
     'aggressive',
 ]);
+const MAX_AUTHOR_NAME_LENGTH = 256;
+const MAX_SKIPPED_UPDATE_VERSION_LENGTH = 128;
 
 export const DEFAULT_SETTINGS: ISettingsData = {
     version: 2,
@@ -80,6 +82,14 @@ export function normalizeLocale(locale: unknown): TLocale {
 
 function isHexColor(value: string) {
     return /^#[\da-f]{6}$/iu.test(value.trim());
+}
+
+function normalizeBoundedString(value: unknown, maxLength: number) {
+    if (!isString(value)) {
+        return '';
+    }
+
+    return trim(value).slice(0, maxLength);
 }
 
 function normalizeDefaultZoomPreset(value: unknown): ISettingsData['defaultZoomPreset'] {
@@ -130,7 +140,7 @@ function normalizeTabMemoryPolicy(value: unknown): ISettingsData['tabMemoryPolic
 export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
     const settings: ISettingsData = {
         version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
-        authorName: isString(raw?.authorName) ? raw.authorName : DEFAULT_SETTINGS.authorName,
+        authorName: normalizeBoundedString(raw?.authorName, MAX_AUTHOR_NAME_LENGTH),
         theme: normalizeTheme(raw?.theme),
         locale: normalizeLocale(raw?.locale),
         defaultZoomPreset: normalizeDefaultZoomPreset(raw?.defaultZoomPreset),
@@ -145,8 +155,9 @@ export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined)
     if (isBoolean(raw?.suppressDefaultViewerPrompt)) {
         settings.suppressDefaultViewerPrompt = raw.suppressDefaultViewerPrompt;
     }
-    if (isString(raw?.skippedUpdateVersion) && trim(raw.skippedUpdateVersion)) {
-        settings.skippedUpdateVersion = trim(raw.skippedUpdateVersion);
+    const skippedUpdateVersion = normalizeBoundedString(raw?.skippedUpdateVersion, MAX_SKIPPED_UPDATE_VERSION_LENGTH);
+    if (skippedUpdateVersion) {
+        settings.skippedUpdateVersion = skippedUpdateVersion;
     }
     return settings;
 }

@@ -290,6 +290,7 @@ function terminateAndFinalizeActiveJob(
     activeJob.terminatedByUs = true;
     if (options.markCancelled) {
         cancelledJobs.add(scopedJobId);
+        removePendingCompletionResultFile(activeJob);
     }
     clearJobWatchdog(scopedJobId);
     finalizeActiveJob(scopedJobId);
@@ -373,9 +374,35 @@ function sendJobFailure(job: IOcrQueuedJob, error: string) {
     });
 }
 
+function trackPendingCompletionResultFile(job: IOcrActiveJob) {
+    const result = job.pendingCompletionResult;
+    if (!result?.success) {
+        return false;
+    }
+
+    pendingResultFileStore.track(job.scopedJobId, job.requestId, job.webContentsId, result.pdfPath);
+    void pendingResultFileStore.evictStale();
+    job.pendingCompletionResult = null;
+    return true;
+}
+
+function removePendingCompletionResultFile(job: IOcrActiveJob) {
+    const result = job.pendingCompletionResult;
+    if (!result?.success) {
+        return;
+    }
+
+    job.pendingCompletionResult = null;
+    void removeResultFile(result.pdfPath);
+}
+
 function finalizeActiveJob(scopedJobId: string) {
     clearJobWatchdog(scopedJobId);
     ocrResourceGovernor.releaseJob(scopedJobId);
+    const activeJob = activeJobs.get(scopedJobId);
+    if (activeJob) {
+        trackPendingCompletionResultFile(activeJob);
+    }
     activeJobs.delete(scopedJobId);
     dispatchQueuedJobs();
 }
@@ -513,8 +540,10 @@ function handleWorkerMessage(
             }
 
             if (result.success) {
-                pendingResultFileStore.track(scopedJobId, requestId, webContentsId, result.pdfPath);
-                void pendingResultFileStore.evictStale();
+                const activeJob = activeJobs.get(scopedJobId);
+                if (activeJob) {
+                    trackPendingCompletionResultFile(activeJob);
+                }
             }
 
             safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
@@ -976,6 +1005,7 @@ export async function shutdownOcrJobManager() {
     ] of activeEntries) {
         activeJob.completed = true;
         activeJob.terminatedByUs = true;
+        removePendingCompletionResultFile(activeJob);
         clearJobWatchdog(scopedJobId);
     }
     await Promise.allSettled(

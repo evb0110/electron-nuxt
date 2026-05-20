@@ -562,15 +562,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         if (renderVersion !== version) {
-            canvasRenderer.cleanupCanvas(preparedCanvasRender.canvas);
+            canvasRenderer.cleanupCanvasRenderResult(preparedCanvasRender);
             return null;
         }
 
-        return renderPreparedCanvasResult(
-            pageNumber,
-            version,
-            preparedCanvasRender,
-        );
+        try {
+            return await renderPreparedCanvasResult(
+                pageNumber,
+                version,
+                preparedCanvasRender,
+            );
+        } catch (error) {
+            canvasRenderer.cleanupCanvasRenderResult(preparedCanvasRender);
+            throw error;
+        }
     }
 
     function mountRenderedCanvas(
@@ -906,11 +911,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         if (renderVersion !== version) {
-            canvasRenderer.cleanupCanvas(renderResult.canvas);
+            canvasRenderer.cleanupCanvasRenderResult(renderResult);
             return;
         }
         if (!isCurrentMountedRenderTarget(pageNumber, version, target)) {
-            canvasRenderer.cleanupCanvas(renderResult.canvas);
+            canvasRenderer.cleanupCanvasRenderResult(renderResult);
             clearSinglePageRenderTracking(pageNumber, version);
             return;
         }

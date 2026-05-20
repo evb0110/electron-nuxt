@@ -9,6 +9,7 @@ import {
 const mockDocuments = {
     openPdfDialog: vi.fn(),
     openPdfDirect: vi.fn(),
+    openPdfDirectBatch: vi.fn(),
     readFile: vi.fn(),
     readFileRange: vi.fn(),
     writeFile: vi.fn(),
@@ -77,6 +78,7 @@ describe('usePdfFile', () => {
         mockHasElectronAPI.mockReturnValue(true);
         mockDocuments.cleanupFile.mockResolvedValue(undefined);
         mockDocuments.createWorkingCopyFromPath.mockReset();
+        mockDocuments.openPdfDirectBatch.mockResolvedValue(null);
         mockDocuments.validatePdfData.mockResolvedValue({
             isValid: true,
             tool: 'qpdf',
@@ -278,6 +280,50 @@ describe('usePdfFile', () => {
             );
             expect(file.error.value).toBeNull();
         });
+
+        it('does not let a stale picker PDF result replace a newer PDF open', async () => {
+            const newPdfBytes = new Uint8Array([6]);
+            const pickerGate = deferred<{
+                kind: 'pdf';
+                originalPath: string;
+                workingPath: string;
+            }>();
+
+            mockDocuments.openPdfDialog.mockImplementation(async () => pickerGate.promise);
+            mockDocuments.statFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/new.pdf') {
+                    return { size: newPdfBytes.length };
+                }
+                throw new Error(`unexpected stat path ${path}`);
+            });
+            mockDocuments.readFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/new.pdf') {
+                    return newPdfBytes.buffer;
+                }
+                throw new Error(`unexpected read path ${path}`);
+            });
+
+            const file = usePdfFile();
+            const stalePickerOpen = file.openFile();
+            await expect(file.openFile({
+                kind: 'pdf',
+                originalPath: '/new.pdf',
+                workingPath: '/tmp/new.pdf',
+            })).resolves.toMatchObject({status: 'opened'});
+
+            pickerGate.resolve({
+                kind: 'pdf',
+                originalPath: '/old.pdf',
+                workingPath: '/tmp/old.pdf',
+            });
+            await expect(stalePickerOpen).resolves.toMatchObject({status: 'stale'});
+
+            expect(file.workingCopyPath.value).toBe('/tmp/new.pdf');
+            expect(file.originalPath.value).toBe('/new.pdf');
+            expect(file.pdfData.value).toEqual(newPdfBytes);
+            expect(mockDocuments.statFile).not.toHaveBeenCalledWith('/tmp/old.pdf');
+            expect(mockDocuments.readFile).not.toHaveBeenCalledWith('/tmp/old.pdf');
+        });
     });
 
     describe('openFileDirect', () => {
@@ -322,6 +368,80 @@ describe('usePdfFile', () => {
                 error: 'errors.file.invalid',
             });
             expect(file.error.value).toBe('errors.file.invalid');
+        });
+
+        it('does not let a stale direct DjVu result replace a newer PDF open', async () => {
+            const pdfBytes = new Uint8Array([7]);
+            const staleDirectGate = deferred<{
+                kind: 'djvu';
+                originalPath: string;
+            }>();
+
+            mockDocuments.openPdfDirect.mockImplementation(async (path: string) => {
+                if (path === '/stale.djvu') {
+                    return staleDirectGate.promise;
+                }
+                if (path === '/new.pdf') {
+                    return {
+                        kind: 'pdf',
+                        originalPath: '/new.pdf',
+                        workingPath: '/tmp/new.pdf',
+                    };
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+
+            const file = usePdfFile();
+            const staleOpen = file.openFileDirect('/stale.djvu');
+            await expect(file.openFileDirect('/new.pdf')).resolves.toMatchObject({status: 'opened'});
+
+            staleDirectGate.resolve({
+                kind: 'djvu',
+                originalPath: '/stale.djvu',
+            });
+            await expect(staleOpen).resolves.toMatchObject({status: 'stale'});
+
+            expect(file.pendingDjvu.value).toBeNull();
+            expect(file.workingCopyPath.value).toBe('/tmp/new.pdf');
+            expect(file.originalPath.value).toBe('/new.pdf');
+            expect(file.pdfData.value).toEqual(pdfBytes);
+        });
+    });
+
+    describe('openFileDirectBatch', () => {
+        it('does not let a stale batch result replace a newer PDF open', async () => {
+            const pdfBytes = new Uint8Array([8]);
+            const staleBatchGate = deferred<{
+                kind: 'djvu';
+                originalPath: string;
+            }>();
+
+            mockDocuments.openPdfDirectBatch.mockImplementation(async () => staleBatchGate.promise);
+            mockDocuments.openPdfDirect.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/new.pdf',
+                workingPath: '/tmp/new.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+
+            const file = usePdfFile();
+            const staleBatch = file.openFileDirectBatch(['/stale.djvu']);
+            await expect(file.openFileDirect('/new.pdf')).resolves.toMatchObject({status: 'opened'});
+
+            staleBatchGate.resolve({
+                kind: 'djvu',
+                originalPath: '/stale.djvu',
+            });
+            await expect(staleBatch).resolves.toMatchObject({status: 'stale'});
+
+            expect(file.openBatchProgress.value).toBeNull();
+            expect(file.pendingDjvu.value).toBeNull();
+            expect(file.workingCopyPath.value).toBe('/tmp/new.pdf');
+            expect(file.originalPath.value).toBe('/new.pdf');
+            expect(file.pdfData.value).toEqual(pdfBytes);
         });
     });
 
@@ -515,6 +635,34 @@ describe('usePdfFile', () => {
 
             const result = await file.redo();
             expect(result).toBe(true);
+        });
+
+        it('does not apply a history restore after the file is closed', async () => {
+            const bytes1 = new Uint8Array([1]);
+            const bytes2 = new Uint8Array([2]);
+            const writeGate = deferred<undefined>();
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/undo.pdf',
+                workingPath: '/tmp/undo.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: bytes1.length });
+            mockDocuments.readFile.mockResolvedValue(bytes1.buffer);
+            mockDocuments.writeFile.mockImplementation(async () => writeGate.promise);
+
+            const file = usePdfFile();
+            await file.openFile();
+            await file.loadPdfFromData(bytes2);
+
+            const undo = file.undo();
+            file.closeFile();
+            writeGate.resolve(undefined);
+
+            await expect(undo).resolves.toBe(true);
+            expect(file.workingCopyPath.value).toBeNull();
+            expect(file.pdfData.value).toBeNull();
+            expect(file.pdfSrc.value).toBeNull();
         });
 
         it('can reload the working copy into history for external page operations', async () => {

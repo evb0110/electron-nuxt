@@ -113,8 +113,9 @@ describe('writeOcrIndexV2', () => {
             }],
         }], 2, ['eng'], 300, vi.fn());
 
-        const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path === '/tmp/work.pdf.ocr/manifest.json.tmp');
+        const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith('/tmp/work.pdf.ocr/manifest.json.'));
         expect(manifestWrite).toBeTruthy();
+        expect(manifestWrite?.[0]).toMatch(/\/tmp\/work\.pdf\.ocr\/manifest\.json\..+\.tmp$/);
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
         expect(manifest.pages).toEqual({
             1: { path: 'page-0001.json' },
@@ -148,9 +149,37 @@ describe('writeOcrIndexV2', () => {
             words: [],
         }], 2, ['eng'], 300, vi.fn());
 
-        const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path === '/tmp/work.pdf.ocr/manifest.json.tmp');
+        const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith('/tmp/work.pdf.ocr/manifest.json.'));
         expect(manifestWrite).toBeTruthy();
+        expect(manifestWrite?.[0]).toMatch(/\/tmp\/work\.pdf\.ocr\/manifest\.json\..+\.tmp$/);
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
         expect(manifest.pages).toEqual({2: { path: 'page-0002.json' }});
+    });
+
+    it('uses a unique temp file for each v2 page and manifest write', async () => {
+        await writeOcrIndexV2('/tmp/work.pdf', [
+            {
+                pageNumber: 1,
+                text: 'first pass',
+                imageWidth: 100,
+                imageHeight: 200,
+                words: [],
+            },
+            {
+                pageNumber: 1,
+                text: 'second pass',
+                imageWidth: 100,
+                imageHeight: 200,
+                words: [],
+            },
+        ], 1, ['eng'], 300, vi.fn());
+
+        const tempPaths = mocks.writeFile.mock.calls.map(([path]) => path);
+        expect(tempPaths).toHaveLength(3);
+        expect(new Set(tempPaths).size).toBe(tempPaths.length);
+        expect(tempPaths).toEqual(expect.arrayContaining([
+            expect.stringMatching(/\/tmp\/work\.pdf\.ocr\/page-0001\.json\..+\.tmp$/),
+            expect.stringMatching(/\/tmp\/work\.pdf\.ocr\/manifest\.json\..+\.tmp$/),
+        ]));
     });
 });

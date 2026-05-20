@@ -16,6 +16,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const mocks = vi.hoisted(() => ({
+    fromWebContents: vi.fn<() => { setTitle: (title: string) => void; } | null>(() => null),
+    refreshMenu: vi.fn(),
     showItemInFolder: vi.fn(),
     resolveAllowedReadPath: vi.fn(async () => null),
 }));
@@ -26,7 +28,7 @@ vi.mock('electron', () => ({
         isPackaged: false,
     },
     BrowserWindow: {
-        fromWebContents: vi.fn(() => null),
+        fromWebContents: mocks.fromWebContents,
         getAllWindows: vi.fn(() => []),
         getFocusedWindow: vi.fn(() => null),
     },
@@ -38,7 +40,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@electron/menu', () => ({
-    refreshMenu: vi.fn(),
+    refreshMenu: mocks.refreshMenu,
     updateRecentFilesMenu: vi.fn(),
 }));
 
@@ -90,5 +92,19 @@ describe('documents show item in folder', () => {
         await expect(handleShowItemInFolder({ sender: {} } as never, filePath)).resolves.toBe(false);
 
         expect(mocks.showItemInFolder).not.toHaveBeenCalled();
+    });
+
+    it('trims and clamps window titles before setting the native title', async () => {
+        const setTitle = vi.fn();
+        mocks.fromWebContents.mockReturnValue({setTitle});
+        const { handleSetWindowTitle } = await import('@electron/features/documents/main/documentWindowHandlers');
+
+        handleSetWindowTitle(
+            { sender: {id: 9} } as never,
+            `  ${'Document'.repeat(100)}  `,
+        );
+
+        expect(setTitle).toHaveBeenCalledWith('Document'.repeat(100).slice(0, 512));
+        expect(mocks.refreshMenu).toHaveBeenCalled();
     });
 });

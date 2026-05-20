@@ -17,11 +17,20 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-dialogs');
 type TOpenPathOwner = number | Electron.WebContents;
+const MAX_WINDOW_TITLE_LENGTH = 512;
+
+function normalizeWindowTitle(title: unknown) {
+    if (typeof title !== 'string') {
+        return '';
+    }
+
+    return title.trim().slice(0, MAX_WINDOW_TITLE_LENGTH);
+}
 
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
-        const normalizedTitle = typeof title === 'string' ? title : '';
+        const normalizedTitle = normalizeWindowTitle(title);
         window.setTitle(normalizedTitle || te('app.title'));
         refreshMenu();
     }

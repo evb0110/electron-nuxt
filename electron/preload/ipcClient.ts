@@ -18,13 +18,15 @@ type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unkn
     TNoArgEventChannel<TEventMap>
 >;
 
-export function createIpcInvoker(ipcRenderer: IpcRenderer) {
+export function createIpcInvoker(ipcRenderer: Pick<IpcRenderer, 'invoke'>) {
     return function invoke<TResult = unknown>(channel: string, ...args: unknown[]) {
         return ipcRenderer.invoke(channel, ...args) as Promise<TResult>;
     };
 }
 
-export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IInvokeSpec}>(ipcRenderer: IpcRenderer) {
+export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IInvokeSpec}>(
+    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
+) {
     return function invoke<TChannel extends Extract<keyof TMap, string>>(
         channel: TChannel,
         ...args: TMap[TChannel]['args']

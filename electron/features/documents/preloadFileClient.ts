@@ -128,30 +128,30 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
 }
 
 async function streamPdfBytesToPersistencePort(
-    ipcRenderer: IpcRenderer,
+    ipcRenderer: Pick<IpcRenderer, 'postMessage'>,
     sessionId: string,
     data: Uint8Array,
 ) {
     const channel = new MessageChannel();
     channel.port1.start();
-    const resultPromise = waitForPortStreamResult(channel.port1);
-    ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, sessionId, [channel.port2]);
-    await waitForPortReady(channel.port1);
-
-    let seq = 0;
-    for (let offset = 0; offset < data.byteLength; offset += PDF_PERSISTENCE_CHUNK_BYTES) {
-        const end = Math.min(offset + PDF_PERSISTENCE_CHUNK_BYTES, data.byteLength);
-        const bytes = data.slice(offset, end);
-        channel.port1.postMessage({
-            type: 'chunk',
-            seq,
-            bytes,
-        });
-        await waitForPortAck(channel.port1, seq);
-        seq += 1;
-    }
-
     try {
+        const resultPromise = waitForPortStreamResult(channel.port1);
+        ipcRenderer.postMessage(DOCUMENTS_CHANNELS.fileSavePdfDataPort, sessionId, [channel.port2]);
+        await waitForPortReady(channel.port1);
+
+        let seq = 0;
+        for (let offset = 0; offset < data.byteLength; offset += PDF_PERSISTENCE_CHUNK_BYTES) {
+            const end = Math.min(offset + PDF_PERSISTENCE_CHUNK_BYTES, data.byteLength);
+            const bytes = data.slice(offset, end);
+            channel.port1.postMessage({
+                type: 'chunk',
+                seq,
+                bytes,
+            });
+            await waitForPortAck(channel.port1, seq);
+            seq += 1;
+        }
+
         channel.port1.postMessage({ type: 'complete' });
         return await resultPromise;
     } finally {
@@ -160,7 +160,7 @@ async function streamPdfBytesToPersistencePort(
 }
 
 export function createDocumentsPreloadFileClient(
-    ipcRenderer: IpcRenderer,
+    ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage'>,
 ): TDocumentsPreloadFileClient {
     const invoke = createIpcInvoker(ipcRenderer);
 

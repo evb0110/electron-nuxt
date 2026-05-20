@@ -379,6 +379,11 @@ export async function handleDjvuConvertToPdf(
     registerSenderLifecycleCleanup(event.sender);
     const abortController = new AbortController();
     activeJobAbortControllerById.set(jobId, abortController);
+    safeSendToWindow(window, 'djvu:progress', {
+        jobId,
+        phase: 'converting' as const,
+        percent: 0,
+    });
 
     try {
         return await runDjvuConversionJobWithSlot(jobId, async () => {
@@ -386,12 +391,6 @@ export async function handleDjvuConvertToPdf(
 
             const subsample = resolveSubsample(options.subsample);
             throwIfCanceled(jobId);
-
-            safeSendToWindow(window, 'djvu:progress', {
-                jobId,
-                phase: 'converting' as const,
-                percent: 0,
-            });
 
             const convertResult = await convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
                 ...(subsample > 1 ? { subsample } : {}),
