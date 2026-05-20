@@ -7,6 +7,7 @@ const PRESERVE_EXISTING_RENDER_SOURCES = new Set([
     'zoom-change',
     'zoom-settle',
     'fit-mode',
+    'fit-width-current-page',
 ]);
 
 const RESIZE_RERENDER_SOURCES = new Set([
@@ -18,6 +19,7 @@ const ANCHORED_CURRENT_PAGE_SYNC_SOURCES = new Set([
     ...RESIZE_RERENDER_SOURCES,
     'zoom-change',
     'zoom-settle',
+    'fit-width-current-page',
 ]);
 
 export function isResizeRerenderSource(source: string) {

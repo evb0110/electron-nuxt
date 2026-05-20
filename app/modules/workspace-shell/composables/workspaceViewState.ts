@@ -10,6 +10,7 @@ import type {
 } from '@app/types/annotations';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 import { isAuthoringAnnotationTool } from '@app/composables/pdf/annotations/annotationRules';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IWorkspaceViewStateDeps {
     fitMode: Ref<TFitMode>;
@@ -97,9 +98,11 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
 
     function handleGoToPage(page: number) {
         const targetPage = normalizeNavigationPage(page);
+        const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
         BrowserLogger.warn('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
             requestedPage: page,
             targetPage,
+            wasAlreadyCurrentPage,
             hasViewer: Boolean(deps.pdfViewerRef.value),
             sidebarOpen: deps.showSidebar.value,
             sidebarTab: deps.sidebarTab.value,
@@ -107,8 +110,19 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             annotationTool: deps.annotationTool.value,
             isPlacingNote: deps.annotationPlacingPageNote.value,
         });
+        logPdfRenderTrace('workspace-go-to-page', {
+            requestedPage: page,
+            targetPage,
+            currentPageBefore: deps.currentPage.value,
+            wasAlreadyCurrentPage,
+            hasViewer: Boolean(deps.pdfViewerRef.value),
+        });
         deps.beginProgrammaticPageNavigation?.(targetPage);
         deps.currentPage.value = targetPage;
+        if (wasAlreadyCurrentPage) {
+            logPdfRenderTrace('workspace-go-to-page-skip-scroll-duplicate', { targetPage });
+            return;
+        }
         deps.pdfViewerRef.value?.scrollToPage(targetPage);
     }
 

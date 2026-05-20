@@ -413,16 +413,12 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     function mountCanvas(
         canvasHost: HTMLElement,
         canvas: HTMLCanvasElement,
-        container: HTMLElement,
-        renderedContainerClass: string,
+        previousCanvas?: HTMLCanvasElement | null,
     ) {
-        canvasHost.innerHTML = '';
-        canvasHost.appendChild(canvas);
-        container.classList.add(renderedContainerClass);
-
-        const skeleton = container.querySelector<HTMLElement>('.pdf-page-skeleton');
-        if (skeleton) {
-            skeleton.style.display = 'none';
+        if (previousCanvas?.parentElement === canvasHost) {
+            previousCanvas.replaceWith(canvas);
+        } else {
+            canvasHost.prepend(canvas);
         }
     }
 

@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { collectPreservedRenderPageNumbers } from '@app/composables/pdf/pdfPageRenderPreservation';
+import {
+    collectPreservedRenderPageNumbers,
+    shouldRenderPageWithPreservedState,
+} from '@app/composables/pdf/pdfPageRenderPreservation';
 
 describe('collectPreservedRenderPageNumbers', () => {
     it('preserves finalized pages and pages with mounted canvases during rerender handoff', () => {
@@ -32,5 +35,27 @@ describe('collectPreservedRenderPageNumbers', () => {
             3,
             2,
         ]);
+    });
+});
+
+describe('shouldRenderPageWithPreservedState', () => {
+    it('forces a render when bookkeeping says rendered but the mounted canvas is missing', () => {
+        expect(shouldRenderPageWithPreservedState({
+            pageNumber: 100,
+            renderedPages: new Set([100]),
+            staleRenderedPages: new Set(),
+            forceRerender: false,
+            hasMountedCanvas: () => false,
+        })).toBe(true);
+    });
+
+    it('skips only when rendered bookkeeping and mounted canvas agree', () => {
+        expect(shouldRenderPageWithPreservedState({
+            pageNumber: 100,
+            renderedPages: new Set([100]),
+            staleRenderedPages: new Set(),
+            forceRerender: false,
+            hasMountedCanvas: () => true,
+        })).toBe(false);
     });
 });

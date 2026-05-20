@@ -413,6 +413,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     const {
         isLoadFromSourceActive,
         invalidateDocumentLoad,
+        preserveNextSourceReloadVisibleContent,
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     } = usePdfViewerDocumentLifecycle({
@@ -725,5 +726,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         redoAnnotation,
         invalidatePages,
         handlePageRenderStall,
+        preserveNextSourceReloadVisibleContent,
     };
 };

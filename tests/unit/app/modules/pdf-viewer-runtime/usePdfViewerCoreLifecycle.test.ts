@@ -71,6 +71,7 @@ vi.mock('@app/modules/pdf-viewer-runtime/composables/usePdfViewerResizeLifecycle
 vi.mock('@app/modules/pdf-viewer-runtime/composables/usePdfViewerDocumentLifecycle', () => ({usePdfViewerDocumentLifecycle: () => ({
     isLoadFromSourceActive: ref(false),
     invalidateDocumentLoad: lifecycleMocks.invalidateDocumentLoad,
+    preserveNextSourceReloadVisibleContent: vi.fn(),
     scheduleRecoverInitialRender: vi.fn(),
     scheduleLoadFromSource: lifecycleMocks.scheduleLoadFromSource,
 })}));

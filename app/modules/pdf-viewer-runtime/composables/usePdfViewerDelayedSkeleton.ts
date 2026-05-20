@@ -72,6 +72,10 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
             return false;
         }
 
+        if (options.delayMs <= 0) {
+            return true;
+        }
+
         if (visiblePages.value.has(pageNumber)) {
             return true;
         }

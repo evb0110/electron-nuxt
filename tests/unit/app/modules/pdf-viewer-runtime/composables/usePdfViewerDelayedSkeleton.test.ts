@@ -35,6 +35,26 @@ function createHarness() {
     };
 }
 
+function createImmediateHarness() {
+    const scope = effectScope();
+    const pendingPages = ref(new Set<number>());
+    const skeleton = scope.run(() => usePdfViewerDelayedSkeleton({
+        delayMs: 0,
+        trackedPages: ref([1]),
+        blockSkeletons: ref(false),
+        shouldShowSkeletonNow: pageNumber => pendingPages.value.has(pageNumber),
+    }));
+    if (!skeleton) {
+        throw new Error('Failed to create immediate skeleton harness');
+    }
+
+    return {
+        pendingPages,
+        scope,
+        skeleton,
+    };
+}
+
 describe('usePdfViewerDelayedSkeleton', () => {
     afterEach(() => {
         vi.useRealTimers();
@@ -53,6 +73,19 @@ describe('usePdfViewerDelayedSkeleton', () => {
         await vi.advanceTimersByTimeAsync(139);
         expect(skeleton.shouldShowSkeleton(1)).toBe(false);
         await vi.advanceTimersByTimeAsync(1);
+        expect(skeleton.shouldShowSkeleton(1)).toBe(true);
+
+        scope.stop();
+    });
+
+    it('shows pending page skeletons immediately when delay is disabled', () => {
+        const {
+            pendingPages,
+            scope,
+            skeleton,
+        } = createImmediateHarness();
+        pendingPages.value = new Set([1]);
+
         expect(skeleton.shouldShowSkeleton(1)).toBe(true);
 
         scope.stop();

@@ -315,4 +315,113 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(invalidateScaleCache).toHaveBeenCalledTimes(1);
         expect(resetScale).not.toHaveBeenCalled();
     });
+
+    it('preserves mounted pages while rebasing a same-document reload', async () => {
+        const currentPage = ref(3);
+        const visibleRange = ref({
+            start: 3,
+            end: 3,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>({ numPages: 10 } as PDFDocumentProxy);
+        const numPages = ref(10);
+        const cleanupRenderedPages = vi.fn();
+        const destroyAnnotationEditor = vi.fn();
+        const renderVisiblePages = vi.fn(async () => {});
+        const updateVisibleRange = vi.fn();
+        const scrollToPage = vi.fn();
+        const ensurePageMetricsInRange = vi.fn(async () => false);
+        const setupPagePlaceholders = vi.fn();
+        const computeFitWidthScale = vi.fn(() => true);
+        const computeSkeletonInsets = vi.fn(async () => {});
+        const getPage = vi.fn(async () => ({}) as PDFPageProxy);
+        const endVisualReloadTransition = vi.fn();
+        const viewerContainer = cast<HTMLElement>({
+            scrollLeft: 45,
+            scrollTop: 1234,
+            querySelector: vi.fn(() => ({})),
+        });
+        const loadPdf = vi.fn(async () => {
+            viewerContainer.scrollLeft = 88;
+            viewerContainer.scrollTop = 999;
+            pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
+            return { version: 2 };
+        });
+
+        const {
+            preserveNextSourceReloadVisibleContent,
+            scheduleLoadFromSource,
+        } = usePdfViewerDocumentLifecycle({
+            viewerContainer: ref(viewerContainer),
+            src: computed(() =>
+                new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+            ),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            getRenderVersion: () => 2,
+            loadPdf,
+            ensurePageMetricsInRange,
+            getPage,
+            renderVisiblePages,
+            getVisibleRange: () => visibleRange.value,
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {}),
+            applySearchHighlights: vi.fn(),
+            updateVisibleRange,
+            scrollToPage,
+            cleanupRenderedPages,
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders,
+            computeFitWidthScale,
+            computeSkeletonInsets,
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            },
+            editor: {
+                destroyAnnotationEditor,
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition,
+            emit: vi.fn(),
+        });
+
+        preserveNextSourceReloadVisibleContent();
+        viewerContainer.scrollLeft = 62;
+        viewerContainer.scrollTop = 1400;
+        scheduleLoadFromSource(true);
+        await flushLifecycleTasks();
+
+        expect(loadPdf).toHaveBeenCalledWith(expect.any(Blob), { preservePageStructure: true });
+        expect(viewerContainer.scrollLeft).toBe(45);
+        expect(viewerContainer.scrollTop).toBe(1234);
+        expect(cleanupRenderedPages).not.toHaveBeenCalled();
+        expect(destroyAnnotationEditor).not.toHaveBeenCalled();
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(updateVisibleRange).not.toHaveBeenCalled();
+        expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
+        expect(computeFitWidthScale).not.toHaveBeenCalled();
+        expect(computeSkeletonInsets).not.toHaveBeenCalled();
+        expect(setupPagePlaceholders).not.toHaveBeenCalled();
+        expect(endVisualReloadTransition).toHaveBeenCalledWith(17, 'preserved-load-complete');
+    });
 });
