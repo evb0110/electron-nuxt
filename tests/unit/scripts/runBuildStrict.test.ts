@@ -11,9 +11,15 @@ type TPnpmInvocation = {
     command: string;
 };
 
-type TBuildStrictModule = { getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => TPnpmInvocation };
+type TBuildStrictModule = {
+    getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => TPnpmInvocation;
+    getStrictBuildEnv: (env?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+};
 
-const { getPnpmInvocation } = await import(
+const {
+    getPnpmInvocation,
+    getStrictBuildEnv,
+} = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/run-build-strict.mjs')).href
 ) as TBuildStrictModule;
 
@@ -49,5 +55,16 @@ describe('run-build-strict', () => {
             args,
             command: 'pnpm',
         });
+    });
+
+    it('adds a heap floor for strict build child processes', () => {
+        expect(getStrictBuildEnv({}).NODE_OPTIONS).toBe('--max-old-space-size=6144');
+        expect(getStrictBuildEnv({ NODE_OPTIONS: '--trace-warnings' }).NODE_OPTIONS)
+            .toBe('--trace-warnings --max-old-space-size=6144');
+    });
+
+    it('preserves an explicit heap setting from the caller', () => {
+        expect(getStrictBuildEnv({ NODE_OPTIONS: '--max-old-space-size=8192 --trace-warnings' }).NODE_OPTIONS)
+            .toBe('--max-old-space-size=8192 --trace-warnings');
     });
 });
