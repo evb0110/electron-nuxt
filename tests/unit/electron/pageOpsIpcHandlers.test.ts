@@ -461,7 +461,7 @@ describe('registerPageOpsHandlers', () => {
         await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, ['/tmp/source.png']))
             .resolves.toEqual({success: true});
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1);
         expect(mocks.writeFile).toHaveBeenCalledWith(
             expect.stringMatching(/^\/tmp\/pdf-work-1\/insert-source-.+\.pdf$/),
             new Uint8Array([

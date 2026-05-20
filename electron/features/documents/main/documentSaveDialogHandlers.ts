@@ -15,6 +15,7 @@ import {
     type IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/main/serializedPdfPersistence';
 import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { te } from '@electron/i18n';
 
 export async function handleSavePdfAs(
@@ -41,9 +42,16 @@ export async function handleBeginSavePdfDataAs(
     totalBytes: number,
 ): Promise<IBeginSerializedPdfSaveAsResult> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
-    const originalPath = normalizedWorkingPath
-        ? getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath
-        : null;
+    if (!normalizedWorkingPath) {
+        return {
+            sessionId: null,
+            path: null,
+        };
+    }
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        throw new Error('Working copy path is not managed');
+    }
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
         : normalizedWorkingPath

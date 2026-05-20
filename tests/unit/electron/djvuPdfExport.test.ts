@@ -236,7 +236,7 @@ describe('handleDjvuConvertToPdf', () => {
             await new Promise(resolve => setTimeout(resolve, 0));
         }
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
-        const cancelResult = handleDjvuCancel(
+        const cancelResult = await handleDjvuCancel(
             createEvent(7) as never,
             'djvu-convert-convert-123',
         );
@@ -274,7 +274,7 @@ describe('handleDjvuConvertToPdf', () => {
             await Promise.resolve();
         }
         const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
-        const cancelResult = handleDjvuCancel(
+        const cancelResult = await handleDjvuCancel(
             createEvent(7) as never,
             'djvu-convert-convert-123',
         );

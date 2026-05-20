@@ -65,8 +65,10 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
 
     function resetRenderStallRecoveryState() {
         clearRenderStallRecoveryTimer();
+        pageLevelRecoveryRunId += 1;
         pendingRenderStallRecoveryPages.clear();
         renderStallRecoveryCooldownByPage.clear();
+        pendingInvalidation = null;
     }
 
     function invalidatePages(pages: number[]) {
@@ -132,6 +134,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
         renderStallRecoveryTimer = setTimeout(() => {
             renderStallRecoveryTimer = null;
             if (!src.value) {
+                pageLevelRecoveryRunId += 1;
                 pendingRenderStallRecoveryPages.clear();
                 return;
             }

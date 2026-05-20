@@ -117,6 +117,13 @@ export async function savePdfDataAs(
     }
 
     const payload = normalizeIpcWritePayload(data);
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        throw new Error('Working copy path is not managed');
+    }
+    if (!existsSync(normalizedWorkingPath)) {
+        throw new Error(`File not found: ${normalizedWorkingPath}`);
+    }
+
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, event.sender.id)?.originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
@@ -149,9 +156,6 @@ export async function savePdfDataAs(
 
         await atomicReplace(tempPath, targetPath);
         replaced = true;
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
-            throw new Error('Working copy path is not managed');
-        }
         await copyFile(targetPath, normalizedWorkingPath);
         setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, event.sender.id);
         allowOpenPath(targetPath, event.sender);

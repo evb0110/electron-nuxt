@@ -117,10 +117,10 @@ export async function runOcrFileBased(
         };
         let abortHandler: (() => void) | null = null;
 
-        const requestTermination = () => {
+        const requestTermination = async () => {
             const pid = proc.pid;
             if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-                void terminateProcessTree(pid, {
+                await terminateProcessTree(pid, {
                     graceMs: FILE_BASED_OCR_KILL_GRACE_MS,
                     preferProcessGroup: process.platform !== 'win32',
                 });
@@ -212,14 +212,14 @@ export async function runOcrFileBased(
         if (signal) {
             abortHandler = () => {
                 aborted = true;
-                requestTermination();
+                void requestTermination();
             };
             signal.addEventListener('abort', abortHandler, { once: true });
         }
 
         handles.timeoutHandle = setTimeout(() => {
             timedOut = true;
-            requestTermination();
+            void requestTermination();
 
             handles.killHandle = setTimeout(() => {
                 try {

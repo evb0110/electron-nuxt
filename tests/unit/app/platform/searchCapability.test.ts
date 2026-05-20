@@ -461,5 +461,9 @@ describe('createBrowserSearchCapability', () => {
             truncated: false,
         });
         expect(getPage.mock.calls.length).toBeLessThan(3);
+
+        const nextRun = await capability.run('/tmp/test.pdf', 'foo', { requestId: 'cancel-me' });
+
+        expect(nextRun.results.length).toBeGreaterThan(0);
     });
 });

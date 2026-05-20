@@ -192,9 +192,9 @@ describe('page-ops qpdf working-copy mutations', () => {
 
             const { rotatePages } = await import('@electron/features/page-ops/main/qpdf');
 
-            await rotatePages(workingCopyPath, [1], 90);
+            await rotatePages(workingCopyPath, [1], 90, 12);
 
-            expect(ensureWorkingCopyDirectoryMock).toHaveBeenCalledWith(workingCopyPath);
+            expect(ensureWorkingCopyDirectoryMock).toHaveBeenCalledWith(workingCopyPath, 12);
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nrotated');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
         } finally {

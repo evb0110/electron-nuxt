@@ -1,4 +1,3 @@
-import { writeFile } from 'fs/promises';
 import { resolve } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
@@ -51,6 +50,6 @@ export async function handleFileWriteDocx(
         throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');
     }
 
-    await writeFile(resolve(normalizedPath), payload);
+    await writeFileAtomic(resolve(normalizedPath), payload);
     return true;
 }

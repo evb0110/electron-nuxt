@@ -177,6 +177,37 @@ describe('BrowserDocumentStore', () => {
         ]));
     });
 
+    it('does not reuse a stale source ref for a different file with the same name and size', async () => {
+        const firstFile = new File([new Uint8Array([
+            1,
+            2,
+            3,
+        ])], 'same.pdf', { type: 'application/pdf' });
+        const secondFile = new File([new Uint8Array([
+            4,
+            5,
+            6,
+        ])], 'same.pdf', { type: 'application/pdf' });
+        const store = new BrowserDocumentStore();
+
+        const firstRef = store.getRefForFile(firstFile);
+        const sameInstanceRef = store.getRefForFile(firstFile);
+        const secondRef = store.getRefForFile(secondFile);
+
+        expect(sameInstanceRef).toBe(firstRef);
+        expect(secondRef).not.toBe(firstRef);
+        await expect(store.read(firstRef)).resolves.toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        await expect(store.read(secondRef)).resolves.toEqual(new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+    });
+
     it('rejects document creation when durable IndexedDB writes cannot commit', async () => {
         vi.stubGlobal('indexedDB', undefined);
         const store = new BrowserDocumentStore();
@@ -192,6 +223,53 @@ describe('BrowserDocumentStore', () => {
         )).rejects.toThrow('IndexedDB document write did not commit');
 
         expect(store.getRecentFiles()).toEqual([]);
+    });
+
+    it('rolls back an in-memory write when the durable write cannot commit', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'rollback.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+
+        vi.stubGlobal('indexedDB', undefined);
+
+        await expect(store.write(ref, new Uint8Array([
+            9,
+            8,
+            7,
+        ]))).rejects.toThrow('IndexedDB document write did not commit');
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+    });
+
+    it('clears failed pending file loads instead of keeping a poisoned pendingLoad', async () => {
+        const store = new BrowserDocumentStore();
+        const file = cast<File>({
+            name: 'broken.pdf',
+            type: 'application/pdf',
+            size: 3,
+            arrayBuffer: vi.fn(async () => {
+                throw new Error('read failed');
+            }),
+        });
+
+        const ref = store.getRefForFile(file);
+
+        await expect(store.requireEntry(ref)).rejects.toThrow('Browser document not found');
+        await expect(store.exists(ref)).resolves.toBe(false);
     });
 
     it('sweeps stale working copies and detached records on the next session', async () => {
@@ -840,6 +918,93 @@ describe('BrowserDocumentStore', () => {
         const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
         expect(database?.getStoreRecords('document-chunks').size ?? 0).toBe(0);
         await expect(store.read(ref)).resolves.toEqual(new Uint8Array());
+    });
+
+    it('uses fresh chunk generations when manual chunked output is prepared again', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'regenerated.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        const firstChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
+        await store.clearChunkedDocument(ref);
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            5,
+            6,
+            7,
+            8,
+        ]));
+        await store.finalizeChunkedDocument(ref, {
+            fileSize: 4,
+            chunkCount: 1,
+            chunkSize: 4,
+        });
+
+        const secondChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
+        expect(secondChunkKeys).toHaveLength(1);
+        expect(secondChunkKeys[0]).not.toBe(firstChunkKeys[0]);
+        await expect(store.readRange(ref, 0, 4)).resolves.toEqual(new Uint8Array([
+            5,
+            6,
+            7,
+            8,
+        ]));
+    });
+
+    it('does not sweep a chunked source while file ingestion is still in progress', async () => {
+        let releaseFirstChunk: () => void = () => {
+            throw new Error('First chunk gate was not initialized');
+        };
+        const firstChunkReady = new Promise<void>((resolve) => {
+            releaseFirstChunk = resolve;
+        });
+        const bytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        bytes[0] = 7;
+        bytes[bytes.byteLength - 1] = 8;
+        const file = cast<File>({
+            name: 'pending-large.pdf',
+            type: 'application/pdf',
+            size: bytes.byteLength,
+            slice: vi.fn((start: number, end: number) => ({arrayBuffer: async () => {
+                if (start === 0) {
+                    await firstChunkReady;
+                }
+                return bytes.slice(start, end).buffer;
+            }})),
+        });
+        const store = new BrowserDocumentStore();
+        const ref = store.getRefForFile(file);
+
+        await vi.waitFor(() => {
+            const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+            expect(database?.getStoreRecords('documents').has(ref)).toBe(true);
+        });
+
+        await store.createStoredDocument('maintenance-trigger.pdf', new Uint8Array([1]), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+        });
+        releaseFirstChunk();
+
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([7]));
+        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([8]));
     });
 
     it('sweeps corrupt recent chunked documents with positive size and no chunk records', async () => {

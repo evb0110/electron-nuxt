@@ -118,4 +118,50 @@ describe('usePdfViewerRenderStallRecovery', () => {
             vi.useRealTimers();
         }
     });
+
+    it('cancels pending stalled recovery work when reset', async () => {
+        vi.useFakeTimers();
+        try {
+            const scheduleReload = vi.fn();
+            const cancelInFlightPageRenders = vi.fn();
+            const renderVisiblePages = vi.fn().mockRejectedValue(new Error('stale failure'));
+            const recovery = usePdfViewerRenderStallRecovery({
+                src: computed(
+                    () => ({
+                        kind: 'path' as const,
+                        path: '/tmp/test.pdf',
+                        size: 1,
+                    }),
+                ),
+                isLoading: ref(false),
+                isAnySaving: ref(false),
+                numPages: ref(3),
+                currentPage: ref(1),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                viewerContainer: ref(null),
+                summarizeViewerMetricsForLog: () => null,
+                cancelInFlightPageRenders,
+                renderVisiblePages,
+                scheduleReload,
+            });
+
+            recovery.handlePageRenderStall({
+                pageNumber: 1,
+                stage: 'canvas-render',
+                timeoutMs: 15_000,
+            });
+            vi.runAllTimers();
+            recovery.resetRenderStallRecoveryState();
+            await Promise.resolve();
+
+            expect(renderVisiblePages).toHaveBeenCalledOnce();
+            expect(scheduleReload).not.toHaveBeenCalled();
+            expect(recovery.consumePendingInvalidation()).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });

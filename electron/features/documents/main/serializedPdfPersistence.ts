@@ -227,6 +227,9 @@ export async function beginSerializedPdfSaveAs(
             path: null,
         };
     }
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        throw new Error('Working copy path is not managed');
+    }
 
     const session = await createSession({
         mode: 'save_as',

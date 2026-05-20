@@ -190,7 +190,7 @@ async function runDjvuConversionJobWithSlot<T>(
     }
 }
 
-function requestDjvuCancel(jobId: string): boolean {
+async function requestDjvuCancel(jobId: string): Promise<boolean> {
     const normalizedJobId = typeof jobId === 'string' ? jobId.trim() : '';
     if (!normalizedJobId) {
         return false;
@@ -200,11 +200,11 @@ function requestDjvuCancel(jobId: string): boolean {
     const removedQueuedJob = removeQueuedConversionJob(normalizedJobId);
     const activeAbortController = activeJobAbortControllerById.get(normalizedJobId);
     activeAbortController?.abort(createAbortError('DjVu conversion canceled'));
-    const canceledProcess = cancelConversion(normalizedJobId);
+    const canceledProcess = await cancelConversion(normalizedJobId);
     const activePdfWorker = activePdfWorkerByJobId.get(normalizedJobId);
     if (activePdfWorker) {
         activePdfWorkerByJobId.delete(normalizedJobId);
-        void activePdfWorker.terminate().catch(() => {});
+        await activePdfWorker.terminate().catch(() => undefined);
     }
     return removedQueuedJob || canceledProcess || Boolean(activePdfWorker) || activeJobIds.has(normalizedJobId);
 }
@@ -222,7 +222,7 @@ function requestDjvuCancelForSender(webContentsId: number, reason: string) {
 
     logger.info(`Canceling ${jobIds.length} DjVu conversion job(s) for sender ${webContentsId}: ${reason}`);
     for (const jobId of jobIds) {
-        requestDjvuCancel(jobId);
+        void requestDjvuCancel(jobId);
     }
 }
 
@@ -472,10 +472,10 @@ export async function handleDjvuConvertToPdf(
     }
 }
 
-export function handleDjvuCancel(
+export async function handleDjvuCancel(
     event: IpcMainInvokeEvent,
     jobId: string,
-): { canceled: boolean } {
+): Promise<{ canceled: boolean }> {
     const normalizedJobId = typeof jobId === 'string' ? jobId.trim() : '';
     if (!normalizedJobId) {
         return { canceled: false };
@@ -494,7 +494,7 @@ export function handleDjvuCancel(
         return { canceled: false };
     }
 
-    const canceled = requestDjvuCancel(normalizedJobId);
+    const canceled = await requestDjvuCancel(normalizedJobId);
     logger.info(`[${normalizedJobId}] Cancel result: ${canceled}`);
     return { canceled };
 }
@@ -517,7 +517,7 @@ export async function shutdownDjvuConversions() {
         removeQueuedConversionJob(jobId);
         const activeAbortController = activeJobAbortControllerById.get(jobId);
         activeAbortController?.abort(createAbortError('DjVu conversion canceled'));
-        cancelConversion(jobId);
+        await cancelConversion(jobId);
         const activePdfWorker = activePdfWorkerByJobId.get(jobId);
         if (activePdfWorker) {
             activePdfWorkerByJobId.delete(jobId);

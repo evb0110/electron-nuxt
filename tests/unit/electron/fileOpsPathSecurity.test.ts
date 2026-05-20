@@ -400,6 +400,14 @@ describe('fileOps path security', () => {
         );
 
         expect(mocks.consumeAllowedDocxWritePath).toHaveBeenCalledWith('/tmp/electron-test/export.docx', 42);
-        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/electron-test/export.docx', new Uint8Array([9]));
+        expect(mocks.open).toHaveBeenCalledWith(
+            expect.stringMatching(/\/\.export\.docx\.\d+\..+\.tmp$/u),
+            'wx',
+        );
+        expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/\/\.export\.docx\.\d+\..+\.tmp$/u),
+            '/tmp/electron-test/export.docx',
+        );
     });
 });

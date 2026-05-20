@@ -138,9 +138,9 @@ describe('page crop operations', () => {
             bottom: 1,
             left: 1,
             right: 1,
-        });
+        }, 17);
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath, 17);
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(2);
     });
 });

@@ -112,7 +112,12 @@ async function showDefaultAppsInstructions(window: BrowserWindow) {
             buttons: ['OK'],
         });
     } else if (process.platform === 'win32') {
-        void shell.openExternal('ms-settings:defaultapps');
+        try {
+            await shell.openExternal('ms-settings:defaultapps');
+        } catch (err) {
+            logger.warn(`Failed to open Windows default apps settings: ${getErrorMessage(err)}`);
+            await showWindowsDefaultAppsFallback(window);
+        }
     } else {
         await dialog.showMessageBox(window, {
             type: 'info',
@@ -122,4 +127,13 @@ async function showDefaultAppsInstructions(window: BrowserWindow) {
             buttons: ['OK'],
         });
     }
+}
+
+async function showWindowsDefaultAppsFallback(window: BrowserWindow) {
+    await dialog.showMessageBox(window, {
+        type: 'info',
+        title: te('dialogs.defaultViewer.instructionsTitle'),
+        message: te('dialogs.defaultViewer.message'),
+        buttons: ['OK'],
+    });
 }

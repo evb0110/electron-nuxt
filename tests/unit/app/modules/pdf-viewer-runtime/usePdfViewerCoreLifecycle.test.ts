@@ -116,6 +116,7 @@ function mountCore(options?: {
         applyAnnotationSettings: vi.fn(),
         destroyAnnotationEditor: vi.fn(),
     };
+    const cleanupDocument = vi.fn();
 
     const app = testRenderer.createApp(defineComponent({setup() {
         usePdfViewerCore({
@@ -142,7 +143,7 @@ function mountCore(options?: {
                 loadPdf: vi.fn(),
                 ensurePageMetricsInRange: vi.fn(),
                 getPage: vi.fn(),
-                cleanup: vi.fn(),
+                cleanup: cleanupDocument,
             } as never,
             annotations: {
                 editor,
@@ -193,6 +194,7 @@ function mountCore(options?: {
         annotationCommentsCache,
         app,
         editor,
+        cleanupDocument,
         highlight,
         host,
         isActive,
@@ -266,6 +268,25 @@ describe('usePdfViewerCore inactive lifecycle', () => {
         expect(lifecycleMocks.resetZoomRerenderQueueState).toHaveBeenCalledWith('inactive-tab');
         expect(lifecycleMocks.cleanupResizeLifecycle).toHaveBeenCalledTimes(1);
         expect(harness.highlight.clearSelectionCache).toHaveBeenCalledTimes(1);
+
+        harness.app.unmount();
+    });
+
+    it('fully clears the active document when source becomes null', async () => {
+        const harness = mountCore({
+            isActive: true,
+            hasDocument: true,
+        });
+        vi.clearAllMocks();
+
+        harness.src.value = null;
+        await nextTick();
+
+        expect(lifecycleMocks.invalidateDocumentLoad).toHaveBeenCalledTimes(1);
+        expect(lifecycleMocks.cleanupRenderedPages).toHaveBeenCalledTimes(1);
+        expect(harness.editor.destroyAnnotationEditor).toHaveBeenCalledTimes(1);
+        expect(harness.cleanupDocument).toHaveBeenCalledTimes(1);
+        expect(lifecycleMocks.scheduleLoadFromSource).not.toHaveBeenCalled();
 
         harness.app.unmount();
     });

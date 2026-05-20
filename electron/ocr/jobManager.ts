@@ -258,12 +258,12 @@ async function terminateWorkerSafely(
     scopedJobId: string,
     worker: Worker,
     reason: string,
+    requestId?: string,
 ) {
     try {
-        const jobId = activeJobs.get(scopedJobId)?.requestId ?? scopedJobId;
         worker.postMessage({
             type: 'cancel',
-            jobId,
+            jobId: requestId ?? activeJobs.get(scopedJobId)?.requestId ?? scopedJobId,
         });
         if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
             await new Promise(resolve => setTimeout(resolve, OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS));
@@ -292,8 +292,8 @@ function terminateAndFinalizeActiveJob(
         cancelledJobs.add(scopedJobId);
     }
     clearJobWatchdog(scopedJobId);
-    void terminateWorkerSafely(scopedJobId, activeJob.worker, options.reason).finally(() => {
-        finalizeActiveJob(scopedJobId);
+    finalizeActiveJob(scopedJobId);
+    void terminateWorkerSafely(scopedJobId, activeJob.worker, options.reason, activeJob.requestId).finally(() => {
         if (options.markCancelled) {
             cancelledJobs.delete(scopedJobId);
         }
