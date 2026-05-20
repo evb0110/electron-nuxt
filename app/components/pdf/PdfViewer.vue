@@ -289,6 +289,12 @@ function handleRenderedPageStateChanged() {
     renderedPageStateVersion.value += 1;
 }
 
+function handlePageCanvasMounted(pageNumber: number) {
+    renderedPageStateVersion.value += 1;
+    delayedSkeleton.markPageRendered(pageNumber);
+    managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
+}
+
 function handlePageRendered(pageNumber: number) {
     delayedSkeleton.markPageRendered(pageNumber);
     managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
@@ -565,6 +571,7 @@ const {
     currentSearchMatchNavigationId,
     workingCopyPath,
     onRenderStall: relayPageRenderStall,
+    onPageCanvasMounted: handlePageCanvasMounted,
     onPageRendered: handlePageRendered,
     onRenderedPageStateChanged: handleRenderedPageStateChanged,
 });
@@ -575,7 +582,7 @@ function cleanupRenderedPages() {
 }
 
 function isPageRenderedForClass(page: number) {
-    return renderedPageStateVersion.value >= 0 && isPageRendered(page) && hasMountedPageCanvas(page);
+    return renderedPageStateVersion.value >= 0 && hasMountedPageCanvas(page);
 }
 
 const singlePageScroll = usePdfSinglePageScroll({

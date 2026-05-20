@@ -93,6 +93,7 @@ interface IUsePdfPageRendererOptions {
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
     onPageRendered?: (pageNumber: number) => void;
+    onPageCanvasMounted?: (pageNumber: number) => void;
     onRenderedPageStateChanged?: () => void;
 }
 
@@ -1097,6 +1098,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
         target.container.classList.add(RENDERED_CONTAINER_CLASS);
+        logPdfRenderTrace('renderer-canvas-mounted', {
+            pageNumber,
+            version,
+            requestId,
+            page: summarizePageDom(pageNumber),
+        });
+        options.onPageCanvasMounted?.(pageNumber);
 
         const textLayerDiv =
             target.container.querySelector<HTMLDivElement>('.text-layer');
