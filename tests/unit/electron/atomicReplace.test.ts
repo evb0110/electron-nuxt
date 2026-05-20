@@ -83,4 +83,15 @@ describe('atomicReplace', () => {
         expect(mocks.rename).not.toHaveBeenCalled();
         expect(mocks.close).toHaveBeenCalledTimes(1);
     });
+
+    it('uses one same-directory rename on POSIX so the destination is never moved aside first', async () => {
+        setPlatform('darwin');
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('/out/tmp.pdf', '/out/extract.pdf')).resolves.toBeUndefined();
+
+        expect(mocks.rename).toHaveBeenCalledTimes(1);
+        expect(mocks.rename).toHaveBeenCalledWith('/out/tmp.pdf', '/out/extract.pdf');
+        expect(mocks.unlink).not.toHaveBeenCalled();
+    });
 });

@@ -39,11 +39,13 @@ type TCropWorkerInput =
         workingCopyPath: string;
         pages: number[];
         margins: ICropMargins;
+        senderWebContentsId?: number;
     }
     | {
         type: 'removeCrop';
         workingCopyPath: string;
         pages: number[];
+        senderWebContentsId?: number;
     }
     | {
         type: 'getPageGeometry';
@@ -108,6 +110,7 @@ export async function cropPages(
             workingCopyPath,
             pages,
             margins,
+            ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
         });
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
@@ -129,6 +132,7 @@ export async function removeCropFromPages(
             type: 'removeCrop',
             workingCopyPath,
             pages,
+            ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
         });
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {

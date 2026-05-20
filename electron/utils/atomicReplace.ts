@@ -58,6 +58,12 @@ export function makeSiblingTempPath(targetPath: string) {
 export async function atomicReplace(srcTemp: string, dst: string): Promise<void> {
     await fsyncPath(srcTemp);
 
+    if (process.platform !== 'win32') {
+        await rename(srcTemp, dst);
+        await fsyncParentDirectory(dst);
+        return;
+    }
+
     const backupPath = `${dst}.bak-${randomSuffix()}`;
     let hasBackup = false;
     try {

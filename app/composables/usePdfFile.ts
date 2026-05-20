@@ -160,6 +160,7 @@ export const usePdfFile = () => {
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     let latestLoadRequestId = 0;
+    let latestOpenRequestId = 0;
 
     function assertPdfHasBytes(size: number) {
         if (size > 0) {
@@ -222,11 +223,21 @@ export const usePdfFile = () => {
     }
 
     async function openFile(preSelected?: TOpenFileResult) {
+        const openRequestId = beginOpenRequest();
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         try {
             const result = preSelected ?? (await pickFileToOpen());
+            if (!isCurrentOpenRequest(openRequestId)) {
+                if (result) {
+                    return {
+                        status: 'stale',
+                        result, 
+                    } satisfies TDocumentOpenOutcome;
+                }
+                return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
+            }
             if (!result) {
                 return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
             }
@@ -239,7 +250,7 @@ export const usePdfFile = () => {
                 } satisfies TDocumentOpenOutcome;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
-            if (workingCopyPath.value !== result.workingPath) {
+            if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
                 return {
                     status: 'stale',
                     result,
@@ -253,6 +264,12 @@ export const usePdfFile = () => {
                 result,
             } satisfies TDocumentOpenOutcome;
         } catch (e) {
+            if (!isCurrentOpenRequest(openRequestId)) {
+                return {
+                    status: 'failed',
+                    error: classifyOpenError(e, preSelected?.originalPath ?? null),
+                } satisfies TDocumentOpenOutcome;
+            }
             const message = classifyOpenError(e, preSelected?.originalPath ?? null);
             error.value = message;
             return {
@@ -263,12 +280,25 @@ export const usePdfFile = () => {
     }
 
     async function openFileDirect(path: TDocumentRef) {
+        const openRequestId = beginOpenRequest();
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
             const result = await getDocumentsCapability().openPdfDirect(path);
+            if (!isCurrentOpenRequest(openRequestId)) {
+                if (result) {
+                    return {
+                        status: 'stale',
+                        result, 
+                    } satisfies TDocumentOpenOutcome;
+                }
+                return {
+                    status: 'failed',
+                    error: t('errors.file.invalid'),
+                } satisfies TDocumentOpenOutcome;
+            }
             if (!result) {
                 const message = t('errors.file.invalid');
                 error.value = message;
@@ -324,7 +354,7 @@ export const usePdfFile = () => {
                 pdfSrc.value = null;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
-            if (workingCopyPath.value !== result.workingPath) {
+            if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,
                     'openFileDirect skipped stale load result',
@@ -352,6 +382,12 @@ export const usePdfFile = () => {
                 result,
             } satisfies TDocumentOpenOutcome;
         } catch (e) {
+            if (!isCurrentOpenRequest(openRequestId)) {
+                return {
+                    status: 'failed',
+                    error: classifyOpenError(e, path),
+                } satisfies TDocumentOpenOutcome;
+            }
             const message = classifyOpenError(e, path);
             error.value = message;
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
@@ -375,6 +411,7 @@ export const usePdfFile = () => {
     }
 
     async function openFileDirectBatch(paths: TDocumentRef[]) {
+        const openRequestId = beginOpenRequest();
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
@@ -386,7 +423,9 @@ export const usePdfFile = () => {
 
             if (normalizedPaths.length === 0) {
                 const message = t('errors.file.invalid');
-                error.value = message;
+                if (isCurrentOpenRequest(openRequestId)) {
+                    error.value = message;
+                }
                 return {
                     status: 'failed',
                     error: message,
@@ -404,7 +443,10 @@ export const usePdfFile = () => {
 
             const stopProgress = documents.onOpenPdfDirectBatchProgress(
                 (progress) => {
-                    if (progress.requestId !== requestId) {
+                    if (
+                        progress.requestId !== requestId
+                        || !isCurrentOpenRequest(openRequestId)
+                    ) {
                         return;
                     }
 
@@ -431,6 +473,18 @@ export const usePdfFile = () => {
                 stopProgress();
             }
 
+            if (!isCurrentOpenRequest(openRequestId)) {
+                if (result) {
+                    return {
+                        status: 'stale',
+                        result, 
+                    } satisfies TDocumentOpenOutcome;
+                }
+                return {
+                    status: 'failed',
+                    error: t('errors.file.invalid'),
+                } satisfies TDocumentOpenOutcome;
+            }
             if (!result) {
                 openBatchProgress.value = null;
                 const message = t('errors.file.invalid');
@@ -450,7 +504,7 @@ export const usePdfFile = () => {
                 } satisfies TDocumentOpenOutcome;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
-            if (workingCopyPath.value !== result.workingPath) {
+            if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
                 openBatchProgress.value = null;
                 return {
                     status: 'stale',
@@ -466,6 +520,12 @@ export const usePdfFile = () => {
                 result,
             } satisfies TDocumentOpenOutcome;
         } catch (e) {
+            if (!isCurrentOpenRequest(openRequestId)) {
+                return {
+                    status: 'failed',
+                    error: e instanceof Error ? e.message : t('errors.file.open'),
+                } satisfies TDocumentOpenOutcome;
+            }
             openBatchProgress.value = null;
             const message = e instanceof Error ? e.message : t('errors.file.open');
             error.value = message;
@@ -871,6 +931,16 @@ export const usePdfFile = () => {
         });
     }
 
+    function beginOpenRequest() {
+        latestOpenRequestId += 1;
+        latestLoadRequestId += 1;
+        return latestOpenRequestId;
+    }
+
+    function isCurrentOpenRequest(requestId: number) {
+        return requestId === latestOpenRequestId;
+    }
+
     async function ensureHistoryBaselineForExternalMutation() {
         if (history.value.length > 0) {
             return true;
@@ -1215,6 +1285,7 @@ export const usePdfFile = () => {
     }
 
     function closeFile() {
+        latestOpenRequestId += 1;
         latestLoadRequestId += 1;
         const pathToCleanup = workingCopyPath.value;
 
@@ -1270,8 +1341,29 @@ export const usePdfFile = () => {
     );
 
     async function restoreHistoryEntry(entry: TPdfHistoryEntry | undefined) {
+        const restoreSessionVersion = fileHistorySessionVersion.value;
+        const restoreOpenRequestId = latestOpenRequestId;
+
+        function canApplyRestore() {
+            return (
+                restoreSessionVersion === fileHistorySessionVersion.value
+                && restoreOpenRequestId === latestOpenRequestId
+            );
+        }
+
         if (entry?.kind === 'bytes') {
-            await applySnapshot(entry.snapshot, true);
+            if (!canApplyRestore()) {
+                return;
+            }
+            const workingPath = workingCopyPath.value;
+            if (workingPath) {
+                await getDocumentsCapability().writeFile(workingPath, entry.snapshot);
+            }
+            if (!canApplyRestore()) {
+                return;
+            }
+            pdfData.value = entry.snapshot;
+            pdfSrc.value = toPdfBlob(entry.snapshot);
             return;
         }
 
@@ -1283,8 +1375,16 @@ export const usePdfFile = () => {
             entry.path,
             originalPath.value ?? entry.originalPath ?? undefined,
         );
+        if (!canApplyRestore()) {
+            void getDocumentsCapability().cleanupFile(nextWorkingPath);
+            return;
+        }
         const previousPath = workingCopyPath.value;
         const nextState = await readPdfStateFromPath(nextWorkingPath);
+        if (!canApplyRestore()) {
+            void getDocumentsCapability().cleanupFile(nextWorkingPath);
+            return;
+        }
         await applyLoadedPdfState(nextWorkingPath, nextState, {
             preserveHistory: true,
             previousPath,

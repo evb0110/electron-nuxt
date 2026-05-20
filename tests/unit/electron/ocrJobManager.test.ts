@@ -385,6 +385,47 @@ describe('ocr job manager preparing-stage robustness', () => {
         );
     });
 
+    it('removes a successful result file when canceled before worker cleanup completes', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/ocr/jobManager');
+
+        const event = createEvent(78);
+        const result = await handleOcrCreateSearchablePdfAsync(
+            event as never,
+            '/tmp/work-78.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-78',
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-78',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-78',
+            result: {
+                success: true,
+                pdfPath: '/tmp/work-78-ocr.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        });
+
+        expect(handleOcrCancel(event as never, 'job-78')).toEqual({ canceled: true });
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/work-78-ocr.pdf');
+    });
+
     it('sends renderer request ids when canceling active jobs during shutdown', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

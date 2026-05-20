@@ -756,3 +756,40 @@ describe('useAnnotationSync helpers / resolveEditorMarkerRect', () => {
         });
     });
 });
+
+describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
+    it('cleans the PDF page after reading annotations', async () => {
+        const cleanup = vi.fn();
+        const page = {
+            getAnnotations: vi.fn(async () => [{id: 'a-1'}]),
+            view: [
+                0,
+                0,
+                100,
+                200,
+            ],
+            rotate: 0,
+            cleanup,
+        };
+        const doc = {getPage: vi.fn(async () => page)};
+
+        const result = await __test__.loadPdfPageAnnotations(doc as never, 1);
+
+        expect(result?.annotations).toEqual([{id: 'a-1'}]);
+        expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('cleans the PDF page when annotation reading fails', async () => {
+        const cleanup = vi.fn();
+        const page = {
+            getAnnotations: vi.fn(async () => {
+                throw new Error('annotation read failed');
+            }),
+            cleanup,
+        };
+        const doc = {getPage: vi.fn(async () => page)};
+
+        await expect(__test__.loadPdfPageAnnotations(doc as never, 1)).resolves.toBeNull();
+        expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+});

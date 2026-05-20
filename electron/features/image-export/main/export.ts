@@ -189,19 +189,41 @@ async function promoteStagedFiles(
         targetExisted: boolean;
     }>,
 ) {
-    const promotedPaths: string[] = [];
+    const promotedFiles: Array<{
+        targetPath: string;
+        backupPath: string | null;
+    }> = [];
+    const backupPaths: string[] = [];
     try {
         for (const stagedFile of stagedFiles) {
+            const backupPath = stagedFile.targetExisted
+                ? makeSiblingTempPath(stagedFile.targetPath)
+                : null;
+            if (backupPath) {
+                await copyFile(stagedFile.targetPath, backupPath);
+                backupPaths.push(backupPath);
+            }
             await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
-            promotedPaths.push(stagedFile.targetPath);
+            promotedFiles.push({
+                targetPath: stagedFile.targetPath,
+                backupPath,
+            });
         }
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-        await Promise.all(stagedFiles
-            .filter(stagedFile => !stagedFile.targetExisted && promotedPaths.includes(stagedFile.targetPath))
-            .map(stagedFile => rm(stagedFile.targetPath, { force: true }).catch(() => undefined)));
+        await Promise.all([...promotedFiles].reverse().map(async (promotedFile) => {
+            if (promotedFile.backupPath) {
+                await atomicReplace(promotedFile.backupPath, promotedFile.targetPath).catch(() => undefined);
+                return;
+            }
+
+            await rm(promotedFile.targetPath, { force: true }).catch(() => undefined);
+        }));
+        await Promise.all(backupPaths.map(backupPath => rm(backupPath, { force: true }).catch(() => undefined)));
         throw error;
     }
+
+    await Promise.all(backupPaths.map(backupPath => rm(backupPath, { force: true }).catch(() => undefined)));
 }
 
 function throwIfAborted(signal?: AbortSignal) {

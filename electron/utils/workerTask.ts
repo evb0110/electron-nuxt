@@ -181,10 +181,14 @@ function attachWorkerHandlers<T>({
     });
 
     worker.once('exit', (code) => {
-        if (settled || code === 0) {
+        if (settled) {
             return;
         }
         finalize(() => {
+            if (code === 0) {
+                reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
+                return;
+            }
             if (!online && createStartupExitError) {
                 reject(createStartupExitError(code));
                 return;

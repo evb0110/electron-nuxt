@@ -26,6 +26,7 @@ import {
 } from '@electron/utils/atomicReplace';
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
+import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
 
 export type TShowSaveDialogWithExtension = (
     event: Electron.IpcMainInvokeEvent,
@@ -74,22 +75,31 @@ export async function savePdfAs(
         return null;
     }
 
-    const tempPath = makeSiblingTempPath(targetPath);
-    let replaced = false;
-    try {
-        const validation = await validatePdfFile(normalizedWorkingPath);
-        if (!validation.isValid) {
-            throw new Error('Working copy is not a valid PDF');
+    await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+            throw new Error('Working copy path is not managed');
+        }
+        if (!existsSync(normalizedWorkingPath)) {
+            throw new Error(`File not found: ${normalizedWorkingPath}`);
         }
 
-        await copyFile(normalizedWorkingPath, tempPath);
-        await atomicReplace(tempPath, targetPath);
-        replaced = true;
-    } finally {
-        if (!replaced) {
-            await rm(tempPath, { force: true }).catch(() => undefined);
+        const tempPath = makeSiblingTempPath(targetPath);
+        let replaced = false;
+        try {
+            const validation = await validatePdfFile(normalizedWorkingPath);
+            if (!validation.isValid) {
+                throw new Error('Working copy is not a valid PDF');
+            }
+
+            await copyFile(normalizedWorkingPath, tempPath);
+            await atomicReplace(tempPath, targetPath);
+            replaced = true;
+        } finally {
+            if (!replaced) {
+                await rm(tempPath, { force: true }).catch(() => undefined);
+            }
         }
-    }
+    });
 
     setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, event.sender.id);
     allowOpenPath(targetPath, event.sender);

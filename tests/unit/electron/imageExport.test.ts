@@ -316,6 +316,34 @@ describe('image export', () => {
         expect(existsSync(tempPath)).toBe(false);
     });
 
+    it('restores promoted multi-page image targets when a later promotion fails', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+
+        const outputPath = join(tempDir, 'existing.png');
+        const firstTargetPath = join(tempDir, 'existing-001.png');
+        const secondTargetPath = join(tempDir, 'existing-002.png');
+
+        await writeFile(firstTargetPath, 'old-page-1');
+        await writeFile(secondTargetPath, 'old-page-2');
+
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (targetPath === secondTargetPath) {
+                throw new Error('second promotion failed');
+            }
+
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, { force: true });
+        });
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
+            .rejects
+            .toThrow('second promotion failed');
+
+        expect(await readFile(firstTargetPath, 'utf8')).toBe('old-page-1');
+        expect(await readFile(secondTargetPath, 'utf8')).toBe('old-page-2');
+    });
+
     it('removes staged image outputs when export is canceled before promotion', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;
