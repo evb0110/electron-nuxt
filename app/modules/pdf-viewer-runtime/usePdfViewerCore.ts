@@ -606,10 +606,17 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             resetRenderStallRecoveryState();
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {
+                invalidateDocumentLoad();
+                cancelPendingSearchScroll?.();
+                cancelInFlightPageRenders?.();
+                cleanupRenderedPages();
+                editor.destroyAnnotationEditor();
+                cleanupDocument();
                 emit('update:document', null);
                 annotationCommentsCache.value = [];
                 activeCommentStableKey.value = null;
                 emit('annotation-comments', []);
+                return;
             }
             if (!isActive.value) {
                 invalidateDocumentLoad();

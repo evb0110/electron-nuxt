@@ -1140,6 +1140,39 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(createWritable).toHaveBeenCalledOnce();
     });
 
+    it('propagates browser save cancellation without clearing search caches', async () => {
+        const showSaveFilePicker = vi.fn(async () => {
+            throw new DOMException('Canceled', 'AbortError');
+        });
+        const clearSearchCaches = vi.fn();
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({
+            clearSearchCaches,
+            windowOverrides: { showSaveFilePicker },
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'cancel-save.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+
+        await expect(capability.saveFile(workingRef)).resolves.toBe(false);
+
+        expect(clearSearchCaches).not.toHaveBeenCalled();
+    });
+
     it('fails browser saves without opening the writer when write permission is denied', async () => {
         const {
             capability,
@@ -1227,6 +1260,45 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(sourceEntry?.saveHandle).toBe(handle);
         await expect(browserDocumentStore.stat(sourceRef!)).resolves.toEqual({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
         expect(writes.length).toBeGreaterThan(1);
+    });
+
+    it('replaces the existing source with a handle-backed document on Save As to a picked handle', async () => {
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'picked.pdf',
+            getFile: vi.fn(async () => new File([new Uint8Array([1])], 'picked.pdf', { type: 'application/pdf' })),
+            createWritable: vi.fn(async () => ({
+                write: vi.fn(async () => {}),
+                close: vi.fn(async () => {}),
+            })),
+        });
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showSaveFilePicker: vi.fn(async () => handle) } });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'source.pdf',
+            new Uint8Array([
+                37,
+                80,
+                68,
+                70,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+
+        const savedRef = await capability.savePdfAs(workingRef);
+
+        expect(savedRef).toBe(sourceRef);
+        const sourceEntry = await browserDocumentStore.requireEntry(sourceRef);
+        expect(sourceEntry.storageMode).toBe('handle');
+        expect(sourceEntry.saveHandle).toBe(handle);
+        expect(sourceEntry.fileName).toBe('picked.pdf');
     });
 
     it('leaves the browser working copy untouched when Save As is canceled for new PDF data', async () => {

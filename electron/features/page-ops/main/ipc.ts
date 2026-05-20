@@ -131,7 +131,7 @@ async function handlePageOpsDelete(
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
-        const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages);
+        const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
     });
@@ -199,7 +199,7 @@ async function handlePageOpsReorder(
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
-        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder);
+        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
     });
@@ -254,6 +254,7 @@ async function handlePageOpsInsert(
             insertArgs.totalPages,
             trustedSourcePaths,
             insertArgs.afterPage,
+            event.sender?.id,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -279,7 +280,7 @@ async function handlePageOpsRotate(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
-        await rotatePages(queuedWorkingCopyPath, pages, angle);
+        await rotatePages(queuedWorkingCopyPath, pages, angle, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
@@ -308,6 +309,7 @@ async function handlePageOpsInsertFile(
             insertArgs.totalPages,
             trustedSourcePaths,
             insertArgs.afterPage,
+            event.sender?.id,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -338,7 +340,7 @@ async function handlePageOpsCrop(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
-        await cropPages(queuedWorkingCopyPath, pages, margins);
+        await cropPages(queuedWorkingCopyPath, pages, margins, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
@@ -354,7 +356,7 @@ async function handlePageOpsRemoveCrop(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
-        await removeCropFromPages(queuedWorkingCopyPath, pages);
+        await removeCropFromPages(queuedWorkingCopyPath, pages, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};

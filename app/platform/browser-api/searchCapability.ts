@@ -58,6 +58,7 @@ interface ICreateBrowserSearchCapabilityResult {
 interface IIterateSearchPagesOptions {
     onPage: (pageNumber: number, text: string, pageCount: number) => Promise<unknown> | unknown;
     requestId?: string;
+    expectedPageCount?: number;
     streamDirectExtraction?: boolean;
 }
 
@@ -428,10 +429,16 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     function consumeCancellation(requestId: string | undefined) {
         if (requestId && canceledSearchRequests.has(requestId)) {
-            canceledSearchRequests.delete(requestId);
             return true;
         }
         return false;
+    }
+
+    function finishSearchRequest(requestId: string | undefined) {
+        if (requestId) {
+            canceledSearchRequests.delete(requestId);
+            activeWorkerSearchRequests.delete(requestId);
+        }
     }
 
     function isExtractionCanceled(requestId: string | undefined) {
@@ -602,16 +609,29 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         fileSize: number,
         options: IIterateSearchPagesOptions,
     ) {
-        const cache = getDocumentCache(pdfPath);
+        let cache = getDocumentCache(pdfPath);
         const cachedPageCount = cache.pageCount;
 
         if (isRecordCacheReady(cache) && cachedPageCount) {
-            return iterateCachedDocumentPages(cache, cachedPageCount, options);
+            if (
+                typeof options.expectedPageCount !== 'number'
+                || options.expectedPageCount === cachedPageCount
+            ) {
+                return iterateCachedDocumentPages(cache, cachedPageCount, options);
+            }
+            searchDocumentCache.delete(pdfPath);
+            cache = getDocumentCache(pdfPath);
         }
 
         const persistedRecord = await loadPersistedSearchCacheRecord(pdfPath);
         const validPersistedRecord = pickValidPersistedRecord(persistedRecord, fileSize);
-        if (validPersistedRecord) {
+        if (
+            validPersistedRecord
+            && (
+                typeof options.expectedPageCount !== 'number'
+                || options.expectedPageCount === validPersistedRecord.pageCount
+            )
+        ) {
             void touchPersistedSearchCacheRecord(validPersistedRecord);
             hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
             return iteratePersistedDocumentPages(validPersistedRecord, options);
@@ -698,69 +718,83 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 useRegex: Boolean(options.useRegex),
             });
 
-            await iterateSearchPages(pdfPath, size, {
-                requestId,
-                streamDirectExtraction: true,
-                onPage: async (pageNumber, text, pageCount) => {
-                    if (isSearchCanceled(requestId)) {
-                        return false;
-                    }
-
-                    const pageMatches = findPdfSearchMatches(text, matcher);
-                    for (const match of pageMatches) {
-                        const pageMatchIndex = pageMatchCounts.get(pageNumber) ?? 0;
-                        pageMatchCounts.set(pageNumber, pageMatchIndex + 1);
-                        results.push({
-                            pageNumber,
-                            pageMatchIndex,
-                            matchIndex: results.length,
-                            startOffset: match.startOffset,
-                            endOffset: match.endOffset,
-                            excerpt: buildPdfSearchExcerpt(text, match.startOffset, match.endOffset, SEARCH_EXCERPT_CONTEXT_CHARS),
-                        });
-                        if (results.length >= SEARCH_RESULT_LIMIT) {
-                            emitSearchProgress({
-                                requestId,
-                                processed: pageNumber,
-                                total: pageCount,
-                                results: [...results],
-                                truncated: true,
-                            });
+            try {
+                await iterateSearchPages(pdfPath, size, {
+                    requestId,
+                    ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
+                    streamDirectExtraction: true,
+                    onPage: async (pageNumber, text, pageCount) => {
+                        if (isSearchCanceled(requestId)) {
                             return false;
                         }
-                    }
 
-                    emitSearchProgress({
-                        requestId,
-                        processed: pageNumber,
-                        total: pageCount,
-                        results: [...results],
+                        const pageMatches = findPdfSearchMatches(text, matcher);
+                        for (const match of pageMatches) {
+                            const pageMatchIndex = pageMatchCounts.get(pageNumber) ?? 0;
+                            pageMatchCounts.set(pageNumber, pageMatchIndex + 1);
+                            results.push({
+                                pageNumber,
+                                pageMatchIndex,
+                                matchIndex: results.length,
+                                startOffset: match.startOffset,
+                                endOffset: match.endOffset,
+                                excerpt: buildPdfSearchExcerpt(text, match.startOffset, match.endOffset, SEARCH_EXCERPT_CONTEXT_CHARS),
+                            });
+                            if (results.length >= SEARCH_RESULT_LIMIT) {
+                                emitSearchProgress({
+                                    requestId,
+                                    processed: pageNumber,
+                                    total: pageCount,
+                                    results: [...results],
+                                    truncated: true,
+                                });
+                                return false;
+                            }
+                        }
+
+                        emitSearchProgress({
+                            requestId,
+                            processed: pageNumber,
+                            total: pageCount,
+                            results: [...results],
+                            truncated: false,
+                        });
+                        await yieldToBrowser();
+                        return true;
+                    },
+                });
+
+                if (consumeCancellation(requestId)) {
+                    return {
+                        results: [],
                         truncated: false,
-                    });
-                    await yieldToBrowser();
-                    return true;
-                },
-            });
+                    };
+                }
 
-            if (consumeCancellation(requestId)) {
                 return {
-                    results: [],
-                    truncated: false,
-                };
+                    results,
+                    truncated: results.length >= SEARCH_RESULT_LIMIT,
+                } satisfies IPdfSearchResponse;
+            } finally {
+                finishSearchRequest(requestId);
             }
-
-            return {
-                results,
-                truncated: results.length >= SEARCH_RESULT_LIMIT,
-            } satisfies IPdfSearchResponse;
         },
-        async warmIndex(pdfPath) {
+        async warmIndex(pdfPath, options = {}) {
             await assertSearchWithinBrowserBudget(pdfPath);
             const { size } = await browserDocumentStore.stat(pdfPath);
-            await iterateSearchPages(pdfPath, size, {onPage: async () => {
-                await yieldToBrowser();
-            }});
-            return true;
+            const requestId = options.requestId;
+            try {
+                const completed = await iterateSearchPages(pdfPath, size, {
+                    ...(requestId !== undefined ? {requestId} : {}),
+                    ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
+                    onPage: async () => {
+                        await yieldToBrowser();
+                    },
+                });
+                return completed && !consumeCancellation(requestId);
+            } finally {
+                finishSearchRequest(requestId);
+            }
         },
         cancel(requestId) {
             if (requestId) {

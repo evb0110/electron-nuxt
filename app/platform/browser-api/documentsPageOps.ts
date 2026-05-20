@@ -100,6 +100,26 @@ function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
 export function createBrowserPageOps(
     options: ICreateBrowserPageOpsOptions,
 ): IPageOpsCapability['pageOps'] {
+    const workingCopyMutationQueues = new Map<string, Promise<unknown>>();
+
+    async function serializeWorkingCopyMutation<T>(
+        workingCopyPath: string,
+        run: () => Promise<T>,
+    ) {
+        const previous = workingCopyMutationQueues.get(workingCopyPath) ?? Promise.resolve();
+        const next = previous
+            .catch(() => {})
+            .then(run);
+        workingCopyMutationQueues.set(workingCopyPath, next);
+        try {
+            return await next;
+        } finally {
+            if (workingCopyMutationQueues.get(workingCopyPath) === next) {
+                workingCopyMutationQueues.delete(workingCopyPath);
+            }
+        }
+    }
+
     async function ensurePdfWithinBudget(
         path: string,
         label: string,
@@ -242,22 +262,24 @@ export function createBrowserPageOps(
 
     const pageOps: IPageOpsCapability['pageOps'] = {
         async delete(workingCopyPath, pages) {
-            const result = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                label: 'Deleting pages',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                type: 'deletePages',
-                createPayload: (data) => ({
-                    data,
-                    pages,
-                }),
-                runDirect: (data) => deletePdfPages(data, pages),
+            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+                const result = await runWorkerBackedPdfOperation({
+                    path: workingCopyPath,
+                    label: 'Deleting pages',
+                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                    type: 'deletePages',
+                    createPayload: (data) => ({
+                        data,
+                        pages,
+                    }),
+                    runDirect: (data) => deletePdfPages(data, pages),
+                });
+                return writePageMutationResult(
+                    workingCopyPath,
+                    result.data,
+                    result.pageCount,
+                );
             });
-            return writePageMutationResult(
-                workingCopyPath,
-                result.data,
-                result.pageCount,
-            );
         },
         async extract(workingCopyPath, pages) {
             const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
@@ -330,22 +352,24 @@ export function createBrowserPageOps(
             };
         },
         async reorder(workingCopyPath, newOrder) {
-            const result = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                label: 'Reordering pages',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                type: 'reorderPages',
-                createPayload: (data) => ({
-                    data,
-                    newOrder,
-                }),
-                runDirect: (data) => reorderPdfPages(data, newOrder),
+            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+                const result = await runWorkerBackedPdfOperation({
+                    path: workingCopyPath,
+                    label: 'Reordering pages',
+                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                    type: 'reorderPages',
+                    createPayload: (data) => ({
+                        data,
+                        newOrder,
+                    }),
+                    runDirect: (data) => reorderPdfPages(data, newOrder),
+                });
+                return writePageMutationResult(
+                    workingCopyPath,
+                    result.data,
+                    result.pageCount,
+                );
             });
-            return writePageMutationResult(
-                workingCopyPath,
-                result.data,
-                result.pageCount,
-            );
         },
         async insert(workingCopyPath, _totalPages, afterPage) {
             const pickedFiles = await options.pickFiles({
@@ -387,130 +411,138 @@ export function createBrowserPageOps(
             }
         },
         async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths, requestId) {
-            await ensurePdfWithinBudget(
-                workingCopyPath,
-                'Inserting pages',
-                BROWSER_PAGE_OP_INSERT_MAX_BYTES,
-            );
-            await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
-            const [
-                { size },
-                totalInputBytes,
-            ] = await Promise.all([
-                browserDocumentStore.stat(workingCopyPath),
-                getCombinedInputBytes(sourcePaths),
-            ]);
-            if (size + totalInputBytes > BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES) {
-                throw buildBrowserPageOpJobLimitError(
+            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+                await ensurePdfWithinBudget(
+                    workingCopyPath,
                     'Inserting pages',
-                    BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES,
+                    BROWSER_PAGE_OP_INSERT_MAX_BYTES,
                 );
-            }
-            const workerAvailable = canUseBrowserPageOpsWorker();
-            if (
-                !workerAvailable
-                && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
-            ) {
-                throw buildBrowserPageOpLimitError(
-                    'Inserting pages',
-                    BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-                );
-            }
-            const destinationData = await readWorkingCopyBytes(workingCopyPath);
-            const insertionData = await readInsertionBytes(sourcePaths, requestId);
+                await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
+                const [
+                    { size },
+                    totalInputBytes,
+                ] = await Promise.all([
+                    browserDocumentStore.stat(workingCopyPath),
+                    getCombinedInputBytes(sourcePaths),
+                ]);
+                if (size + totalInputBytes > BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES) {
+                    throw buildBrowserPageOpJobLimitError(
+                        'Inserting pages',
+                        BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES,
+                    );
+                }
+                const workerAvailable = canUseBrowserPageOpsWorker();
+                if (
+                    !workerAvailable
+                    && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
+                ) {
+                    throw buildBrowserPageOpLimitError(
+                        'Inserting pages',
+                        BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
+                    );
+                }
+                const destinationData = await readWorkingCopyBytes(workingCopyPath);
+                const insertionData = await readInsertionBytes(sourcePaths, requestId);
 
-            let result: IBrowserPageOpsWorkerResultMap['insertPages'];
-            if (workerAvailable) {
-                try {
-                    result = await runBrowserPageOpsWorkerRequest('insertPages', {
-                        data: destinationData,
-                        insertionData,
-                        afterPage,
-                    });
-                } catch (error) {
-                    if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
-                        throw error;
+                let result: IBrowserPageOpsWorkerResultMap['insertPages'];
+                if (workerAvailable) {
+                    try {
+                        result = await runBrowserPageOpsWorkerRequest('insertPages', {
+                            data: destinationData,
+                            insertionData,
+                            afterPage,
+                        });
+                    } catch (error) {
+                        if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
+                            throw error;
+                        }
+                        if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
+                            throw buildBrowserPageOpLimitError(
+                                'Inserting pages',
+                                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
+                            );
+                        }
+                        result = await runDirectPdfOperation(() => insertPdfPages(
+                            destinationData,
+                            insertionData,
+                            afterPage,
+                        ));
                     }
-                    if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
-                        throw buildBrowserPageOpLimitError(
-                            'Inserting pages',
-                            BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
-                        );
-                    }
+                } else {
                     result = await runDirectPdfOperation(() => insertPdfPages(
                         destinationData,
                         insertionData,
                         afterPage,
                     ));
                 }
-            } else {
-                result = await runDirectPdfOperation(() => insertPdfPages(
-                    destinationData,
-                    insertionData,
-                    afterPage,
-                ));
-            }
-            return writePageMutationResult(
-                workingCopyPath,
-                result.data,
-                result.pageCount,
-            );
+                return writePageMutationResult(
+                    workingCopyPath,
+                    result.data,
+                    result.pageCount,
+                );
+            });
         },
         async rotate(workingCopyPath, pages, angle) {
-            const result = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                label: 'Rotating pages',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                type: 'rotate',
-                createPayload: (data) => ({
-                    data,
-                    pages,
-                    angle,
-                }),
-                runDirect: (data) => rotatePdfBytes(data, pages, angle),
+            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+                const result = await runWorkerBackedPdfOperation({
+                    path: workingCopyPath,
+                    label: 'Rotating pages',
+                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                    type: 'rotate',
+                    createPayload: (data) => ({
+                        data,
+                        pages,
+                        angle,
+                    }),
+                    runDirect: (data) => rotatePdfBytes(data, pages, angle),
+                });
+                return writePageMutationResult(
+                    workingCopyPath,
+                    result.data,
+                    result.pageCount,
+                );
             });
-            return writePageMutationResult(
-                workingCopyPath,
-                result.data,
-                result.pageCount,
-            );
         },
         async crop(workingCopyPath, pages, margins) {
-            const result = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                label: 'Cropping pages',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                type: 'crop',
-                createPayload: (data) => ({
-                    data,
-                    pages,
-                    margins,
-                }),
-                runDirect: (data) => cropPdfBytes(data, pages, margins),
+            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+                const result = await runWorkerBackedPdfOperation({
+                    path: workingCopyPath,
+                    label: 'Cropping pages',
+                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                    type: 'crop',
+                    createPayload: (data) => ({
+                        data,
+                        pages,
+                        margins,
+                    }),
+                    runDirect: (data) => cropPdfBytes(data, pages, margins),
+                });
+                return writePageMutationResult(
+                    workingCopyPath,
+                    result.data,
+                    result.pageCount,
+                );
             });
-            return writePageMutationResult(
-                workingCopyPath,
-                result.data,
-                result.pageCount,
-            );
         },
         async removeCrop(workingCopyPath, pages) {
-            const result = await runWorkerBackedPdfOperation({
-                path: workingCopyPath,
-                label: 'Removing crop',
-                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
-                type: 'removeCrop',
-                createPayload: (data) => ({
-                    data,
-                    pages,
-                }),
-                runDirect: (data) => removeCropPdfBytes(data, pages),
+            return serializeWorkingCopyMutation(workingCopyPath, async () => {
+                const result = await runWorkerBackedPdfOperation({
+                    path: workingCopyPath,
+                    label: 'Removing crop',
+                    maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                    type: 'removeCrop',
+                    createPayload: (data) => ({
+                        data,
+                        pages,
+                    }),
+                    runDirect: (data) => removeCropPdfBytes(data, pages),
+                });
+                return writePageMutationResult(
+                    workingCopyPath,
+                    result.data,
+                    result.pageCount,
+                );
             });
-            return writePageMutationResult(
-                workingCopyPath,
-                result.data,
-                result.pageCount,
-            );
         },
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
             return runWorkerBackedPdfOperation({

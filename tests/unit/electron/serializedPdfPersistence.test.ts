@@ -100,11 +100,34 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath);
         expect(
             mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]!,
+        ).toBeLessThan(mocks.makeSiblingTempPath.mock.invocationCallOrder[0]!);
+        expect(
+            mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]!,
         ).toBeLessThan(mocks.atomicReplace.mock.invocationCallOrder[0]!);
         expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, 42);
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
+    });
+
+    it('rejects Save As before opening a temp stream when the sender does not own the working copy', async () => {
+        const workingPath = join(tempRoot, 'foreign-working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 42;
+        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
+
+        await expect(beginSerializedPdfSaveAs(
+            {sender} as never,
+            workingPath,
+            128,
+            targetPath,
+        )).rejects.toThrow('Working copy path is not managed');
+
+        expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
+        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
     });
 
     it('routes Save As working-copy replacement through the shared mutation queue', async () => {
@@ -138,25 +161,26 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
     });
 
-    it('preserves the Save As target when working-copy setup fails after validation', async () => {
+    it('preserves the Save As target when working-copy setup fails before streaming starts', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
         writeFileSync(workingPath, 'old-working');
         writeFileSync(targetPath, 'old-target');
         mocks.ensureWorkingCopyDirectory.mockRejectedValue(new Error('working copy unavailable'));
 
-        const result = await runSaveAsSession({
-            workingPath,
-            targetPath,
-            bytes: Buffer.from('new-pdf'),
-        });
+        const sender = new EventEmitter() as EventEmitter & { id: number };
+        sender.id = 42;
+        const { beginSerializedPdfSaveAs } = await import('@electron/features/documents/main/serializedPdfPersistence');
 
-        expect(result).toMatchObject({
-            type: 'error',
-            error: 'working copy unavailable',
-        });
+        await expect(beginSerializedPdfSaveAs(
+            {sender} as never,
+            workingPath,
+            128,
+            targetPath,
+        )).rejects.toThrow('working copy unavailable');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
         expect(mocks.allowOpenPath).not.toHaveBeenCalled();

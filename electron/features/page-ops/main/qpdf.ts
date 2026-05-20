@@ -165,13 +165,14 @@ export async function deletePages(
     workingCopyPath: string,
     pagesToDelete: number[],
     totalPages: number,
+    senderWebContentsId?: number,
 ) {
     const kept = buildComplementRanges(pagesToDelete, totalPages);
     if (kept.length === 0) {
         throw new Error('Cannot delete all pages from the document');
     }
 
-    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
@@ -202,8 +203,9 @@ export async function deletePages(
 export async function reorderPages(
     workingCopyPath: string,
     newOrder: number[],
+    senderWebContentsId?: number,
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
@@ -237,8 +239,9 @@ export async function rotatePages(
     workingCopyPath: string,
     pages: number[],
     angle: TRotationAngle,
+    senderWebContentsId?: number,
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);

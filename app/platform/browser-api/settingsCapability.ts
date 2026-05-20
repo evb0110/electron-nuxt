@@ -101,7 +101,9 @@ export const browserSettingsCapability: ISettingsCapability = {
     save(settings) {
         const currentSettings = browserSettingsLoaded
             ? settingsState.value
-            : readBrowserSettingsFromStorage() ?? { ...DEFAULT_SETTINGS };
+            : readBrowserSettingsFromCookie()
+                ?? readBrowserSettingsFromStorage()
+                ?? { ...DEFAULT_SETTINGS };
         const nextSettings = sanitizeSettings({
             ...currentSettings,
             ...settings,

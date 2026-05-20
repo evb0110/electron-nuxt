@@ -88,11 +88,16 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
         return;
     }
 
-    senderCleanupRegistered.add(senderId);
-    event.sender.once('destroyed', () => {
+    const cleanup = () => {
         allowedDjvuViewingPathsBySender.delete(senderId);
         senderCleanupRegistered.delete(senderId);
-    });
+        event.sender.removeListener('destroyed', cleanup);
+        event.sender.removeListener('render-process-gone', cleanup);
+    };
+
+    senderCleanupRegistered.add(senderId);
+    event.sender.once('destroyed', cleanup);
+    event.sender.once('render-process-gone', cleanup);
 }
 
 function addAllowedDjvuViewingPath(event: IpcMainInvokeEvent, djvuPath: string) {

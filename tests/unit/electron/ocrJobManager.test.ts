@@ -77,7 +77,9 @@ vi.mock('worker_threads', () => ({Worker: class {
 }}));
 
 vi.mock('fs', () => ({
+    chmodSync: vi.fn(),
     existsSync: mocks.existsSync,
+    lstatSync: vi.fn(() => ({isSymbolicLink: () => false})),
     mkdirSync: vi.fn(),
 }));
 vi.mock('fs/promises', () => ({

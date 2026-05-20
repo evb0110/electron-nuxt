@@ -535,11 +535,16 @@ watch(
             return;
         }
 
-        restoredDocumentPaths.add(path);
         void enqueueDocumentOpen({
             action: 'restoreTabDocument',
             target: null,
-        }, async () => openPath(path, 'restoreTabDocument'));
+        }, async () => {
+            const opened = await openPath(path, 'restoreTabDocument');
+            if (opened) {
+                restoredDocumentPaths.add(path);
+            }
+            return opened;
+        });
     },
     { immediate: true },
 );
@@ -892,6 +897,9 @@ async function runWithDocumentOpenInFlight<T>(
     intent: IDocumentOpenIntent,
     run: () => Promise<T>,
 ) {
+    if (isHostUnmounted) {
+        return false as T;
+    }
     const transaction = beginDocumentOpenTransaction(intent);
     documentOpenInFlightCount.value += 1;
     let result: T | undefined;
@@ -917,6 +925,9 @@ async function enqueueDocumentOpen<T>(
     intent: IDocumentOpenIntent,
     run: () => Promise<T>,
 ) {
+    if (isHostUnmounted) {
+        return false as T;
+    }
     const queuedRun = documentOpenQueue
         .catch(() => {})
         .then(() => runWithDocumentOpenInFlight(intent, run));
@@ -1172,7 +1183,7 @@ async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
 
 async function handleOpenFileFromUi() {
     const result = await pickFileFromUi();
-    if (!result) {
+    if (!result || isHostUnmounted) {
         return false;
     }
 

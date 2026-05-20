@@ -308,6 +308,60 @@ describe('createBrowserPageOps', () => {
         expect(clearSearchCaches).toHaveBeenCalledTimes(2);
     });
 
+    it('serializes same working-copy mutations so later reads see earlier writes', async () => {
+        let storedBytes = new Uint8Array([1]);
+        let releaseFirstWorker: () => void = () => {};
+        const firstWorkerGate = new Promise<void>((resolve) => {
+            releaseFirstWorker = resolve;
+        });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 1 });
+        browserDocumentStoreMock.read.mockImplementation(async () => storedBytes);
+        browserDocumentStoreMock.write.mockImplementation(async (...args: unknown[]) => {
+            const data = args[1] as Uint8Array<ArrayBuffer>;
+            storedBytes = data;
+        });
+        browserPageOpsWorkerMock.canUse.mockReturnValue(true);
+        browserPageOpsWorkerMock.run
+            .mockImplementationOnce(async () => {
+                await firstWorkerGate;
+                return {
+                    data: new Uint8Array([2]),
+                    pageCount: 1,
+                };
+            })
+            .mockResolvedValueOnce({
+                data: new Uint8Array([3]),
+                pageCount: 1,
+            });
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documentsPageOps');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        const rotatePromise = pageOps.rotate('/tmp/work.pdf', [1], 90);
+        const deletePromise = pageOps.delete('/tmp/work.pdf', [1], 1);
+        await vi.waitFor(() => {
+            expect(browserPageOpsWorkerMock.run).toHaveBeenCalledTimes(1);
+        });
+        releaseFirstWorker();
+        await Promise.all([
+            rotatePromise,
+            deletePromise,
+        ]);
+
+        expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(1, 'rotate', expect.objectContaining({data: new Uint8Array([1])}));
+        expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(2, 'deletePages', expect.objectContaining({data: new Uint8Array([2])}));
+        expect(storedBytes).toEqual(new Uint8Array([3]));
+    });
+
     it('uses the worker for geometry inspection above the direct browser budget', async () => {
         const pdfBytes = new Uint8Array([
             7,

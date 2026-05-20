@@ -134,10 +134,10 @@ function killProcessBestEffort(proc: TNativeProcess) {
     }
 }
 
-function terminateNativeProcessBestEffort(proc: TNativeProcess) {
+async function terminateNativeProcessBestEffort(proc: TNativeProcess) {
     const pid = proc.pid;
     if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-        void terminateProcessTree(pid, {
+        await terminateProcessTree(pid, {
             graceMs: 1_000,
             preferProcessGroup: process.platform !== 'win32',
         });
@@ -220,7 +220,11 @@ export async function runNativeCommand(
                 return;
             }
 
-            terminateNativeProcessBestEffort(targetProc);
+            void terminateNativeProcessBestEffort(targetProc).finally(() => {
+                if (pendingTerminationError === error) {
+                    finalizeReject(error);
+                }
+            });
 
             forceRejectHandle = setTimeout(() => {
                 finalizeReject(error);

@@ -100,6 +100,7 @@ export async function cropPages(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
+    senderWebContentsId?: number,
 ) {
     try {
         await runCropWorkerTask<undefined>({
@@ -114,13 +115,14 @@ export async function cropPages(
         }
         await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
-        await cropPagesLocal(workingCopyPath, pages, margins);
+        await cropPagesLocal(workingCopyPath, pages, margins, senderWebContentsId);
     }
 }
 
 export async function removeCropFromPages(
     workingCopyPath: string,
     pages: number[],
+    senderWebContentsId?: number,
 ) {
     try {
         await runCropWorkerTask<undefined>({
@@ -134,7 +136,7 @@ export async function removeCropFromPages(
         }
         await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
-        await removeCropFromPagesLocal(workingCopyPath, pages);
+        await removeCropFromPagesLocal(workingCopyPath, pages, senderWebContentsId);
     }
 }
 

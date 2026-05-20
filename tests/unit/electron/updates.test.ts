@@ -275,12 +275,61 @@ describe('updates robustness', () => {
         await updates.triggerManualUpdateCheck();
         await flushPromises();
 
-        expect(mocks.fetch).toHaveBeenCalledTimes(5);
+        expect(mocks.fetch).toHaveBeenCalledTimes(6);
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
             phase: 'downloaded',
             version: '1.2.0',
+        });
+    });
+
+    it('keeps a cached downloaded update when a newer release has no updater metadata', async () => {
+        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+            if (init?.method === 'HEAD') {
+                return createEmptyResponse(200);
+            }
+            return createMetadataResponse('1.1.0');
+        });
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+
+        updates.initializeUpdates((status) => {
+            statuses.push({ ...status });
+        });
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'downloaded',
+            version: '1.1.0',
+        });
+
+        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+            if (init?.method === 'HEAD') {
+                return createEmptyResponse(404);
+            }
+            return createMetadataResponse('1.2.0');
+        });
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+        expect(mocks.logger.info).toHaveBeenCalledWith(
+            'Keeping cached downloaded update 1.1.0; newer release 1.2.0 has no latest.yml updater feed',
+        );
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'downloaded',
+            version: '1.1.0',
         });
     });
 

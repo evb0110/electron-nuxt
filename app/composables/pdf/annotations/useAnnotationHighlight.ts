@@ -133,6 +133,10 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         findPageContainerFromClientPoint,
     } = pagePointResolver;
 
+    function isAnnotationUiManagerCurrent(uiManager: AnnotationEditorUIManager) {
+        return annotationUiManager.value === uiManager;
+    }
+
     let cachedSelectionRange: Range | null = null;
     let cachedSelectionTimestamp = 0;
     const subtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -394,22 +398,31 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 BrowserLogger.debug('annotations', `Editor render wait failed while resolving created highlight: ${errorToLogText(error)}`);
             }
             await nextTick();
+            if (!isAnnotationUiManagerCurrent(uiManager)) {
+                return null;
+            }
             return pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
         };
 
         const applySubtypeOverrideToEditor = (editor: IPdfjsEditor | null) => {
-            if (!editor || !markupSubtypeOverride) {
+            if (!editor || !markupSubtypeOverride || !isAnnotationUiManagerCurrent(uiManager)) {
                 return false;
             }
             editor.__evbMarkupBoxes = cloneHighlightBoxes(boxes);
             markupSubtype.setEditorMarkupSubtypeOverride(editor, pageIndex, markupSubtypeOverride);
             queueMicrotask(() => {
+                if (!isAnnotationUiManagerCurrent(uiManager)) {
+                    return;
+                }
                 markupSubtype.syncMarkupSubtypePresentationForEditors();
             });
             return true;
         };
 
         const clearEditorSelectionVisuals = (editor: IPdfjsEditor | null) => {
+            if (!isAnnotationUiManagerCurrent(uiManager)) {
+                return;
+            }
             clearSelectedEditorState(uiManager);
 
             const activeElement = document.activeElement as HTMLElement | null;
@@ -451,6 +464,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         try {
             await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
             await uiManager.waitForEditorsRendered(pageNumber);
+            if (!isAnnotationUiManagerCurrent(uiManager)) {
+                return false;
+            }
 
             const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
             replaceOverlappingSelectionMarkup(
@@ -482,6 +498,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             if (!targetEditor && !withComment && markupSubtypeOverride) {
                 let attempts = 0;
                 const applySubtypeLater = () => {
+                    if (!isAnnotationUiManagerCurrent(uiManager)) {
+                        return;
+                    }
                     const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
                     if (applySubtypeOverrideToEditor(lateEditor)) {
                         return;
@@ -524,7 +543,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         modeRestored.resolve();
 
-        if (deferredNoteSummary) {
+        if (deferredNoteSummary && isAnnotationUiManagerCurrent(uiManager)) {
             emitAnnotationOpenNote(deferredNoteSummary);
         }
 
@@ -823,6 +842,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             } catch { /* ignore */ }
             await delay(60);
             await nextTick();
+            if (!isAnnotationUiManagerCurrent(uiManager)) {
+                return null;
+            }
             return pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
         };
 
@@ -830,6 +852,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         try {
             await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.FREETEXT, pageNumber);
             await uiManager.waitForEditorsRendered(pageNumber);
+            if (!isAnnotationUiManagerCurrent(uiManager)) {
+                return false;
+            }
             const layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
             if (!layerDiv) {
                 return false;

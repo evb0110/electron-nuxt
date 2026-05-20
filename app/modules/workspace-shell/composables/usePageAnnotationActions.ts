@@ -182,6 +182,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             : null
     ));
 
+    function captureActiveWorkingCopy() {
+        return workingCopyPath.value;
+    }
+
+    function isCapturedWorkingCopyActive(capturedWorkingCopy: TDocumentRef | null) {
+        return workingCopyPath.value === capturedWorkingCopy && Boolean(pdfViewerRef.value);
+    }
+
     function updateShapePropertiesPopoverPosition(shape: IShapeAnnotation) {
         const viewerContainer = pdfViewerRef.value?.getViewerContainer();
         if (!viewerContainer) {
@@ -668,12 +676,16 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 return false;
             }
 
+            const capturedWorkingCopy = captureActiveWorkingCopy();
             const embeddedData = await embedPlacedImageToPage(rawData, placement);
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                return false;
+            }
             const pageToRestore = placement.pageNumber || currentPage.value;
             const restorePromise = waitForPdfReload(pageToRestore);
             await loadPdfFromData(embeddedData, {
                 pushHistory: true,
-                persistWorkingCopy: !!workingCopyPath.value,
+                persistWorkingCopy: !!capturedWorkingCopy,
             });
             await restorePromise;
             return true;
@@ -839,8 +851,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return false;
         }
 
+        const capturedWorkingCopy = captureActiveWorkingCopy();
         const deletedData = await deleteEmbeddedAnnotationOffThread(rawData, comment);
         if (!deletedData) {
+            return false;
+        }
+        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
             return false;
         }
 
@@ -848,7 +864,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const restorePromise = waitForPdfReload(pageToRestore);
         await loadPdfFromData(deletedData, {
             pushHistory: true,
-            persistWorkingCopy: !!workingCopyPath.value,
+            persistWorkingCopy: !!capturedWorkingCopy,
         });
         await restorePromise;
         return true;

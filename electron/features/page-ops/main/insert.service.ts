@@ -48,6 +48,7 @@ async function assertNonEmptyPdfOutput(outputPath: string) {
 async function prepareInsertionSourcePdf(
     workingCopyPath: string,
     sourcePaths: TOpenPath[],
+    senderWebContentsId?: number,
 ) {
     if (sourcePaths.length === 0) {
         throw new Error('At least one source file is required');
@@ -69,7 +70,7 @@ async function prepareInsertionSourcePdf(
         };
     }
 
-    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
     const mergedPdf = await createPdfFromInputPaths(sourcePaths);
@@ -101,8 +102,9 @@ export async function insertPagesFromSourcePaths(
     totalPages: number,
     sourcePaths: TOpenPath[],
     afterPage: number,
+    senderWebContentsId?: number,
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath)) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
     const qpdf = getNativeToolPaths().qpdf;
@@ -111,7 +113,7 @@ export async function insertPagesFromSourcePaths(
     const {
         sourcePdfPath,
         cleanup,
-    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths);
+    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, senderWebContentsId);
 
     try {
         const pagesArgs: string[] = [];

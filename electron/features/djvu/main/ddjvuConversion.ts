@@ -141,7 +141,7 @@ async function _convertDjvuToPdfWithRanges(
             );
 
             if (!pageResult.success) {
-                cancelConversion(jobId);
+                await cancelConversion(jobId);
                 firstError = pageResult.error ?? `Failed to convert page ${pageNum}`;
                 return firstError;
             }
@@ -470,13 +470,14 @@ export async function convertDjvuPageToImage(
     }
 }
 
-export function cancelConversion(jobId: string): boolean {
+export async function cancelConversion(jobId: string): Promise<boolean> {
     let canceled = false;
+    const terminations: Array<Promise<void>> = [];
 
     // Cancel the exact job ID
     const proc = activeProcesses.get(jobId);
     if (proc) {
-        killProcess(proc);
+        terminations.push(killProcess(proc));
         activeProcesses.delete(jobId);
         canceled = true;
     }
@@ -487,19 +488,20 @@ export function cancelConversion(jobId: string): boolean {
         childProc,
     ] of activeProcesses) {
         if (id.startsWith(`${jobId}-`)) {
-            killProcess(childProc);
+            terminations.push(killProcess(childProc));
             activeProcesses.delete(id);
             canceled = true;
         }
     }
 
+    await Promise.all(terminations);
     return canceled;
 }
 
-function killProcess(proc: ChildProcess) {
+async function killProcess(proc: ChildProcess) {
     const pid = proc.pid;
     if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-        void terminateProcessTree(pid, {
+        await terminateProcessTree(pid, {
             graceMs: DJVU_KILL_GRACE_MS,
             preferProcessGroup: process.platform !== 'win32',
         });
@@ -628,6 +630,11 @@ async function runProcess(
                     void terminateProcessTree(pid, {
                         graceMs: DJVU_KILL_GRACE_MS,
                         preferProcessGroup: process.platform !== 'win32',
+                    }).finally(() => {
+                        finalize({
+                            success: false,
+                            error: `${command} timed out after ${timeoutMs}ms`,
+                        });
                     });
                 } else {
                     try {

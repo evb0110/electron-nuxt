@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     readRange: vi.fn(),
     loadDjvuJs: vi.fn(),
     createDocument: vi.fn(),
+    terminate: vi.fn(),
     unload: vi.fn(),
 }));
 
@@ -39,6 +40,7 @@ describe('createDjvuWorkerFromPath', () => {
         ]));
         mocks.loadDjvuJs.mockResolvedValue({Worker: class {
             public createDocument = mocks.createDocument;
+            public terminate = mocks.terminate;
         }});
         mocks.createDocument.mockResolvedValue(undefined);
     });
@@ -71,6 +73,18 @@ describe('createDjvuWorkerFromPath', () => {
 
         expect(mocks.stat).toHaveBeenCalledWith(ref);
         expect(mocks.read).toHaveBeenCalledWith(ref);
+        expect(mocks.unload).toHaveBeenCalledWith(ref);
+    });
+
+    it('terminates the worker and unloads browser document refs if document creation fails', async () => {
+        const { createDjvuWorkerFromPath } =
+            await import('@app/platform/browser-api/djvuWorker');
+        const ref = 'browser://documents/source/broken.djvu';
+        mocks.createDocument.mockRejectedValue(new Error('decode failed'));
+
+        await expect(createDjvuWorkerFromPath(ref)).rejects.toThrow('decode failed');
+
+        expect(mocks.terminate).toHaveBeenCalledTimes(1);
         expect(mocks.unload).toHaveBeenCalledWith(ref);
     });
 });

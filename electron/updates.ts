@@ -254,6 +254,13 @@ async function maybeClearSupersededDownloadedVersion() {
             return false;
         }
 
+        if (!await hasUpdaterMetadataForVersion(latestVersion)) {
+            logger.info(
+                `Keeping cached downloaded update ${downloadedVersion}; newer release ${latestVersion} has no ${getUpdaterMetadataAssetName()} updater feed`,
+            );
+            return false;
+        }
+
         logger.info(
             `Discarding cached downloaded update ${downloadedVersion} in favor of newer metadata release ${latestVersion}`,
         );

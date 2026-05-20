@@ -98,7 +98,7 @@ export function createBrowserDocumentsFileCapability(
 
         let normalizedFileName = ensurePdfExtension(saveResult.fileName);
         let savedHandle = saveResult.handle;
-        let sourceRef: string;
+        let sourceRef = previousSourceRef;
 
         if (saveResult.handle) {
             if (data) {
@@ -108,22 +108,30 @@ export function createBrowserDocumentsFileCapability(
             }
             const size = data?.byteLength
                 ?? (await browserDocumentStore.stat(workingCopyPath)).size;
-            sourceRef = await browserDocumentStore.createStoredDocument(
-                normalizedFileName,
-                new Uint8Array(),
-                {
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'source',
-                    saveHandle: saveResult.handle,
-                    storageMode: 'handle',
-                },
-            );
+            if (sourceRef === workingCopyPath) {
+                sourceRef = await browserDocumentStore.createStoredDocument(
+                    normalizedFileName,
+                    new Uint8Array(),
+                    {
+                        mimeType: 'application/pdf',
+                        saveKind: 'pdf',
+                        kind: 'source',
+                        saveHandle: saveResult.handle,
+                        storageMode: 'handle',
+                    },
+                );
+            }
             await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
                 fileSize: size,
                 saveHandle: saveResult.handle,
                 saveName: normalizedFileName,
             });
+            await browserDocumentStore.assignSaveTarget(
+                sourceRef,
+                normalizedFileName,
+                'pdf',
+                saveResult.handle,
+            );
         } else {
             let bytes: Uint8Array;
             if (data) {
@@ -175,7 +183,9 @@ export function createBrowserDocumentsFileCapability(
             normalizedFileName,
             savedHandle,
         );
-        await browserDocumentStore.cleanupDetachedDocument(previousSourceRef);
+        if (sourceRef !== previousSourceRef && previousSourceRef !== workingCopyPath) {
+            await browserDocumentStore.cleanupDetachedDocument(previousSourceRef);
+        }
         await browserDocumentStore.touchRecentFile(sourceRef);
         browserDocumentStore.unload(sourceRef);
         return sourceRef;
@@ -399,8 +409,9 @@ export function createBrowserDocumentsFileCapability(
             }
 
             await browserDocumentStore.write(path, data);
-            await saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint);
-            clearSearchCaches();
+            if (await saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint)) {
+                clearSearchCaches();
+            }
             return validation;
         },
         async writeDocxFile(path, data) {
@@ -477,8 +488,11 @@ export function createBrowserDocumentsFileCapability(
             return workingPath;
         },
         async saveFile(path) {
-            clearSearchCaches();
-            return saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint);
+            const saved = await saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint);
+            if (saved) {
+                clearSearchCaches();
+            }
+            return saved;
         },
         async cleanupFile(path) {
             const entry = await browserDocumentStore.ensureEntry(path);

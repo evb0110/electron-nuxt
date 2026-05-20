@@ -92,14 +92,23 @@ async function readDesktopDocumentBytes(path: TDocumentRef) {
 export async function createDjvuWorkerFromPath(djvuPath: TDocumentRef) {
     const djvuGlobal = await loadDjvuJs();
     const worker = new djvuGlobal.Worker();
-    const bytes = isBrowserDocumentRef(djvuPath)
-        ? await readBrowserDocumentBytes(djvuPath)
-        : await readDesktopDocumentBytes(djvuPath);
-    const buffer = toOwnedArrayBuffer(bytes);
+    const isBrowserRef = isBrowserDocumentRef(djvuPath);
 
-    await worker.createDocument(buffer, {});
-    if (isBrowserDocumentRef(djvuPath)) {
-        browserDocumentStore.unload(djvuPath);
+    try {
+        const bytes = isBrowserRef
+            ? await readBrowserDocumentBytes(djvuPath)
+            : await readDesktopDocumentBytes(djvuPath);
+        const buffer = toOwnedArrayBuffer(bytes);
+
+        await worker.createDocument(buffer, {});
+    } catch (error) {
+        worker.terminate();
+        throw error;
+    } finally {
+        if (isBrowserRef) {
+            browserDocumentStore.unload(djvuPath);
+        }
     }
+
     return worker;
 }

@@ -216,6 +216,20 @@ describe('handleSavePdfAs', () => {
         expect(mocks.addRecentFile).not.toHaveBeenCalled();
         expect(mocks.updateRecentFilesMenu).not.toHaveBeenCalled();
     });
+
+    it('rejects streamed Save As before showing a dialog when the sender does not own the working copy', async () => {
+        const workingPath = join(tempRoot, 'foreign-working.pdf');
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+
+        const { handleBeginSavePdfDataAs } = await import('@electron/features/documents/main/documentSaveDialogHandlers');
+
+        await expect(handleBeginSavePdfDataAs({sender: {id: 42}} as never, workingPath, 128))
+            .rejects
+            .toThrow('Working copy path is not managed');
+
+        expect(mocks.showSaveDialog).not.toHaveBeenCalled();
+        expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
+    });
 });
 
 function readFileSyncUtf8(path: string) {

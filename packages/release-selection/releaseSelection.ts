@@ -235,11 +235,13 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     const platformScopedAssets = platformFiltered.length ? platformFiltered : candidatePool;
 
     const preferredScopedAssets = platformScopedAssets.filter(asset => extensionPreference.includes(asset.extension));
-    const candidateAssets = preferredScopedAssets.length ? preferredScopedAssets : platformScopedAssets;
+    const extensionScopedAssets = preferredScopedAssets.length ? preferredScopedAssets : platformScopedAssets;
+    const architectureFiltered = extensionScopedAssets.filter(asset => isCompatibleArchitecture(asset.arch, profile.arch));
+    const candidateAssets = architectureFiltered.length ? architectureFiltered : extensionScopedAssets;
 
     const sorted = orderBy(candidateAssets, [
-        asset => extensionRank(asset.extension, extensionPreference),
         asset => architectureRank(asset.arch, profile.arch),
+        asset => extensionRank(asset.extension, extensionPreference),
         asset => knownPlatformRank(asset.platform),
         asset => asset.name,
     ], [
@@ -250,6 +252,14 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     ]);
 
     return sorted[0] || null;
+}
+
+function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TReleaseArch): boolean {
+    if (profileArch === 'unknown') {
+        return true;
+    }
+
+    return assetArch === profileArch || assetArch === 'universal' || assetArch === 'unknown';
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {

@@ -1,5 +1,9 @@
 import { app } from 'electron';
-import { mkdirSync } from 'fs';
+import {
+    chmodSync,
+    lstatSync,
+    mkdirSync,
+} from 'fs';
 import {
     join,
     win32,
@@ -16,6 +20,19 @@ export function getAppTempDirPath() {
 
 export function getAppTempDir() {
     const tempDir = getAppTempDirPath();
+    try {
+        if (lstatSync(tempDir).isSymbolicLink()) {
+            throw new Error(`App temp directory must not be a symbolic link: ${tempDir}`);
+        }
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw error;
+        }
+    }
     mkdirSync(tempDir, { recursive: true });
+    if (lstatSync(tempDir).isSymbolicLink()) {
+        throw new Error(`App temp directory must not be a symbolic link: ${tempDir}`);
+    }
+    chmodSync(tempDir, 0o700);
     return tempDir;
 }
