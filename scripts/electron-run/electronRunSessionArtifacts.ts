@@ -20,7 +20,10 @@ import {
     sessionStartingFilePath,
     sessionsBaseDir,
 } from './electronRunSessionPaths';
-import { isProcessAlive } from './electronRunProcessTree';
+import {
+    isProcessAlive,
+    killProcessTree,
+} from './electronRunProcessTree';
 import type {
     ISessionInfo,
     ISessionStartingInfo,
@@ -138,6 +141,12 @@ export function isSessionStarting(name = getCurrentSessionName()) {
 export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName()) {
     const info = getSessionInfo(name);
     if (info && !isProcessAlive(info.pid)) {
+        if (info.electronPid && isProcessAlive(info.electronPid)) {
+            await killProcessTree(info.electronPid, 800);
+        }
+        if (info.nuxtPid && isProcessAlive(info.nuxtPid)) {
+            await killProcessTree(info.nuxtPid, 1200);
+        }
         try {
             unlinkSync(sessionFilePath(name));
         } catch {}

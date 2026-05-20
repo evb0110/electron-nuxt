@@ -279,7 +279,7 @@ describe('sessionManager automation launch args', () => {
         expect(selectStaleNuxtPortOwnerCleanupTargets([4444], [], 3000)).toEqual([]);
     });
 
-    it('cleans only orphaned project Nuxt roots for the active dev-server port', () => {
+    it('cleans orphaned project Nuxt roots while preserving the active reusable dev-server port', () => {
         expect(selectOrphanedProjectNuxtRootCleanupTargets([
             {
                 pid: 1001,
@@ -311,6 +311,9 @@ describe('sessionManager automation launch args', () => {
                 devServerPort: 3235,
                 descendantPids: [4002],
             },
-        ], [4002], 3235)).toEqual([1001]);
+        ], [4002], 3235)).toEqual([
+            1001,
+            2001,
+        ]);
     });
 });

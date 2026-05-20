@@ -473,7 +473,7 @@ export function selectOrphanedProjectNuxtRootCleanupTargets(
     const targets = new Set<number>();
 
     for (const root of roots) {
-        if (root.ppid !== 1 || root.devServerPort !== devServerPort) {
+        if (root.ppid !== 1) {
             continue;
         }
 
@@ -481,7 +481,9 @@ export function selectOrphanedProjectNuxtRootCleanupTargets(
             root.pid,
             ...root.descendantPids,
         ]);
-        if (Array.from(preservedPids).some(pid => ownedPids.has(pid))) {
+        const ownsPreservedDevServer = root.devServerPort === devServerPort
+            && Array.from(preservedPids).some(pid => ownedPids.has(pid));
+        if (ownsPreservedDevServer) {
             continue;
         }
 
@@ -2060,9 +2062,12 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
 }
 
 export async function stopAllSessions() {
+    await cleanupOrphanedProjectNuxtRoots('stop all sessions');
+
     const names = listAllSessionNames();
     if (names.length === 0) {
         await killExistingNuxt();
+        await cleanupOrphanedProjectNuxtRoots('stop all sessions');
         console.log('No sessions found.');
         return;
     }
@@ -2072,6 +2077,7 @@ export async function stopAllSessions() {
     }
 
     await killExistingNuxt();
+    await cleanupOrphanedProjectNuxtRoots('stop all sessions');
     console.log('All sessions stopped.');
 }
 
