@@ -28,6 +28,7 @@ import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -61,7 +62,7 @@ type TCombineWorkerPayload =
 
 const logger = createLogger('pdfConversion');
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const COMBINE_WORKER_FILENAME = 'pdfCombineWorker.js';
+const COMBINE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-combine'].fileName;
 const PDF_COMBINE_WORKER_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_WORKER_TIMEOUT_MS ?? `${5 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 10_000) {

@@ -97,7 +97,7 @@
 
 import { parsePageRangeInput } from '@app/utils/pdfPageLabels';
 import { expandPageRange } from '@app/utils/pdfPageSelection';
-import { usePdfPageScopeDialogSetup } from '@app/composables/pdf/usePdfPageScopeDialogSetup';
+import { usePdfPageScopeSelection } from '@app/composables/pdf/usePdfPageScopeSelection';
 
 type TExportMode = 'images' | 'multipage-tiff';
 
@@ -134,12 +134,6 @@ const dialogActionLabel = computed(() => (
 const rangePages = computed(() => {
     return expandPageRange(parsePageRangeInput(rangeInput.value, totalPages));
 });
-const pageScopeProps = {
-    get totalPages() { return totalPages; },
-    get currentPage() { return currentPage; },
-    get selectedPages() { return selectedPages; },
-};
-
 const {
     scope,
     rangeInput,
@@ -147,7 +141,12 @@ const {
     normalizedSelectedPages,
     resetScopeForOpen,
     resolveScopedPageNumbers,
-} = usePdfPageScopeDialogSetup(pageScopeProps, () => rangePages.value);
+} = usePdfPageScopeSelection({
+    totalPages: () => totalPages,
+    currentPage: () => currentPage,
+    selectedPages: () => selectedPages,
+    resolveRangePages: () => rangePages.value,
+});
 
 const exportSummary = computed(() => {
     if (scope.value === 'all') {

@@ -8,7 +8,7 @@ import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
-} from '@app/composables/pdf/annotationNoteWindowHelpers';
+} from '@app/composables/pdf/annotationCommentMatching';
 import type {
     IAnnotationNotePosition,
     IAnnotationNoteWindowState,

@@ -3,8 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { annotationCommentEditScore } from '@app/composables/pdf/annotationNoteWindowHelpers';
-import { annotationCommentEditScore as annotationCommentEditScoreFromMatching } from '@app/composables/pdf/annotationCommentMatching';
+import { annotationCommentEditScore } from '@app/composables/pdf/annotationCommentMatching';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
@@ -69,9 +68,5 @@ describe('annotationCommentEditScore', () => {
             },
         });
         expect(annotationCommentEditScore(comment)).toBe(8 + 6 + 4 + 2 + 1);
-    });
-
-    it('is the same export as annotationCommentMatching.annotationCommentEditScore', () => {
-        expect(annotationCommentEditScore).toBe(annotationCommentEditScoreFromMatching);
     });
 });

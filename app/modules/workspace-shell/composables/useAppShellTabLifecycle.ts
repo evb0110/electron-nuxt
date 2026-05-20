@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import type { IEditorGroupState } from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
@@ -68,17 +68,17 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
 
     const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
 
-    function isPlaceholderTabState(tab: ITab) {
-        return !hasDocumentMountHint(tab)
+    function isClearedDocumentTabState(tab: ITab) {
+        return !tabHasDocumentHint(tab)
             && tab.fileName === null
             && tab.originalPath === null
             && !tab.isDjvu
             && !tab.isDirty;
     }
 
-    function isTransientPlaceholderDowngrade(tabId: string, tab: ITab, nextTabState: ITab) {
-        return hasDocumentMountHint(tab)
-            && isPlaceholderTabState(nextTabState)
+    function isTransientDocumentClearDuringRemount(tabId: string, tab: ITab, nextTabState: ITab) {
+        return tabHasDocumentHint(tab)
+            && isClearedDocumentTabState(nextTabState)
             && (
                 isTabTransitionBusy.value
                 || workspaceSplitCache.has(tabId)
@@ -87,7 +87,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             );
     }
 
-    function logSuppressedPlaceholderDowngrade(tabId: string, updates: Partial<ITab>, tab: ITab, nextTabState: ITab) {
+    function logSuppressedDocumentClearDuringRemount(tabId: string, updates: Partial<ITab>, tab: ITab, nextTabState: ITab) {
         BrowserLogger.warn('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
             tabId,
             updates,
@@ -142,8 +142,8 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             ...updates,
         };
 
-        if (isTransientPlaceholderDowngrade(tabId, tab, nextTabState)) {
-            logSuppressedPlaceholderDowngrade(tabId, updates, tab, nextTabState);
+        if (isTransientDocumentClearDuringRemount(tabId, tab, nextTabState)) {
+            logSuppressedDocumentClearDuringRemount(tabId, updates, tab, nextTabState);
             return;
         }
 
@@ -224,7 +224,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         }
 
         const tab = getTabById(tabId);
-        if (tab && hasDocumentMountHint(tab)) {
+        if (tab && tabHasDocumentHint(tab)) {
             return 2;
         }
 

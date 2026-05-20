@@ -387,21 +387,11 @@
 </template>
 
 <script setup lang="ts">
-import {
-    buildAbsoluteUrl,
-    normalizeSiteUrl,
-    SEO_IMAGE_PATH,
-} from '~~/shared/seo';
-
 const { t } = useTypedI18n();
-const route = useRoute();
 const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
-const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
-const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('docs.seo.ogDescription'));
 
 const bookmarks = computed(() => [
@@ -558,16 +548,10 @@ const menuMap = computed(() => [
     },
 ]);
 
-useSeoMeta({
+useLandingPageSeo({
     title: () => t('docs.seo.title'),
     description: () => pageDescription.value,
     ogTitle: () => t('docs.seo.ogTitle'),
-    ogDescription: () => pageDescription.value,
-    ogUrl: () => canonicalUrl.value,
-    ogImage: () => ogImage.value,
-    twitterTitle: () => t('docs.seo.ogTitle'),
-    twitterDescription: () => pageDescription.value,
-    twitterImage: () => ogImage.value,
 });
 
 function scrollToBookmark(id: string) {

@@ -4,7 +4,6 @@ import {
     it,
 } from 'vitest';
 import {
-    hasDocumentMountHint,
     resolveWorkspaceRequestedState,
     shouldAutoRequestWorkspace,
     shouldPreloadWorkspaceDuringStartup,
@@ -12,10 +11,11 @@ import {
     shouldShowWorkspaceHostLoader,
     shouldShowWorkspacePlaceholder,
 } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 
-describe('hasDocumentMountHint', () => {
+describe('tabHasDocumentHint', () => {
     it('returns false for placeholder tabs', () => {
-        expect(hasDocumentMountHint({
+        expect(tabHasDocumentHint({
             fileName: null,
             originalPath: null,
             isDjvu: false,
@@ -23,7 +23,7 @@ describe('hasDocumentMountHint', () => {
     });
 
     it('returns true when file name exists', () => {
-        expect(hasDocumentMountHint({
+        expect(tabHasDocumentHint({
             fileName: 'invoice.pdf',
             originalPath: null,
             isDjvu: false,
@@ -31,7 +31,7 @@ describe('hasDocumentMountHint', () => {
     });
 
     it('returns true when original path exists', () => {
-        expect(hasDocumentMountHint({
+        expect(tabHasDocumentHint({
             fileName: null,
             originalPath: '/docs/invoice.pdf',
             isDjvu: false,
@@ -39,7 +39,7 @@ describe('hasDocumentMountHint', () => {
     });
 
     it('returns true when tab is in DjVu mode', () => {
-        expect(hasDocumentMountHint({
+        expect(tabHasDocumentHint({
             fileName: null,
             originalPath: null,
             isDjvu: true,

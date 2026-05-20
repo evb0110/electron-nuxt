@@ -336,6 +336,7 @@ import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
 import type { TStartSection } from '@app/types/startPage';
+import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 
 interface IRecentFile {
     originalPath: TDocumentRef;
@@ -424,35 +425,12 @@ function getParentFolder(filePath: string) {
     return folderParts.join('/');
 }
 
-function getFileExtension(file: IRecentFile) {
-    const normalizedName = file.fileName.toLocaleLowerCase();
-    return normalizedName.match(/\.([a-z0-9]+)$/u)?.[1] ?? '';
-}
-
 function canRevealInFolder(file: IRecentFile) {
     return !isBrowserDocumentRef(file.originalPath);
 }
 
 function getFileKind(file: IRecentFile) {
-    const extension = getFileExtension(file);
-    if (extension === 'pdf') {
-        return 'pdf';
-    }
-    if (extension === 'djvu' || extension === 'djv') {
-        return 'djvu';
-    }
-    if ([
-        'png',
-        'jpg',
-        'jpeg',
-        'webp',
-        'tif',
-        'tiff',
-        'bmp',
-    ].includes(extension)) {
-        return 'image';
-    }
-    return 'document';
+    return getDocumentKindFromPath(file.fileName);
 }
 
 function showRecentFiles() {

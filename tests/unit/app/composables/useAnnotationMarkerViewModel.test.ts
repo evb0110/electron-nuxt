@@ -7,6 +7,12 @@ import { ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { useAnnotationMarkerViewModel } from '@app/composables/pdf/annotations/useAnnotationMarkerViewModel';
 
+const labels = {
+    annotation: 'Annotation',
+    note: 'Note',
+    moreNotes: (count: number) => `${count} more`,
+};
+
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'ann-1',
@@ -70,6 +76,7 @@ describe('useAnnotationMarkerViewModel', () => {
             viewerContainer: ref<HTMLElement | null>(null),
             annotationCommentsCache,
             activeCommentStableKey: ref<string | null>(null),
+            labels,
         });
 
         const pageMarkers = markersByPage.value.get(1) ?? [];
@@ -97,6 +104,7 @@ describe('useAnnotationMarkerViewModel', () => {
             viewerContainer: ref<HTMLElement | null>(null),
             annotationCommentsCache,
             activeCommentStableKey: ref<string | null>(null),
+            labels,
         });
 
         const pageMarkers = markersByPage.value.get(1) ?? [];

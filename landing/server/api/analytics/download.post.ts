@@ -1,4 +1,3 @@
-import { getHeader } from 'h3';
 import { getDb } from '~~/server/db';
 import { landingDownload } from '~~/server/db/schema';
 
@@ -29,9 +28,7 @@ export default defineEventHandler(async (event) => {
         });
     }
 
-    const geo = extractGeo(event);
-    const visitorHash = await hashVisitorIdentity(event);
-    const userAgent = getHeader(event, 'user-agent') ?? null;
+    const { geo, visitorHash, userAgent } = await getAnalyticsRequestContext(event);
 
     await db.insert(landingDownload).values({
         platform: body.platform.slice(0, 20),

@@ -19,24 +19,36 @@ interface IUseAnnotationMarkerViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
+    labels: {
+        annotation: string;
+        note: string;
+        moreNotes: (count: number) => string;
+    };
 }
 
 const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
 
-function buildPreview(comment: IAnnotationCommentSummary): string {
+function buildPreview(
+    comment: IAnnotationCommentSummary,
+    labels: IUseAnnotationMarkerViewModelOptions['labels'],
+): string {
     const text = comment.text?.trim();
     if (!text) {
-        return comment.kindLabel ?? comment.subtype ?? 'Note';
+        return comment.kindLabel ?? comment.subtype ?? labels.note;
     }
     return text.length > 60 ? text.slice(0, 57) + '...' : text;
 }
 
-function buildAriaLabel(comment: IAnnotationCommentSummary, clusterSize: number): string {
-    const prefix = comment.kindLabel ?? comment.subtype ?? 'Annotation';
+function buildAriaLabel(
+    comment: IAnnotationCommentSummary,
+    clusterSize: number,
+    labels: IUseAnnotationMarkerViewModelOptions['labels'],
+): string {
+    const prefix = comment.kindLabel ?? comment.subtype ?? labels.annotation;
     const preview = comment.text?.trim().slice(0, 40) ?? '';
     const label = preview ? `${prefix}: ${preview}` : prefix;
     if (clusterSize > 1) {
-        return `${label} (+${clusterSize - 1} more)`;
+        return `${label} (${labels.moreNotes(clusterSize - 1)})`;
     }
     return label;
 }
@@ -81,6 +93,7 @@ function computeMarkersByPage(
     comments: IAnnotationCommentSummary[],
     activeKey: string | null,
     viewerContainer: HTMLElement | null,
+    labels: IUseAnnotationMarkerViewModelOptions['labels'],
 ): Map<number, IMarkerViewModel[]> {
     const result = new Map<number, IMarkerViewModel[]>();
     const withRect = comments.filter(isMarkerEligibleComment);
@@ -134,8 +147,8 @@ function computeMarkersByPage(
                 leftPercent,
                 topPercent,
                 isActive: cluster.comments.some(c => c.stableKey === activeKey),
-                preview: buildPreview(primary),
-                ariaLabel: buildAriaLabel(primary, cluster.comments.length),
+                preview: buildPreview(primary, labels),
+                ariaLabel: buildAriaLabel(primary, cluster.comments.length, labels),
             });
         }
 
@@ -152,6 +165,7 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
         viewerContainer,
         annotationCommentsCache,
         activeCommentStableKey,
+        labels,
     } = options;
 
     const markersByPage = shallowRef<Map<number, IMarkerViewModel[]>>(new Map());
@@ -161,6 +175,7 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
             annotationCommentsCache.value,
             activeCommentStableKey.value,
             viewerContainer.value,
+            labels,
         );
     };
 

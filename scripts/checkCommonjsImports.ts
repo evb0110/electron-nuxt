@@ -109,7 +109,7 @@ async function collectSourceFiles(dirPath: string): Promise<string[]> {
             continue;
         }
 
-        if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+        if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name)) && !entry.name.endsWith('.d.ts')) {
             files.push(entryPath);
         }
     }

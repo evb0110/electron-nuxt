@@ -8,6 +8,7 @@ import type {
 import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import { PACKAGED_STARTUP_READY_MARKER } from '../../scripts/releaseVerificationHelpers';
 
 interface ILogger {
     info(message: string): void;
@@ -179,7 +180,7 @@ function bootIpc(options: IRunInitSequenceOptions) {
             externalOpenManager.scheduleFlushPendingFiles();
             markWindowRendererReady(window.id);
             if (window.id === getMainWindow()?.id) {
-                logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
+                logStartupPhase(`${PACKAGED_STARTUP_READY_MARKER} Main renderer signaled ready (windowId=${window.id})`);
                 maybePromptForDefaultViewer();
             }
         },

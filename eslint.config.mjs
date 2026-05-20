@@ -286,6 +286,15 @@ export default withNuxt(
         },
     },
     {
+        files: [
+            'vitest.config.ts',
+            'vitest.bundle-integrity.config.ts',
+        ],
+        rules: {
+            'no-restricted-imports': 'off',
+        },
+    },
+    {
         files: ['app/i18n/runtime-locales/**/*.ts'],
         rules: {
             'no-restricted-imports': 'off',

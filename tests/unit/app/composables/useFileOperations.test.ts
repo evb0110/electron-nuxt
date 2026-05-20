@@ -64,7 +64,6 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
             saveDocument: vi.fn(async () => new Uint8Array([1])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
-            readWorkingCopyBytes: vi.fn(async () => new Uint8Array([1])),
             validatePdfPath: vi.fn(async () => ({
                 isValid: true,
                 tool: 'qpdf' as const,
@@ -156,7 +155,6 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(deps.saveDocument).not.toHaveBeenCalled();
-        expect(deps.readWorkingCopyBytes).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();

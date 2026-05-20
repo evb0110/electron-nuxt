@@ -18,6 +18,14 @@ export function extractGeo(event: H3Event): IGeoData {
     };
 }
 
+export async function getAnalyticsRequestContext(event: H3Event) {
+    return {
+        geo: extractGeo(event),
+        visitorHash: await hashVisitorIdentity(event),
+        userAgent: getHeader(event, 'user-agent') ?? null,
+    };
+}
+
 export async function hashVisitorIdentity(event: H3Event) {
     const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
     const ua = getHeader(event, 'user-agent') ?? '';

@@ -49,7 +49,6 @@ export interface IFileOperationsDeps {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     saveDocument: () => Promise<Uint8Array | null>;
     getSourcePdfData: () => Promise<Uint8Array | null>;
-    readWorkingCopyBytes: () => Promise<Uint8Array | null>;
     validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
     saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     saveWorkingCopy: (opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
@@ -437,9 +436,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function canUseSourceBytesForReplayableEmbeddedChanges(opts?: ISerializationBasePdfBytesOptions) {
+        const plan = buildAnnotationSavePlan(opts);
+        return plan.route === 'source-replay';
+    }
+
+    function buildAnnotationSavePlan(opts?: ISerializationBasePdfBytesOptions) {
         const liveChanges = collectLivePdfJsAnnotationChangeIds(pdfDocument.value);
         const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes, liveChanges);
-        const plan = buildPdfAnnotationSavePlan({
+        return buildPdfAnnotationSavePlan({
             hasPendingReplayableEmbeddedChanges: Boolean(
                 opts?.pendingTexts?.size
                 || opts?.pendingDeletes?.length
@@ -449,22 +453,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             liveAnnotationChanges: liveChanges,
             replayableEmbeddedAnnotationIds: replayableIds,
         });
-        return plan.route === 'source-replay';
     }
 
     async function getSerializationBasePdfBytes(opts?: ISerializationBasePdfBytesOptions) {
         const liveChanges = collectLivePdfJsAnnotationChangeIds(pdfDocument.value);
         const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes, liveChanges);
-        const plan = buildPdfAnnotationSavePlan({
-            hasPendingReplayableEmbeddedChanges: Boolean(
-                opts?.pendingTexts?.size
-                || opts?.pendingDeletes?.length
-                || replayableIds.size > 0,
-            ),
-            hasEditorOnlyAnnotationsPendingMaterialization: hasUnreplayableEditorOnlyAnnotationsPendingMaterialization(),
-            liveAnnotationChanges: liveChanges,
-            replayableEmbeddedAnnotationIds: replayableIds,
-        });
+        const plan = buildAnnotationSavePlan(opts);
 
         BrowserLogger.debug('workspace', 'Planned PDF annotation save route', {
             route: plan.route,
@@ -641,6 +635,135 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         };
     }
 
+    async function runSaveFlow(
+        config: {
+            mode: 'save' | 'save_as';
+            saveMode: TPdfSaveMode;
+            persistOpenNotesAbortMessage: string;
+            totalPhase: 'handle-save-total' | 'handle-save-as-total';
+            failureLogMessage: 'Save failed' | 'Save As failed';
+            saveIndicator: Ref<boolean>;
+            persistSerialized: (
+                data: Uint8Array,
+                opts: { saveMode: TPdfSaveMode },
+            ) => Promise<IPdfPersistResult>;
+            persistUnserialized: (opts: { saveMode: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+            shouldPreferWorkingCopy: boolean;
+        },
+    ) {
+        if (hasSaveOperationInProgress()) {
+            return false;
+        }
+        const saveStartedAtMs = nowMs();
+        let saveSucceededForTelemetry = false;
+        saveOperationInProgress = true;
+        config.saveIndicator.value = true;
+        let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
+        let finalizedReloadWaiter = false;
+        let pendingTexts: Map<string, string> | null = null;
+        let pendingDeletes: IAnnotationCommentSummary[] | null = null;
+        try {
+            if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
+                return false;
+            }
+            const pendingChanges = consumePendingEmbeddedAnnotationChanges();
+            ({
+                pendingTexts,
+                pendingDeletes,
+            } = pendingChanges);
+            const {
+                hasPendingTexts,
+                hasPendingDeletes,
+            } = pendingChanges;
+            reloadWaiter = preparePostSaveReload?.() ?? null;
+            const shapeStateDirty = hasShapeChanges?.() ?? false;
+            const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
+
+            if (config.mode === 'save') {
+                BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
+                    hasWorkingCopyPath: Boolean(workingCopyPath.value),
+                    annotationDirty: annotationDirty.value,
+                    pageLabelsDirty: pageLabelsDirty.value,
+                    bookmarksDirty: bookmarksDirty.value,
+                    hasAnnotationChanges: hasAnnotationChanges(),
+                    hasShapeChanges: shapeStateDirty,
+                    hasPendingTexts,
+                    hasPendingDeletes,
+                    annotationNoteWindowsCount: annotationNoteWindowsCount.value,
+                }));
+            }
+
+            let saveSucceeded = false;
+            if (config.shouldPreferWorkingCopy && workingCopyPath.value && !shouldSerialize) {
+                saveSucceeded = await saveUnserializedWorkingCopy(
+                    config.saveMode,
+                    shapeStateDirty,
+                    reloadWaiter,
+                    config.mode,
+                    config.persistUnserialized,
+                );
+                clearSaveIndicator(config.mode);
+                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+                finalizedReloadWaiter = true;
+            } else if (config.mode === 'save_as' && !shouldSerialize) {
+                saveSucceeded = await saveUnserializedWorkingCopy(
+                    config.saveMode,
+                    shapeStateDirty,
+                    reloadWaiter,
+                    config.mode,
+                    config.persistUnserialized,
+                );
+                clearSaveIndicator(config.mode);
+                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+                finalizedReloadWaiter = true;
+            } else {
+                const rawData = await getSerializationBasePdfBytes({
+                    pendingDeletes,
+                    pendingTexts,
+                });
+                saveSucceeded = await runSerializedSaveFlow(
+                    rawData,
+                    pendingTexts,
+                    pendingDeletes,
+                    shapeStateDirty,
+                    reloadWaiter,
+                    config.mode,
+                    config.saveMode,
+                    config.persistSerialized,
+                    () => clearSaveIndicator(config.mode),
+                );
+                finalizedReloadWaiter = true;
+            }
+
+            if (!saveSucceeded) {
+                restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+            }
+            saveSucceededForTelemetry = saveSucceeded;
+            return saveSucceeded;
+        } catch (error) {
+            restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+            BrowserLogger.error('workspace', config.failureLogMessage, error);
+            toast.add({
+                color: 'error',
+                title: t('errors.file.save'),
+                description: getErrorMessage(error),
+            });
+            return false;
+        } finally {
+            if (reloadWaiter && !finalizedReloadWaiter) {
+                reloadWaiter.cancel();
+            }
+            logSavePhase(
+                config.totalPhase,
+                saveStartedAtMs,
+                { success: saveSucceededForTelemetry },
+                SLOW_SAVE_TOTAL_WARN_MS,
+            );
+            saveOperationInProgress = false;
+            config.saveIndicator.value = false;
+        }
+    }
+
     function restorePendingEmbeddedAnnotationChanges(
         pendingTexts: Map<string, string> | null,
         pendingDeletes: IAnnotationCommentSummary[] | null,
@@ -776,212 +899,31 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     async function handleSave() {
-        if (hasSaveOperationInProgress()) {
-            return false;
-        }
-        const saveStartedAtMs = nowMs();
-        let saveSucceededForTelemetry = false;
-        saveOperationInProgress = true;
-        isSaving.value = true;
-        let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
-        let finalizedReloadWaiter = false;
-        let pendingTexts: Map<string, string> | null = null;
-        let pendingDeletes: IAnnotationCommentSummary[] | null = null;
-        try {
-            if (!await persistOpenAnnotationNotes('Save aborted because annotation note persistence failed')) {
-                return false;
-            }
-            const pendingChanges = consumePendingEmbeddedAnnotationChanges();
-            ({
-                pendingTexts,
-                pendingDeletes,
-            } = pendingChanges);
-            const {
-                hasPendingTexts,
-                hasPendingDeletes,
-            } = pendingChanges;
-            reloadWaiter = preparePostSaveReload?.() ?? null;
-            let saveSucceeded = false;
-            BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
-                hasWorkingCopyPath: Boolean(workingCopyPath.value),
-                annotationDirty: annotationDirty.value,
-                pageLabelsDirty: pageLabelsDirty.value,
-                bookmarksDirty: bookmarksDirty.value,
-                hasAnnotationChanges: hasAnnotationChanges(),
-                hasShapeChanges: hasShapeChanges?.() ?? false,
-                hasPendingTexts,
-                hasPendingDeletes,
-                annotationNoteWindowsCount: annotationNoteWindowsCount.value,
-            }));
-            if (workingCopyPath.value) {
-                const shapeStateDirty = hasShapeChanges?.() ?? false;
-                const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
-                if (shouldSerialize) {
-                    const rawData = await getSerializationBasePdfBytes({
-                        pendingDeletes,
-                        pendingTexts,
-                    });
-                    saveSucceeded = await runSerializedSaveFlow(
-                        rawData,
-                        pendingTexts,
-                        pendingDeletes,
-                        shapeStateDirty,
-                        reloadWaiter,
-                        'save',
-                        'rewrite',
-                        saveFile,
-                        () => clearSaveIndicator('save'),
-                    );
-                    finalizedReloadWaiter = true;
-                    if (!saveSucceeded) {
-                        restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
-                    }
-                    saveSucceededForTelemetry = saveSucceeded;
-                    return saveSucceeded;
-                }
-                saveSucceeded = await saveUnserializedWorkingCopy(
-                    'rewrite',
-                    shapeStateDirty,
-                    reloadWaiter,
-                    'save',
-                    saveWorkingCopy,
-                );
-                clearSaveIndicator('save');
-                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
-                finalizedReloadWaiter = true;
-                saveSucceededForTelemetry = saveSucceeded;
-                return saveSucceeded;
-            }
-
-            const shapeStateDirty = hasShapeChanges?.() ?? false;
-            const rawData = await getSerializationBasePdfBytes({
-                pendingDeletes,
-                pendingTexts,
-            });
-            saveSucceeded = await runSerializedSaveFlow(
-                rawData,
-                pendingTexts,
-                pendingDeletes,
-                shapeStateDirty,
-                reloadWaiter,
-                'save',
-                'rewrite',
-                saveFile,
-                () => clearSaveIndicator('save'),
-            );
-            finalizedReloadWaiter = true;
-            if (!saveSucceeded) {
-                restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
-            }
-            saveSucceededForTelemetry = saveSucceeded;
-            return saveSucceeded;
-        } catch (error) {
-            restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
-            BrowserLogger.error('workspace', 'Save failed', error);
-            toast.add({
-                color: 'error',
-                title: t('errors.file.save'),
-                description: getErrorMessage(error),
-            });
-            return false;
-        } finally {
-            if (reloadWaiter && !finalizedReloadWaiter) {
-                reloadWaiter.cancel();
-            }
-            logSavePhase(
-                'handle-save-total',
-                saveStartedAtMs,
-                { success: saveSucceededForTelemetry },
-                SLOW_SAVE_TOTAL_WARN_MS,
-            );
-            saveOperationInProgress = false;
-            isSaving.value = false;
-        }
+        return runSaveFlow({
+            mode: 'save',
+            saveMode: 'rewrite',
+            persistOpenNotesAbortMessage: 'Save aborted because annotation note persistence failed',
+            totalPhase: 'handle-save-total',
+            failureLogMessage: 'Save failed',
+            saveIndicator: isSaving,
+            persistSerialized: saveFile,
+            persistUnserialized: saveWorkingCopy,
+            shouldPreferWorkingCopy: true,
+        });
     }
 
     async function handleSaveAs() {
-        if (hasSaveOperationInProgress()) {
-            return false;
-        }
-        const saveStartedAtMs = nowMs();
-        let saveSucceededForTelemetry = false;
-        saveOperationInProgress = true;
-        isSavingAs.value = true;
-        let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
-        let finalizedReloadWaiter = false;
-        let pendingTexts: Map<string, string> | null = null;
-        let pendingDeletes: IAnnotationCommentSummary[] | null = null;
-        try {
-            if (!await persistOpenAnnotationNotes('Save As aborted because annotation note persistence failed')) {
-                return false;
-            }
-            const pendingChanges = consumePendingEmbeddedAnnotationChanges();
-            ({
-                pendingTexts,
-                pendingDeletes,
-            } = pendingChanges);
-            const {
-                hasPendingTexts,
-                hasPendingDeletes,
-            } = pendingChanges;
-            reloadWaiter = preparePostSaveReload?.() ?? null;
-            let saveSucceeded = false;
-            const shapeStateDirty = hasShapeChanges?.() ?? false;
-            const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
-            if (shouldSerialize) {
-                const rawData = await getSerializationBasePdfBytes({
-                    pendingDeletes,
-                    pendingTexts,
-                });
-                saveSucceeded = await saveSerializedChanges(
-                    rawData,
-                    pendingTexts,
-                    pendingDeletes,
-                    shapeStateDirty,
-                    reloadWaiter,
-                    'save_as',
-                    'save_as_rewrite',
-                    saveWorkingCopyAs,
-                );
-            } else {
-                saveSucceeded = await saveUnserializedWorkingCopy(
-                    'save_as_rewrite',
-                    shapeStateDirty,
-                    reloadWaiter,
-                    'save_as',
-                    opts => saveWorkingCopyAs(undefined, opts),
-                );
-            }
-            clearSaveIndicator('save_as');
-            await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
-            finalizedReloadWaiter = true;
-            if (!saveSucceeded) {
-                restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
-            }
-            saveSucceededForTelemetry = saveSucceeded;
-            return saveSucceeded;
-        } catch (error) {
-            restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
-            BrowserLogger.error('workspace', 'Save As failed', error);
-            toast.add({
-                color: 'error',
-                title: t('errors.file.save'),
-                description: getErrorMessage(error),
-            });
-            return false;
-        } finally {
-            if (reloadWaiter && !finalizedReloadWaiter) {
-                reloadWaiter.cancel();
-            }
-            logSavePhase(
-                'handle-save-as-total',
-                saveStartedAtMs,
-                { success: saveSucceededForTelemetry },
-                SLOW_SAVE_TOTAL_WARN_MS,
-            );
-            saveOperationInProgress = false;
-            isSavingAs.value = false;
-        }
+        return runSaveFlow({
+            mode: 'save_as',
+            saveMode: 'save_as_rewrite',
+            persistOpenNotesAbortMessage: 'Save As aborted because annotation note persistence failed',
+            totalPhase: 'handle-save-as-total',
+            failureLogMessage: 'Save As failed',
+            saveIndicator: isSavingAs,
+            persistSerialized: saveWorkingCopyAs,
+            persistUnserialized: opts => saveWorkingCopyAs(undefined, opts),
+            shouldPreferWorkingCopy: false,
+        });
     }
 
     return {

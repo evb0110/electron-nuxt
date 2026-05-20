@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'fs';
 import {
     unlink,
     writeFile,
@@ -10,7 +9,6 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { Worker } from 'worker_threads';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -21,11 +19,15 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    resolveUnpackedWorkerPath,
+    runResultWorkerTask,
+} from '@electron/utils/workerTask';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 
 const logger = createLogger('documents-pdfConformance');
 const QPDF_VALIDATE_TIMEOUT_MS = 30_000;
-const PDF_CONFORMANCE_WORKER_FILENAME = 'pdfConformanceWorker.js';
-const PDF_CONFORMANCE_WORKER_DRAIN_TIMEOUT_MS = 5_000;
+const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function sanitizeValidationFileName(fileName?: string) {
@@ -51,156 +53,52 @@ class PdfConformanceWorkerStartupError extends Error {
 }
 
 function getPdfConformanceWorkerPath() {
-    const defaultPath = join(__dirname, PDF_CONFORMANCE_WORKER_FILENAME);
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
-    }
+    return resolveUnpackedWorkerPath(__dirname, PDF_CONFORMANCE_WORKER_FILENAME);
+}
 
-    return defaultPath;
+function decodePdfConformanceResult(data: unknown): IPdfConformanceProfile | null {
+    if (data === undefined) {
+        return {
+            ...createDefaultPdfConformanceProfile(),
+            saveRestrictions: [],
+        };
+    }
+    if (!data || typeof data !== 'object') {
+        return null;
+    }
+    return data as IPdfConformanceProfile;
+}
+
+function createDefaultPdfConformanceResult(): IPdfConformanceProfile {
+    return {
+        ...createDefaultPdfConformanceProfile(),
+        saveRestrictions: [],
+    };
 }
 
 function runPdfConformanceWorker(filePath: string) {
-    return new Promise<IPdfConformanceProfile>((resolve, reject) => {
-        let worker: Worker;
-        try {
-            worker = new Worker(getPdfConformanceWorkerPath(), { workerData: { filePath } });
-        } catch (error) {
-            reject(new PdfConformanceWorkerStartupError(
-                `PDF conformance worker failed to start: ${getErrorMessage(error)}`,
-            ));
-            return;
-        }
-
-        let settled = false;
-        let workerOnline = false;
-        let timeoutHandle: NodeJS.Timeout | null = null;
-        let drainHandle: NodeJS.Timeout | null = null;
-        let ignoreLateWorkerError: (() => undefined) | null = null;
-
-        const cleanupWorker = () => {
-            worker.removeAllListeners('message');
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
+    return runResultWorkerTask<IPdfConformanceProfile>({
+        workerPath: getPdfConformanceWorkerPath(),
+        workerData: { filePath },
+        invalidPayloadMessage: 'PDF conformance worker returned an invalid payload',
+        invalidResultMessage: 'PDF conformance worker returned an invalid payload',
+        createStartupError: (message) => new PdfConformanceWorkerStartupError(
+            `PDF conformance worker failed before becoming ready: ${message}`,
+        ),
+        createStartError: (message) => new PdfConformanceWorkerStartupError(
+            `PDF conformance worker failed to start: ${message}`,
+        ),
+        createStartupExitError: (code) => new PdfConformanceWorkerStartupError(
+            `PDF conformance worker exited during startup with code ${code}`,
+        ),
+        createWorkerExitError: (code) => new Error(`PDF conformance worker exited with code ${code}`),
+        timeoutMs: 60_000,
+        decodeResult: (data) => {
+            if (data === undefined) {
+                return createDefaultPdfConformanceResult();
             }
-        };
-
-        const clearDrainTimer = () => {
-            if (!drainHandle) {
-                if (ignoreLateWorkerError) {
-                    worker.removeListener('error', ignoreLateWorkerError);
-                    ignoreLateWorkerError = null;
-                }
-                return;
-            }
-
-            clearTimeout(drainHandle);
-            drainHandle = null;
-            if (ignoreLateWorkerError) {
-                worker.removeListener('error', ignoreLateWorkerError);
-                ignoreLateWorkerError = null;
-            }
-        };
-
-        const scheduleWorkerDrain = () => {
-            clearDrainTimer();
-            ignoreLateWorkerError = () => undefined;
-            worker.removeAllListeners('error');
-            worker.on('error', ignoreLateWorkerError);
-            drainHandle = setTimeout(() => {
-                drainHandle = null;
-                void worker.terminate().catch(() => undefined).finally(() => {
-                    if (ignoreLateWorkerError) {
-                        worker.removeListener('error', ignoreLateWorkerError);
-                        ignoreLateWorkerError = null;
-                    }
-                });
-            }, PDF_CONFORMANCE_WORKER_DRAIN_TIMEOUT_MS);
-            drainHandle.unref?.();
-        };
-
-        const finalize = (callback: () => void) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            cleanupWorker();
-            callback();
-            scheduleWorkerDrain();
-        };
-
-        worker.once('online', () => {
-            workerOnline = true;
-        });
-
-        worker.once('message', (message: unknown) => {
-            finalize(() => {
-                if (!message || typeof message !== 'object') {
-                    reject(new Error('PDF conformance worker returned an invalid payload'));
-                    return;
-                }
-
-                const payload = message as {
-                    type?: unknown;
-                    ok?: unknown;
-                    error?: unknown;
-                    data?: unknown;
-                };
-
-                if (payload.type !== 'result') {
-                    reject(new Error('PDF conformance worker returned an invalid payload'));
-                    return;
-                }
-                if (payload.ok !== true) {
-                    reject(new Error(typeof payload.error === 'string' ? payload.error : 'PDF conformance worker failed'));
-                    return;
-                }
-
-                resolve((payload.data as IPdfConformanceProfile) ?? {
-                    ...createDefaultPdfConformanceProfile(),
-                    saveRestrictions: [],
-                });
-            });
-        });
-
-        worker.once('error', (error) => {
-            finalize(() => {
-                if (!workerOnline) {
-                    reject(new PdfConformanceWorkerStartupError(
-                        `PDF conformance worker failed before becoming ready: ${getErrorMessage(error)}`,
-                    ));
-                    return;
-                }
-
-                reject(error);
-            });
-        });
-
-        worker.once('exit', (code) => {
-            clearDrainTimer();
-            if (settled || code === 0) {
-                return;
-            }
-
-            finalize(() => {
-                if (!workerOnline) {
-                    reject(new PdfConformanceWorkerStartupError(
-                        `PDF conformance worker exited during startup with code ${code}`,
-                    ));
-                    return;
-                }
-
-                reject(new Error(`PDF conformance worker exited with code ${code}`));
-            });
-        });
-
-        timeoutHandle = setTimeout(() => {
-            finalize(() => {
-                reject(new Error('PDF conformance worker timed out'));
-            });
-        }, 60_000);
-        timeoutHandle.unref?.();
+            return decodePdfConformanceResult(data);
+        },
     });
 }
 

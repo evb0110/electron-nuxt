@@ -113,6 +113,11 @@ export function isInstallerAsset(assetName: string): boolean {
 
     return INSTALLER_EXTENSIONS.has(getAssetExtension(assetName));
 }
+
+export function isLegacyInstallerAsset(assetName: string): boolean {
+    return assetName.toLowerCase().includes('legacy');
+}
+
 export function detectPlatform(assetName: string): TReleasePlatform {
     const lowerName = assetName.toLowerCase();
     const extension = getAssetExtension(assetName);

@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    computed,
+    ref,
+} from 'vue';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
@@ -66,13 +69,14 @@ function createOptions() {
         isExportingDocx: ref(false),
         isAnyAnnotationNoteSaving: ref(false),
         annotationNoteWindows: ref([]),
+        hasPendingUnsavedChanges: computed(() => false),
         annotationDirty: ref(false),
         isDirty: ref(false),
         pageLabelsDirty: ref(false),
         bookmarksDirty: ref(false),
         hasAnnotationChanges: vi.fn(() => false),
         persistAllAnnotationNotes: vi.fn(async () => true),
-        pickFileToOpenWithDjvuCleanup: vi.fn(async () => null),
+        pickFileToOpen: vi.fn(async () => null),
         openFileWithDjvuCleanup: vi.fn(async () => openedOutcome),
         openFileDirectWithDjvuCleanup: vi.fn(async () => openedOutcome),
         openFileDirectBatchWithDjvuCleanup: vi.fn(async () => openedOutcome),

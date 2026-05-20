@@ -95,18 +95,12 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          ATTEMPTS=3
-          for attempt in $(seq 1 $ATTEMPTS); do
-            if pnpm exec electron-builder --publish never --win --x64; then
-              exit 0
-            fi
-            if [ "$attempt" -lt "$ATTEMPTS" ]; then
-              echo "::warning::Windows 7 legacy packaging attempt $attempt failed, retrying in 20s..."
-              sleep 20
-            fi
-          done
-          echo "::notice::Windows 7 legacy packaging failed after $ATTEMPTS attempts; continuing without the optional legacy artifact"
-          exit 1
+          if ! bash scripts/release/run-with-retries.sh 3 20 "Windows 7 legacy packaging" \
+            pnpm exec electron-builder --publish never --win --x64
+          then
+            echo "::notice::Windows 7 legacy packaging failed after 3 attempts; continuing without the optional legacy artifact"
+            exit 1
+          fi
 
       - name: Verify packaged native tools
         if: steps.package.outcome == 'success'

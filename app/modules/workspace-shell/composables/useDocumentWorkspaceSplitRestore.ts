@@ -45,7 +45,6 @@ interface IUseDocumentWorkspaceSplitRestoreOptions {
         page: number;
         at: number;
     }>>;
-    clearSidebarToggleCheckpointTimers: () => void;
 }
 
 function shouldRestoreCachedSplitPayload(options: IUseDocumentWorkspaceSplitRestoreOptions) {
@@ -380,7 +379,6 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
     );
 
     onUnmounted(() => {
-        options.clearSidebarToggleCheckpointTimers();
         options.cleanupSidebarResizeListeners();
     });
 

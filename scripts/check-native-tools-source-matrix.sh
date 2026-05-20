@@ -184,7 +184,7 @@ elif ! find "resources/tesseract/tessdata" -maxdepth 1 -type f -name '*.trainedd
   missing=1
 else
   echo "OK tessdata directory and traineddata files present"
-  pnpm exec tsx scripts/checkOcrLanguageModelRegistry.ts
+  pnpm run check:ocr-language-model-registry
 fi
 
 if [ "$missing" -ne 0 ]; then

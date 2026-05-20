@@ -6,9 +6,11 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,20 +18,21 @@ const __dirname = dirname(__filename);
 const log = createLogger('ocr-ipc');
 
 function getOcrWorkerPath(): string {
-    const defaultPath = join(__dirname, 'ocr-worker.js');
+    const defaultPath = join(__dirname, WORKER_BUNDLES_BY_ID.ocr.fileName);
     if (!app?.isPackaged && existsSync(defaultPath)) {
         return defaultPath;
     }
 
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
+    const resolvedPath = resolveUnpackedWorkerPath(__dirname, WORKER_BUNDLES_BY_ID.ocr.fileName);
+    if (existsSync(resolvedPath)) {
+        return resolvedPath;
     }
 
     if (existsSync(defaultPath)) {
         return defaultPath;
     }
 
+    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
     throw new Error(`OCR worker script not found. lookedFor="${unpackedPath}", fallback="${defaultPath}"`);
 }
 

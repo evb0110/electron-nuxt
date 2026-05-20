@@ -2,7 +2,7 @@
     <div
         v-if="shouldRender"
         class="snip-overlay"
-        :class="{ 'is-active': active }"
+        :class="{ 'is-active': props.active }"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
@@ -11,7 +11,7 @@
         @wheel="handleWheel"
     >
         <div
-            v-if="selectionRect"
+            v-if="props.selectionRect"
             class="snip-selection"
             :style="selectionStyle"
         />
@@ -25,10 +25,10 @@
             class="snip-badge"
             :style="badgeStyle"
         >
-            {{ copiedLabel }}
+            {{ props.copiedLabel }}
         </div>
-        <div v-if="active && !selectionRect" class="snip-hint">
-            {{ hintLabel }}
+        <div v-if="props.active && !props.selectionRect" class="snip-hint">
+            {{ props.hintLabel }}
         </div>
     </div>
 </template>
@@ -40,7 +40,7 @@ import {
     type IRegionSelectionOverlayBaseProps,
     type IRegionSelectionOverlayEmits,
     regionRectStyle,
-    usePdfRegionSelectionOverlay,
+    useEmittedPdfRegionSelectionOverlay,
 } from '@app/composables/pdf/usePdfRegionSelectionOverlay';
 
 interface IProps {
@@ -55,13 +55,7 @@ interface IProps {
     copiedLabel: string;
 }
 
-const {
-    active,
-    badgePosition,
-    flashRect,
-    selectionRect,
-} = defineProps<IProps>();
-
+const props = defineProps<IProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 
 const {
@@ -70,24 +64,18 @@ const {
     handlePointerUp,
     handleContextMenu,
     handleWheel,
-} = usePdfRegionSelectionOverlay({
-    isActive: () => active,
-    onPointerStart: payload => emit('pointer-start', payload),
-    onPointerMove: payload => emit('pointer-move', payload),
-    onPointerEnd: payload => emit('pointer-end', payload),
-    onCancel: () => emit('cancel'),
-});
+} = useEmittedPdfRegionSelectionOverlay(props, emit);
 
-const shouldRender = computed(() => active || Boolean(flashRect) || Boolean(badgePosition));
-const selectionStyle = computed(() => regionRectStyle(selectionRect));
-const flashStyle = computed(() => regionRectStyle(flashRect));
+const shouldRender = computed(() => props.active || Boolean(props.flashRect) || Boolean(props.badgePosition));
+const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
+const flashStyle = computed(() => regionRectStyle(props.flashRect));
 const badgeStyle = computed<CSSProperties>(() => {
-    if (!badgePosition) {
+    if (!props.badgePosition) {
         return {};
     }
     return {
-        left: `${badgePosition.x}px`,
-        top: `${badgePosition.y}px`,
+        left: `${props.badgePosition.x}px`,
+        top: `${props.badgePosition.y}px`,
     };
 });
 

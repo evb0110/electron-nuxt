@@ -498,8 +498,8 @@
 <script setup lang="ts">
 import '@app/assets/css/pdfjs-overrides.css';
 import '@app/assets/css/pdf-comment-markers.css';
-import '@app/assets/css/pdf-comment-ui.css';
-import '@app/assets/css/pdf-search-highlights.css';
+import '@app/assets/css/pdf-comment-ui.scss';
+import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.css';
 import '@app/assets/css/pdf-debug-overlays.css';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
@@ -980,7 +980,6 @@ function handleViewerTotalPagesUpdate(value: number) {
 
 const {
     canExportDocx,
-    clearSidebarToggleCheckpointTimers,
     handleCropApply,
     handleCropRemove,
     handleOverflowOpenSettings,
@@ -1182,7 +1181,6 @@ const {
     restoreSplitPayload,
     isRestoringSplitPayload,
     currentPageTransitionHistory,
-    clearSidebarToggleCheckpointTimers,
 });
 
 const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 4_000;

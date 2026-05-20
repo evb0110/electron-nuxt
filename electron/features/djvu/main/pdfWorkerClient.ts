@@ -14,9 +14,10 @@ import {
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DJVU_PDF_WORKER_FILENAME = 'djvu-pdfWorker.js';
+const DJVU_PDF_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['djvu-pdf'].fileName;
 const DJVU_PDF_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 
 export class DjvuPdfWorkerStartupError extends Error {

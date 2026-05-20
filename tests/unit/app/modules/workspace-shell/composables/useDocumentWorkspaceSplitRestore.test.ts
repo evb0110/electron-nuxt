@@ -118,7 +118,6 @@ describe('useDocumentWorkspaceSplitRestore', () => {
                 restoreSplitPayload,
                 isRestoringSplitPayload: ref(false),
                 currentPageTransitionHistory: ref([]),
-                clearSidebarToggleCheckpointTimers: vi.fn(),
             });
             return () => null;
         }});

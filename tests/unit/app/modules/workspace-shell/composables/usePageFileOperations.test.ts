@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    computed,
+    ref,
+} from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -43,6 +46,11 @@ function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
 }
 
 function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[0]> = {}) {
+    const annotationDirty = overrides.annotationDirty ?? ref(false);
+    const isDirty = overrides.isDirty ?? ref(false);
+    const pageLabelsDirty = overrides.pageLabelsDirty ?? ref(false);
+    const bookmarksDirty = overrides.bookmarksDirty ?? ref(false);
+
     return cast<Parameters<typeof usePageFileOperations>[0]>({
         pdfSrc: ref<unknown>({}),
         isAnySaving: ref(false),
@@ -50,11 +58,16 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         isExportingDocx: ref(false),
         isAnyAnnotationNoteSaving: ref(false),
         annotationNoteWindows: ref([]),
-        annotationDirty: ref(false),
-        isDirty: ref(false),
-        pageLabelsDirty: ref(false),
-        bookmarksDirty: ref(false),
-        hasAnnotationChanges: vi.fn(() => false),
+        hasPendingUnsavedChanges: computed(() => (
+            annotationDirty.value
+            || isDirty.value
+            || pageLabelsDirty.value
+            || bookmarksDirty.value
+        )),
+        annotationDirty,
+        isDirty,
+        pageLabelsDirty,
+        bookmarksDirty,
         persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
         handleSave: vi.fn(async () => {}),
         pickFileToOpen: vi.fn(async () => null),
@@ -95,6 +108,22 @@ describe('usePageFileOperations', () => {
         expect(deps.handleSave).toHaveBeenCalledOnce();
         expect(deps.closeFile).toHaveBeenCalledOnce();
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('uses the supplied pending change predicate for persistence gating', async () => {
+        const hasPendingUnsavedChanges = ref(true);
+        const deps = createDeps({
+            hasPendingUnsavedChanges: computed(() => hasPendingUnsavedChanges.value),
+            handleSave: vi.fn(async () => {
+                hasPendingUnsavedChanges.value = false;
+            }),
+        });
+        const { handleCloseFileFromUi } = usePageFileOperations(deps);
+
+        await handleCloseFileFromUi();
+
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+        expect(deps.closeFile).toHaveBeenCalledOnce();
     });
 
     it('can close without persisting when persist is false', async () => {

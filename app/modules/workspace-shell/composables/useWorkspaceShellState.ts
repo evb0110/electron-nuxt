@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 
 interface IWorkspaceHasPdfState {hasPdf: boolean | { value: boolean };}
 
@@ -44,7 +44,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
             return false;
         }
 
-        return hasDocumentMountHint(tab);
+        return tabHasDocumentHint(tab);
     });
     const hasDocument = computed(() => activeWorkspaceHasDocument.value || activeTabHasDocumentHint.value);
     const tabCount = computed(() => options.tabs.value.length);

@@ -18,10 +18,11 @@ import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CROP_WORKER_FILENAME = 'page-ops-cropWorker.js';
+const CROP_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['page-ops-crop'].fileName;
 const CROP_WORKER_TIMEOUT_MS = 2 * 60 * 1000;
 const CROP_LOCAL_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const CROP_LOCAL_FALLBACK_MAX_REQUESTED_PAGES = 100;

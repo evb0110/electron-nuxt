@@ -35,41 +35,29 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         closeFile,
     } = deps;
 
-    async function pickFileToOpenWithDjvuCleanup() {
-        return pickFileToOpen();
+    async function openWithDjvuCleanup(
+        openDocument: () => Promise<TDocumentOpenOutcome>,
+    ) {
+        const oldPath = workingCopyPath.value;
+        invalidatePendingDjvuOpen();
+        const outcome = await openDocument();
+        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
+            await cleanupDjvuTemp();
+            exitDjvuMode();
+        }
+        return outcome;
     }
 
     async function openFileWithDjvuCleanup(preSelected?: TOpenFileResult) {
-        const oldPath = workingCopyPath.value;
-        invalidatePendingDjvuOpen();
-        const outcome = await openFile(preSelected);
-        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
-        }
-        return outcome;
+        return openWithDjvuCleanup(() => openFile(preSelected));
     }
 
     async function openFileDirectWithDjvuCleanup(path: TDocumentRef) {
-        const oldPath = workingCopyPath.value;
-        invalidatePendingDjvuOpen();
-        const outcome = await openFileDirect(path);
-        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
-        }
-        return outcome;
+        return openWithDjvuCleanup(() => openFileDirect(path));
     }
 
     async function openFileDirectBatchWithDjvuCleanup(paths: TDocumentRef[]) {
-        const oldPath = workingCopyPath.value;
-        invalidatePendingDjvuOpen();
-        const outcome = await openFileDirectBatch(paths);
-        if (didOpenDocument(outcome) && isDjvuMode.value && workingCopyPath.value !== oldPath) {
-            await cleanupDjvuTemp();
-            exitDjvuMode();
-        }
-        return outcome;
+        return openWithDjvuCleanup(() => openFileDirectBatch(paths));
     }
 
     async function closeFileWithDjvuCleanup() {
@@ -82,7 +70,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
     }
 
     return {
-        pickFileToOpenWithDjvuCleanup,
+        pickFileToOpen,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,

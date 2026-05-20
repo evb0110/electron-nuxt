@@ -49,11 +49,6 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         && !options.isExportingDocx.value
     ));
 
-    function clearSidebarToggleCheckpointTimers() {
-        // Kept for split-restore cleanup callers; sidebar toggles no longer
-        // schedule delayed diagnostics.
-    }
-
     function runToolbarAction(action: () => unknown) {
         const result = action();
         if (result instanceof Promise) {
@@ -100,7 +95,6 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
 
     return {
         canExportDocx,
-        clearSidebarToggleCheckpointTimers,
         handleCropApply(payload: {
             margins: ICropMargins;
             pages: number[];

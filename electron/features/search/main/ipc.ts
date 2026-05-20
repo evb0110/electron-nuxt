@@ -6,7 +6,6 @@ import {
     app,
     ipcMain,
 } from 'electron';
-import { existsSync } from 'fs';
 import {
     dirname,
     join,
@@ -21,6 +20,8 @@ import {
     getSearchWorkerServiceConfig,
     SearchWorkerService,
 } from '@electron/features/search/main/searchWorkerService';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -156,17 +157,11 @@ function parseWarmIndexPayload(raw: unknown): {
 }
 
 export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
-    const defaultPath = join(workerBaseDir, 'search-worker.js');
+    const defaultPath = join(workerBaseDir, WORKER_BUNDLES_BY_ID.search.fileName);
     if (!app?.isPackaged) {
         return defaultPath;
     }
-
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
-    }
-
-    return defaultPath;
+    return resolveUnpackedWorkerPath(workerBaseDir, WORKER_BUNDLES_BY_ID.search.fileName);
 }
 
 export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number): Promise<string | null> {

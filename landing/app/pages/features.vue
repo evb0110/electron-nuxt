@@ -148,21 +148,11 @@
 </template>
 
 <script setup lang="ts">
-import {
-    buildAbsoluteUrl,
-    normalizeSiteUrl,
-    SEO_IMAGE_PATH,
-} from '~~/shared/seo';
-
 const { t } = useTypedI18n();
-const route = useRoute();
 const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
-const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
-const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('features.seo.ogDescription'));
 
 const entryPointCards = computed(() => [
@@ -263,15 +253,9 @@ const platformRows = computed(() => [
     },
 ]);
 
-useSeoMeta({
+useLandingPageSeo({
     title: () => t('features.seo.title'),
     description: () => pageDescription.value,
     ogTitle: () => t('features.seo.ogTitle'),
-    ogDescription: () => pageDescription.value,
-    ogUrl: () => canonicalUrl.value,
-    ogImage: () => ogImage.value,
-    twitterTitle: () => t('features.seo.ogTitle'),
-    twitterDescription: () => pageDescription.value,
-    twitterImage: () => ogImage.value,
 });
 </script>

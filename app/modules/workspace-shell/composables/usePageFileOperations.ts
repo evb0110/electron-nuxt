@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import type {
     TDocumentRef,
@@ -25,11 +28,11 @@ export interface IPageFileOperationsDeps {
     isExportingDocx: Ref<boolean>;
     isAnyAnnotationNoteSaving: Ref<boolean>;
     annotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    hasPendingUnsavedChanges: ComputedRef<boolean>;
     annotationDirty: Ref<boolean>;
     isDirty: Ref<boolean>;
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
-    hasAnnotationChanges: () => boolean;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     handleSave: () => Promise<void>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
@@ -51,11 +54,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         annotationNoteWindows,
+        hasPendingUnsavedChanges,
         annotationDirty,
         isDirty,
         pageLabelsDirty,
         bookmarksDirty,
-        hasAnnotationChanges,
         persistAllAnnotationNotes,
         handleSave,
         pickFileToOpen,
@@ -96,11 +99,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     function hasPendingPersistenceChanges() {
-        return annotationDirty.value
-            || isDirty.value
-            || hasAnnotationChanges()
-            || pageLabelsDirty.value
-            || bookmarksDirty.value;
+        return hasPendingUnsavedChanges.value;
     }
 
     function logPersistenceGateStart() {
@@ -207,12 +206,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return true;
         }
 
-        const outcome = await openFile(result);
-        const opened = didOpenDocument(outcome);
-        if (opened) {
-            closeAllDropdowns();
-        }
-        return opened;
+        return runOpenOutcome(() => openFile(result));
     }
 
     async function handleOpenFileFromUi() {
@@ -271,12 +265,8 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return true;
     }
 
-    async function handleOpenFileWithResult(result: TOpenFileResult) {
-        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-        if (!canProceed) {
-            return false;
-        }
-        const outcome = await openFile(result);
+    async function runOpenOutcome(open: () => Promise<TDocumentOpenOutcome>) {
+        const outcome = await open();
         const opened = didOpenDocument(outcome);
         if (opened) {
             closeAllDropdowns();
@@ -284,17 +274,20 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return opened;
     }
 
+    async function handleOpenFileWithResult(result: TOpenFileResult) {
+        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+        if (!canProceed) {
+            return false;
+        }
+        return runOpenOutcome(() => openFile(result));
+    }
+
     async function handleOpenFileDirectBatchWithPersist(paths: string[]) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
             return false;
         }
-        const outcome = await openFileDirectBatch(paths);
-        const opened = didOpenDocument(outcome);
-        if (opened) {
-            closeAllDropdowns();
-        }
-        return opened;
+        return runOpenOutcome(() => openFileDirectBatch(paths));
     }
 
     async function handleCloseFileFromUi(options: ICloseFileFromUiOptions = {}) {

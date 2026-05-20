@@ -1,6 +1,3 @@
-import type { ITab } from '@app/types/tabs';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
-
 interface IWorkspaceHostSignals {
     hasQueuedSplitRestore: boolean;
     hasDocumentHint: boolean;
@@ -30,10 +27,6 @@ interface IWorkspaceHostPlaceholderSignals {
 interface IWorkspaceHostLoaderSignals extends IWorkspaceHostPlaceholderSignals {
     hasHostError: boolean;
     isStartupOpenClaimPending: boolean;
-}
-
-export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath' | 'isDjvu'>) {
-    return tabHasDocumentHint(tab);
 }
 
 export function shouldPreloadWorkspaceDuringStartup(signals: IStartupWorkspacePreloadSignals) {

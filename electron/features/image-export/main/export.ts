@@ -36,6 +36,7 @@ import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
+import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -66,7 +67,7 @@ const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
 const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
 const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
-const TIFF_COMBINE_WORKER_FILENAME = 'image-export-tiff-worker.js';
+const TIFF_COMBINE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['image-export-tiff'].fileName;
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = (() => {
     const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_FALLBACK_MAX_PAGES ?? '2', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {

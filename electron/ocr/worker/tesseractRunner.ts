@@ -7,12 +7,15 @@ import {
 import type { IOcrWord } from '@contracts/shared';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseractLanguageConfig';
-import { terminateProcessTree } from '@electron/utils/processTree';
 import { getErrorMessage } from '@electron/utils/error';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
 import { parseIntegerEnv } from '@electron/utils/env';
 import { buildTesseractEnv } from '@electron/ocr/tesseractEnv';
 import { createTesseractFinalize } from '@electron/ocr/tesseractFinalize';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -101,10 +104,7 @@ export async function runOcrFileBased(
             return;
         }
 
-        const proc = spawn(tesseractBinary, args, {
-            env: buildTesseractEnv(tessdataPath, threads),
-            detached: process.platform !== 'win32',
-        });
+        const proc = spawn(tesseractBinary, args, createDetachedChildProcessSpawnOptions({ env: buildTesseractEnv(tessdataPath, threads) }));
 
         let stderr = '';
         let stderrTruncated = false;
@@ -118,20 +118,7 @@ export async function runOcrFileBased(
         let abortHandler: (() => void) | null = null;
 
         const requestTermination = async () => {
-            const pid = proc.pid;
-            if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-                await terminateProcessTree(pid, {
-                    graceMs: FILE_BASED_OCR_KILL_GRACE_MS,
-                    preferProcessGroup: process.platform !== 'win32',
-                });
-                return;
-            }
-
-            try {
-                proc.kill('SIGTERM');
-            } catch {
-                // Process may have exited already.
-            }
+            await terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS);
         };
 
         const finalize = createTesseractFinalize<IOcrFileResult>(handles, resolve, () => {
@@ -247,7 +234,7 @@ export async function runOcrFileBased(
             abortHandler?.();
         }
 
-        proc.stderr.on('data', (data: Buffer) => {
+        proc.stderr?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
             stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;

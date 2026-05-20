@@ -18,7 +18,7 @@ export const useWorkspaceFileLifecycleController = () => {
         isElectron,
         pendingDjvu,
         openBatchProgress,
-        pickFileToOpen,
+        pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -69,7 +69,6 @@ export const useWorkspaceFileLifecycleController = () => {
     } = useRecentFiles();
 
     const {
-        pickFileToOpenWithDjvuCleanup,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,
@@ -80,7 +79,7 @@ export const useWorkspaceFileLifecycleController = () => {
         cleanupDjvuTemp,
         exitDjvuMode,
         invalidatePendingDjvuOpen,
-        pickFileToOpen,
+        pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -122,7 +121,7 @@ export const useWorkspaceFileLifecycleController = () => {
         isElectron,
         pendingDjvu,
         openBatchProgress,
-        pickFileToOpen,
+        pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -164,7 +163,6 @@ export const useWorkspaceFileLifecycleController = () => {
         removeRecentFile,
         clearRecentFiles,
 
-        pickFileToOpenWithDjvuCleanup,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,

@@ -1,4 +1,3 @@
-import { getHeader } from 'h3';
 import { getDb } from '~~/server/db';
 import { landingPageView } from '~~/server/db/schema';
 
@@ -24,9 +23,7 @@ export default defineEventHandler(async (event) => {
         });
     }
 
-    const geo = extractGeo(event);
-    const visitorHash = await hashVisitorIdentity(event);
-    const userAgent = getHeader(event, 'user-agent') ?? null;
+    const { geo, visitorHash, userAgent } = await getAnalyticsRequestContext(event);
 
     await db.insert(landingPageView).values({
         path: body.path.slice(0, 255),

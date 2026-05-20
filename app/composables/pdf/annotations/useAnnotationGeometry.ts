@@ -3,15 +3,10 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import type {
-    INormalizedRect,
-    IViewportRect,
-} from '@app/composables/pdf/annotations/types';
 import {
     markerRectIoU,
     mergeMarkerRects,
     normalizeMarkerRect,
-    rectsIntersect,
 } from '@app/composables/pdf/annotationGeometry';
 
 interface IDetachedMarkerPlacement {
@@ -104,82 +99,6 @@ const DETACHED_MARKER_OFFSETS: IDetachedMarkerOffset[] = [
         y: 14, 
     },
 ];
-
-export function normalizedToViewport(
-    pageContainer: HTMLElement,
-    rect: INormalizedRect,
-): IViewportRect | null {
-    const pageRect = pageContainer.getBoundingClientRect();
-    if (pageRect.width <= 0 || pageRect.height <= 0) {
-        return null;
-    }
-    return {
-        x: pageRect.left + rect.left * pageRect.width,
-        y: pageRect.top + rect.top * pageRect.height,
-        width: rect.width * pageRect.width,
-        height: rect.height * pageRect.height,
-    };
-}
-
-export function viewportToNormalized(
-    pageContainer: HTMLElement,
-    viewport: IViewportRect,
-): INormalizedRect | null {
-    const pageRect = pageContainer.getBoundingClientRect();
-    if (pageRect.width <= 0 || pageRect.height <= 0) {
-        return null;
-    }
-    return {
-        left: (viewport.x - pageRect.left) / pageRect.width,
-        top: (viewport.y - pageRect.top) / pageRect.height,
-        width: viewport.width / pageRect.width,
-        height: viewport.height / pageRect.height,
-    };
-}
-
-export function markerRectToPagePixels(
-    pageContainer: HTMLElement,
-    markerRect: IAnnotationMarkerRect,
-): {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number 
-} | null {
-    const pageRect = pageContainer.getBoundingClientRect();
-    const width = pageRect.width;
-    const height = pageRect.height;
-    if (width <= 0 || height <= 0) {
-        return null;
-    }
-    return {
-        left: markerRect.left * width,
-        top: markerRect.top * height,
-        right: (markerRect.left + markerRect.width) * width,
-        bottom: (markerRect.top + markerRect.height) * height,
-    };
-}
-
-export const rectsIntersectLocal = rectsIntersect;
-
-export function pickInlineCommentAnchorTarget(targets: HTMLElement[]) {
-    if (targets.length === 0) {
-        return null;
-    }
-    return targets
-        .slice()
-        .sort((left, right) => {
-            const leftRect = left.getBoundingClientRect();
-            const rightRect = right.getBoundingClientRect();
-            if (leftRect.top !== rightRect.top) {
-                return leftRect.top - rightRect.top;
-            }
-            if (leftRect.right !== rightRect.right) {
-                return rightRect.right - leftRect.right;
-            }
-            return leftRect.left - rightRect.left;
-        })[0] ?? null;
-}
 
 export function clusterDetachedComments(comments: IAnnotationCommentSummary[]) {
     const clusters: IDetachedCommentCluster[] = [];
