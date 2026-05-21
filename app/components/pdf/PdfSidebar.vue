@@ -47,6 +47,7 @@
                 :tool="annotationTool"
                 :settings="annotationSettings"
                 :comments="annotationComments"
+                :comments-status="annotationCommentsStatus"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
                 :current-page="currentPage"
                 :keep-active="annotationKeepActive"
@@ -159,6 +160,7 @@ import type {
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
+    TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/public';
@@ -198,6 +200,7 @@ interface IProps {
     annotationKeepActive: boolean;
     annotationSettings: IAnnotationSettings;
     annotationComments: IAnnotationCommentSummary[];
+    annotationCommentsStatus: TAnnotationCommentsStatus;
     annotationActiveCommentStableKey?: string | null | undefined;
     bookmarkEditMode: boolean;
     isPageOperationInProgress?: boolean | undefined;
@@ -218,6 +221,7 @@ const {
     annotationKeepActive,
     annotationSettings,
     annotationComments,
+    annotationCommentsStatus,
     bookmarkEditMode,
     currentPage,
     currentResultIndex,

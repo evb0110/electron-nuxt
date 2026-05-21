@@ -250,6 +250,7 @@
                     :annotation-keep-active="annotationKeepActive"
                     :annotation-settings="annotationSettings"
                     :annotation-comments="annotationComments"
+                    :annotation-comments-status="annotationCommentsStatus"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :is-page-operation-in-progress="isPageOperationInProgress"
@@ -326,7 +327,7 @@
                         @initial-visual-ready="handlePdfInitialVisualReady"
                         @annotation-state="handleAnnotationState"
                         @annotation-modified="handleAnnotationModified"
-                        @annotation-comments="annotationComments = $event"
+                        @annotation-comments="handleAnnotationComments"
                         @annotation-open-note="handleOpenAnnotationNote"
                         @annotation-comment-click="handleAnnotationCommentClick"
                         @annotation-context-menu="handleViewerAnnotationContextMenu"
@@ -535,6 +536,7 @@ import type {
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startPage';
 import type { IPdfPageMatches } from '@app/types/pdf';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
@@ -729,7 +731,10 @@ const {
     annotationPlacingPageNote,
     annotationSettings,
     annotationComments,
+    annotationCommentsStatus,
     annotationActiveCommentStableKey,
+    applyAnnotationComments,
+    markAnnotationCommentsLoading,
     handleAnnotationToolChange,
     handleAnnotationToolAutoReset,
     handleAnnotationToolCancel,
@@ -1236,7 +1241,19 @@ function handlePdfInitialVisualReady() {
 }
 
 function handlePdfInitialVisualPending() {
+    markAnnotationCommentsLoading();
     resetDocumentOpenVisualSettleWaiter();
+}
+
+function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
+    if (
+        annotationCommentsStatus.value === 'loading'
+        && annotationComments.value.length > 0
+        && comments.length === 0
+    ) {
+        return;
+    }
+    applyAnnotationComments(comments);
 }
 
 function waitForDocumentOpenVisualSettleTimeout() {

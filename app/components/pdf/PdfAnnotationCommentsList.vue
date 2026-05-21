@@ -82,17 +82,29 @@
             </button>
 
             <PdfPanelEmptyState
-                v-if="filteredComments.length === 0"
+                v-if="showEmptyState"
                 icon="i-ph-note"
                 :title="t('annotations.noNotesFound')"
                 :description="t('annotations.noNotesHint')"
             />
+            <div
+                v-else-if="showLoadingState"
+                class="notes-loading-state"
+                aria-hidden="true"
+            >
+                <span />
+                <span />
+                <span />
+            </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    TAnnotationCommentsStatus,
+} from '@app/types/annotations';
 import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import {
     isTextNoteComment,
@@ -104,6 +116,7 @@ import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubt
 
 interface IProps {
     comments: IAnnotationCommentSummary[];
+    status: TAnnotationCommentsStatus;
     activeCommentStableKey?: string | null | undefined;
     authorName?: string | null | undefined;
 }
@@ -114,6 +127,7 @@ const {
     activeCommentStableKey: activeCommentStableKeyProp = undefined,
     authorName: authorNameProp = undefined,
     comments,
+    status,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -142,6 +156,8 @@ const noteComments = computed(() => sortedComments.value.filter(isTextNoteCommen
 const filteredComments = computed(() => {
     return noteComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
 });
+const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
+const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
 
 async function onSearchButtonClick() {
     if (!searchVisible.value) {
@@ -366,6 +382,21 @@ function placeNote() {
     color: inherit;
     border-radius: 0.2rem;
     padding: 0;
+}
+
+.notes-loading-state {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.35rem 0.15rem;
+}
+
+.notes-loading-state span {
+    display: block;
+    height: 4.7rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.45rem;
+    background: color-mix(in srgb, var(--ui-bg-muted) 70%, transparent);
 }
 
 </style>

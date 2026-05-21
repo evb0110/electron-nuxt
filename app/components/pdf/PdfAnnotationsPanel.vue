@@ -18,6 +18,7 @@
 
         <PdfAnnotationCommentsList
             :comments="comments"
+            :status="commentsStatus"
             :active-comment-stable-key="activeCommentStableKey"
             :author-name="appSettings.authorName"
             @focus-comment="focusComment"
@@ -32,6 +33,7 @@
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
+    TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
 import { isAuthoringAnnotationTool } from '@app/composables/pdf/annotations/annotationRules';
@@ -44,6 +46,7 @@ interface IProps {
     keepActive: boolean;
     settings: IAnnotationSettings;
     comments: IAnnotationCommentSummary[];
+    commentsStatus: TAnnotationCommentsStatus;
     currentPage: number;
     activeCommentStableKey?: string | null;
 }
@@ -52,6 +55,7 @@ const { settings: appSettings } = useSettings();
 
 const {
     activeCommentStableKey = undefined,
+    commentsStatus,
     tool,
 } = defineProps<IProps>();
 const showStyleEditor = computed(() => isAuthoringAnnotationTool(tool));
