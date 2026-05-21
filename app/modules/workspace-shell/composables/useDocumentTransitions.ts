@@ -23,6 +23,8 @@ export interface IDocumentTransitionDeps {
     sidebarTab: Ref<TPdfSidebarTab>;
     annotationTool: Ref<TAnnotationTool>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
+    markAnnotationCommentsLoading: () => void;
+    clearAnnotationComments: () => void;
     annotationActiveCommentStableKey: Ref<string | null>;
     annotationEditorState: Ref<IAnnotationEditorState>;
     annotationPlacingPageNote: Ref<boolean>;
@@ -60,6 +62,8 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         sidebarTab,
         annotationTool,
         annotationComments,
+        markAnnotationCommentsLoading,
+        clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationPlacingPageNote,
@@ -113,9 +117,13 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
 
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
+            const isReload = Boolean(oldSrc);
             currentPage.value = 1;
             resetAnnotationTracking();
-            annotationComments.value = [];
+            markAnnotationCommentsLoading();
+            if (!isReload) {
+                clearAnnotationComments();
+            }
             bookmarkItems.value = [];
             bookmarksDirty.value = false;
             bookmarkEditMode.value = false;
@@ -139,7 +147,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             resetSearchCache();
             closeSearch();
             annotationTool.value = 'none';
-            annotationComments.value = [];
+            clearAnnotationComments();
             annotationActiveCommentStableKey.value = null;
             pageLabels.value = null;
             pageLabelRanges.value = [];

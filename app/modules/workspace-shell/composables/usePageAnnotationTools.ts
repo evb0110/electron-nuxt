@@ -5,6 +5,7 @@ import type {
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     IShapeAnnotation,
+    TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
@@ -40,6 +41,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const annotationPlacingPageNote = ref(false);
     const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
     const annotationComments = ref<IAnnotationCommentSummary[]>([]);
+    const annotationCommentsStatus = ref<TAnnotationCommentsStatus>('loading');
     const annotationActiveCommentStableKey = ref<string | null>(null);
     const annotationEditorState = ref<IAnnotationEditorState>({
         isEditing: false,
@@ -189,12 +191,27 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationSavedRevision.value = 0;
     }
 
+    function markAnnotationCommentsLoading() {
+        annotationCommentsStatus.value = 'loading';
+    }
+
+    function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
+        annotationComments.value = comments;
+        annotationCommentsStatus.value = 'ready';
+    }
+
+    function clearAnnotationComments() {
+        annotationComments.value = [];
+        annotationCommentsStatus.value = 'loading';
+    }
+
     return {
         annotationTool,
         annotationKeepActive,
         annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
+        annotationCommentsStatus,
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationRevision,
@@ -209,5 +226,8 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         markAnnotationDirty,
         markAnnotationSaved,
         resetAnnotationTracking,
+        markAnnotationCommentsLoading,
+        applyAnnotationComments,
+        clearAnnotationComments,
     };
 };

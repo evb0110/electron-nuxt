@@ -1,5 +1,7 @@
 export type TAnnotationTool = 'none' | 'select' | 'highlight' | 'underline' | 'strikethrough' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
 
+export type TAnnotationCommentsStatus = 'loading' | 'ready';
+
 export type TMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
 
 export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' | 'polygon';

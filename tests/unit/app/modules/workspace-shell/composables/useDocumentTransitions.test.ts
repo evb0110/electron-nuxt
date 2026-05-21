@@ -26,7 +26,21 @@ function createDeps() {
         showSidebar: ref(false),
         sidebarTab: ref<'annotations' | 'thumbnails' | 'bookmarks' | 'search'>('thumbnails'),
         annotationTool: ref<'none'>('none'),
-        annotationComments: ref([]),
+        annotationComments: ref([{
+            id: 'note-1',
+            stableKey: 'note-1',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'Note',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: null,
+            source: 'pdf' as const,
+        }]),
+        markAnnotationCommentsLoading: vi.fn(),
+        clearAnnotationComments: vi.fn(),
         annotationActiveCommentStableKey: ref<string | null>('note-1'),
         annotationEditorState: ref({
             isEditing: true,
@@ -68,6 +82,21 @@ describe('useDocumentTransitions', () => {
         expect(deps.currentPage.value).toBe(1);
         expect(deps.totalPages.value).toBe(0);
         expect(deps.pdfDocument.value).toBeNull();
+        expect(deps.clearAnnotationComments).toHaveBeenCalledOnce();
+    });
+
+    it('marks annotation comments loading and keeps existing comments during source reload', async () => {
+        const deps = createDeps();
+        const previousComments = deps.annotationComments.value;
+
+        useDocumentTransitions(deps);
+
+        deps.pdfSrc.value = {} as TPdfSource;
+        await nextTick();
+
+        expect(deps.markAnnotationCommentsLoading).toHaveBeenCalledOnce();
+        expect(deps.clearAnnotationComments).not.toHaveBeenCalled();
+        expect(deps.annotationComments.value).toBe(previousComments);
     });
 
     it('refreshes recent files when the open document changes without unloading first', async () => {
