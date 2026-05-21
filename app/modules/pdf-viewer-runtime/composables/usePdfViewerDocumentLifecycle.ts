@@ -438,6 +438,37 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         );
     }
 
+    function schedulePostInitialLoadWork(
+        activeLoadToken: number,
+        documentVersion: number,
+        optionsToSchedule: {
+            computeSkeletonInsets?: boolean;
+            recoverInitialRender?: boolean;
+        } = {},
+    ) {
+        runGuardedTask(
+            async () => {
+                await nextTick();
+                if (!isActiveLoadedDocument(activeLoadToken, documentVersion)) {
+                    return;
+                }
+
+                if (optionsToSchedule.computeSkeletonInsets) {
+                    scheduleSkeletonInsetsCompute(documentVersion);
+                }
+                options.applySearchHighlights();
+                options.commentSync.scheduleAnnotationCommentsSync(true);
+                if (optionsToSchedule.recoverInitialRender) {
+                    scheduleRecoverInitialRender();
+                }
+            },
+            {
+                scope: 'pdf-viewer',
+                message: 'Failed to run deferred PDF load work',
+            },
+        );
+    }
+
     function pinCurrentPageToRestoreTarget(plan: IReloadPlan) {
         options.currentPage.value = Math.min(plan.resolvedPageToRestore, options.numPages.value);
         options.emit('update:currentPage', options.currentPage.value);
@@ -585,24 +616,25 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         settleVisualReloadTransition: (reason: string) => void,
     ) {
         if (plan.shouldPreserveVisibleContent) {
-            options.applySearchHighlights();
-            options.commentSync.scheduleAnnotationCommentsSync(true);
             settleVisualReloadTransition('preserved-load-complete');
             settleDocumentLoad(activeLoadToken);
+            schedulePostInitialLoadWork(activeLoadToken, documentVersion);
             return true;
         }
 
         const visualReloadTransitionHandledByWarmRender = visualReload.token !== null;
+        settleDocumentLoad(activeLoadToken);
         scheduleWarmBufferedRender(
             plan,
             activeLoadToken,
             documentVersion,
             settleVisualReloadTransition,
-            true,
+            false,
         );
-        options.applySearchHighlights();
-        options.commentSync.scheduleAnnotationCommentsSync(true);
-        scheduleRecoverInitialRender();
+        schedulePostInitialLoadWork(activeLoadToken, documentVersion, {
+            computeSkeletonInsets: !plan.isSelectiveReload,
+            recoverInitialRender: true,
+        });
 
         if (!visualReloadTransitionHandledByWarmRender) {
             settleVisualReloadTransition('load-complete');
@@ -726,10 +758,6 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     settleVisualReloadTransition('metric-prime-superseded');
                     return;
                 }
-            }
-
-            if (!plan.isSelectiveReload && !plan.shouldPreserveVisibleContent) {
-                scheduleSkeletonInsetsCompute(loaded.version);
             }
 
             await nextTick();

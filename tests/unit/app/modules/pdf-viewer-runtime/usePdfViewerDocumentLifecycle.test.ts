@@ -512,4 +512,116 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(setupPagePlaceholders).not.toHaveBeenCalled();
         expect(endVisualReloadTransition).toHaveBeenCalledWith(17, 'preserved-load-complete');
     });
+
+    it('settles document loading before deferred warm render and annotation sync', async () => {
+        const callOrder: string[] = [];
+        const currentPage = ref(1);
+        const visibleRange = ref({
+            start: 1,
+            end: 1,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const numPages = ref(12);
+        const renderVisiblePages = vi.fn(async (range: {
+            start: number;
+            end: number;
+        }) => {
+            callOrder.push(`render:${range.start}-${range.end}`);
+        });
+        const applySearchHighlights = vi.fn(() => {
+            callOrder.push('search');
+        });
+        const scheduleAnnotationCommentsSync = vi.fn(() => {
+            callOrder.push('annotation-sync');
+        });
+        const onDocumentLoadStateChange = vi.fn((payload: { phase: 'started' | 'settled' }) => {
+            callOrder.push(`load:${payload.phase}`);
+        });
+
+        const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
+            viewerContainer: ref(cast<HTMLElement>({ querySelector: vi.fn(() => ({})) })),
+            src: computed(() =>
+                new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+            ),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            getRenderVersion: () => 1,
+            loadPdf: vi.fn(async () => {
+                pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
+                return { version: 1 };
+            }),
+            ensurePageMetricsInRange: vi.fn(async () => false),
+            getPage: vi.fn(async () => ({}) as PDFPageProxy),
+            renderVisiblePages,
+            getVisibleRange: () => ({
+                start: 1,
+                end: 3,
+            }),
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {
+                callOrder.push('sync');
+            }),
+            applySearchHighlights,
+            updateVisibleRange: vi.fn(),
+            scrollToPage: vi.fn(),
+            cleanupRenderedPages: vi.fn(),
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders: vi.fn(),
+            computeFitWidthScale: vi.fn(() => true),
+            computeSkeletonInsets: vi.fn(async () => {}),
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync,
+            },
+            editor: {
+                destroyAnnotationEditor: vi.fn(),
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition: vi.fn(),
+            onDocumentLoadStateChange,
+            emit: vi.fn(),
+        });
+
+        scheduleLoadFromSource();
+        await flushLifecycleTasks();
+
+        expect(onDocumentLoadStateChange).toHaveBeenLastCalledWith({
+            token: 1,
+            phase: 'settled',
+        });
+        expect(renderVisiblePages).toHaveBeenCalledWith({
+            start: 1,
+            end: 1,
+        }, { bufferOverride: 0 });
+        expect(renderVisiblePages).toHaveBeenLastCalledWith({
+            start: 1,
+            end: 3,
+        });
+        expect(applySearchHighlights).toHaveBeenCalledOnce();
+        expect(scheduleAnnotationCommentsSync).toHaveBeenCalledWith(true);
+
+        const settleIndex = callOrder.indexOf('load:settled');
+        expect(settleIndex).toBeGreaterThan(callOrder.indexOf('sync'));
+        expect(callOrder.indexOf('render:1-3')).toBeGreaterThan(settleIndex);
+        expect(callOrder.indexOf('search')).toBeGreaterThan(settleIndex);
+        expect(callOrder.indexOf('annotation-sync')).toBeGreaterThan(settleIndex);
+    });
 });

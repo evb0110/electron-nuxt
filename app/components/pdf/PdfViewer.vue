@@ -304,16 +304,7 @@ function handleRenderedPageStateChanged() {
     renderedPageStateVersion.value += 1;
 }
 
-function handlePageCanvasMounted(pageNumber: number) {
-    renderedPageStateVersion.value += 1;
-    delayedSkeleton.markPageRendered(pageNumber);
-    managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
-}
-
-function handlePageRendered(pageNumber: number) {
-    delayedSkeleton.markPageRendered(pageNumber);
-    managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
-
+function markInitialVisualReady(pageNumber: number, source: 'canvas' | 'page-render') {
     if (pendingInitialVisualReadyToken === null) {
         return;
     }
@@ -324,7 +315,21 @@ function handlePageRendered(pageNumber: number) {
     BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
         token,
         pageNumber,
+        source,
     });
+}
+
+function handlePageCanvasMounted(pageNumber: number) {
+    renderedPageStateVersion.value += 1;
+    delayedSkeleton.markPageRendered(pageNumber);
+    managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
+    markInitialVisualReady(pageNumber, 'canvas');
+}
+
+function handlePageRendered(pageNumber: number) {
+    delayedSkeleton.markPageRendered(pageNumber);
+    managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
+    markInitialVisualReady(pageNumber, 'page-render');
 }
 
 const pdfDocumentResult = usePdfDocument();

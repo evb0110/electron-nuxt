@@ -126,7 +126,7 @@
                         :open="pageDropdownOpen"
                         :total-pages="documentMetadataReady ? totalPages : 0"
                         :view-mode="viewMode"
-                        :page-labels="documentMetadataReady ? pageLabels : null"
+                        :page-labels="documentMetadataReady && pageLabelsResolved ? pageLabels : null"
                         :disabled="toolbarControlsDisabled"
                         :compact-level="compactLevel"
                         @go-to-page="handleGoToPage"
@@ -942,7 +942,6 @@ const toolbarDocumentBusy = computed(() => isDocumentBusy.value || isOpeningDocu
 const documentMetadataAvailable = computed(() => (
     toolbarHasPdf.value
     && totalPages.value > 0
-    && pageLabelsResolved.value
 ));
 const documentMetadataReady = computed(() => (
     documentMetadataAvailable.value
@@ -1219,7 +1218,7 @@ function hasSettledDocumentOpenVisualState() {
     return Boolean(
         pdfSrc.value
         && pdfDocument.value
-        && documentMetadataAvailable.value
+        && totalPages.value > 0
         && !isLoading.value
         && initialDocumentVisualReady.value,
     );
