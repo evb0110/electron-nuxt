@@ -13,6 +13,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { groupBy } from 'es-toolkit/array';
 import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';
@@ -44,7 +45,7 @@ interface IUseAnnotationOrchestratorOptions {
     activeCommentStableKey: Ref<string | null>;
     authorName: Ref<string | null | undefined>;
     stopDrag: () => void;
-    scrollToPage: (pageNumber: number) => void;
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     renderVisiblePages: (
         range: {
             start: number;

@@ -281,7 +281,8 @@ function placeNote() {
     cursor: pointer;
     transition:
         background-color 0.12s ease,
-        border-color 0.12s ease;
+        border-color 0.12s ease,
+        box-shadow 0.12s ease;
 }
 
 .note-item:hover {
@@ -290,8 +291,11 @@ function placeNote() {
 }
 
 .note-item.is-active {
-    border-color: var(--ui-border);
-    background: var(--ui-bg);
+    border-color: var(--ui-primary);
+    background: color-mix(in oklab, var(--ui-primary) 10%, var(--ui-bg) 90%);
+    box-shadow:
+        inset 3px 0 0 var(--ui-primary),
+        0 0 0 1px color-mix(in oklab, var(--ui-primary) 35%, transparent);
 }
 
 .note-item-top {

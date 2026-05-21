@@ -15,6 +15,7 @@ import type {
     TPdfSource,
     TZoomMode,
 } from '@app/types/pdf';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer-runtime/reloadZoom';
 
 interface IPageRange {
@@ -105,7 +106,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     }) => Promise<void>;
     applySearchHighlights: () => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean }) => void;
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     cleanupRenderedPages: () => void;
     invalidateScaleCache: () => void;
     resetScale: () => void;
