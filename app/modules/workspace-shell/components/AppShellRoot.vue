@@ -231,6 +231,8 @@ const {
     moveTabToGroup,
 } = useEditorGroupsManager();
 
+ensureAtLeastOneTab();
+
 const { t } = useTypedI18n();
 const {
     settings: appSettings,
@@ -951,7 +953,6 @@ useTabsShellBindings({
     beginOpenPathsInAppropriateTab,
     clearRecentFiles,
     loadRecentFiles,
-    ensureAtLeastOneTab,
     isStartupOpenClaimPending,
     openSettings: openSettingsPage,
     checkForUpdates,
