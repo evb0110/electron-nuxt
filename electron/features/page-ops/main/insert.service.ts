@@ -9,6 +9,7 @@ import {
     join,
 } from 'path';
 import {
+    type ICreatePdfFromInputPathsProgress,
     createPdfFromInputPaths,
     isPdfOrImagePath,
 } from '@electron/image/pdfConversion';
@@ -22,6 +23,7 @@ import {
 } from '@electron/features/page-ops/main/tempOutput';
 import {
     assertNonEmptyPdfOutput,
+    getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
@@ -34,6 +36,7 @@ async function prepareInsertionSourcePdf(
     workingCopyPath: string,
     sourcePaths: TOpenPath[],
     senderWebContentsId?: number,
+    onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
 ) {
     if (sourcePaths.length === 0) {
         throw new Error('At least one source file is required');
@@ -58,7 +61,7 @@ async function prepareInsertionSourcePdf(
     if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
     }
-    const mergedPdf = await createPdfFromInputPaths(sourcePaths);
+    const mergedPdf = await createPdfFromInputPaths(sourcePaths, onProgress ? {onProgress} : undefined);
     const tempSourcePdfPath = join(
         workingCopyPath,
         '..',
@@ -84,20 +87,28 @@ async function prepareInsertionSourcePdf(
 
 export async function insertPagesFromSourcePaths(
     workingCopyPath: string,
-    totalPages: number,
+    expectedTotalPages: number,
     sourcePaths: TOpenPath[],
     afterPage: number,
     senderWebContentsId?: number,
+    onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
 ) {
     if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
         throw new Error('Working copy path is not managed');
+    }
+    const totalPages = await getPdfPageCount(workingCopyPath);
+    if (expectedTotalPages !== totalPages) {
+        throw new Error('Renderer page count is stale');
+    }
+    if (afterPage > totalPages) {
+        throw new Error('Invalid afterPage');
     }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     const {
         sourcePdfPath,
         cleanup,
-    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, senderWebContentsId);
+    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, senderWebContentsId, onProgress);
 
     try {
         const pagesArgs: string[] = [];

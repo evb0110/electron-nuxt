@@ -244,17 +244,7 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
     }
 
     await page.mouse.click(point.x, point.y);
-    try {
-        await waitForActiveAnnotationTool(page, toolId, Math.min(timeoutMs, 4_000));
-    } catch {
-        await page.evaluate((expectedToolId: string) => {
-            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
-            const button = host?.querySelector<HTMLButtonElement>(`.notes-panel .tool-button[data-tool="${expectedToolId}"]`);
-            button?.click();
-        }, toolId);
-        await waitForActiveAnnotationTool(page, toolId, Math.max(4_000, timeoutMs));
-    }
+    await waitForActiveAnnotationTool(page, toolId, timeoutMs);
 }
 
 export async function setAnnotationColor(page: Page, colorHex: string) {
@@ -713,136 +703,6 @@ async function triggerKeyboardFreeTextCreation(page: Page, pageNumber?: number) 
     return true;
 }
 
-/**
- * Programmatic FreeText editor creation via the PDF.js editor layer itself.
- * Headless CI can ignore otherwise-valid synthesized clicks, so this mirrors
- * the direct create path the app already uses for deterministic annotations.
- */
-async function programmaticFreeTextCreation(
-    page: Page,
-    ratio: {
-        x: number;
-        y: number;
-    },
-    pageNumber?: number,
-) {
-    await waitForViewerInteractive(page);
-
-    return page.evaluate(async ({
-        xRatio,
-        yRatio,
-        targetPageNumber,
-    }) => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const pageSelector = targetPageNumber
-            ? `.page_container[data-page="${targetPageNumber}"]`
-            : '.page_container';
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
-        const host = (
-            activeHost
-            && visibleHosts.includes(activeHost)
-            && activeHost.querySelector(pageSelector)
-        )
-            ? activeHost
-            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
-        if (!host) {
-            return false;
-        }
-
-        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
-        const targetLayer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer')
-            ?? null;
-        if (!pageContainer || !targetLayer) {
-            return false;
-        }
-
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {
-            pdfViewerRef?: {value?: {
-                $?: {setupState?: {annotationUiManager?: { value?: unknown; };};};
-                annotationUiManager?: { value?: unknown; };
-            };};
-            annotationUiManager?: { value?: unknown; };
-        };};};};};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
-        const pdfViewerInstance = workspaceSetupState?.pdfViewerRef?.value ?? null;
-        const pdfViewerSetupState = pdfViewerInstance?.$?.setupState ?? null;
-        const uiManager = pdfViewerSetupState?.annotationUiManager?.value
-            ?? pdfViewerInstance?.annotationUiManager?.value
-            ?? workspaceSetupState?.annotationUiManager?.value
-            ?? null;
-        if (!uiManager) {
-            return false;
-        }
-
-        const pageAttribute = Number(pageContainer.dataset.page ?? '1');
-        const resolvedPageNumber = Number.isFinite(pageAttribute) && pageAttribute > 0
-            ? pageAttribute
-            : 1;
-        const resolvedPageIndex = Math.max(0, (targetPageNumber ?? resolvedPageNumber) - 1);
-
-        try {
-            const waitForEditorsRendered = (uiManager as {waitForEditorsRendered?: (target: number) => Promise<void>;}).waitForEditorsRendered;
-            await waitForEditorsRendered?.call(uiManager, resolvedPageIndex + 1);
-        } catch {
-            // Best effort only; some PDF.js builds can reject during transitions.
-        }
-
-        const getLayer = (uiManager as {
-            getLayer?: (pageIndex: number) => unknown;
-            currentLayer?: unknown;
-        }).getLayer;
-        const layer = getLayer?.call(uiManager, resolvedPageIndex)
-            ?? (uiManager as { currentLayer?: unknown }).currentLayer
-            ?? null;
-        const layerEditorAccess: { createAndAddNewEditor?: (event: PointerEvent, isCentered: boolean, data?: unknown) => unknown; } | null = layer;
-        const createAndAddNewEditor = layerEditorAccess?.createAndAddNewEditor;
-        if (typeof createAndAddNewEditor !== 'function') {
-            return false;
-        }
-
-        const rect = targetLayer.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return false;
-        }
-
-        const clientX = Math.round(rect.left + rect.width * xRatio);
-        const clientY = Math.round(rect.top + rect.height * yRatio);
-
-        const createdEditor = createAndAddNewEditor.call(
-            layer,
-            new PointerEvent('pointerdown', {
-                clientX,
-                clientY,
-                button: 0,
-                buttons: 1,
-                bubbles: true,
-                pointerType: 'mouse',
-                isPrimary: true,
-            }),
-            false,
-        );
-
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        return Boolean(createdEditor);
-    }, {
-        xRatio: ratio.x,
-        yRatio: ratio.y,
-        targetPageNumber: pageNumber ?? null,
-    });
-}
-
 export async function createFreeTextAnnotation(page: Page, text: string, position?: {
     x: number;
     y: number;
@@ -876,10 +736,6 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             return 'page';
         }
         return 'keyboard';
-    };
-    const programmaticCreationPoint = async () => {
-        const created = await programmaticFreeTextCreation(page, targetRatio, pageNumber);
-        return created ? 'programmatic' : 'page';
     };
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
@@ -943,7 +799,6 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             clickAnnotationCreationPoint,
             dispatchAnnotationCreationPoint,
             triggerKeyboardCreationPoint,
-            programmaticCreationPoint,
         ]) {
             await strategy();
 

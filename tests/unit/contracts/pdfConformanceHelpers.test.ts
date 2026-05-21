@@ -4,22 +4,15 @@ import {
     it,
 } from 'vitest';
 import {
-    buildPdfSaveRestrictions as buildBrowserPdfSaveRestrictions,
-    createDefaultPdfConformanceProfile as createBrowserDefaultPdfConformanceProfile,
-    detectPdfaLevelFromPdfText as detectBrowserPdfaLevelFromPdfText,
-    hasPdfSignatureMarkersInPdfText as hasBrowserPdfSignatureMarkersInPdfText,
-} from '@app/platform/browser-api/browserPdfConformanceHelpers';
-import {
-    buildPdfSaveRestrictions as buildElectronPdfSaveRestrictions,
-    createDefaultPdfConformanceProfile as createElectronDefaultPdfConformanceProfile,
-    detectPdfaLevelFromPdfText as detectElectronPdfaLevelFromPdfText,
-    hasPdfSignatureMarkersInPdfText as hasElectronPdfSignatureMarkersInPdfText,
-} from '@electron/features/documents/main/pdfConformanceHelpers';
+    buildPdfSaveRestrictions,
+    createDefaultPdfConformanceProfile,
+    detectPdfaLevelFromPdfText,
+    hasPdfSignatureMarkersInPdfText,
+} from '@contracts/pdfConformanceHelpers';
 
 describe('PDF conformance contract helpers', () => {
-    it('keeps browser and Electron default profiles aligned', () => {
-        expect(createBrowserDefaultPdfConformanceProfile()).toEqual(createElectronDefaultPdfConformanceProfile());
-        expect(createElectronDefaultPdfConformanceProfile()).toEqual({
+    it('creates the default conformance profile', () => {
+        expect(createDefaultPdfConformanceProfile()).toEqual({
             isSigned: false,
             isEncrypted: false,
             isTagged: false,
@@ -31,7 +24,7 @@ describe('PDF conformance contract helpers', () => {
         });
     });
 
-    it('keeps browser and Electron save restriction policy aligned', () => {
+    it('builds save restriction policy', () => {
         const restrictedProfile = {
             isSigned: true,
             isEncrypted: true,
@@ -42,9 +35,7 @@ describe('PDF conformance contract helpers', () => {
             canIncrementalSave: false,
         };
 
-        expect(buildBrowserPdfSaveRestrictions(restrictedProfile))
-            .toEqual(buildElectronPdfSaveRestrictions(restrictedProfile));
-        expect(buildElectronPdfSaveRestrictions(restrictedProfile)).toEqual([
+        expect(buildPdfSaveRestrictions(restrictedProfile)).toEqual([
             'signed_original_requires_save_as',
             'encrypted_document_requires_preservation',
             'xfa_forms_are_not_supported_for_rewrite',
@@ -54,16 +45,14 @@ describe('PDF conformance contract helpers', () => {
         ]);
     });
 
-    it('keeps browser and Electron PDF marker detection aligned', () => {
+    it('detects PDF/A and signature markers', () => {
         const pdfaText = `
             <pdfaid:part>2</pdfaid:part>
             <pdfaid:conformance>b</pdfaid:conformance>
             /ByteRange [0 10 20 30]
         `;
 
-        expect(detectBrowserPdfaLevelFromPdfText(pdfaText))
-            .toBe(detectElectronPdfaLevelFromPdfText(pdfaText));
-        expect(hasBrowserPdfSignatureMarkersInPdfText(pdfaText))
-            .toBe(hasElectronPdfSignatureMarkersInPdfText(pdfaText));
+        expect(detectPdfaLevelFromPdfText(pdfaText)).toBe('PDF/A-2B');
+        expect(hasPdfSignatureMarkersInPdfText(pdfaText)).toBe(true);
     });
 });

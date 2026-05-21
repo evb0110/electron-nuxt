@@ -7,6 +7,13 @@ import {
 } from 'vitest';
 
 type TRegisteredHandler = (...args: unknown[]) => unknown;
+type TProgressCallback = (progress: {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}) => void;
 
 interface IDeferred<T> {
     promise: Promise<T>;
@@ -40,6 +47,7 @@ const mocks = vi.hoisted(() => ({
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
     deletePages: vi.fn(),
     extractPages: vi.fn(),
+    getPdfPageCount: vi.fn(),
     reorderPages: vi.fn(),
     rotatePages: vi.fn(),
     cropPages: vi.fn(),
@@ -101,6 +109,7 @@ vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     assertNonEmptyPdfOutput: vi.fn(),
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
+    getPdfPageCount: (...args: unknown[]) => mocks.getPdfPageCount(...args),
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
     runQpdfCommand: (...args: unknown[]) => mocks.runCommand(...args),
     rotatePages: (...args: unknown[]) => mocks.rotatePages(...args),
@@ -176,6 +185,7 @@ describe('registerPageOpsHandlers', () => {
 
         mocks.deletePages.mockResolvedValue({pageCount: 1});
         mocks.extractPages.mockResolvedValue(undefined);
+        mocks.getPdfPageCount.mockResolvedValue(3);
         mocks.reorderPages.mockResolvedValue({pageCount: 1});
         mocks.rotatePages.mockResolvedValue(undefined);
         mocks.cropPages.mockResolvedValue(undefined);
@@ -482,6 +492,46 @@ describe('registerPageOpsHandlers', () => {
             expect.stringMatching(/^\/tmp\/pdf-work-1\/tmp-.+\.pdf$/),
             '/tmp/pdf-work-1/work.pdf',
         );
+    });
+
+    it('emits insert-file batch progress with the supplied request id', async () => {
+        mocks.createPdfFromInputPaths.mockImplementation(async (
+            _paths: string[],
+            options?: { onProgress?: TProgressCallback },
+        ) => {
+            options?.onProgress?.({
+                processed: 1,
+                total: 2,
+                percent: 50,
+                elapsedMs: 25,
+                estimatedRemainingMs: 25,
+            });
+            return new Uint8Array([
+                1,
+                2,
+                3,
+            ]);
+        });
+        const sender = {
+            id: 1,
+            send: vi.fn(),
+        };
+
+        const handler = getHandler('page-ops:insert-file');
+
+        await expect(handler({sender}, '/tmp/pdf-work-1/work.pdf', 3, 1, [
+            '/tmp/source-a.png',
+            '/tmp/source-b.png',
+        ], 'insert-request-1')).resolves.toEqual({success: true});
+
+        expect(sender.send).toHaveBeenCalledWith('dialog:openPdfDirectBatch:progress', {
+            requestId: 'insert-request-1',
+            processed: 1,
+            total: 2,
+            percent: 50,
+            elapsedMs: 25,
+            estimatedRemainingMs: 25,
+        });
     });
 
     it('removes stale OCR artifacts after mutating the working copy', async () => {

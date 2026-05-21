@@ -176,6 +176,13 @@ async function isNuxtRunning(): Promise<boolean> {
     }
 }
 
+async function isReusableNuxtServerReady(): Promise<boolean> {
+    if (!await isNuxtRunning()) {
+        return false;
+    }
+    return isReusableNuxtServer();
+}
+
 async function isReusableNuxtServer(): Promise<boolean> {
     try {
         const res = await fetch(`http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`, {
@@ -532,7 +539,7 @@ async function prepareNuxtServerStart(forceClean: boolean, logTiming: (message: 
     await cleanupOrphanedProjectNuxtRoots('before reuse check');
     logTiming('Nuxt orphan cleanup complete');
 
-    if (!forceClean && await isReusableNuxtServer()) {
+    if (!forceClean && await isReusableNuxtServerReady()) {
         console.log(`[Nuxt] Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);
         logTiming('Nuxt existing dev server reused');
         return false;
@@ -650,7 +657,11 @@ async function maybeReuseUnrelatedNuxtServer(attempt: INuxtStartupAttempt) {
         return false;
     }
 
-    console.log(`[Nuxt] Port ${getNuxtPort()} is already served by unrelated process(es): ${pidsOnPort.join(', ')}. Reusing existing server.`);
+    if (!await isReusableNuxtServerReady()) {
+        return false;
+    }
+
+    console.log(`[Nuxt] Port ${getNuxtPort()} is already served by unrelated reusable Nuxt process(es): ${pidsOnPort.join(', ')}. Reusing existing server.`);
     if (isProcessAlive(nuxtPid)) {
         await killProcessTree(nuxtPid, 800);
     }
@@ -703,8 +714,8 @@ async function waitForNuxtStartupAttempt(
             };
         }
 
-        if (serverUp && elapsedMs > 15_000) {
-            console.log('[Nuxt] Server responded without full build markers; proceeding with existing readiness signal.');
+        if (serverUp && elapsedMs > 15_000 && await isReusableNuxtServer()) {
+            console.log('[Nuxt] Reusable server responded without full build markers; proceeding with existing readiness signal.');
             logTiming('Nuxt server ready from HTTP fallback');
             return {
                 kind: 'ready',

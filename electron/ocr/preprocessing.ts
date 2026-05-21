@@ -10,6 +10,10 @@ import { createLogger } from '@electron/utils/logger';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
 import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
+import {
+    createDetachedChildProcessSpawnOptions,
+    terminateDetachedChildProcess,
+} from '@electron/utils/nativeChildProcess';
 
 const log = createLogger('preprocessing');
 
@@ -66,12 +70,22 @@ function formatTruncatedOutput(text: string, truncated: boolean, maxBytes: numbe
         : text;
 }
 
-function killPreprocessingProcess(proc: ReturnType<typeof spawn>, signal: NodeJS.Signals) {
-    try {
-        proc.kill(signal);
-    } catch {
-        // Process may have exited already.
-    }
+function spawnPreprocessingProcess(binary: string, args: string[], stdio: 'ignore' | 'pipe') {
+    return spawn(binary, args, createDetachedChildProcessSpawnOptions({
+        shell: false,
+        windowsHide: true,
+        stdio: stdio === 'ignore'
+            ? 'ignore'
+            : [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+    }));
+}
+
+function terminatePreprocessingProcess(proc: ReturnType<typeof spawn>) {
+    return terminateDetachedChildProcess(proc, PREPROCESS_KILL_GRACE_MS);
 }
 
 function getPreprocessingBinaries(): IPreprocessingBinaries {
@@ -102,11 +116,7 @@ async function isBinaryRunnable(binaryPath: string): Promise<boolean> {
     }
 
     return new Promise((resolve) => {
-        const proc = spawn(binaryPath, ['--version'], {
-            shell: false,
-            windowsHide: true,
-            stdio: 'ignore',
-        });
+        const proc = spawnPreprocessingProcess(binaryPath, ['--version'], 'ignore');
 
         let settled = false;
         const finalize = (value: boolean) => {
@@ -119,8 +129,7 @@ async function isBinaryRunnable(binaryPath: string): Promise<boolean> {
         };
 
         const timeoutHandle = setTimeout(() => {
-            killPreprocessingProcess(proc, 'SIGKILL');
-            finalize(false);
+            void terminatePreprocessingProcess(proc).finally(() => finalize(false));
         }, PREPROCESS_VERSION_PROBE_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
@@ -180,7 +189,7 @@ async function runPreprocessing(
     }
 
     return new Promise((resolve) => {
-        const proc = spawn(options.binary, options.args);
+        const proc = spawnPreprocessingProcess(options.binary, options.args, 'pipe');
 
         let stdout = '';
         let stderr = '';
@@ -188,18 +197,13 @@ async function runPreprocessing(
         let stdoutTruncated = false;
         let stderrTruncated = false;
         let settled = false;
-        let killHandle: NodeJS.Timeout | null = null;
         let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
         const timeout = options.timeout || 60000; // 60 seconds default
         const timeoutHandle = setTimeout(() => {
             timedOut = true;
             log.debug('Process timeout');
-            killPreprocessingProcess(proc, 'SIGTERM');
-            killHandle = setTimeout(() => {
-                killPreprocessingProcess(proc, 'SIGKILL');
-            }, PREPROCESS_KILL_GRACE_MS);
-            killHandle.unref?.();
+            void terminatePreprocessingProcess(proc);
 
             forceFinalizeHandle = setTimeout(() => {
                 finalize({
@@ -219,10 +223,6 @@ async function runPreprocessing(
 
             settled = true;
             clearTimeout(timeoutHandle);
-            if (killHandle) {
-                clearTimeout(killHandle);
-                killHandle = null;
-            }
             if (forceFinalizeHandle) {
                 clearTimeout(forceFinalizeHandle);
                 forceFinalizeHandle = null;
@@ -237,11 +237,12 @@ async function runPreprocessing(
             ? () => {
                 const abortError = new Error('Preprocessing aborted');
                 timedOut = false;
-                killPreprocessingProcess(proc, 'SIGTERM');
-                killHandle = setTimeout(() => {
-                    killPreprocessingProcess(proc, 'SIGKILL');
-                }, PREPROCESS_KILL_GRACE_MS);
-                killHandle.unref?.();
+                void terminatePreprocessingProcess(proc).finally(() => {
+                    finalize({
+                        success: false,
+                        error: abortError.message,
+                    });
+                });
 
                 forceFinalizeHandle = setTimeout(() => {
                     finalize({
@@ -256,13 +257,13 @@ async function runPreprocessing(
             options.signal.addEventListener('abort', abortHandler, { once: true });
         }
 
-        proc.stdout.on('data', (data: Buffer) => {
+        proc.stdout?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stdout, data, PREPROCESS_MAX_STDOUT_BYTES);
             stdout = appended.text;
             stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
-        proc.stderr.on('data', (data: Buffer) => {
+        proc.stderr?.on('data', (data: Buffer) => {
             const msg = data.toString();
             const appended = appendTextChunkWithByteCap(stderr, data, PREPROCESS_MAX_STDERR_BYTES);
             stderr = appended.text;

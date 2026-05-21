@@ -2,13 +2,12 @@ import type {
     IPdfConformanceProfile,
     TPdfConformanceProfileBase,
     TPdfaLevel,
-} from '@contracts/pdfConformance';
+} from './pdfConformance';
 
 const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
 const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
 const PDF_SIGNATURE_PATTERN = /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u;
 
-// fallow-ignore-next-line duplicate-exports
 export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     const partMatch = text.match(PDFA_PART_PATTERN);
     if (!partMatch?.[1]) {
@@ -20,12 +19,10 @@ export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     return `PDF/A-${partMatch[1].trim()}${conformance}`;
 }
 
-// fallow-ignore-next-line duplicate-exports
 export function hasPdfSignatureMarkersInPdfText(text: string): boolean {
     return PDF_SIGNATURE_PATTERN.test(text);
 }
 
-// fallow-ignore-next-line duplicate-exports
 export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
     return {
         isSigned: false,
@@ -39,7 +36,6 @@ export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
     };
 }
 
-// fallow-ignore-next-line duplicate-exports
 export function buildPdfSaveRestrictions(profile: TPdfConformanceProfileBase) {
     const restrictions: string[] = [];
 

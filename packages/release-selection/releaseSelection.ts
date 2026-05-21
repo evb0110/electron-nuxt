@@ -191,11 +191,11 @@ export function parsePlatformHint(hint: string | null | undefined): TReleasePlat
 export function parseArchitectureHint(hint: string | null | undefined): TReleaseArch {
     const normalizedHint = (hint ?? '').toLowerCase();
 
-    if (normalizedHint.includes('arm64') || normalizedHint.includes('aarch64')) {
+    if (/(^|[^a-z0-9])(arm64|aarch64|arm)([^a-z0-9]|$)/.test(normalizedHint)) {
         return 'arm64';
     }
 
-    if (normalizedHint.includes('x86_64') || normalizedHint.includes('x64') || normalizedHint.includes('amd64')) {
+    if (/(^|[^a-z0-9])(x86_64|x86-64|x64|amd64|x86)([^a-z0-9]|$)/.test(normalizedHint)) {
         return 'x64';
     }
 

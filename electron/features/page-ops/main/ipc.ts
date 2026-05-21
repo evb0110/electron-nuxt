@@ -22,6 +22,7 @@ import {
 import {
     deletePages,
     extractPages,
+    getPdfPageCount,
     reorderPages,
     rotatePages,
 } from '@electron/features/page-ops/main/qpdf';
@@ -44,6 +45,21 @@ import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
 } from '@electron/ipc/workingCopyMutationQueue';
+import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
+
+type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
+const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
+
+function sendOpenBatchProgress(
+    event: Electron.IpcMainInvokeEvent,
+    payload: TOpenBatchProgressPayload,
+) {
+    try {
+        event.sender.send(OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL, payload);
+    } catch {
+        // Progress is best effort; the page operation result remains authoritative.
+    }
+}
 
 async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: number): Promise<string> {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
@@ -124,13 +140,17 @@ async function handlePageOpsDelete(
     if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
     }
-    validatePageNumbers(pages, 'deletePages', {
-        totalPages,
-        requireUnique: true,
-    });
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
+        if (mainTotalPages !== totalPages) {
+            throw new Error('Renderer page count is stale');
+        }
+        validatePageNumbers(pages, 'deletePages', {
+            totalPages: mainTotalPages,
+            requireUnique: true,
+        });
         const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -292,7 +312,7 @@ async function handlePageOpsInsertFile(
     totalPages: number,
     afterPage: number,
     sourcePaths: string[],
-    _requestId?: string,
+    requestId?: string,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
     const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath, event.sender?.id);
@@ -301,6 +321,7 @@ async function handlePageOpsInsertFile(
     }
     const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
         .map(path => requireOpenPath(path, event.sender));
+    const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
@@ -310,6 +331,12 @@ async function handlePageOpsInsertFile(
             trustedSourcePaths,
             insertArgs.afterPage,
             event.sender?.id,
+            normalizedRequestId
+                ? progress => sendOpenBatchProgress(event, {
+                    requestId: normalizedRequestId,
+                    ...progress,
+                })
+                : undefined,
         );
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });

@@ -75,7 +75,7 @@ describe('serializedPdfPersistence', () => {
         });
     });
 
-    it('prepares the Save As working copy before replacing the selected target', async () => {
+    it('updates the Save As working copy after replacing the selected target', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
         const tempPath = `${targetPath}.tmp`;
@@ -108,6 +108,31 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, 42);
         expect(mocks.addRecentFile).toHaveBeenCalledWith(targetPath);
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
+    });
+
+    it('preserves the Save As working copy when target replacement fails', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        mocks.atomicReplace.mockRejectedValueOnce(new Error('replace failed'));
+
+        const result = await runSaveAsSession({
+            workingPath,
+            targetPath,
+            bytes: Buffer.from('new-pdf'),
+        });
+
+        expect(result).toMatchObject({
+            type: 'error',
+            error: 'replace failed',
+        });
+        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
+        expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+        expect(mocks.addRecentFile).not.toHaveBeenCalled();
+        expect(mocks.updateRecentFilesMenu).not.toHaveBeenCalled();
     });
 
     it('rejects Save As before opening a temp stream when the sender does not own the working copy', async () => {

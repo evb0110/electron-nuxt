@@ -5,16 +5,16 @@ import type {
 } from '@contracts/platformApi';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
-    createPdfjsDocumentInit,
-    getPdfjsLib,
-} from '@app/platform/browser-api/browserPdfjsDocumentInit';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import {
     buildPdfSaveRestrictions,
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from './browserPdfConformanceHelpers';
+} from '@contracts/pdfConformanceHelpers';
+import {
+    createPdfjsDocumentInit,
+    getPdfjsLib,
+} from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;

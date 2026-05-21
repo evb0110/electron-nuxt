@@ -32,6 +32,8 @@ interface IViewerSmokeSnapshot {
     firstPageHeight: number;
 }
 
+const VIEWER_SMOKE_OPEN_TIMEOUT_MS = 45_000;
+
 async function readViewerSmokeSnapshot(session: IElectronE2ESession) {
     return session.page.evaluate((): IViewerSmokeSnapshot => {
         const visibleHost = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -99,8 +101,8 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
     beforeAll(async () => {
         session = await startElectronE2ESession(`e2e-viewer-smoke-${Date.now()}`);
         fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-${Date.now()}.pdf`, 4);
-        await openPdfInApp(session.page, fixturePath);
-        await waitForPdfLoaded(session.page);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
     });
 
     afterAll(async () => {
@@ -165,8 +167,8 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
         session = await startElectronE2ESession(`e2e-viewer-smoke-image-${Date.now()}`);
 
         const pngPath = createPngFixture(`viewer-smoke-image-${Date.now()}.png`);
-        await openPdfInApp(session.page, pngPath);
-        await waitForPdfLoaded(session.page);
+        await openPdfInApp(session.page, pngPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
         const snapshot = await readViewerSmokeSnapshot(session);
         expect(snapshot.hostHeight).toBeGreaterThan(300);

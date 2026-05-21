@@ -105,7 +105,17 @@ async function runRecognitionJobs(
 ) {
     const scheduler = createScheduler();
     const languages = normalizeLanguageCodes(pages.flatMap(page => page.languages));
-    const workers = await Promise.all(Array.from({ length: workerCount }, async () => createOcrWorker(languages)));
+    const workers = [];
+    try {
+        for (let workerIndex = 0; workerIndex < workerCount; workerIndex += 1) {
+            workers.push(await createOcrWorker(languages));
+        }
+    } catch (error) {
+        await Promise.allSettled(workers.map(worker => worker.terminate()));
+        await scheduler.terminate();
+        throw error;
+    }
+
     for (const worker of workers) {
         scheduler.addWorker(worker);
     }

@@ -37,37 +37,16 @@ export async function installOpenExternalSpy(page: Page) {
             electronAPI?: {shell?: {openExternal?: (url: string) => Promise<unknown>;};};
             __e2eOpenExternalCalls?: string[];
             __e2eOriginalOpenExternal?: (url: string) => Promise<unknown>;
-            __e2eLinkOverlayClickSpyInstalled?: boolean;
         }).electronAPI;
 
         const root = window as Window & {
             __e2eOpenExternalCalls?: string[];
             __e2eOriginalOpenExternal?: (url: string) => Promise<unknown>;
-            __e2eLinkOverlayClickSpyInstalled?: boolean;
         };
         root.__e2eOpenExternalCalls = [];
-        const installLinkClickFallback = () => {
-            if (root.__e2eLinkOverlayClickSpyInstalled) {
-                return true;
-            }
-
-            document.addEventListener('click', (event: Event) => {
-                const target = event.target as HTMLElement | null;
-                const link = target?.closest<HTMLAnchorElement>('.pdf-link-overlay-layer .pdf-link-overlay');
-                const href = link?.getAttribute('href');
-                if (href) {
-                    root.__e2eOpenExternalCalls?.push(String(href));
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    event.stopPropagation();
-                }
-            }, true);
-            root.__e2eLinkOverlayClickSpyInstalled = true;
-            return true;
-        };
 
         if (!electronApi?.shell || typeof electronApi.shell.openExternal !== 'function') {
-            return installLinkClickFallback();
+            throw new Error('electronAPI.shell.openExternal is not available');
         }
 
         const descriptor = Object.getOwnPropertyDescriptor(electronApi.shell, 'openExternal');
@@ -85,12 +64,12 @@ export async function installOpenExternalSpy(page: Page) {
             return true;
         }
 
-        return installLinkClickFallback();
+        throw new Error('electronAPI.shell.openExternal cannot be spied on');
     });
 }
 
 export async function clickFirstLinkOverlay(page: Page) {
-    const clicked = await page.evaluate(() => {
+    const point = await page.evaluate(() => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter((candidate) => {
                 const rect = candidate.getBoundingClientRect();
@@ -132,25 +111,19 @@ export async function clickFirstLinkOverlay(page: Page) {
             }
 
             const rect = overlay.getBoundingClientRect();
-            overlay.dispatchEvent(new PointerEvent('pointerdown', {
-                bubbles: true,
-                composed: true,
-                clientX: rect.left + (rect.width / 2),
-                clientY: rect.top + (rect.height / 2),
-                pointerId: 1,
-                pointerType: 'mouse',
-                button: 0,
-                buttons: 1,
-            }));
-            overlay.click();
-            return true;
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
         }
 
-        return false;
+        return null;
     });
-    if (!clicked) {
+    if (!point) {
         throw new Error('No visible link overlay found');
     }
+
+    await page.mouse.click(point.x, point.y);
 }
 
 export async function readOpenExternalCalls(page: Page) {

@@ -71,6 +71,11 @@ describe('page-ops insert service', () => {
         try {
             await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
             await writeFile(sourcePath, '%PDF-1.7\nsource');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '2\n',
+                stderr: '',
+            });
             runNativeToolCommandMock.mockImplementationOnce(async (
                 _qpdf,
                 args: string[],
@@ -113,6 +118,11 @@ describe('page-ops insert service', () => {
         try {
             await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
             await writeFile(sourcePath, '%PDF-1.7\nsource');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '2\n',
+                stderr: '',
+            });
             runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
                 const qpdfArgs = await readQpdfArgFile(args);
                 expect(qpdfArgs.at(-1)).toBe(tempOutputPath);
@@ -131,6 +141,35 @@ describe('page-ops insert service', () => {
 
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('rejects stale renderer page counts before building insertion ranges', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-insert-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const sourcePath = join(workDir, 'source.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
+            await writeFile(sourcePath, '%PDF-1.7\nsource');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '4\n',
+                stderr: '',
+            });
+
+            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insert.service');
+
+            await expect(insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1))
+                .rejects.toThrow('Renderer page count is stale');
+
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(1);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
         } finally {
             await rm(workDir, {
                 recursive: true,

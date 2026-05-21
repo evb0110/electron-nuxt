@@ -204,4 +204,30 @@ describe('page-ops qpdf working-copy mutations', () => {
             });
         }
     });
+
+    it('uses qpdf page count instead of trusting stale renderer totals for delete ranges', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '4\n',
+                stderr: '',
+            });
+
+            const { deletePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(deletePages(workingCopyPath, [2], 3, 12))
+                .rejects.toThrow('Renderer page count is stale');
+
+            expect(runNativeToolCommandMock).toHaveBeenCalledTimes(1);
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
 });

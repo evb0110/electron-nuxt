@@ -61,109 +61,6 @@ function describeError(error: unknown) {
     return String(error);
 }
 
-interface IWorkspaceHistorySnapshot {
-    canUndo?: boolean;
-    canRedo?: boolean;
-}
-
-interface IWorkspaceHistoryController {
-    handleUndo?: () => void;
-    handleRedo?: () => void;
-    getToolbarSnapshot?: () => IWorkspaceHistorySnapshot;
-}
-
-async function triggerHistoryShortcut(page: Page, ariaLabel: string) {
-    const isMac = process.platform === 'darwin';
-    if (ariaLabel === 'Undo') {
-        const modifier = isMac ? 'Meta' : 'Control';
-        await page.keyboard.down(modifier);
-        await page.keyboard.press('Z');
-        await page.keyboard.up(modifier);
-        return true;
-    }
-
-    if (ariaLabel === 'Redo') {
-        if (isMac) {
-            await page.keyboard.down('Meta');
-            await page.keyboard.down('Shift');
-            await page.keyboard.press('Z');
-            await page.keyboard.up('Shift');
-            await page.keyboard.up('Meta');
-            return true;
-        }
-
-        await page.keyboard.down('Control');
-        await page.keyboard.press('Y');
-        await page.keyboard.up('Control');
-        return true;
-    }
-
-    return false;
-}
-
-async function triggerWorkspaceHistoryAction(page: Page, ariaLabel: string) {
-    if (ariaLabel !== 'Undo' && ariaLabel !== 'Redo') {
-        return false;
-    }
-
-    return page.evaluate((label: string) => {
-        let workspace: IWorkspaceHistoryController | null = null;
-
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as HTMLElement & {__vueParentComponent?: {
-                exposed?: unknown;
-                setupState?: {
-                    workspaceRef?: {value?: unknown;};
-                    mountedWorkspace?: {value?: unknown;};
-                };
-            };}).__vueParentComponent;
-            const candidates = [
-                component?.exposed,
-                component?.setupState?.mountedWorkspace?.value,
-                component?.setupState?.workspaceRef?.value,
-            ];
-
-            for (const candidate of candidates) {
-                if (!candidate || typeof candidate !== 'object') {
-                    continue;
-                }
-                const resolvedWorkspace = candidate as IWorkspaceHistoryController;
-                if (
-                    typeof resolvedWorkspace.handleUndo === 'function'
-                    || typeof resolvedWorkspace.handleRedo === 'function'
-                ) {
-                    workspace = resolvedWorkspace;
-                    break;
-                }
-            }
-
-            if (workspace) {
-                break;
-            }
-        }
-
-        if (!workspace) {
-            return false;
-        }
-
-        const snapshot = workspace.getToolbarSnapshot?.() ?? null;
-        if (label === 'Undo' && snapshot && snapshot.canUndo === false) {
-            return false;
-        }
-        if (label === 'Redo' && snapshot && snapshot.canRedo === false) {
-            return false;
-        }
-
-        if (label === 'Undo') {
-            workspace.handleUndo?.();
-            return true;
-        }
-
-        workspace.handleRedo?.();
-        return true;
-    }, ariaLabel);
-}
-
 async function runWithExecutionContextRetry<T>(
     page: Page,
     task: () => Promise<T>,
@@ -225,26 +122,30 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
 
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await runWithExecutionContextRetry(page, async () => {
-        await waitForActiveWorkspaceHost(page, timeoutMs);
-
         await waitForFunctionInPage(page, () => {
-            const isVisibleHost = (element: HTMLElement) => {
+            const isElementVisible = (element: HTMLElement | null) => {
+                if (!element?.isConnected) {
+                    return false;
+                }
+
+                let current: HTMLElement | null = element;
+                while (current) {
+                    const style = window.getComputedStyle(current);
+                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+                        return false;
+                    }
+                    current = current.parentElement;
+                }
+
                 const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+                return rect.width > 100 && rect.height > 100;
             };
-
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisibleHost);
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-            const host = (activeHost && visibleHosts.includes(activeHost))
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            if (!host) {
-                return false;
-            }
-
-            const viewer = host.querySelector('#pdf-viewer');
+            const viewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
+            const visibleViewers = viewers.filter(isElementVisible);
+            const activeViewer = document.querySelector<HTMLElement>('.editor-group-pane.is-active #pdf-viewer');
+            const viewer = (activeViewer && visibleViewers.includes(activeViewer))
+                ? activeViewer
+                : (visibleViewers.length === 1 ? visibleViewers[0] : null);
             if (!viewer) {
                 return false;
             }
@@ -254,8 +155,32 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
                 return false;
             }
 
-            const renderedContentCount = viewer.querySelectorAll('.page_canvas canvas, .text-layer span, .textLayer span').length;
-            return renderedContentCount > 0;
+            const visibleRenderedPageCount = Array.from(pages)
+                .filter(pageElement => pageElement.classList.contains('page_container--rendered'))
+                .filter((pageElement) => {
+                    const rect = pageElement.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                })
+                .length;
+            if (visibleRenderedPageCount === 0) {
+                return false;
+            }
+
+            const blockingState = viewer.querySelector([
+                '.pdf-loading',
+                '.pdf-loading-overlay',
+                '.pdf-error',
+                '.viewer-error',
+                '[data-loading="true"]',
+                '[data-error="true"]',
+            ].join(','));
+            if (blockingState) {
+                return false;
+            }
+
+            const renderedCanvasCount = viewer.querySelectorAll('.page_container .page_canvas canvas').length;
+            const renderedTextSpanCount = viewer.querySelectorAll('.page_container .text-layer span, .page_container .textLayer span').length;
+            return renderedCanvasCount + renderedTextSpanCount > 0;
         }, {timeout: timeoutMs});
 
         await waitForViewerInteractive(page, timeoutMs);
@@ -301,6 +226,7 @@ async function openPathInApp(
 ) {
     const startedAt = Date.now();
     let lastError: Error | null = null;
+    let openTriggered = false;
 
     while (Date.now() - startedAt < timeoutMs) {
         const remainingMs = Math.max(1_000, timeoutMs - (Date.now() - startedAt));
@@ -308,33 +234,36 @@ async function openPathInApp(
         try {
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
 
-            const openResult = await runWithExecutionContextRetry(page, async () => {
-                return evaluateInPage(page, async (path: string) => {
-                    const automationGrant = (window as Window & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
-                    if (typeof automationGrant === 'function') {
-                        await automationGrant(path);
-                    }
+            if (!openTriggered) {
+                const openResult = await runWithExecutionContextRetry(page, async () => {
+                    return evaluateInPage(page, async (path: string) => {
+                        const automationGrant = (window as Window & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                        if (typeof automationGrant === 'function') {
+                            await automationGrant(path);
+                        }
 
-                    const documents = (window as Window & IAutomationFileOpenGrantApi).electronAPI?.documents;
-                    try {
-                        await documents?.recentFiles?.add?.(path);
-                    } catch {
-                        // Direct-open also exists in browser-like automation contexts where recent files are unavailable.
-                    }
+                        const documents = (window as Window & IAutomationFileOpenGrantApi).electronAPI?.documents;
+                        try {
+                            await documents?.recentFiles?.add?.(path);
+                        } catch {
+                            // Direct-open also exists in browser-like automation contexts where recent files are unavailable.
+                        }
 
-                    const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
-                    if (typeof openFileDirect !== 'function') {
-                        return false;
-                    }
-                    await openFileDirect(path);
-                    return true;
-                }, path);
-            });
+                        const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
+                        if (typeof openFileDirect !== 'function') {
+                            return false;
+                        }
+                        return openFileDirect(path);
+                    }, path);
+                });
 
-            if (!openResult) {
-                lastError = new Error('window.__openFileDirect is not available');
-                await delay(250);
-                continue;
+                if (!openResult) {
+                    lastError = new Error('window.__openFileDirect is not available');
+                    await delay(250);
+                    continue;
+                }
+
+                openTriggered = true;
             }
 
             await waitForLoaded(page, remainingMs);
@@ -676,14 +605,6 @@ export async function clickToolbarButtonWhenEnabled(
         }
     }
 
-    if (await triggerWorkspaceHistoryAction(page, ariaLabel)) {
-        return;
-    }
-
-    if (await triggerHistoryShortcut(page, ariaLabel)) {
-        return;
-    }
-
     const elapsedMs = Date.now() - startedAt;
     const detail = lastError ? ` Last error: ${lastError.message}` : '';
     throw new Error(`Toolbar action '${ariaLabel}' did not become clickable in ${elapsedMs}ms.${detail}`);
@@ -722,45 +643,7 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     });
 
     if (!hasSidebar) {
-        const toggledViaWorkspace = await page.evaluate(() => {
-            const isVisibleHost = (element: HTMLElement) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-            };
-
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-            const host = (activeHost && isVisibleHost(activeHost))
-                ? activeHost
-                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                    .find(isVisibleHost);
-            const component = (host as (HTMLElement & {__vueParentComponent?: {
-                exposed?: unknown;
-                setupState?: {
-                    mountedWorkspace?: { value?: unknown; };
-                    workspaceRef?: { value?: unknown; };
-                };
-            };}) | null)?.__vueParentComponent;
-            const candidates = [
-                component?.exposed,
-                component?.setupState?.mountedWorkspace?.value,
-                component?.setupState?.workspaceRef?.value,
-            ];
-            for (const candidate of candidates) {
-                if (!candidate || typeof candidate !== 'object') {
-                    continue;
-                }
-                const workspace = candidate as { handleToggleSidebar?: () => void; };
-                if (typeof workspace.handleToggleSidebar === 'function') {
-                    workspace.handleToggleSidebar();
-                    return true;
-                }
-            }
-            return false;
-        });
-        if (!toggledViaWorkspace) {
-            await clickVisibleToolbarButton(page, 'Toggle Sidebar');
-        }
+        await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar', timeoutMs);
     }
 
     await page.waitForFunction(() => {

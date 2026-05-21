@@ -230,7 +230,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
-        await openDocumentInAppropriateTab(path);
+        return openDocumentInAppropriateTab(path);
     }
 
     async function openPathsInAppropriateTab(paths: TDocumentRef[]) {

@@ -1,9 +1,9 @@
 import {
+    BrowserWindow,
     globalShortcut,
     screen,
 } from 'electron';
 import type {
-    BrowserWindow,
     Event,
     Input,
     Rectangle,
@@ -32,7 +32,7 @@ interface IZenWindowPlacement {
 
 const zenWindowPlacementByWindow = new WeakMap<BrowserWindow, IZenWindowPlacement>();
 const zenExitInProgressByWindow = new WeakSet<BrowserWindow>();
-let zenEscapeShortcutWindow: BrowserWindow | null = null;
+const zenEscapeShortcutWindows = new Set<BrowserWindow>();
 let zenEscapeShortcutRegistered = false;
 
 function resolvePlatform(): THostPlatform {
@@ -101,13 +101,17 @@ function focusZenWindowContents(window: BrowserWindow) {
 }
 
 function handleZenEscapeShortcut() {
-    const window = zenEscapeShortcutWindow;
-    if (!window || window.isDestroyed() || !isWindowInHostZenMode(window)) {
-        unregisterZenEscapeShortcut(window);
-        return;
+    for (const window of zenEscapeShortcutWindows) {
+        if (window.isDestroyed() || !isWindowInHostZenMode(window)) {
+            unregisterZenEscapeShortcut(window);
+        }
     }
 
-    if (!window.isFocused()) {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    const window = focusedWindow && zenEscapeShortcutWindows.has(focusedWindow)
+        ? focusedWindow
+        : null;
+    if (!window || window.isDestroyed() || !isWindowInHostZenMode(window) || !window.isFocused()) {
         return;
     }
 
@@ -117,7 +121,7 @@ function handleZenEscapeShortcut() {
 }
 
 function registerZenEscapeShortcut(window: BrowserWindow) {
-    zenEscapeShortcutWindow = window;
+    zenEscapeShortcutWindows.add(window);
     if (zenEscapeShortcutRegistered) {
         return;
     }
@@ -138,11 +142,16 @@ function registerZenEscapeShortcut(window: BrowserWindow) {
 }
 
 function unregisterZenEscapeShortcut(window: BrowserWindow | null) {
-    if (window && zenEscapeShortcutWindow !== window) {
+    if (window) {
+        zenEscapeShortcutWindows.delete(window);
+    } else {
+        zenEscapeShortcutWindows.clear();
+    }
+
+    if (zenEscapeShortcutWindows.size > 0) {
         return;
     }
 
-    zenEscapeShortcutWindow = null;
     if (!zenEscapeShortcutRegistered) {
         return;
     }

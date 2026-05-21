@@ -182,9 +182,9 @@ describe('registerTabsMenuBindings', () => {
 
     it('keeps the queue flowing after a failed document-open request', async () => {
         const openPathInAppropriateTab = vi
-            .fn(async (_path: string) => {})
+            .fn(async (_path: string) => true)
             .mockRejectedValueOnce(new Error('boom'))
-            .mockResolvedValueOnce(undefined);
+            .mockResolvedValueOnce(true);
         const deps = createDeps({ openPathInAppropriateTab });
         const electronApi = createElectronApi();
 

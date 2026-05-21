@@ -73,9 +73,11 @@ vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://tru
 
 function createSender(id: number) {
     const once = vi.fn();
+    const removeListener = vi.fn();
     return {
         id,
         once,
+        removeListener,
         isDestroyed: () => false,
         getURL: () => 'https://trusted.example/electron',
         mainFrame: null,
@@ -135,6 +137,35 @@ describe('renderer log registry', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('removes the counterpart cleanup listener when a sender lifecycle event fires', async () => {
+        const { registerIpcHandlers } = await import('@electron/ipc/registry');
+        registerIpcHandlers();
+
+        const handler = mocks.handlers.get('renderer:log');
+        expect(handler).toBeTypeOf('function');
+
+        const sender = createSender(9);
+        handler?.({
+            sender,
+            senderFrame: null,
+        }, {
+            level: 'info',
+            section: 'search',
+            message: 'before-destroy',
+            timestamp: '2026-03-21T00:00:00.000Z',
+        });
+
+        const destroyedHandler = sender.once.mock.calls
+            .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
+        const renderGoneHandler = sender.once.mock.calls
+            .find(call => call[0] === 'render-process-gone')?.[1] as (() => void) | undefined;
+
+        destroyedHandler?.();
+
+        expect(sender.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
+        expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', renderGoneHandler);
     });
 
     it('summarizes nested payloads without walking deeply nested objects', async () => {
