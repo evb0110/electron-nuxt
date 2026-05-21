@@ -120,6 +120,7 @@ function createHarness() {
             9,
         ])),
         startImagePlacement: vi.fn(async () => true),
+        clearPendingImagePlacement: vi.fn(),
         restorePendingImagePlacement: vi.fn(),
     };
 
@@ -473,7 +474,46 @@ describe('usePageAnnotationActions', () => {
             pushHistory: true,
             persistWorkingCopy: true,
         });
+        expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
         expect(viewer.saveDocument).not.toHaveBeenCalled();
+    });
+
+    it('clears pending image placement when finalization resolves after the working copy changes', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        deps.embedPlacedImageToPage.mockImplementationOnce(async () => {
+            deps.workingCopyPath.value = '/tmp/other.pdf';
+            return new Uint8Array([
+                7,
+                7,
+            ]);
+        });
+
+        const finalized = await actions.handleFinalizePlacedImage({
+            pageNumber: 4,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.15,
+            rotationDegrees: 0,
+            fileName: 'image.png',
+            mimeType: 'image/png',
+            bytes: new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            targetPixelWidth: 240,
+            targetPixelHeight: 120,
+        });
+
+        expect(finalized).toBe(false);
+        expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
+        expect(viewer.restorePendingImagePlacement).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
     });
 
     it('uses planned embedded mutation bytes before finalizing placed images', async () => {

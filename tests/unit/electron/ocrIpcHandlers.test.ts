@@ -72,6 +72,15 @@ vi.mock('@electron/ocr/preprocessingHandlers', () => ({
 
 const { registerOcrHandlers } = await import('@electron/features/ocr/main/ipc');
 
+function createMockSender(id: number) {
+    return {
+        id,
+        isDestroyed: vi.fn(() => false),
+        once: vi.fn(),
+        removeListener: vi.fn(),
+    };
+}
+
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);
     if (!handler) {
@@ -124,7 +133,7 @@ describe('registerOcrHandlers', () => {
         const handler = getHandler('ocr:recognizeBatch');
 
         const result = await handler(
-            {sender: {id: 10}},
+            {sender: createMockSender(10)},
             [{
                 pageNumber: 1,
                 imageData: 'not-bytes',
@@ -158,7 +167,7 @@ describe('registerOcrHandlers', () => {
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
-            {sender: {id: 11}},
+            {sender: createMockSender(11)},
             '/tmp/working-copy.pdf',
             [{
                 pageNumber: 1,
@@ -195,7 +204,7 @@ describe('registerOcrHandlers', () => {
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
-            {sender: {id: 12}},
+            {sender: createMockSender(12)},
             '/tmp/working-copy.pdf',
             [{
                 pageNumber: 1,
@@ -226,7 +235,7 @@ describe('registerOcrHandlers', () => {
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
-            {sender: {id: 13}},
+            {sender: createMockSender(13)},
             '/tmp/working-copy.pdf',
             [{
                 pageNumber: 1,
@@ -253,7 +262,7 @@ describe('registerOcrHandlers', () => {
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
-            {sender: {id: 14}},
+            {sender: createMockSender(14)},
             '/tmp/outside.pdf',
             [{
                 pageNumber: 1,
@@ -276,5 +285,44 @@ describe('registerOcrHandlers', () => {
             retryable: false,
         });
         expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
+    });
+
+    it('passes a renderer-lifetime abort signal into synchronous batch OCR', async () => {
+        const handler = getHandler('ocr:recognizeBatch');
+        mocks.runOcr.mockResolvedValue({
+            success: true,
+            text: 'done',
+        });
+        const sender = createMockSender(15);
+
+        const result = await handler(
+            {sender},
+            [{
+                pageNumber: 1,
+                imageData: new Uint8Array([1]),
+                languages: ['eng'],
+            }],
+            'batch-with-signal',
+        ) as {
+            results: Record<number, string>;
+            errors: string[];
+        };
+
+        expect(result).toEqual({
+            results: {1: 'done'},
+            errors: [],
+        });
+        expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+        expect(sender.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+        expect(mocks.runOcr).toHaveBeenCalledWith(
+            Buffer.from([1]),
+            ['eng'],
+            expect.objectContaining({
+                signal: expect.any(AbortSignal),
+                threads: 1,
+            }),
+        );
+        expect(sender.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
+        expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
     });
 });

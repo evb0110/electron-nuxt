@@ -87,6 +87,29 @@ describe('runOcr setup failure cleanup', () => {
         });
         expect(child.kill).toHaveBeenCalledWith('SIGKILL');
     });
+
+    it('kills the child and resolves when the OCR signal aborts', async () => {
+        const child = new MockChildProcess();
+        const stdin = new MockStdin();
+        child.stdin = stdin;
+        mocks.spawn.mockReturnValue(child);
+        const controller = new AbortController();
+
+        const { runOcr } = await import('@electron/ocr/tesseract');
+        const resultPromise = runOcr(Buffer.from('image'), ['eng'], {signal: controller.signal});
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalledTimes(1);
+        });
+
+        controller.abort();
+
+        await expect(resultPromise).resolves.toEqual({
+            success: false,
+            text: '',
+            error: 'Tesseract aborted',
+        });
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    });
 });
 
 describe('Tesseract TSV geometry parsing', () => {

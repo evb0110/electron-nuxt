@@ -6,6 +6,7 @@ import {
 import type { IReleaseInstaller } from '@contracts';
 import {
     isLegacyInstallerAsset,
+    parseArchitectureHint,
     recommendInstaller,
 } from '@releaseSelection';
 
@@ -25,6 +26,13 @@ describe('release selection', () => {
     it('classifies legacy installers by filename', () => {
         expect(isLegacyInstallerAsset('EVB-Viewer-win7-legacy-x64.exe')).toBe(true);
         expect(isLegacyInstallerAsset('EVB-Viewer-win-x64.exe')).toBe(false);
+    });
+
+    it('normalizes Chromium UA-CH architecture hints', () => {
+        expect(parseArchitectureHint('arm')).toBe('arm64');
+        expect(parseArchitectureHint('x86')).toBe('x64');
+        expect(parseArchitectureHint('arm64')).toBe('arm64');
+        expect(parseArchitectureHint('x86_64')).toBe('x64');
     });
 
     it('prefers mac x64 compatible installers before extension rank', () => {

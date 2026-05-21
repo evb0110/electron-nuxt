@@ -1,6 +1,7 @@
 import type {
     IpcMain,
     IpcMainInvokeEvent,
+    WebContents,
 } from 'electron';
 import {
     BrowserWindow,
@@ -50,17 +51,42 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');
 
+function createSenderAbortSignal(sender: WebContents) {
+    const controller = new AbortController();
+
+    const abort = () => {
+        controller.abort();
+    };
+    if (sender.isDestroyed()) {
+        abort();
+    } else {
+        sender.once('destroyed', abort);
+        sender.once('render-process-gone', abort);
+    }
+
+    const cleanup = () => {
+        sender.removeListener('destroyed', abort);
+        sender.removeListener('render-process-gone', abort);
+    };
+
+    return {
+        signal: controller.signal,
+        cleanup,
+    };
+}
+
 async function handleOcrRecognize(
-    _event: IpcMainInvokeEvent,
+    event: IpcMainInvokeEvent,
     requestPayload: unknown,
 ) {
     let pageNumber = 0;
+    const senderAbort = createSenderAbortSignal(event.sender);
 
     try {
         const request = validateRecognizeRequest(requestPayload);
         pageNumber = request.pageNumber;
         const imageBuffer = Buffer.from(request.imageData);
-        const result = await runOcr(imageBuffer, request.languages);
+        const result = await runOcr(imageBuffer, request.languages, {signal: senderAbort.signal});
 
         return {
             pageNumber: request.pageNumber,
@@ -78,6 +104,8 @@ async function handleOcrRecognize(
             error: envelope.message,
             errorEnvelope: envelope,
         };
+    } finally {
+        senderAbort.cleanup();
     }
 }
 
@@ -86,6 +114,8 @@ async function handleOcrRecognizeBatch(
     pagesPayload: unknown,
     requestIdPayload: unknown,
 ) {
+    const senderAbort = createSenderAbortSignal(event.sender);
+
     try {
         const {
             pages,
@@ -111,10 +141,18 @@ async function handleOcrRecognizeBatch(
         });
 
         await forEachConcurrent(targetPages, concurrency, async (page) => {
+            if (senderAbort.signal.aborted) {
+                errors.push(`Page ${page.pageNumber}: Tesseract aborted`);
+                return;
+            }
+
             const imageBuffer = Buffer.from(page.imageData);
 
             try {
-                const result = await runOcr(imageBuffer, page.languages, {threads: tesseractThreads});
+                const result = await runOcr(imageBuffer, page.languages, {
+                    threads: tesseractThreads,
+                    signal: senderAbort.signal,
+                });
 
                 if (result.success) {
                     results[page.pageNumber] = result.text;
@@ -147,6 +185,8 @@ async function handleOcrRecognizeBatch(
             errors: [envelope.message],
             errorEnvelope: envelope,
         };
+    } finally {
+        senderAbort.cleanup();
     }
 }
 

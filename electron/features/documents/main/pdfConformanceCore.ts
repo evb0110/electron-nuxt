@@ -4,7 +4,7 @@ import {
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@electron/features/documents/main/pdfConformanceHelpers';
+} from '@contracts/pdfConformanceHelpers';
 import type { IPdfConformanceProfile } from '@contracts/pdfConformance';
 import { createLogger } from '@electron/utils/logger';
 import { loadPdfStructure } from '@contracts/pdfConformanceLoad';

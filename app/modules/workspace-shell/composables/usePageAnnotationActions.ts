@@ -61,6 +61,7 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     | 'updateShape'
 > & Partial<Pick<IPdfViewerExpose,
     'registerAnnotationHistoryCommand'
+    | 'clearPendingImagePlacement'
     | 'restorePendingImagePlacement'
     | 'unsuppressAnnotationId'
     | 'unsuppressAnnotationStableKey'
@@ -679,6 +680,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             const capturedWorkingCopy = captureActiveWorkingCopy();
             const embeddedData = await embedPlacedImageToPage(rawData, placement);
             if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                pdfViewerRef.value?.clearPendingImagePlacement?.();
                 return false;
             }
             const pageToRestore = placement.pageNumber || currentPage.value;
@@ -688,6 +690,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 persistWorkingCopy: !!capturedWorkingCopy,
             });
             await restorePromise;
+            pdfViewerRef.value?.clearPendingImagePlacement?.();
             return true;
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to finalize placed image', error);

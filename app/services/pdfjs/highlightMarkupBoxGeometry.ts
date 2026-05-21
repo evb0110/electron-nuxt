@@ -4,7 +4,7 @@ function boxesOverlapVertically(left: IPdfjsHighlightBox, right: IPdfjsHighlight
     return Math.min(left.y + left.height, right.y + right.height) > Math.max(left.y, right.y);
 }
 
-export function subtractOverlappingBoxes(
+function subtractOverlappingBoxes(
     sourceBox: IPdfjsHighlightBox,
     replacementBoxes: readonly IPdfjsHighlightBox[],
 ) {

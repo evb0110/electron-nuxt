@@ -22,6 +22,7 @@ export const usePlatformHydratedState = <T>(
     const isLoading = useState(`${options.key}:is-loading`, () => false);
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
     const error = useState<string | null>(`${options.key}:error`, () => null);
+    let isDisposed = false;
 
     function clearRetryTimer() {
         const existingTimer = retryTimers.get(options.key);
@@ -35,7 +36,8 @@ export const usePlatformHydratedState = <T>(
 
     function scheduleRetry() {
         if (
-            retryTimers.has(options.key)
+            isDisposed
+            || retryTimers.has(options.key)
             || typeof options.retryDelayMs !== 'number'
             || options.retryDelayMs <= 0
         ) {
@@ -44,6 +46,9 @@ export const usePlatformHydratedState = <T>(
 
         const timer = setTimeout(() => {
             retryTimers.delete(options.key);
+            if (isDisposed) {
+                return;
+            }
             void load();
         }, options.retryDelayMs);
         retryTimers.set(options.key, timer);
@@ -53,6 +58,9 @@ export const usePlatformHydratedState = <T>(
         const existingPromise = loadPromises.get(options.key) as Promise<T | null> | undefined;
         if (existingPromise) {
             return existingPromise;
+        }
+        if (isDisposed) {
+            return null;
         }
 
         const nextPromise = (async () => {
@@ -87,6 +95,13 @@ export const usePlatformHydratedState = <T>(
 
         loadPromises.set(options.key, nextPromise);
         return nextPromise;
+    }
+
+    if (getCurrentScope()) {
+        onScopeDispose(() => {
+            isDisposed = true;
+            clearRetryTimer();
+        });
     }
 
     return {

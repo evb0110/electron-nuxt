@@ -307,6 +307,8 @@ function startInteraction(
         return;
     }
 
+    stopInteraction();
+
     const captureElement = event.currentTarget instanceof HTMLElement
         ? event.currentTarget
         : null;

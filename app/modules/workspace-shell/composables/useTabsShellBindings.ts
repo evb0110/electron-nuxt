@@ -225,7 +225,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
 
         if (typeof window !== 'undefined') {
-            (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
+            (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect = openPathInAppropriateTab;
             (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
         }
 
@@ -272,7 +272,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
     onUnmounted(() => {
         if (typeof window !== 'undefined' && (window as Window & { __openFileDirect?: unknown }).__openFileDirect === openPathInAppropriateTab) {
-            delete (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<void> }).__openFileDirect;
+            delete (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect;
         }
         if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
             // Remove debug hooks on unmount so old closures do not retain stale workspace state.

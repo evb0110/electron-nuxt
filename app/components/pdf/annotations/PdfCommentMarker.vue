@@ -75,6 +75,9 @@ let startY = 0;
 let dragActivated = false;
 let suppressClick = false;
 let pendingDragCommit = false;
+let isUnmounted = false;
+let dragSettleFrameId: number | null = null;
+let dragSettleSecondFrameId: number | null = null;
 
 const hasDragOffset = computed(() =>
     dragOffsetX.value !== 0 || dragOffsetY.value !== 0);
@@ -89,6 +92,30 @@ const dragStyle = computed(() => {
     };
 });
 
+function cancelDragSettleFrames() {
+    if (dragSettleFrameId !== null) {
+        cancelAnimationFrame(dragSettleFrameId);
+        dragSettleFrameId = null;
+    }
+    if (dragSettleSecondFrameId !== null) {
+        cancelAnimationFrame(dragSettleSecondFrameId);
+        dragSettleSecondFrameId = null;
+    }
+}
+
+function scheduleDragSettledCleanup() {
+    cancelDragSettleFrames();
+    dragSettleFrameId = requestAnimationFrame(() => {
+        dragSettleFrameId = null;
+        dragSettleSecondFrameId = requestAnimationFrame(() => {
+            dragSettleSecondFrameId = null;
+            if (!isUnmounted) {
+                isDragging.value = false;
+            }
+        });
+    });
+}
+
 watch([
     () => leftPercent,
     () => topPercent,
@@ -97,11 +124,7 @@ watch([
         pendingDragCommit = false;
         dragOffsetX.value = 0;
         dragOffsetY.value = 0;
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                isDragging.value = false;
-            });
-        });
+        scheduleDragSettledCleanup();
     }
 });
 
@@ -228,6 +251,8 @@ useEventListener(activePointerTarget, 'pointerup', handlePointerUp);
 useEventListener(activePointerTarget, 'lostpointercapture', handleLostCapture);
 
 onBeforeUnmount(() => {
+    isUnmounted = true;
+    cancelDragSettleFrames();
     // Unmount can interrupt an active drag path before pointerup/lostcapture.
     cleanup();
 });

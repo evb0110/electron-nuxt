@@ -94,6 +94,22 @@ export async function runQpdfCommand(args: string[], options: Parameters<typeof 
     }
 }
 
+export async function getPdfPageCount(pdfPath: string) {
+    const result = await runNativeToolCommand(getQpdfBinary(), [
+        '--show-npages',
+        pdfPath,
+    ], {
+        timeoutMs: QPDF_TIMEOUT_MS,
+        commandLabel: 'qpdf(page-count)',
+    });
+    const pageCount = Number.parseInt(result.stdout.trim(), 10);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+        throw new Error('Failed to read PDF page count');
+    }
+
+    return pageCount;
+}
+
 async function replaceQpdfOutput(tempPath: string, targetPath: string) {
     await replaceTempOutput(tempPath, targetPath);
 }
@@ -164,17 +180,22 @@ export async function extractPages(
 export async function deletePages(
     workingCopyPath: string,
     pagesToDelete: number[],
-    totalPages: number,
+    expectedTotalPages?: number,
     senderWebContentsId?: number,
 ) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
+        throw new Error('Working copy path is not managed');
+    }
+    const totalPages = await getPdfPageCount(workingCopyPath);
+    if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
+        throw new Error('Renderer page count is stale');
+    }
+
     const kept = buildComplementRanges(pagesToDelete, totalPages);
     if (kept.length === 0) {
         throw new Error('Cannot delete all pages from the document');
     }
 
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {

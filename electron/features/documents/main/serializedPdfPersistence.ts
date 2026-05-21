@@ -265,8 +265,8 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
         }
 
         if (session.mode === 'save_as') {
-            await copyFile(session.tempPath, session.workingPath);
             await atomicReplace(session.tempPath, session.targetPath);
+            await copyFile(session.targetPath, session.workingPath);
             setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
             allowOpenPath(session.targetPath, session.senderId);
             await addRecentFile(session.targetPath);

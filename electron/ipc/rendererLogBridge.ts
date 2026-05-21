@@ -325,6 +325,8 @@ function registerRendererLogSenderCleanup(sender: Electron.WebContents) {
     const cleanup = () => {
         rendererLogRateStateBySender.delete(senderId);
         rendererLogCleanupRegisteredBySender.delete(senderId);
+        sender.removeListener('destroyed', cleanup);
+        sender.removeListener('render-process-gone', cleanup);
     };
     sender.once('destroyed', cleanup);
     sender.once('render-process-gone', cleanup);

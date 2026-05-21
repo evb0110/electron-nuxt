@@ -8,8 +8,20 @@ TESSDATA_DIR="$PROJECT_ROOT/resources/tesseract/tessdata"
 
 mkdir -p "$TESSDATA_DIR"
 
-# Languages to download
-LANGS="eng rus fra deu tur kmr heb syr"
+LANGS="$(
+  PROJECT_ROOT="$PROJECT_ROOT" \
+  node - <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const registryPath = path.join(process.env.PROJECT_ROOT, 'packages/contracts/ocrLanguages.ts');
+const source = fs.readFileSync(registryPath, 'utf8');
+const codes = [...source.matchAll(/code:\s*'([^']+)'/g)].map(match => match[1]);
+if (codes.length === 0) {
+  throw new Error(`No OCR language codes found in ${registryPath}`);
+}
+process.stdout.write(codes.join(' '));
+NODE
+)"
 
 echo "Downloading tessdata_best language files to $TESSDATA_DIR..."
 

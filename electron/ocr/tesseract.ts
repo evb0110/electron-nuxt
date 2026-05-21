@@ -7,7 +7,10 @@ import { parseIntegerEnv } from '@electron/utils/env';
 import { buildTesseractEnv } from '@electron/ocr/tesseractEnv';
 import { createTesseractFinalize } from '@electron/ocr/tesseractFinalize';
 
-interface ITesseractSpawnOptions {threads?: number;}
+interface ITesseractSpawnOptions {
+    threads?: number;
+    signal?: AbortSignal;
+}
 
 interface IOcrResult {
     success: boolean;
@@ -25,8 +28,27 @@ export async function runOcr(
     languages: string[],
     options?: ITesseractSpawnOptions,
 ): Promise<IOcrResult> {
+    if (options?.signal?.aborted) {
+        return {
+            success: false,
+            text: '',
+            error: 'Tesseract aborted',
+        };
+    }
+
     const languageConfig = resolveTesseractLanguageConfig(languages);
-    await ensureTessdataLanguages(languageConfig.orderedLanguages);
+    await ensureTessdataLanguages(
+        languageConfig.orderedLanguages,
+        options?.signal ? {signal: options.signal} : {},
+    );
+
+    if (options?.signal?.aborted) {
+        return {
+            success: false,
+            text: '',
+            error: 'Tesseract aborted',
+        };
+    }
 
     const {
         binary,
@@ -50,13 +72,22 @@ export async function runOcr(
         let stderr = '';
         let stderrTruncated = false;
         let timedOut = false;
+        let aborted = false;
+        let abortHandler: (() => void) | null = null;
         const handles = {
             timeoutHandle: null as NodeJS.Timeout | null,
             killHandle: null as NodeJS.Timeout | null,
             forceFinalizeHandle: null as NodeJS.Timeout | null,
         };
 
-        const finalize = createTesseractFinalize<IOcrResult>(handles, resolve);
+        const finalizeBase = createTesseractFinalize<IOcrResult>(handles, resolve);
+        const finalize = (result: IOcrResult) => {
+            if (options?.signal && abortHandler) {
+                options.signal.removeEventListener('abort', abortHandler);
+                abortHandler = null;
+            }
+            finalizeBase(result);
+        };
 
         const killProcessImmediately = () => {
             try {
@@ -101,6 +132,19 @@ export async function runOcr(
         }, TESSERACT_TIMEOUT_MS);
         handles.timeoutHandle.unref?.();
 
+        if (options?.signal) {
+            abortHandler = () => {
+                aborted = true;
+                killProcessImmediately();
+                finalize({
+                    success: false,
+                    text: '',
+                    error: 'Tesseract aborted',
+                });
+            };
+            options.signal.addEventListener('abort', abortHandler, { once: true });
+        }
+
         proc.stdout?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
             stdout = appended.text;
@@ -113,6 +157,15 @@ export async function runOcr(
         });
 
         proc.on('close', (code) => {
+            if (aborted) {
+                finalize({
+                    success: false,
+                    text: '',
+                    error: 'Tesseract aborted',
+                });
+                return;
+            }
+
             if (timedOut) {
                 finalize({
                     success: false,

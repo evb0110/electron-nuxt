@@ -27,6 +27,7 @@ interface ITestWindow {
         executeJavaScript: ReturnType<typeof vi.fn>;
         isDestroyed: ReturnType<typeof vi.fn>;
     };
+    close: () => void;
     isDestroyed: () => boolean;
     getTitle: () => string;
     on: (event: string, handler: (...args: unknown[]) => void) => ITestWindow;
@@ -287,6 +288,26 @@ describe('menu per-window document state', () => {
         await undoItem?.click?.({}, window);
 
         expect(window.webContents.undo).toHaveBeenCalledOnce();
+        expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
+    });
+
+    it('does not invoke native undo when the window closes during the text focus probe', async () => {
+        const window = mocks.createWindow(1, 'Window');
+        window.webContents.executeJavaScript.mockImplementationOnce(async () => {
+            window.close();
+            return true;
+        });
+
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuDocumentState(1, true);
+
+        const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
+            .find(item => item.label === 'menu.undo');
+        await expect(undoItem?.click?.({}, window)).resolves.toBeUndefined();
+
+        expect(window.webContents.undo).not.toHaveBeenCalled();
         expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
     });
 

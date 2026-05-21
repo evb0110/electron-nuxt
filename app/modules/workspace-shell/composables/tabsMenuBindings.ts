@@ -14,7 +14,7 @@ export interface ITabsMenuBindingDeps {
     createTab: () => { id: string };
     handleCloseTab: (tabId: string) => Promise<void>;
     handleFallbackToolbarOpenFile: () => Promise<void>;
-    openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
+    openPathInAppropriateTab: (path: TDocumentRef) => Promise<boolean>;
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
@@ -221,7 +221,7 @@ export function registerTabsMenuBindings(
 
     const enqueueDocumentOpenAction = (
         actionName: string,
-        action: () => Promise<void>,
+        action: () => Promise<unknown>,
     ) => {
         if (disposed) {
             return;

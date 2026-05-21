@@ -228,7 +228,15 @@ function createTextAwareWindowMenuAction(options: ITextAwareWindowMenuActionOpti
             }
 
             if (await isTextEditingFocused(targetWindow)) {
-                targetWindow.webContents[nativeEditCommand]();
+                if (targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
+                    return;
+                }
+
+                try {
+                    targetWindow.webContents[nativeEditCommand]();
+                } catch (error) {
+                    logger.warn(`Failed to invoke native ${nativeEditCommand}: ${getErrorMessage(error)}`);
+                }
                 return;
             }
 

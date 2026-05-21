@@ -66,6 +66,7 @@ describe('validatePreprocessingSetup', () => {
             expect.stringContaining('unpaper'),
             ['--version'],
             expect.objectContaining({
+                detached: process.platform !== 'win32',
                 shell: false,
                 windowsHide: true,
                 stdio: 'ignore',

@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    effectScope,
+    ref,
+} from 'vue';
 import type { IRecentFile } from '@contracts/shared';
 import { installNuxtStateTestStubs } from './nuxtStateTestStubs';
 
@@ -226,6 +229,34 @@ describe('useRecentFiles', () => {
         expect(isResolved.value).toBe(true);
         expect(electronRecentFilesGet).toHaveBeenCalledTimes(2);
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/retried.pdf'})]);
+    });
+
+    it('cancels scheduled Electron recent file retries when the composable scope is disposed', async () => {
+        vi.useFakeTimers();
+        electronRecentFilesGet
+            .mockRejectedValueOnce(new Error('temporary startup failure'))
+            .mockResolvedValueOnce([{
+                originalPath: '/tmp/should-not-load.pdf',
+                fileName: 'should-not-load.pdf',
+                timestamp: 5,
+                fileSize: 210,
+            }]);
+
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const scope = effectScope();
+        const recentFilesState = scope.run(() => useRecentFiles());
+        if (!recentFilesState) {
+            throw new Error('Failed to create recent files composable');
+        }
+
+        await recentFilesState.loadRecentFiles();
+        scope.stop();
+
+        await vi.advanceTimersByTimeAsync(750);
+
+        expect(electronRecentFilesGet).toHaveBeenCalledOnce();
+        expect(recentFilesState.isResolved.value).toBe(false);
+        expect(recentFilesState.recentFiles.value).toEqual([]);
     });
 
     it('keeps browser recent files unresolved when the cookie snapshot is truncated', async () => {

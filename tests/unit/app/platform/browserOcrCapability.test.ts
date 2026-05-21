@@ -169,6 +169,40 @@ describe('browser OCR capability', () => {
         expect(createWorkerMock).toHaveBeenCalledTimes(1);
     });
 
+    it('terminates already-created workers if browser OCR worker creation fails', async () => {
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 6,
+            deviceMemory: 8,
+        });
+        const terminateCreatedWorker = vi.fn(async () => {});
+        createWorkerMock
+            .mockResolvedValueOnce({ terminate: terminateCreatedWorker })
+            .mockRejectedValueOnce(new Error('worker boot failed'));
+
+        const { browserOcrCapability } = await import('@app/platform/browser-api/ocrCapability');
+
+        await expect(browserOcrCapability.recognizeBatch([
+            {
+                pageNumber: 1,
+                imageData: new Uint8Array([1]),
+                languages: ['eng'],
+                imageWidth: 1200,
+                imageHeight: 1600,
+            },
+            {
+                pageNumber: 2,
+                imageData: new Uint8Array([2]),
+                languages: ['eng'],
+                imageWidth: 1200,
+                imageHeight: 1600,
+            },
+        ], 'request-worker-failure')).rejects.toThrow('worker boot failed');
+
+        expect(terminateCreatedWorker).toHaveBeenCalledTimes(1);
+        expect(terminateSchedulerMock).toHaveBeenCalledTimes(1);
+        expect(addWorkerMock).not.toHaveBeenCalled();
+    });
+
     it('reports active processing pages while browser OCR runs in parallel', async () => {
         vi.stubGlobal('navigator', {
             hardwareConcurrency: 6,

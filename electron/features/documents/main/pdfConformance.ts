@@ -13,7 +13,7 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
-import { createDefaultPdfConformanceProfile } from '@electron/features/documents/main/pdfConformanceHelpers';
+import { createDefaultPdfConformanceProfile } from '@contracts/pdfConformanceHelpers';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
