@@ -1,8 +1,8 @@
 <template>
     <AppTooltip
+        v-if="!shouldSuppressTooltip"
         :text="preview"
         :delay-duration="200"
-        :open="isDragging ? false : undefined"
         usefulness="always"
     >
         <button
@@ -21,6 +21,8 @@
             @click.stop="handleClick"
             @contextmenu.prevent="handleContextMenu"
             @pointerdown.stop="handlePointerDown"
+            @pointerenter="handlePointerEnter"
+            @pointerleave="handlePointerLeave"
         >
             <UIcon name="i-ph-chat" class="pdf-comment-marker-icon" />
             <span
@@ -31,6 +33,34 @@
             </span>
         </button>
     </AppTooltip>
+    <button
+        v-else
+        ref="buttonRef"
+        type="button"
+        class="pdf-comment-marker-button"
+        :class="{
+            'is-active': isActive,
+            'is-cluster': clustered.length > 1,
+            'is-dragging': isDragging,
+        }"
+        :style="dragStyle"
+        :aria-label="labelText"
+        :data-stable-key="annotation.stableKey"
+        :data-comment-count="clustered.length > 1 ? String(clustered.length) : undefined"
+        @click.stop="handleClick"
+        @contextmenu.prevent="handleContextMenu"
+        @pointerdown.stop="handlePointerDown"
+        @pointerenter="handlePointerEnter"
+        @pointerleave="handlePointerLeave"
+    >
+        <UIcon name="i-ph-chat" class="pdf-comment-marker-icon" />
+        <span
+            v-if="clustered.length > 1"
+            class="pdf-comment-marker-badge"
+        >
+            {{ clustered.length }}
+        </span>
+    </button>
 </template>
 
 <script setup lang="ts">
@@ -67,20 +97,28 @@ const emit = defineEmits<{
 const buttonRef = ref<HTMLButtonElement | null>(null);
 const activePointerTarget = ref<HTMLButtonElement | null>(null);
 const isDragging = ref(false);
+const isTooltipSuppressed = ref(false);
+const isPointerOver = ref(false);
 const dragOffsetX = ref(0);
 const dragOffsetY = ref(0);
 
 let startX = 0;
 let startY = 0;
+let lastPointerClientX = 0;
+let lastPointerClientY = 0;
 let dragActivated = false;
 let suppressClick = false;
 let pendingDragCommit = false;
 let isUnmounted = false;
+let activePointerId: number | null = null;
+let suppressTooltipUntilPointerLeave = false;
 let dragSettleFrameId: number | null = null;
 let dragSettleSecondFrameId: number | null = null;
 
 const hasDragOffset = computed(() =>
     dragOffsetX.value !== 0 || dragOffsetY.value !== 0);
+const shouldSuppressTooltip = computed(() =>
+    isTooltipSuppressed.value || isDragging.value || hasDragOffset.value);
 
 const dragStyle = computed(() => {
     if (!isDragging.value && !hasDragOffset.value) {
@@ -103,6 +141,30 @@ function cancelDragSettleFrames() {
     }
 }
 
+function dispatchMarkerDragState(active: boolean) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    const detail = {
+        active,
+        stableKey: annotation.stableKey,
+    };
+    window.dispatchEvent(new CustomEvent('pdf-comment-marker-drag-state', {detail}));
+}
+
+function isLastPointerWithinMarker() {
+    const button = buttonRef.value;
+    if (!button) {
+        return false;
+    }
+
+    const rect = button.getBoundingClientRect();
+    return lastPointerClientX >= rect.left
+        && lastPointerClientX <= rect.right
+        && lastPointerClientY >= rect.top
+        && lastPointerClientY <= rect.bottom;
+}
+
 function scheduleDragSettledCleanup() {
     cancelDragSettleFrames();
     dragSettleFrameId = requestAnimationFrame(() => {
@@ -111,6 +173,16 @@ function scheduleDragSettledCleanup() {
             dragSettleSecondFrameId = null;
             if (!isUnmounted) {
                 isDragging.value = false;
+                if (
+                    suppressTooltipUntilPointerLeave
+                    && (isPointerOver.value || isLastPointerWithinMarker())
+                ) {
+                    isTooltipSuppressed.value = true;
+                } else {
+                    suppressTooltipUntilPointerLeave = false;
+                    isTooltipSuppressed.value = false;
+                }
+                dispatchMarkerDragState(false);
             }
         });
     });
@@ -140,6 +212,24 @@ function handleContextMenu(event: MouseEvent) {
     emit('contextMenu', annotation, event);
 }
 
+function releaseTooltipAfterPointerLeave() {
+    if (isDragging.value || hasDragOffset.value || pendingDragCommit) {
+        return;
+    }
+
+    suppressTooltipUntilPointerLeave = false;
+    isTooltipSuppressed.value = false;
+}
+
+function handlePointerEnter() {
+    isPointerOver.value = true;
+}
+
+function handlePointerLeave() {
+    isPointerOver.value = false;
+    releaseTooltipAfterPointerLeave();
+}
+
 function handlePointerDown(event: PointerEvent) {
     if (event.button !== 0) {
         return;
@@ -152,14 +242,24 @@ function handlePointerDown(event: PointerEvent) {
 
     startX = event.clientX;
     startY = event.clientY;
+    lastPointerClientX = event.clientX;
+    lastPointerClientY = event.clientY;
     dragActivated = false;
     suppressClick = false;
+    isPointerOver.value = true;
+    activePointerId = event.pointerId;
 
-    button.setPointerCapture(event.pointerId);
     activePointerTarget.value = button;
 }
 
 function handlePointerMove(event: PointerEvent) {
+    if (activePointerId !== event.pointerId || !activePointerTarget.value) {
+        return;
+    }
+
+    lastPointerClientX = event.clientX;
+    lastPointerClientY = event.clientY;
+
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
 
@@ -169,6 +269,9 @@ function handlePointerMove(event: PointerEvent) {
         }
         dragActivated = true;
         isDragging.value = true;
+        isTooltipSuppressed.value = true;
+        suppressTooltipUntilPointerLeave = true;
+        dispatchMarkerDragState(true);
         document.body.style.cursor = 'grabbing';
         document.body.style.userSelect = 'none';
     }
@@ -179,6 +282,12 @@ function handlePointerMove(event: PointerEvent) {
 }
 
 function handlePointerUp(event: PointerEvent) {
+    if (activePointerId !== event.pointerId || !activePointerTarget.value) {
+        return;
+    }
+
+    lastPointerClientX = event.clientX;
+    lastPointerClientY = event.clientY;
     const wasDragging = dragActivated;
 
     if (wasDragging) {
@@ -189,7 +298,13 @@ function handlePointerUp(event: PointerEvent) {
     cleanup(event.pointerId);
 }
 
-function handleLostCapture(event: PointerEvent) {
+function handlePointerCancel(event: PointerEvent) {
+    if (activePointerId !== event.pointerId || !activePointerTarget.value) {
+        return;
+    }
+
+    lastPointerClientX = event.clientX;
+    lastPointerClientY = event.clientY;
     const wasDragging = dragActivated;
 
     if (wasDragging) {
@@ -226,14 +341,9 @@ function commitDrag(clientX: number, clientY: number) {
 }
 
 function cleanup(pointerId?: number) {
-    const button = buttonRef.value;
+    void pointerId;
     activePointerTarget.value = null;
-
-    if (button) {
-        if (typeof pointerId === 'number' && button.hasPointerCapture(pointerId)) {
-            button.releasePointerCapture(pointerId);
-        }
-    }
+    activePointerId = null;
 
     dragActivated = false;
     document.body.style.cursor = '';
@@ -241,18 +351,22 @@ function cleanup(pointerId?: number) {
 
     if (!pendingDragCommit) {
         isDragging.value = false;
+        suppressTooltipUntilPointerLeave = false;
+        isTooltipSuppressed.value = false;
+        dispatchMarkerDragState(false);
         dragOffsetX.value = 0;
         dragOffsetY.value = 0;
     }
 }
 
-useEventListener(activePointerTarget, 'pointermove', handlePointerMove);
-useEventListener(activePointerTarget, 'pointerup', handlePointerUp);
-useEventListener(activePointerTarget, 'lostpointercapture', handleLostCapture);
+useEventListener(import.meta.client ? window : undefined, 'pointermove', handlePointerMove);
+useEventListener(import.meta.client ? window : undefined, 'pointerup', handlePointerUp);
+useEventListener(import.meta.client ? window : undefined, 'pointercancel', handlePointerCancel);
 
 onBeforeUnmount(() => {
     isUnmounted = true;
     cancelDragSettleFrames();
+    dispatchMarkerDragState(false);
     // Unmount can interrupt an active drag path before pointerup/lostcapture.
     cleanup();
 });

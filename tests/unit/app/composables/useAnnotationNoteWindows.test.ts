@@ -374,4 +374,130 @@ describe('useAnnotationNoteWindows', () => {
             markerRect: comment.markerRect,
         }));
     });
+
+    it('preserves the latest marker rect when forced save races a stale open note window', async () => {
+        const originalRect = {
+            left: 0.2,
+            top: 0.2,
+            width: 0.0016,
+            height: 0.0016,
+        };
+        const movedRect = {
+            left: 0.42,
+            top: 0.31,
+            width: 0.0016,
+            height: 0.0016,
+        };
+        const original = createComment({
+            text: 'Open note text',
+            markerRect: originalRect,
+            modifiedAt: 100,
+        });
+        const moved = createComment({
+            text: 'Open note text',
+            markerRect: movedRect,
+            modifiedAt: 200,
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(original);
+
+        windows.handleOpenAnnotationNote(original);
+        deps.annotationComments.value = [moved];
+
+        const saved = await windows.persistAllAnnotationNotes(true);
+
+        expect(saved).toBe(true);
+        expect(deps.annotationComments.value[0]?.markerRect).toEqual(movedRect);
+        expect(deps.updateAnnotationCommentInViewer).not.toHaveBeenCalled();
+    });
+
+    it('does not retarget a fresh transient note window to an unrelated same-page annotation by text only', async () => {
+        const transient = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: 'Same visible note text',
+            subtype: 'FreeText',
+            markerRect: {
+                left: 0.58,
+                top: 0.2,
+                width: 0.001,
+                height: 0.001,
+            },
+        });
+        const unrelated = createComment({
+            id: '4860R',
+            stableKey: 'ann:0:4860R',
+            annotationId: '4860R',
+            uid: null,
+            source: 'pdf',
+            text: 'Same visible note text',
+            subtype: 'Text',
+            markerRect: {
+                left: 0.2,
+                top: 0.1,
+                width: 0.001,
+                height: 0.001,
+            },
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(transient);
+
+        windows.handleOpenAnnotationNote(transient);
+        deps.annotationComments.value = [unrelated];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:4860R')).toBeNull();
+    });
+
+    it('migrates a transient note window to a persisted PDF note at the same placement', async () => {
+        const transient = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: 'Placed note text',
+            subtype: 'FreeText',
+            markerRect: {
+                left: 0.58,
+                top: 0.2,
+                width: 0.001,
+                height: 0.001,
+            },
+        });
+        const persisted = createComment({
+            id: '9999R',
+            stableKey: 'ann:0:9999R',
+            annotationId: '9999R',
+            uid: null,
+            source: 'pdf',
+            text: 'Placed note text',
+            subtype: 'Text',
+            markerRect: {
+                left: 0.5805,
+                top: 0.2005,
+                width: 0.001,
+                height: 0.001,
+            },
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(transient);
+
+        windows.handleOpenAnnotationNote(transient);
+        deps.annotationComments.value = [persisted];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0')).toBeNull();
+        expect(windows.findAnnotationNoteWindow('ann:0:9999R')).not.toBeNull();
+    });
 });

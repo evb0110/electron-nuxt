@@ -160,6 +160,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         new WeakSet<PDFDocumentProxy>();
     let annotationEditorLayerDisabledWithoutDocument = false;
     let activeEditorDocument: PDFDocumentProxy | null = deps.pdfDocument.value;
+    let activeAnnotationUiManager: AnnotationEditorUIManager | null =
+        toValue(deps.annotationUiManager) ?? null;
     let annotationLayerRenderToken = 0;
     const annotationLayerPageRenderTokens = new Map<number, number>();
     const fallbackL10n: IL10n = {
@@ -479,10 +481,15 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     function syncEditorLayersWithCurrentDocument() {
         const currentDocument = deps.pdfDocument.value;
-        if (currentDocument === activeEditorDocument) {
+        const currentUiManager = toValue(deps.annotationUiManager) ?? null;
+        if (
+            currentDocument === activeEditorDocument
+            && currentUiManager === activeAnnotationUiManager
+        ) {
             return;
         }
         activeEditorDocument = currentDocument;
+        activeAnnotationUiManager = currentUiManager;
         clearAllLayers();
     }
 

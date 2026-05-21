@@ -653,6 +653,28 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
     }
 
+    async function reconcileFreshDocumentViewport(
+        plan: IReloadPlan,
+        activeLoadToken: number,
+        loadedVersion: number,
+    ) {
+        if (
+            plan.shouldPreserveVisibleContent
+            || plan.isSelectiveReload
+        ) {
+            return true;
+        }
+
+        await nextTick();
+        if (!isActiveLoadedDocument(activeLoadToken, loadedVersion)) {
+            return false;
+        }
+
+        options.scrollToPage(plan.resolvedPageToRestore);
+        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+        return true;
+    }
+
     async function loadFromSource(isReload = false) {
         if (!options.src.value) {
             clearAnnotationCacheForEmptySource();
@@ -731,6 +753,17 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     }
                 }
                 options.setupPagePlaceholders();
+                if (!isReload) {
+                    const reconciled = await reconcileFreshDocumentViewport(
+                        plan,
+                        activeLoadToken,
+                        loaded.version,
+                    );
+                    if (!reconciled) {
+                        settleVisualReloadTransition('fresh-scroll-superseded');
+                        return;
+                    }
+                }
                 if (isReload && options.currentPage.value > 1) {
                     options.scrollToPage(options.currentPage.value);
                     await nextTick();

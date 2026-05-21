@@ -391,6 +391,28 @@ describe('usePageAnnotationActions', () => {
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
 
+    it('closes the context menu when free note placement fails', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        deps.annotationContextMenu.value.pageNumber = 1;
+        deps.annotationContextMenu.value.pageX = 0.25;
+        deps.annotationContextMenu.value.pageY = 0.5;
+        viewer.commentAtPoint.mockRejectedValueOnce(new Error('stale editor'));
+
+        await actions.createContextMenuFreeNote();
+
+        expect(viewer.commentAtPoint).toHaveBeenCalledWith(
+            1,
+            0.25,
+            0.5,
+            { preferTextAnchor: false },
+        );
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
+
     it('starts an image placement session from file without switching annotation tools', async () => {
         const {
             deps,

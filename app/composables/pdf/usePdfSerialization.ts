@@ -43,6 +43,7 @@ export interface IPdfSerializationDeps {
     untitledBookmarkLabel?: string;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
+    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[] | undefined;
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
@@ -69,6 +70,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         untitledBookmarkLabel = '',
         getMarkupSubtypeOverrides,
         getMarkupSubtypeHints,
+        getAnnotationCommentsSnapshot,
         getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds,
         getDeletedEmbeddedShapeStableKeys,
@@ -90,6 +92,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             }
         }
         return sourceData;
+    }
+
+    function getAnnotationCommentsForSerialization() {
+        return getAnnotationCommentsSnapshot?.() ?? annotationComments.value;
     }
 
     async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
@@ -174,7 +180,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     }
 
     function getFreeTextNoteComments() {
-        return annotationComments.value.filter(
+        return getAnnotationCommentsForSerialization().filter(
             comment => comment.markerRect
                 && comment.subtype
                 && (comment.subtype.toLowerCase() === 'freetext' || comment.subtype.toLowerCase() === 'typewriter')
@@ -208,7 +214,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
         payload.markupSubtypeHints = [
             ...(getMarkupSubtypeHints?.() ?? []),
-            ...collectMarkupSubtypeHints(annotationComments.value),
+            ...collectMarkupSubtypeHints(getAnnotationCommentsForSerialization()),
         ];
     }
 
@@ -227,7 +233,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         options?: Pick<ISerializePdfForSaveOptions, 'pendingTexts' | 'pendingDeletes'>,
     ) {
         payload.freeTextComments = getFreeTextNoteComments();
-        payload.annotationComments = annotationComments.value;
+        payload.annotationComments = getAnnotationCommentsForSerialization();
         payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
         payload.pendingEmbeddedAnnotationDeletes = options?.pendingDeletes ?? [];
     }
@@ -337,7 +343,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     ): Promise<Uint8Array> {
         const payload = createEmptySavePayload();
         payload.freeTextComments = getFreeTextNoteComments();
-        payload.annotationComments = annotationComments.value;
+        payload.annotationComments = getAnnotationCommentsForSerialization();
         payload.pendingEmbeddedTextUpdates = Array.from(pendingTexts.entries());
         return runSerializedEdit(data, payload);
     }

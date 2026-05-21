@@ -153,6 +153,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         embedPlacedImageToPage,
     } = deps;
 
+    let isCreatingContextMenuFreeNote = false;
+
     const shapePropertiesPopover = ref<{
         visible: boolean;
         x: number;
@@ -742,6 +744,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     async function createContextMenuFreeNote() {
+        if (isCreatingContextMenuFreeNote) {
+            closeAnnotationContextMenu();
+            return;
+        }
         if (!pdfViewerRef.value) {
             closeAnnotationContextMenu();
             return;
@@ -761,13 +767,20 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
 
-        await pdfViewerRef.value.commentAtPoint(
-            pageNumber as number,
-            pageX as number,
-            pageY as number,
-            { preferTextAnchor: false },
-        );
+        isCreatingContextMenuFreeNote = true;
         closeAnnotationContextMenu();
+        try {
+            await pdfViewerRef.value.commentAtPoint(
+                pageNumber as number,
+                pageX as number,
+                pageY as number,
+                { preferTextAnchor: false },
+            );
+        } catch (error) {
+            BrowserLogger.warn('note-placement', 'Failed to create note from annotation context menu', error);
+        } finally {
+            isCreatingContextMenuFreeNote = false;
+        }
     }
 
     async function createContextMenuSelectionNote() {

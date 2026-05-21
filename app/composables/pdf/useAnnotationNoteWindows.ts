@@ -13,7 +13,10 @@ import type {
     IAnnotationNotePosition,
     IAnnotationNoteWindowState,
 } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
-import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
+import {
+    isNoteEligibleComment,
+    markerRectCenterDistance,
+} from '@app/composables/pdf/annotations/annotationRules';
 import { commentsShareStableIdentifier } from '@app/composables/pdf/annotations/annotationIdentityMatching';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -132,13 +135,24 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return true;
         }
         if (
-            left.id === right.id
+            left.id
+            && left.id === right.id
             && left.source === right.source
         ) {
             return true;
         }
 
-        return false;
+        return commentsShareNotePlacement(left, right);
+    }
+
+    function commentsShareNotePlacement(
+        left: IAnnotationCommentSummary,
+        right: IAnnotationCommentSummary,
+    ) {
+        return left.pageIndex === right.pageIndex
+            && isCommentEligibleForNoteWindow(left)
+            && isCommentEligibleForNoteWindow(right)
+            && markerRectCenterDistance(left.markerRect, right.markerRect) < 0.01;
     }
 
     function findAnnotationNoteWindowByComment(comment: IAnnotationCommentSummary) {
@@ -456,11 +470,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
 
         const next = [...annotationComments.value];
+        const existing = next[index]!;
+        const preferred = selectPreferredAnnotationComment(existing, comment);
         next[index] = {
-            ...selectPreferredAnnotationComment(next[index]!, comment),
+            ...preferred,
             text: comment.text,
             hasNote: true,
             modifiedAt: comment.modifiedAt,
+            markerRect: existing.markerRect ?? comment.markerRect ?? preferred.markerRect,
         };
         annotationComments.value = next;
     }
@@ -542,7 +559,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         note.error = null;
         try {
             const latestComment = findMatchingAnnotationComment(current) ?? current;
-            const savedTargetComment = saveAnnotationNoteToViewer(current, nextText);
+            const savedTargetComment = saveAnnotationNoteToViewer(latestComment, nextText);
             let targetComment = savedTargetComment ?? latestComment;
 
             if (!savedTargetComment) {
@@ -575,13 +592,18 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (force) {
             notes.forEach((note) => {
                 if (note.text.trim().length > 0) {
-                    deferEmbeddedAnnotationNoteUpdate(note.comment.stableKey, note.comment, note.text);
-                    upsertAnnotationCommentCache({
-                        ...note.comment,
+                    const previousStableKey = note.comment.stableKey;
+                    const latestComment = findMatchingAnnotationComment(note.comment) ?? note.comment;
+                    const commentForSave: IAnnotationCommentSummary = {
+                        ...latestComment,
                         text: note.text,
                         hasNote: true,
                         modifiedAt: Date.now(),
-                    });
+                    };
+                    note.comment = commentForSave;
+                    migrateAnnotationNoteWindowKey(previousStableKey, commentForSave.stableKey);
+                    deferEmbeddedAnnotationNoteUpdate(commentForSave.stableKey, commentForSave, note.text);
+                    upsertAnnotationCommentCache(commentForSave);
                 }
             });
         }
@@ -694,7 +716,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         byUidPage: Map<string, IAnnotationCommentSummary>;
         byIdPageSource: Map<string, IAnnotationCommentSummary>;
         byPage: Map<number, IAnnotationCommentSummary[]>;
-        byPageText: Map<number, Map<string, IAnnotationCommentSummary[]>>;
     }
 
     function buildAnnotationNoteCommentIndexes(
@@ -705,7 +726,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const byUidPage = new Map<string, IAnnotationCommentSummary>();
         const byIdPageSource = new Map<string, IAnnotationCommentSummary>();
         const byPage = new Map<number, IAnnotationCommentSummary[]>();
-        const byPageText = new Map<number, Map<string, IAnnotationCommentSummary[]>>();
 
         for (const comment of comments) {
             if (comment.stableKey) {
@@ -731,24 +751,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             } else {
                 byPage.set(comment.pageIndex, [comment]);
             }
-
-            const normalizedText = comment.text.trim().toLowerCase();
-            if (!normalizedText) {
-                continue;
-            }
-
-            let textCandidatesByPage = byPageText.get(comment.pageIndex);
-            if (!textCandidatesByPage) {
-                textCandidatesByPage = new Map<string, IAnnotationCommentSummary[]>();
-                byPageText.set(comment.pageIndex, textCandidatesByPage);
-            }
-
-            const textCandidates = textCandidatesByPage.get(normalizedText);
-            if (textCandidates) {
-                textCandidates.push(comment);
-            } else {
-                textCandidatesByPage.set(normalizedText, [comment]);
-            }
         }
 
         return {
@@ -757,7 +759,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             byUidPage,
             byIdPageSource,
             byPage,
-            byPageText,
         };
     }
 
@@ -798,7 +799,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         noteComment: IAnnotationCommentSummary,
         indexes: IAnnotationNoteCommentIndexes,
     ) {
-        const exactText = noteComment.text.trim().toLowerCase();
         const pageMatches = indexes.byPage.get(noteComment.pageIndex) ?? [];
         if (pageMatches.length === 0) {
             return null;
@@ -807,17 +807,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const logical = pageMatches.find(candidate => commentsLikelyReferToSameNote(noteComment, candidate));
         if (logical) {
             return logical;
-        }
-
-        if (!exactText) {
-            return null;
-        }
-
-        const textMatches = indexes.byPageText
-            .get(noteComment.pageIndex)
-            ?.get(exactText) ?? [];
-        if (textMatches.length === 1) {
-            return textMatches[0] ?? null;
         }
 
         return null;

@@ -1328,6 +1328,60 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    async function renderAnnotationEditorLayerForPage(pageNumber: number) {
+        if (!toValue(isActive)) {
+            return false;
+        }
+
+        const containerRoot = options.container.value;
+        const annotationUiManager = toValue(options.annotationUiManager) ?? null;
+        if (!containerRoot || !annotationUiManager) {
+            return false;
+        }
+
+        const target = getSinglePageRenderTarget(containerRoot, pageNumber);
+        const annotationEditorLayerDiv =
+            target?.container.querySelector<HTMLElement>('.annotation-editor-layer') ?? null;
+        if (!target || !annotationEditorLayerDiv) {
+            return false;
+        }
+
+        const version = renderVersion;
+        const pdfPage = await loadPageForRender(
+            pageNumber,
+            version,
+            () => renderVersion === version,
+        );
+        if (!pdfPage || renderVersion !== version) {
+            return false;
+        }
+
+        try {
+            const viewport = pdfPage.getViewport({ scale: toValue(options.effectiveScale) });
+            const textLayerDiv =
+                target.container.querySelector<HTMLDivElement>('.text-layer');
+
+            await annotationLayerRenderer.renderAnnotationEditorLayer(
+                target.container,
+                annotationEditorLayerDiv,
+                textLayerDiv,
+                viewport,
+                pageNumber,
+                null,
+            );
+            return renderVersion === version;
+        } catch (error) {
+            logNonCriticalStageError(
+                pageNumber,
+                'annotation editor layer',
+                error,
+            );
+            return false;
+        } finally {
+            releasePageResources(pageNumber, pdfPage);
+        }
+    }
+
     function getVisibleRenderBounds(
         visibleRange: IPageRange,
         buffer: number,
@@ -1983,5 +2037,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         requestScrollToCurrentResult,
         cancelPendingSearchScroll: searchMatchScroller.invalidatePendingRequests,
         cancelInFlightRenders,
+        renderAnnotationEditorLayerForPage,
     };
 };

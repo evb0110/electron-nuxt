@@ -52,6 +52,7 @@ export interface IPdfViewerExpose {
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     registerAnnotationHistoryCommand?: (command: {
         cmd: () => void;
         undo: () => void;

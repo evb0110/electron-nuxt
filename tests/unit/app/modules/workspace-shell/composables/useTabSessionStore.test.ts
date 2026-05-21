@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import {
+    createTabViewSessionState,
+    resolveTabLifecycleStates,
+} from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import type { IEditorGroupState } from '@app/types/editorGroups';
 import type { ITab } from '@app/types/tabs';
 
@@ -26,6 +29,42 @@ function group(id: string, activeTabId: string, tabIds: string[]): IEditorGroupS
 }
 
 describe('tab session memory policy', () => {
+    it('does not persist document page position in tab view state', () => {
+        const state = createTabViewSessionState({
+            hasPdf: true,
+            isOpeningDocument: false,
+            hasOpenError: false,
+            isPreparingPrint: false,
+            canSave: true,
+            canUndo: false,
+            canRedo: false,
+            canExportDocx: false,
+            isSaving: false,
+            isSavingAs: false,
+            isAnySaving: false,
+            isHistoryBusy: false,
+            isExportingDocx: false,
+            isFitWidthActive: true,
+            isFitHeightActive: false,
+            showSidebar: false,
+            dragMode: false,
+            continuousScroll: true,
+            isDjvuMode: false,
+            isCapturingRegion: false,
+            isCropSelecting: false,
+            isPlacingPageNote: false,
+            zoom: 1,
+            effectiveZoom: 1,
+            zoomMode: 'fit-width',
+            fitMode: 'width',
+            viewMode: 'single',
+            currentPage: 42,
+            totalPages: 100,
+        });
+
+        expect(state).not.toHaveProperty('currentPage');
+    });
+
     it('keeps the active tab hot and recent tabs warm in conservative mode', () => {
         const states = resolveTabLifecycleStates({
             tabs: [

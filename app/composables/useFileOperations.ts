@@ -58,6 +58,7 @@ export interface IFileOperationsDeps {
     markBookmarksSaved: () => void;
     hasAnnotationChanges: () => boolean;
     hasShapeChanges?: () => boolean;
+    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[] | undefined;
     serializePdfForSave: (
         data: Uint8Array,
         options?: {
@@ -109,6 +110,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markBookmarksSaved,
         hasAnnotationChanges,
         hasShapeChanges,
+        getAnnotationCommentsSnapshot,
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
@@ -144,6 +146,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             hasShapeChanges: hasShapeChanges?.() ?? false,
             annotationNoteWindowsCount: annotationNoteWindowsCount.value,
         };
+    }
+
+    function getAnnotationCommentsForSave() {
+        return getAnnotationCommentsSnapshot?.() ?? annotationComments.value;
     }
 
     function logSavePhase(
@@ -196,7 +202,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function hasUnreplayableEditorOnlyAnnotationsPendingMaterialization() {
-        return annotationComments.value.some(comment =>
+        return getAnnotationCommentsForSave().some(comment =>
             comment.source === 'editor'
             && !parsePdfJsAnnotationRef(comment.annotationId)
             && !isReplayableEditorOnlyFreeTextNote(comment),
@@ -415,7 +421,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             addExistingPdfAnnotationIdFromStableKey(ids, comment.stableKey);
             addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
         });
-        annotationComments.value
+        getAnnotationCommentsForSave()
             .filter(isReplayableEditorOnlyFreeTextNote)
             .forEach((comment) => {
                 [

@@ -944,6 +944,45 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
     });
 
+    it('keeps the linked Popup rect aligned when moving an existing FreeText note', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'note',
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            annotationId: `${noteRef.objectNumber}R${noteRef.generationNumber}`,
+            text: 'note',
+            markerRect: {
+                left: 0.45,
+                top: 0.35,
+                width: 0.02,
+                height: 0.02,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+        const popupRef = dict?.get(PDFName.of('Popup'));
+        const popupDict = popupRef instanceof PDFRef ? getAnnotDict(doc, popupRef) : null;
+
+        expect(popupDict).toBeInstanceOf(PDFDict);
+        expect(getRectNumbers(popupDict!)).toEqual(getRectNumbers(dict!));
+    });
+
     it('updates embedded note text by stable object ref even when comment cache is stale', async () => {
         const {
             bytes,

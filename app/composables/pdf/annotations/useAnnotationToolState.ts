@@ -46,6 +46,8 @@ import {
 } from '@app/composables/pdf/annotations/annotationEditorPresentation';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
+const ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS = 500;
+
 const OPAQUE_HIGHLIGHT_OPACITY = 1;
 
 type TAnnotationEditorMode = Parameters<AnnotationEditorUIManager['updateMode']>[0];
@@ -375,6 +377,27 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         syncMarkupSubtypePresentationForEditors();
     }
 
+    async function waitForEditorsRenderedBeforeModeRetry(
+        uiManager: AnnotationEditorUIManager,
+        pageNumber: number,
+    ) {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        try {
+            await Promise.race([
+                uiManager.waitForEditorsRendered(Math.max(1, pageNumber)),
+                new Promise<never>((_, reject) => {
+                    timeoutId = setTimeout(() => {
+                        reject(new Error('Timed out waiting for editors before annotation mode retry'));
+                    }, ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS);
+                }),
+            ]);
+        } finally {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+            }
+        }
+    }
+
     async function updateModeWithRetry(
         uiManager: AnnotationEditorUIManager,
         mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
@@ -386,7 +409,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         } catch (initialError) {
             BrowserLogger.debug('annotations', `Annotation mode switch will retry: ${errorToLogText(initialError)}`);
             try {
-                await uiManager.waitForEditorsRendered(Math.max(1, pageNumber));
+                await waitForEditorsRenderedBeforeModeRetry(uiManager, pageNumber);
             } catch (waitError) {
                 BrowserLogger.debug('annotations', `Failed to wait for editor render before mode retry: ${errorToLogText(waitError)}`);
             }

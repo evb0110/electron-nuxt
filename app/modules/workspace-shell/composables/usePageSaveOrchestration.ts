@@ -48,6 +48,7 @@ interface IPdfViewerForSave {
     clearPendingManagedShapeImportAdoption?: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
+    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     getAllShapes: () => IShapeAnnotation[];
     markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
@@ -174,6 +175,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         untitledBookmarkLabel: t('bookmarks.untitled'),
         getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
         getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
+        getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
@@ -202,6 +204,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markBookmarksSaved,
         hasAnnotationChanges,
         hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
+        getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,

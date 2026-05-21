@@ -50,12 +50,17 @@ interface IUseAnnotationOrchestratorOptions {
             start: number;
             end: number 
         },
-        options?: { preserveRenderedPages?: boolean },
+        options?: {
+            preserveRenderedPages?: boolean;
+            forceRerender?: boolean;
+            bufferOverride?: number;
+        },
     ) => Promise<void>;
+    renderAnnotationEditorLayerForPage?: (pageNumber: number) => Promise<boolean>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
-    emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
+    emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => IAnnotationCommentSummary[] | undefined;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
     emitAnnotationToolAutoReset: () => void;
@@ -90,6 +95,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         stopDrag,
         scrollToPage,
         renderVisiblePages,
+        renderAnnotationEditorLayerForPage,
         updateVisibleRange,
         emitAnnotationModified,
         emitAnnotationState,
@@ -173,8 +179,8 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getMarkupSubtype: () => toolState,
         getStore: () => ({
             setAnnotations: (comments: IAnnotationCommentSummary[]) => {
-                annotationCommentsCache.value = comments;
-                emitAnnotationComments(comments);
+                const appliedComments = emitAnnotationComments(comments) ?? comments;
+                annotationCommentsCache.value = appliedComments;
             },
             setLinkAnnotations: (links: ILinkAnnotation[]) => {
                 linkAnnotations.value = links;
@@ -213,6 +219,22 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         stopDrag,
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
+        ensureAnnotationEditorLayerReady: async (pageNumber) => {
+            if (await renderAnnotationEditorLayerForPage?.(pageNumber)) {
+                return;
+            }
+            await renderVisiblePages(
+                {
+                    start: pageNumber,
+                    end: pageNumber,
+                },
+                {
+                    preserveRenderedPages: true,
+                    forceRerender: true,
+                    bufferOverride: 0,
+                },
+            );
+        },
     });
 
     const crud = useAnnotationCrud({

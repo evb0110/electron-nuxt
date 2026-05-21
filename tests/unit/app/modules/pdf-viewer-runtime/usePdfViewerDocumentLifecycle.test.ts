@@ -28,6 +28,94 @@ function flushLifecycleTasks() {
 }
 
 describe('usePdfViewerDocumentLifecycle', () => {
+    it('reconciles fresh document opens to page one even when current page is already one', async () => {
+        const callOrder: string[] = [];
+        const currentPage = ref(1);
+        const visibleRange = ref({
+            start: 1,
+            end: 1,
+        });
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const numPages = ref(392);
+        const viewerContainer = ref(cast<HTMLElement>({ querySelector: vi.fn(() => ({})) }));
+        const scrollToPage = vi.fn((pageNumber: number) => {
+            callOrder.push(`scroll:${pageNumber}`);
+        });
+        const renderVisiblePages = vi.fn(async () => {
+            callOrder.push('render');
+        });
+        const updateVisibleRange = vi.fn(() => {
+            callOrder.push('update-visible-range');
+        });
+
+        const { scheduleLoadFromSource } = usePdfViewerDocumentLifecycle({
+            viewerContainer,
+            src: computed(() =>
+                new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+            ),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => 'fit-width' as const),
+            effectiveScale: ref(1),
+            currentPage,
+            visibleRange,
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            annotationUiManager: shallowRef(null),
+            annotationCommentsCache: ref([]),
+            activeCommentStableKey: ref(null),
+            pdfDocument,
+            numPages,
+            isLoading: ref(false),
+            getRenderVersion: () => 1,
+            loadPdf: vi.fn(async () => {
+                pdfDocument.value = { numPages: numPages.value } as PDFDocumentProxy;
+                return { version: 1 };
+            }),
+            ensurePageMetricsInRange: vi.fn(async () => false),
+            getPage: vi.fn(async () => ({}) as PDFPageProxy),
+            renderVisiblePages,
+            getVisibleRange: () => visibleRange.value,
+            reRenderVisiblePagesAndSyncCurrentPage: vi.fn(async () => {}),
+            syncCurrentPageFromViewport: vi.fn(async () => {
+                callOrder.push('sync');
+            }),
+            applySearchHighlights: vi.fn(),
+            updateVisibleRange,
+            scrollToPage,
+            cleanupRenderedPages: vi.fn(),
+            invalidateScaleCache: vi.fn(),
+            resetScale: vi.fn(),
+            resetInsets: vi.fn(),
+            setupPagePlaceholders: vi.fn(() => {
+                callOrder.push('setup-placeholders');
+            }),
+            computeFitWidthScale: vi.fn(() => true),
+            computeSkeletonInsets: vi.fn(async () => {}),
+            invalidateRenderedPages: vi.fn(),
+            consumePendingInvalidation: () => null,
+            commentSync: {
+                incrementSyncToken: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            },
+            editor: {
+                destroyAnnotationEditor: vi.fn(),
+                initAnnotationEditor: vi.fn(),
+            },
+            pinCurrentPageDuringRecovery: vi.fn(),
+            suppressNextZoomRerender: vi.fn(),
+            beginVisualReloadTransition: vi.fn(() => 17),
+            endVisualReloadTransition: vi.fn(),
+            emit: vi.fn(),
+        });
+
+        scheduleLoadFromSource();
+        await flushLifecycleTasks();
+
+        expect(scrollToPage).toHaveBeenCalledWith(1);
+        expect(callOrder.indexOf('scroll:1')).toBeGreaterThan(callOrder.indexOf('setup-placeholders'));
+        expect(callOrder.indexOf('scroll:1')).toBeLessThan(callOrder.indexOf('render'));
+    });
+
     it('re-applies the target page after the initial reload render before syncing viewport state', async () => {
         const callOrder: string[] = [];
         const currentPage = ref(200);

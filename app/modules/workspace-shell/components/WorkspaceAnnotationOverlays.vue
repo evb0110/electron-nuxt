@@ -26,6 +26,8 @@
             <AppTooltip
                 :text="getMinimizedNotePreview(note)"
                 :delay-duration="250"
+                :disabled="isMarkerDragTooltipSuppressed"
+                :open="isMarkerDragTooltipSuppressed ? false : undefined"
             >
                 <button
                     type="button"
@@ -511,6 +513,8 @@ interface INoteViewportRect {
 }
 
 const connectorLines = shallowRef<IConnectorLine[]>([]);
+const isMarkerDragTooltipSuppressed = ref(false);
+let markerDragTooltipReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getMarkerPointFromElement(markerElement: HTMLElement): IConnectorMarkerPoint | null {
     const markerRect = markerElement.getBoundingClientRect();
@@ -975,11 +979,43 @@ function scheduleViewportMutationRefresh() {
     scheduleOverlayRefreshBurst(4);
 }
 
+function clearMarkerDragTooltipReleaseTimer() {
+    if (markerDragTooltipReleaseTimer !== null) {
+        clearTimeout(markerDragTooltipReleaseTimer);
+        markerDragTooltipReleaseTimer = null;
+    }
+}
+
+function setMarkerDragTooltipSuppressed(active: boolean) {
+    if (active) {
+        clearMarkerDragTooltipReleaseTimer();
+        isMarkerDragTooltipSuppressed.value = true;
+        return;
+    }
+
+    clearMarkerDragTooltipReleaseTimer();
+    markerDragTooltipReleaseTimer = setTimeout(() => {
+        markerDragTooltipReleaseTimer = null;
+        isMarkerDragTooltipSuppressed.value = false;
+    }, 80);
+}
+
+function handleMarkerDragFrame() {
+    setMarkerDragTooltipSuppressed(true);
+    scheduleConnectorRefreshFrame();
+}
+
+function handleMarkerDragState(event: Event) {
+    const active = event instanceof CustomEvent && event.detail?.active === true;
+    setMarkerDragTooltipSuppressed(active);
+}
+
 onMounted(() => {
     scheduleOverlayRefreshBurst(10);
 });
 
 onBeforeUnmount(() => {
+    clearMarkerDragTooltipReleaseTimer();
     indicatorDomRefreshScheduler.cancel();
     connectorRefreshScheduler.cancel();
     connectorLines.value = [];
@@ -1002,7 +1038,13 @@ useEventListener(
 useEventListener(
     import.meta.client ? window : undefined,
     'pdf-comment-marker-drag',
-    scheduleConnectorRefreshFrame,
+    handleMarkerDragFrame,
+);
+
+useEventListener(
+    import.meta.client ? window : undefined,
+    'pdf-comment-marker-drag-state',
+    handleMarkerDragState,
 );
 
 useMutationObserver(

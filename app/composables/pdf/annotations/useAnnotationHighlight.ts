@@ -82,6 +82,7 @@ interface IUseAnnotationHighlightOptions {
     getMarkupSubtype: () => IHighlightMarkupSubtype;
     getSync: () => IHighlightSync;
     getToolManager: () => IHighlightToolManager;
+    ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
     stopDrag: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
@@ -116,6 +117,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         getMarkupSubtype,
         getSync,
         getToolManager,
+        ensureAnnotationEditorLayerReady,
         stopDrag,
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
@@ -124,6 +126,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     const isPlacingComment = ref(false);
     const DEFAULT_POINT_MARKER_SIZE = 0.0016;
     const NOTE_PLACEMENT_LOG_SECTION = 'note-placement';
+    const EDITOR_RENDER_WAIT_TIMEOUT_MS = 1_500;
     const pagePointResolver = createPdfPagePointResolver({
         viewerContainer,
         currentPage,
@@ -648,6 +651,75 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             : new Error(String(modeError));
     }
 
+    async function waitForEditorsRenderedWithTimeout(
+        uiManager: AnnotationEditorUIManager,
+        pageNumber: number,
+        reason: string,
+        diagnosticsContext?: INotePlacementDiagnosticsContext,
+    ) {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        try {
+            await Promise.race([
+                uiManager.waitForEditorsRendered(pageNumber),
+                new Promise<never>((_, reject) => {
+                    timeoutId = setTimeout(() => {
+                        reject(new Error(`Timed out waiting for PDF.js editor layer (${reason})`));
+                    }, EDITOR_RENDER_WAIT_TIMEOUT_MS);
+                }),
+            ]);
+            return true;
+        } catch (error) {
+            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Timed out waiting for PDF.js editor layer before creating note', {
+                attemptId: diagnosticsContext?.attemptId ?? null,
+                pageNumber,
+                reason,
+                error: errorToLogText(error),
+            });
+            return false;
+        } finally {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+            }
+        }
+    }
+
+    async function ensureEditorLayerDivReady(
+        uiManager: AnnotationEditorUIManager,
+        pageNumber: number,
+        diagnosticsContext?: INotePlacementDiagnosticsContext,
+    ) {
+        let layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+        if (layerDiv) {
+            return layerDiv;
+        }
+        if (!ensureAnnotationEditorLayerReady) {
+            return null;
+        }
+
+        try {
+            await ensureAnnotationEditorLayerReady(pageNumber);
+            layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+            if (layerDiv) {
+                return layerDiv;
+            }
+            await waitForEditorsRenderedWithTimeout(
+                uiManager,
+                pageNumber,
+                'rerender-create',
+                diagnosticsContext,
+            );
+        } catch (error) {
+            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Failed to rerender PDF.js editor layer before creating note', {
+                attemptId: diagnosticsContext?.attemptId ?? null,
+                pageNumber,
+                error: errorToLogText(error),
+            });
+        }
+
+        layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+        return layerDiv;
+    }
+
     async function restorePreviousAnnotationMode(
         toolManager: IHighlightToolManager,
         uiManager: AnnotationEditorUIManager,
@@ -772,13 +844,19 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         };
     }
 
+    function isDeletedEditor(editor: IPdfjsEditor) {
+        return typeof editor.comment === 'object'
+            && editor.comment !== null
+            && editor.comment.deleted === true;
+    }
+
     function pickCreatedEditorCandidate(
         pageIndex: number,
         snapshot: IEditorSnapshot,
         getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
         getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
     ) {
-        const editorsAfter = getEditorsForPage(pageIndex);
+        const editorsAfter = getEditorsForPage(pageIndex).filter(editor => !isDeletedEditor(editor));
         return editorsAfter.find((editor) => {
             if (!snapshot.editorsBeforeRefs.has(editor)) {
                 return true;
@@ -838,7 +916,12 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return immediate;
             }
             try {
-                await uiManager.waitForEditorsRendered(pageNumber);
+                await waitForEditorsRenderedWithTimeout(
+                    uiManager,
+                    pageNumber,
+                    'resolve-created-editor',
+                    diagnosticsContext,
+                );
             } catch { /* ignore */ }
             await delay(60);
             await nextTick();
@@ -851,11 +934,10 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         const previousMode = uiManager.getMode();
         try {
             await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.FREETEXT, pageNumber);
-            await uiManager.waitForEditorsRendered(pageNumber);
             if (!isAnnotationUiManagerCurrent(uiManager)) {
                 return false;
             }
-            const layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+            const layerDiv = await ensureEditorLayerDivReady(uiManager, pageNumber, diagnosticsContext);
             if (!layerDiv) {
                 return false;
             }

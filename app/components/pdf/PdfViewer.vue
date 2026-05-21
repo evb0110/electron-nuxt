@@ -130,8 +130,14 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
 import {
     isSelectionInteractionTool,
+    isNoteEligibleComment,
+    markerRectCenterDistance,
     isSelectionMarkupTool,
 } from '@app/composables/pdf/annotations/annotationRules';
+import {
+    annotationCommentsMatch,
+    selectPreferredAnnotationComment,
+} from '@app/composables/pdf/annotationCommentMatching';
 import { logPdfNav } from '@app/utils/pdfNavLog';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -165,6 +171,12 @@ interface IProps {
     currentPage?: number | undefined;
     workingCopyPath?: string | null | undefined;
     authorName?: string | null | undefined;
+}
+
+interface IPendingMarkerMove {
+    markerRect: IAnnotationMarkerRect;
+    previousMarkerRect: IAnnotationMarkerRect | null;
+    movedAt: number;
 }
 
 const {
@@ -266,8 +278,10 @@ const resizeTransitionAnchorPage = ref<number | null>(null);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
-const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
+const pendingMarkerMoves = new Map<string, IPendingMarkerMove>();
+const locallyDeletedAnnotationComments: IAnnotationCommentSummary[] = [];
 const activeCommentStableKey = ref<string | null>(null);
+const ANNOTATION_RELOAD_CACHE_GRACE_MS = 5_000;
 const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 0;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
@@ -278,6 +292,7 @@ const {
     waitForViewerLoadSettled,
 } = useViewerLoadSettle();
 let pendingInitialVisualReadyToken: number | null = null;
+let annotationReloadCacheGraceUntil = 0;
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
 
@@ -547,6 +562,7 @@ const {
     requestScrollToCurrentResult,
     cancelPendingSearchScroll,
     cancelInFlightRenders,
+    renderAnnotationEditorLayerForPage,
 } = usePdfPageRenderer({
     container: viewerContainer,
     document: pdfDocumentResult,
@@ -689,6 +705,346 @@ watch(annotationTool, (tool) => {
     }
 });
 
+function upsertAnnotationComment(comment: IAnnotationCommentSummary) {
+    clearLocalDeletionForNewTransientComment(comment);
+    const next = normalizeAnnotationComments([
+        ...annotationCommentsCache.value,
+        comment,
+    ]);
+    annotationCommentsCache.value = next;
+    emit('annotation-comments', next);
+}
+
+function isAnnotationReloadCacheGraceActive() {
+    return isAnySaving.value || Date.now() <= annotationReloadCacheGraceUntil;
+}
+
+function commentsShareTransientPlacement(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    return left.pageIndex === right.pageIndex
+        && isNoteEligibleComment(left)
+        && isNoteEligibleComment(right)
+        && markerRectCenterDistance(left.markerRect, right.markerRect) < 0.01;
+}
+
+function isTransientEditorOnlyComment(comment: IAnnotationCommentSummary) {
+    return comment.source === 'editor' && !comment.annotationId;
+}
+
+function getPendingMarkerMove(comment: IAnnotationCommentSummary) {
+    return pendingMarkerMoves.get(comment.stableKey) ?? null;
+}
+
+function normalizeAnnotationNoteText(comment: IAnnotationCommentSummary) {
+    return comment.text.trim().replace(/[\u200B\uFEFF]/gu, '');
+}
+
+function commentsShareNonEmptyNoteText(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    const leftText = normalizeAnnotationNoteText(left);
+    const rightText = normalizeAnnotationNoteText(right);
+    return leftText.length > 0 && leftText === rightText;
+}
+
+function markerMoveTouchesComment(
+    move: IPendingMarkerMove | null,
+    comment: IAnnotationCommentSummary,
+) {
+    if (!move) {
+        return false;
+    }
+    return markerRectCenterDistance(move.markerRect, comment.markerRect) < 0.015
+        || markerRectCenterDistance(move.previousMarkerRect, comment.markerRect) < 0.015;
+}
+
+function commentsShareTransientTransitionIdentity(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (
+        left.pageIndex !== right.pageIndex
+        || !isNoteEligibleComment(left)
+        || !isNoteEligibleComment(right)
+        || isTransientEditorOnlyComment(left) === isTransientEditorOnlyComment(right)
+    ) {
+        return false;
+    }
+
+    if (commentsShareNonEmptyNoteText(left, right)) {
+        return true;
+    }
+
+    const leftMove = getPendingMarkerMove(left);
+    const rightMove = getPendingMarkerMove(right);
+    return markerMoveTouchesComment(leftMove, right)
+        || markerMoveTouchesComment(rightMove, left);
+}
+
+function commentsShareActiveTransientTransitionIdentity(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    return commentsShareTransientTransitionIdentity(left, right)
+        && (
+            isAnnotationReloadCacheGraceActive()
+            || Boolean(getPendingMarkerMove(left))
+            || Boolean(getPendingMarkerMove(right))
+        );
+}
+
+function findPreviousTransientTransitionComment(
+    comment: IAnnotationCommentSummary,
+    previousComments: IAnnotationCommentSummary[],
+) {
+    if (!isAnnotationReloadCacheGraceActive() || !isNoteEligibleComment(comment)) {
+        return null;
+    }
+
+    const candidates = previousComments.filter(previous =>
+        isTransientEditorOnlyComment(previous)
+        && commentsShareTransientTransitionIdentity(previous, comment),
+    );
+    if (candidates.length === 0) {
+        return null;
+    }
+    if (candidates.length === 1) {
+        return candidates[0]!;
+    }
+
+    const ordered = [...candidates].sort((left, right) => {
+        const leftMove = getPendingMarkerMove(left);
+        const rightMove = getPendingMarkerMove(right);
+        const leftDistance = markerRectCenterDistance(
+            leftMove?.markerRect ?? left.markerRect,
+            comment.markerRect,
+        );
+        const rightDistance = markerRectCenterDistance(
+            rightMove?.markerRect ?? right.markerRect,
+            comment.markerRect,
+        );
+        return leftDistance - rightDistance;
+    });
+
+    const best = ordered[0] ?? null;
+    const secondBest = ordered[1] ?? null;
+    if (!best || !secondBest) {
+        return best;
+    }
+
+    const bestDistance = markerRectCenterDistance(
+        getPendingMarkerMove(best)?.markerRect ?? best.markerRect,
+        comment.markerRect,
+    );
+    const secondBestDistance = markerRectCenterDistance(
+        getPendingMarkerMove(secondBest)?.markerRect ?? secondBest.markerRect,
+        comment.markerRect,
+    );
+    return secondBestDistance - bestDistance > 0.02 ? best : null;
+}
+
+function clearLocalDeletionForNewTransientComment(comment: IAnnotationCommentSummary) {
+    if (!isTransientEditorOnlyComment(comment)) {
+        return;
+    }
+    for (let index = locallyDeletedAnnotationComments.length - 1; index >= 0; index -= 1) {
+        const deleted = locallyDeletedAnnotationComments[index];
+        if (!deleted || !commentsShareTransientPlacement(deleted, comment)) {
+            continue;
+        }
+        locallyDeletedAnnotationComments.splice(index, 1);
+    }
+}
+
+function commentsRepresentSameVisibleNote(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (annotationCommentsMatch(left, right)) {
+        return true;
+    }
+    if (!(isTransientEditorOnlyComment(left) || isTransientEditorOnlyComment(right))) {
+        return false;
+    }
+    return commentsShareTransientPlacement(left, right)
+        || commentsShareActiveTransientTransitionIdentity(left, right);
+}
+
+function selectPreferredVisibleComment(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (
+        (
+            commentsShareTransientPlacement(left, right)
+            || commentsShareActiveTransientTransitionIdentity(left, right)
+        )
+        && isTransientEditorOnlyComment(left) !== isTransientEditorOnlyComment(right)
+    ) {
+        return isTransientEditorOnlyComment(left) ? right : left;
+    }
+    return selectPreferredAnnotationComment(left, right);
+}
+
+function isLocallyDeletedAnnotationComment(comment: IAnnotationCommentSummary) {
+    return locallyDeletedAnnotationComments.some((deleted) => {
+        if (isTransientEditorOnlyComment(deleted) || isTransientEditorOnlyComment(comment)) {
+            return commentsShareTransientPlacement(deleted, comment)
+                || commentsShareActiveTransientTransitionIdentity(deleted, comment);
+        }
+        return annotationCommentsMatch(deleted, comment) || commentsShareTransientPlacement(deleted, comment);
+    });
+}
+
+function shouldSuppressEmptyPdfNoteDuringTransientEdit(
+    comment: IAnnotationCommentSummary,
+    comments: IAnnotationCommentSummary[],
+) {
+    if (
+        comment.source !== 'pdf'
+        || normalizeAnnotationNoteText(comment).length > 0
+        || !isNoteEligibleComment(comment)
+    ) {
+        return false;
+    }
+
+    return comments.some(candidate =>
+        candidate.pageIndex === comment.pageIndex
+        && isTransientEditorOnlyComment(candidate)
+        && isNoteEligibleComment(candidate),
+    );
+}
+
+function normalizeAnnotationComments(
+    comments: IAnnotationCommentSummary[],
+    options: { dropTransientEditorOnly?: boolean } = {},
+) {
+    const normalized: IAnnotationCommentSummary[] = [];
+    for (const comment of comments) {
+        if (
+            isLocallyDeletedAnnotationComment(comment)
+            || (options.dropTransientEditorOnly === true && isTransientEditorOnlyComment(comment))
+            || shouldSuppressEmptyPdfNoteDuringTransientEdit(comment, comments)
+        ) {
+            continue;
+        }
+
+        const existingIndex = normalized.findIndex(candidate => commentsRepresentSameVisibleNote(candidate, comment));
+        if (existingIndex === -1) {
+            normalized.push(comment);
+            continue;
+        }
+
+        normalized[existingIndex] = selectPreferredVisibleComment(normalized[existingIndex]!, comment);
+    }
+    return normalized;
+}
+
+function markAnnotationCommentLocallyDeleted(comment: IAnnotationCommentSummary) {
+    locallyDeletedAnnotationComments.push(comment);
+    pendingMarkerMoves.delete(comment.stableKey);
+    for (const candidate of annotationCommentsCache.value) {
+        if (isLocallyDeletedAnnotationComment(candidate)) {
+            pendingMarkerMoves.delete(candidate.stableKey);
+        }
+    }
+    if (!isTransientEditorOnlyComment(comment)) {
+        annotations.commentSync.suppressAnnotationStableKey(comment.stableKey);
+    }
+    if (comment.annotationId) {
+        annotations.commentSync.suppressAnnotationId(comment.annotationId);
+    }
+    const next = annotationCommentsCache.value.filter(candidate => !isLocallyDeletedAnnotationComment(candidate));
+    annotationCommentsCache.value = next;
+    emit('annotation-comments', next);
+}
+
+function mergeAnnotationCommentsThroughReload(
+    incomingComments: IAnnotationCommentSummary[],
+    previousComments: IAnnotationCommentSummary[],
+) {
+    const merged = incomingComments.map((comment) => {
+        const pendingMarkerMove = pendingMarkerMoves.get(comment.stableKey);
+        if (pendingMarkerMove) {
+            return {
+                ...comment,
+                markerRect: pendingMarkerMove.markerRect,
+            };
+        }
+
+        if (!isAnnotationReloadCacheGraceActive() || !isNoteEligibleComment(comment)) {
+            return comment;
+        }
+
+        const transientPrevious = findPreviousTransientTransitionComment(comment, previousComments);
+        if (transientPrevious?.markerRect) {
+            return {
+                ...comment,
+                markerRect: getPendingMarkerMove(transientPrevious)?.markerRect ?? transientPrevious.markerRect,
+            };
+        }
+
+        const previous = previousComments.find(candidate => annotationCommentsMatch(candidate, comment));
+        if (!previous?.markerRect) {
+            return comment;
+        }
+
+        return {
+            ...comment,
+            markerRect: previous.markerRect,
+        };
+    });
+
+    for (const previous of previousComments) {
+        const hasMergedReplacement = merged.some(comment =>
+            commentsRepresentSameVisibleNote(comment, previous)
+            || commentsShareTransientTransitionIdentity(comment, previous),
+        );
+        const canCarryPreviousAfterGrace = isTransientEditorOnlyComment(previous) && !hasMergedReplacement;
+        if (
+            !isNoteEligibleComment(previous)
+            || (!isAnnotationReloadCacheGraceActive() && !canCarryPreviousAfterGrace)
+            || isLocallyDeletedAnnotationComment(previous)
+            || hasMergedReplacement
+        ) {
+            continue;
+        }
+        merged.push(previous);
+    }
+
+    return normalizeAnnotationComments(merged);
+}
+
+function isGracePreservedEditorOnlyComment(comment: IAnnotationCommentSummary) {
+    return isTransientEditorOnlyComment(comment)
+        && isAnnotationReloadCacheGraceActive()
+        && annotationCommentsCache.value.some(candidate => annotationCommentsMatch(candidate, comment));
+}
+
+async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    if (isGracePreservedEditorOnlyComment(comment)) {
+        markAnnotationCommentLocallyDeleted(comment);
+        emit('annotation-modified', { forceDirty: true });
+        return true;
+    }
+
+    const deleted = await commentCrud.deleteAnnotationComment(comment);
+    if (deleted) {
+        markAnnotationCommentLocallyDeleted(comment);
+    }
+    return deleted;
+}
+
+function applyAnnotationCommentsFromSync(comments: IAnnotationCommentSummary[]) {
+    const previousComments = annotationCommentsCache.value;
+    const merged = mergeAnnotationCommentsThroughReload(comments, previousComments);
+    emit('annotation-comments', merged);
+    return merged;
+}
+
 const annotations = useAnnotationOrchestrator({
     viewerContainer,
     pdfDocument,
@@ -708,28 +1064,15 @@ const annotations = useAnnotationOrchestrator({
     stopDrag,
     scrollToPage: (pageNumber) => singlePageScroll.scrollToPage(pageNumber),
     renderVisiblePages,
+    renderAnnotationEditorLayerForPage,
     updateVisibleRange,
     emitAnnotationModified: () => emit('annotation-modified'),
     emitAnnotationState: (state) => emit('annotation-state', state),
-    emitAnnotationComments: (comments) => {
-        if (pendingMarkerMoves.size > 0) {
-            const merged = comments.map((c) => {
-                const rect = pendingMarkerMoves.get(c.stableKey);
-                if (!rect) {
-                    return c;
-                }
-                return {
-                    ...c,
-                    markerRect: rect,
-                };
-            });
-            annotationCommentsCache.value = merged;
-            emit('annotation-comments', merged);
-            return;
-        }
-        emit('annotation-comments', comments);
+    emitAnnotationComments: applyAnnotationCommentsFromSync,
+    emitAnnotationOpenNote: (comment) => {
+        upsertAnnotationComment(comment);
+        emit('annotation-open-note', comment);
     },
-    emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
     emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
     emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
     emitAnnotationSetting: (payload) => emit('annotation-setting', payload),
@@ -769,16 +1112,42 @@ function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnot
     if (index === -1) {
         return;
     }
-    pendingMarkerMoves.set(comment.stableKey, markerRect);
-    const updated = {
-        ...annotationCommentsCache.value[index]!,
+    const movedAt = Date.now();
+    const previous = annotationCommentsCache.value[index]!;
+    pendingMarkerMoves.set(comment.stableKey, {
         markerRect,
+        previousMarkerRect: previous.markerRect ?? null,
+        movedAt,
+    });
+    const updated = {
+        ...previous,
+        markerRect,
+        modifiedAt: movedAt,
     };
+    const editor = commentCrud.findEditorForComment(updated) ?? commentCrud.findEditorForComment(comment);
+    if (editor) {
+        editor.__evbPendingAnchorRect = markerRect;
+        annotations.commentSync.pendingCommentEditorKeys.add(
+            annotations.identity.getEditorPendingKey(editor, updated.pageIndex),
+        );
+    }
     const next = [...annotationCommentsCache.value];
     next[index] = updated;
     annotationCommentsCache.value = next;
     emit('annotation-comments', next);
     emit('annotation-modified', { forceDirty: true });
+}
+
+function cloneAnnotationCommentSnapshot(comment: IAnnotationCommentSummary): IAnnotationCommentSummary {
+    return {
+        ...comment,
+        markerRect: comment.markerRect ? { ...comment.markerRect } : comment.markerRect,
+    };
+}
+
+function getAnnotationCommentsSnapshot() {
+    return normalizeAnnotationComments(annotationCommentsCache.value)
+        .map(cloneAnnotationCommentSnapshot);
 }
 
 const {
@@ -841,10 +1210,27 @@ const {
 watch(() => src.value, (next, previous) => {
     if (next !== previous) {
         clearPendingImagePlacement();
-        pendingMarkerMoves.clear();
-        annotationCommentsCache.value = [];
         activeCommentStableKey.value = null;
-        emit('annotation-comments', []);
+        if (!next) {
+            pendingMarkerMoves.clear();
+            locallyDeletedAnnotationComments.length = 0;
+            annotationReloadCacheGraceUntil = 0;
+            annotationCommentsCache.value = [];
+            emit('annotation-comments', []);
+            return;
+        }
+        annotationReloadCacheGraceUntil = Date.now() + ANNOTATION_RELOAD_CACHE_GRACE_MS;
+        window.setTimeout(() => {
+            if (!isAnnotationReloadCacheGraceActive()) {
+                pendingMarkerMoves.clear();
+                const next = normalizeAnnotationComments(annotationCommentsCache.value);
+                if (next.length !== annotationCommentsCache.value.length) {
+                    annotationCommentsCache.value = next;
+                    emit('annotation-comments', next);
+                }
+                void annotations.commentSync.syncAnnotationComments();
+            }
+        }, ANNOTATION_RELOAD_CACHE_GRACE_MS + 100);
     }
 });
 
@@ -1052,12 +1438,9 @@ const delayedSkeleton = usePdfViewerDelayedSkeleton({
     blockSkeletons: shouldBlockPageSkeletons,
     shouldShowSkeletonNow: shouldShowSkeleton,
 });
-const emptyMarkersByPage = new Map<number, never[]>();
 const emptyLinksByPage: Record<number, never[]> = {};
 const visibleMarkersByPage = computed(() => (
-    isViewerLoadingOverlayVisible.value
-        ? emptyMarkersByPage
-        : new Map([...markersByPage.value].filter(([page]) => isPageRenderedForClass(page)))
+    new Map([...markersByPage.value].filter(([page]) => isPageRenderedForClass(page)))
 ));
 const visibleLinksByPage = computed(() => (
     isViewerLoadingOverlayVisible.value
@@ -1465,7 +1848,8 @@ defineExpose({
     registerAnnotationHistoryCommand: registerShapeHistoryCommand,
     focusAnnotationComment: commentCrud.focusAnnotationComment,
     updateAnnotationComment: commentCrud.updateAnnotationComment,
-    deleteAnnotationComment: commentCrud.deleteAnnotationComment,
+    deleteAnnotationComment,
+    getAnnotationCommentsSnapshot,
     getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
     getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
     getAllShapes: shapeComposable.getAllShapes,
@@ -1492,6 +1876,10 @@ defineExpose({
     unsuppressAnnotationStableKey: annotations.commentSync.unsuppressAnnotationStableKey,
     removeAnnotationFromDom,
     removeAnnotationFromInternalCache: (stableKey: string) => {
+        const comment = annotationCommentsCache.value.find(candidate => candidate.stableKey === stableKey);
+        if (comment) {
+            markAnnotationCommentLocallyDeleted(comment);
+        }
         pendingMarkerMoves.delete(stableKey);
         annotationCommentsCache.value = annotationCommentsCache.value.filter(c => c.stableKey !== stableKey);
     },

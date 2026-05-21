@@ -883,27 +883,6 @@ const {
     hasPdf,
 } = w;
 
-const hasAppliedInitialViewState = ref(false);
-
-watch([
-    pdfDocument,
-    totalPages,
-], ([
-    document,
-    pages,
-]) => {
-    if (hasAppliedInitialViewState.value || !initialViewState || !document || pages <= 0) {
-        return;
-    }
-
-    const restoredPage = Math.min(Math.max(initialViewState.currentPage, 1), pages);
-    currentPage.value = restoredPage;
-    hasAppliedInitialViewState.value = true;
-    void nextTick(() => {
-        pdfViewerRef.value?.scrollToPage(restoredPage);
-    });
-}, { flush: 'post' });
-
 const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
 const viewerSearchPageMatches = computed(() => (
     isActiveRef.value && showSidebar.value ? pageMatches.value : hiddenSearchPageMatches
