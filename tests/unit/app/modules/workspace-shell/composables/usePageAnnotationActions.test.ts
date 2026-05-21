@@ -732,7 +732,7 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.invalidatePages).toHaveBeenCalledWith([comment.pageNumber]);
     });
 
-    it('reloads embedded image deletes from serialized bytes so stamp canvases do not stay stale', async () => {
+    it('defers embedded stamp deletes and refreshes the hidden annotation page without reloading', async () => {
         const {
             deps,
             viewer,
@@ -746,24 +746,19 @@ describe('usePageAnnotationActions', () => {
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(deleteEmbeddedAnnotationOffThread).toHaveBeenCalledWith(new Uint8Array([
-            6,
-            6,
-        ]), comment);
+        expect(deleteEmbeddedAnnotationOffThread).not.toHaveBeenCalled();
         expect(viewer.saveDocument).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
-            8,
-            8,
-        ]), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
-        expect(deps.waitForPdfReload).toHaveBeenCalledWith(1);
-        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+        expect(deps.waitForPdfReload).not.toHaveBeenCalled();
+        expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
+        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
+        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R');
+        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
     });
 
-    it('uses planned embedded mutation bytes before embedded stamp delete reloads', async () => {
+    it('does not serialize planned embedded mutation bytes before embedded stamp delete save', async () => {
         const {
             deps,
             viewer,
@@ -782,17 +777,10 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.saveDocument).not.toHaveBeenCalled();
-        expect(deleteEmbeddedAnnotationOffThread).toHaveBeenCalledWith(new Uint8Array([
-            9,
-            9,
-        ]), comment);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
-            8,
-            8,
-        ]), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
+        expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
+        expect(deleteEmbeddedAnnotationOffThread).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
     });
 
     it('marks embedded delete dirty when viewer delete could not resolve the note locally', async () => {

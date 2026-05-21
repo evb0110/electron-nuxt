@@ -115,6 +115,33 @@ async function createPdfWithSquareAndLineAnnotations() {
     };
 }
 
+async function createPdfWithStampAnnotation() {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        600,
+        800,
+    ]);
+
+    const stampDict = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Stamp'),
+        Rect: [
+            PDFNumber.of(120),
+            PDFNumber.of(420),
+            PDFNumber.of(260),
+            PDFNumber.of(540),
+        ],
+        Contents: PDFHexString.fromText('Approved'),
+    });
+    const stampRef = doc.context.register(stampDict);
+    page.node.set(PDFName.of('Annots'), doc.context.obj([stampRef]));
+
+    return {
+        bytes: new Uint8Array(await doc.save()),
+        stampRef,
+    };
+}
+
 async function createPdfWithManagedSquareAnnotation() {
     const doc = await PDFDocument.create();
     const page = doc.addPage([
@@ -476,6 +503,36 @@ describe('serializePdfEdits embedded geometric shapes', () => {
 
         expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
         expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
+    });
+
+    it('removes queued embedded Stamp annotations during save serialization', async () => {
+        const {
+            bytes,
+            stampRef,
+        } = await createPdfWithStampAnnotation();
+
+        const stampId = `${stampRef.objectNumber}R${stampRef.generationNumber}`;
+        const payload = createEmptyPayload();
+        payload.pendingEmbeddedAnnotationDeletes = [{
+            id: stampId,
+            stableKey: `ann:0:${stampId}`,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: stampId,
+            source: 'pdf',
+            subtype: 'Stamp',
+        } satisfies IAnnotationCommentSummary];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        expect(getPageAnnotRefs(doc)).toHaveLength(0);
+        expect(getAnnotDict(doc, stampRef)).toBeInstanceOf(PDFDict);
     });
 
     it('treats managed geometric annotations as canonical overlay state on save', async () => {
