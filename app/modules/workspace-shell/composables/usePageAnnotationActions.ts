@@ -6,7 +6,6 @@ import {
 } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
-import { deleteEmbeddedAnnotationOffThread } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
@@ -853,39 +852,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     let annotationDeleteQueue: Promise<void> = Promise.resolve();
 
-    function shouldReloadEmbeddedDelete(comment: IAnnotationCommentSummary) {
-        return comment.subtype === 'Stamp' && Boolean(comment.annotationId);
-    }
-
-    async function reloadPdfAfterEmbeddedDelete(comment: IAnnotationCommentSummary) {
-        if (!pdfViewerRef.value) {
-            return false;
-        }
-
-        const rawData = await getEmbeddedMutationBaseData();
-        if (!rawData) {
-            return false;
-        }
-
-        const capturedWorkingCopy = captureActiveWorkingCopy();
-        const deletedData = await deleteEmbeddedAnnotationOffThread(rawData, comment);
-        if (!deletedData) {
-            return false;
-        }
-        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-            return false;
-        }
-
-        const pageToRestore = comment.pageNumber || currentPage.value;
-        const restorePromise = waitForPdfReload(pageToRestore);
-        await loadPdfFromData(deletedData, {
-            pushHistory: true,
-            persistWorkingCopy: !!capturedWorkingCopy,
-        });
-        await restorePromise;
-        return true;
-    }
-
     function removeMatchingAnnotationNoteWindows(comment: IAnnotationCommentSummary) {
         annotationNoteWindows.value
             .filter(note => isSameAnnotationComment(note.comment, comment))
@@ -913,19 +879,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
         return !deleted && shouldUseEmbeddedDeletePath(comment);
-    }
-
-    async function tryImmediateEmbeddedDeleteReload(comment: IAnnotationCommentSummary) {
-        try {
-            return await reloadPdfAfterEmbeddedDelete(comment);
-        } catch (error) {
-            BrowserLogger.warn('annotations', 'Immediate embedded image delete reload failed', {
-                stableKey: comment.stableKey,
-                annotationId: comment.annotationId ?? null,
-                error,
-            });
-            return false;
-        }
     }
 
     function queueDeferredEmbeddedDelete(comment: IAnnotationCommentSummary) {
@@ -982,19 +935,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         setAnnotationNoteWindowError(comment.stableKey, t('errors.annotation.delete'));
     }
 
-    async function deleteAnnotationCommentWithFallbacks(comment: IAnnotationCommentSummary, deleted: boolean) {
+    function deleteAnnotationCommentWithFallbacks(comment: IAnnotationCommentSummary, deleted: boolean) {
         if (!shouldUseEmbeddedDeleteFallback(comment, deleted)) {
             return deleted;
         }
-
-        const shouldUseImmediateReload = shouldReloadEmbeddedDelete(comment);
-        if (shouldUseImmediateReload) {
-            const reloaded = await tryImmediateEmbeddedDeleteReload(comment);
-            if (reloaded) {
-                return true;
-            }
-        }
-
         return queueDeferredEmbeddedDelete(comment);
     }
 
@@ -1013,7 +957,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         });
         setAnnotationNoteWindowError(comment.stableKey, null);
         if (shouldUseEmbeddedDeletePath(comment)) {
-            const deleted = await deleteAnnotationCommentWithFallbacks(comment, false);
+            const deleted = deleteAnnotationCommentWithFallbacks(comment, false);
             if (!deleted) {
                 handleAnnotationDeleteFailure(comment);
                 return;
@@ -1028,7 +972,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             deleted: viewerDeleted,
         });
 
-        const deleted = await deleteAnnotationCommentWithFallbacks(comment, viewerDeleted);
+        const deleted = deleteAnnotationCommentWithFallbacks(comment, viewerDeleted);
         if (!deleted) {
             handleAnnotationDeleteFailure(comment);
             return;

@@ -472,7 +472,6 @@ export function useManagedEmbeddedPdfShapes({
                     continue;
                 }
 
-                invalidatePages(pagesToRefresh);
                 await renderVisiblePages(
                     {
                         start: pagesToRefresh[0]!,
