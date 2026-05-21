@@ -190,7 +190,15 @@ export function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCo
                 continue;
             }
 
-            dict.set(rectName, toPdfRectArray(doc, pdfRect));
+            const rectArray = toPdfRectArray(doc, pdfRect);
+            dict.set(rectName, rectArray);
+            const popupValue = dict.get(popupName);
+            const popupDict = popupValue instanceof PDFRef
+                ? doc.context.lookupMaybe(popupValue, PDFDict) ?? null
+                : popupValue instanceof PDFDict
+                    ? popupValue
+                    : null;
+            popupDict?.set(rectName, toPdfRectArray(doc, pdfRect));
 
             if (!blankApRef) {
                 blankApRef = doc.context.register(doc.context.formXObject([], {}));

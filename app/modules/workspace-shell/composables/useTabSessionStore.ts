@@ -12,7 +12,6 @@ import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 export type TTabTemperature = 'hot' | 'warm' | 'cold';
 
 export interface ITabViewSessionState {
-    currentPage: number;
     zoom: number;
     effectiveZoom: number;
     zoomMode: TZoomMode;
@@ -33,13 +32,8 @@ const TAB_POLICY_WARM_COUNTS: Record<TTabMemoryPolicy, number> = {
     aggressive: 0,
 };
 
-function normalizePage(value: number) {
-    return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
-}
-
 export function createTabViewSessionState(snapshot: IWorkspaceToolbarSnapshot): ITabViewSessionState {
     return {
-        currentPage: normalizePage(snapshot.currentPage),
         zoom: snapshot.zoom,
         effectiveZoom: snapshot.effectiveZoom,
         zoomMode: snapshot.zoomMode,

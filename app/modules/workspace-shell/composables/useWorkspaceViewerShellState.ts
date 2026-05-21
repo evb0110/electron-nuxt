@@ -60,7 +60,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const zoomMode = ref<TZoomMode>(initialState?.zoomMode ?? 'fit-width');
     const fitMode = ref<TFitMode>(initialState?.fitMode ?? 'width');
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
-    const currentPage = ref(initialState?.currentPage ?? 1);
+    const currentPage = ref(1);
     const totalPages = ref(0);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 

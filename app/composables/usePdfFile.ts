@@ -275,7 +275,10 @@ export const usePdfFile = () => {
         result: Extract<TOpenFileResult, { kind: 'pdf' }>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
     ) {
-        await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+        await loadPdfFromPath(result.workingPath, {
+            markDirty: !!result.isGenerated,
+            resetSourceBeforeCommit: true,
+        });
         if (!isCurrentOpenRequest(openRequestId) || workingCopyPath.value !== result.workingPath) {
             return {
                 status: 'stale',
@@ -361,9 +364,6 @@ export const usePdfFile = () => {
                     workingPath: result.workingPath,
                 },
             );
-            if (pdfSrc.value) {
-                pdfSrc.value = null;
-            }
             const outcome = await finishPdfOpenResult(openRequestId, result, 'direct');
             if (outcome.status === 'stale') {
                 BrowserLogger.debug(
@@ -883,7 +883,10 @@ export const usePdfFile = () => {
         return shouldForceSaveAs(mode);
     }
 
-    async function loadPdfFromPath(path: TDocumentRef, opts?: { markDirty?: boolean }) {
+    async function loadPdfFromPath(path: TDocumentRef, opts?: {
+        markDirty?: boolean;
+        resetSourceBeforeCommit?: boolean;
+    }) {
         const requestId = ++latestLoadRequestId;
         // Yield one visual frame so upstream loading indicators (e.g. the
         // workspace host spinner) can paint before the potentially heavy file
@@ -909,6 +912,14 @@ export const usePdfFile = () => {
                 latestLoadRequestId,
             });
             return;
+        }
+
+        if (opts?.resetSourceBeforeCommit && pdfSrc.value) {
+            pdfSrc.value = null;
+            await nextTick();
+            if (requestId !== latestLoadRequestId) {
+                return;
+            }
         }
 
         // Keep the previous working copy until the new file is fully validated and loaded.

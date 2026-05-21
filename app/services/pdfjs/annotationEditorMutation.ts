@@ -3,6 +3,8 @@ import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { setSelectedEditor } from '@app/services/pdfjs/annotationEditorAdapter';
 
+const ANNOTATION_EDITOR_RENDER_WAIT_TIMEOUT_MS = 1_500;
+
 export function writeEditorCommentToAnnotationStorage(editor: IPdfjsEditor, text: string) {
     // PDF.js private editor comment field is the only writable note payload surface.
     editor.comment = text;
@@ -86,6 +88,22 @@ export async function waitForAnnotationEditorsRendered(
     uiManager: AnnotationEditorUIManager,
     pageNumber: number,
 ) {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            reject(new Error(`Timed out waiting for annotation editors on page ${pageNumber}`));
+        }, ANNOTATION_EDITOR_RENDER_WAIT_TIMEOUT_MS);
+    });
+
     // PDF.js private waitForEditorsRendered gates mutations until editor layers exist.
-    await uiManager.waitForEditorsRendered(pageNumber);
+    try {
+        await Promise.race([
+            uiManager.waitForEditorsRendered(pageNumber),
+            timeout,
+        ]);
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+    }
 }
