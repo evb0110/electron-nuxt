@@ -28,6 +28,16 @@ const TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-page-100-jump-trace.json',
 );
+const NEXT_PREV_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-next-prev-10-to-7-trace.json',
+);
+const RAPID_NEXT_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-rapid-next-to-21-trace.json',
+);
 
 type TPdfRenderTraceEntry = {
     event: string;
@@ -67,9 +77,9 @@ interface IWorkspaceHostElement extends HTMLElement {__vueParentComponent?: {
     exposed?: { scrollToPage?: (page: number) => void } 
 };}
 
-function writeTraceArtifact(payload: unknown) {
-    mkdirSync(dirname(TRACE_OUTPUT_PATH), { recursive: true });
-    writeFileSync(TRACE_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 async function enableBufferedPdfTrace(session: IElectronE2ESession) {
@@ -147,6 +157,75 @@ async function collectTrace(session: IElectronE2ESession) {
         const traceWindow = window as Window & { __getPdfRenderTrace?: () => TPdfRenderTraceEntry[]; };
         return traceWindow.__getPdfRenderTrace?.() ?? [];
     });
+}
+
+async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
+    await session.page.waitForFunction((targetLabel: string) => {
+        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
+            .some((candidate) => {
+                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
+                    && !candidate.disabled
+                    && candidate.getAttribute('aria-disabled') !== 'true'
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                );
+            });
+    }, { timeout: 12_000 }, label);
+
+    const clicked = await session.page.evaluate((targetLabel: string) => {
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
+            .find((candidate) => {
+                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
+                    && !candidate.disabled
+                    && candidate.getAttribute('aria-disabled') !== 'true'
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                );
+            });
+        button?.click();
+        return Boolean(button);
+    }, label);
+
+    if (!clicked) {
+        throw new Error(`Unable to find enabled page navigation button: ${label}`);
+    }
+}
+
+async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.waitForFunction((targetPageNumber: number) => {
+        return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+            .some((element) => element.textContent?.trim() === String(targetPageNumber));
+    }, { timeout: 10_000 }, pageNumber);
+}
+
+async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
+    return session.page.waitForFunction((targetPageNumber: number) => {
+        const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
+        const rect = container?.getBoundingClientRect();
+        return Boolean(
+            container?.classList.contains('page_container--rendered')
+            && container.querySelector('.page_canvas canvas')
+            && rect
+            && rect.bottom > 0
+            && rect.top < window.innerHeight,
+        );
+    }, { timeout }, pageNumber)
+        .then(() => true)
+        .catch(() => false);
 }
 
 async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
@@ -327,6 +406,101 @@ describe('Electron E2E - Phase 1 (PDF Page Jump Rendering)', () => {
     afterAll(async () => {
         await session?.stop();
     });
+
+    it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
+        if (!session) {
+            throw new Error('Page jump session was not initialized');
+        }
+
+        let targetCanvasMounted = false;
+        let visiblePages: IVisiblePageState[] = [];
+        let navigationControls: Awaited<ReturnType<typeof collectNavigationControlState>> | null = null;
+        let trace: TPdfRenderTraceEntry[] = [];
+
+        try {
+            await jumpToPageAndWaitForCanvas(session, 1);
+            await waitForToolbarCurrentPage(session, 1);
+
+            for (let pageNumber = 2; pageNumber <= 10; pageNumber += 1) {
+                await clickPageNavigationButton(session, 'Next Page');
+                await waitForToolbarCurrentPage(session, pageNumber);
+                await delay(150);
+            }
+
+            for (let pageNumber = 9; pageNumber >= 7; pageNumber -= 1) {
+                await clickPageNavigationButton(session, 'Previous Page');
+                await waitForToolbarCurrentPage(session, pageNumber);
+                await delay(150);
+            }
+
+            targetCanvasMounted = await waitForVisiblePageCanvas(session, 7, 12_000);
+            visiblePages = await collectVisiblePageState(session);
+            navigationControls = await collectNavigationControlState(session);
+            trace = await collectTrace(session);
+        } finally {
+            if (visiblePages.length === 0) {
+                visiblePages = await collectVisiblePageState(session).catch(() => []);
+            }
+            navigationControls ??= await collectNavigationControlState(session).catch(() => null);
+            if (trace.length === 0) {
+                trace = await collectTrace(session).catch(() => []);
+            }
+            const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
+            const targetPageState = visiblePages.find(page => page.page === 7) ?? null;
+            writeTraceArtifact({
+                pdfPath: PAGE_JUMP_PDF_PATH,
+                scenario: 'toolbar-next-to-10-prev-to-7',
+                navigationControls,
+                visiblePages,
+                targetPageState,
+                targetCanvasMounted,
+                blankVisiblePages,
+                trace,
+            }, NEXT_PREV_TRACE_OUTPUT_PATH);
+        }
+
+        const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
+        const targetPageState = visiblePages.find(page => page.page === 7) ?? null;
+
+        expect(targetCanvasMounted).toBe(true);
+        expect(targetPageState).not.toBeNull();
+        expect(blankVisiblePages).toEqual([]);
+    }, 70_000);
+
+    it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('renders the final page after twenty rapid next-page clicks', async () => {
+        if (!session) {
+            throw new Error('Page jump session was not initialized');
+        }
+
+        await jumpToPageAndWaitForCanvas(session, 1);
+        await waitForToolbarCurrentPage(session, 1);
+
+        for (let step = 0; step < 20; step += 1) {
+            await clickPageNavigationButton(session, 'Next Page');
+        }
+        await waitForToolbarCurrentPage(session, 21);
+
+        const targetCanvasMounted = await waitForVisiblePageCanvas(session, 21, 14_000);
+        const visiblePages = await collectVisiblePageState(session);
+        const navigationControls = await collectNavigationControlState(session);
+        const trace = await collectTrace(session);
+        const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
+        const targetPageState = visiblePages.find(page => page.page === 21) ?? null;
+        writeTraceArtifact({
+            pdfPath: PAGE_JUMP_PDF_PATH,
+            scenario: 'toolbar-rapid-next-to-21',
+            navigationControls,
+            visiblePages,
+            targetPageState,
+            targetCanvasMounted,
+            blankVisiblePages,
+            trace,
+        }, RAPID_NEXT_TRACE_OUTPUT_PATH);
+
+        expect(targetCanvasMounted).toBe(true);
+        expect(targetPageState).not.toBeNull();
+        expect(blankVisiblePages).toEqual([]);
+    }, 80_000);
 
     it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('keeps page overlays mounted after jumping to page 100', async () => {
         if (!session) {

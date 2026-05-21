@@ -276,10 +276,16 @@ interface IUsePdfSinglePageScrollOptions {
         numPages: number,
         options?: { requireAuthoritative?: boolean; },
     ) => number;
-    renderVisiblePages: (range: {
-        start: number;
-        end: number
-    }, renderOptions?: { preserveRenderedPages?: boolean; }) => Promise<void>;
+    renderVisiblePages: (
+        range: {
+            start: number;
+            end: number
+        },
+        renderOptions?: {
+            preserveRenderedPages?: boolean;
+            bufferOverride?: number;
+        },
+    ) => Promise<void>;
     visibleRange: Ref<{
         start: number;
         end: number;
@@ -520,7 +526,10 @@ export const usePdfSinglePageScroll = (
             });
             runGuardedTask(() => renderVisiblePages(
                 range,
-                { preserveRenderedPages: true },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                },
             ), {
                 scope: 'pdf-single-page-scroll',
                 message,
@@ -1017,7 +1026,10 @@ export const usePdfSinglePageScroll = (
                 updateVisibleRange(viewerContainer.value, numPages.value);
                 runGuardedTask(() => renderVisiblePages(
                     visibleRange.value,
-                    { preserveRenderedPages: true },
+                    {
+                        preserveRenderedPages: true,
+                        bufferOverride: 0,
+                    },
                 ), {
                     scope: 'pdf-single-page-scroll',
                     message: 'Failed to render visible pages after scrollToPage',
