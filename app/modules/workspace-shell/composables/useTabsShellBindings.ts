@@ -24,7 +24,6 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
-    ensureAtLeastOneTab: () => void;
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -42,7 +41,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         beginOpenPathsInAppropriateTab,
         clearRecentFiles,
         loadRecentFiles,
-        ensureAtLeastOneTab,
         openSettings,
         checkForUpdates,
         splitEditor,
@@ -221,8 +219,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         const platformApi = getPlatformAPI();
         traceRendererStartup('tabs shell onMounted start');
         isStartupOpenClaimPending.value = true;
-        ensureAtLeastOneTab();
-        traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
+        traceRendererStartup('tabs shell initial tab available', {tabCount: tabs.value.length});
 
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect = openPathInAppropriateTab;

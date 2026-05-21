@@ -59,7 +59,6 @@ function createOptions() {
         beginOpenPathsInAppropriateTab: vi.fn(),
         clearRecentFiles: vi.fn(),
         loadRecentFiles: vi.fn(),
-        ensureAtLeastOneTab: vi.fn(),
         openSettings: vi.fn(),
         checkForUpdates: vi.fn(),
         splitEditor: vi.fn(),
@@ -131,17 +130,11 @@ describe('useTabsShellBindings', () => {
         });
     });
 
-    it('marks startup open claim pending before creating the initial tab', async () => {
+    it('settles startup open claim after mounted startup work', async () => {
         const options = createOptions();
-        const statesWhenEnsuringTabs: boolean[] = [];
         options.isStartupOpenClaimPending.value = false;
-        options.ensureAtLeastOneTab = vi.fn(() => {
-            statesWhenEnsuringTabs.push(options.isStartupOpenClaimPending.value);
-        });
 
         const unmount = await mountBindingsClient(options);
-
-        expect(statesWhenEnsuringTabs).toEqual([true]);
 
         await flushMountedStartupClaim();
         expect(options.isStartupOpenClaimPending.value).toBe(false);

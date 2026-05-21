@@ -12,11 +12,11 @@ definePageMeta({ preloadWorkspaceShell: false });
 useServerSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
-if (import.meta.client) {
+onMounted(async () => {
     const hasDesktopBridge = await waitForDesktopPlatformBridge({ shouldWait: true });
 
     if (!hasDesktopBridge) {
         await navigateTo('/', { replace: true });
     }
-}
+});
 </script>
