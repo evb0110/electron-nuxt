@@ -477,7 +477,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             text: comment.text,
             hasNote: true,
             modifiedAt: comment.modifiedAt,
-            markerRect: existing.markerRect ?? comment.markerRect ?? preferred.markerRect,
+            markerRect: comment.markerRect ?? existing.markerRect ?? preferred.markerRect,
         };
         annotationComments.value = next;
     }

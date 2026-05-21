@@ -1445,6 +1445,96 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(getRectNumbers(popupDict!)).toEqual(getRectNumbers(freeTextDict!));
     });
 
+    it('creates multiple new FreeText popup notes on the same page without overwriting earlier notes', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            600,
+            800,
+        ]);
+        const bytes = new Uint8Array(await doc.save());
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [
+            makeFreeTextComment({
+                pageIndex: 0,
+                id: 'pdfjs_internal_editor_0',
+                uid: 'pdfjs_internal_editor_0',
+                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                annotationId: 'pdfjs_internal_editor_0',
+                source: 'editor',
+                subtype: 'FreeText',
+                hasNote: true,
+                text: 'first same-page note',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.001,
+                    height: 0.001,
+                },
+            }),
+            makeFreeTextComment({
+                pageIndex: 0,
+                id: 'pdfjs_internal_editor_1',
+                uid: 'pdfjs_internal_editor_1',
+                stableKey: 'uid:0:pdfjs_internal_editor_1',
+                annotationId: 'pdfjs_internal_editor_1',
+                source: 'editor',
+                subtype: 'FreeText',
+                hasNote: true,
+                text: 'second same-page note',
+                markerRect: {
+                    left: 0.4,
+                    top: 0.3,
+                    width: 0.001,
+                    height: 0.001,
+                },
+            }),
+        ];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const saved = await PDFDocument.load(result, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(saved);
+        const freeTextRefs = annotRefs.filter((ref) => (
+            getAnnotDict(saved, ref)?.get(PDFName.of('Subtype'))?.toString() === '/FreeText'
+        ));
+        const popupRefs = annotRefs.filter((ref) => (
+            getAnnotDict(saved, ref)?.get(PDFName.of('Subtype'))?.toString() === '/Popup'
+        ));
+
+        expect(annotRefs).toHaveLength(4);
+        expect(freeTextRefs).toHaveLength(2);
+        expect(popupRefs).toHaveLength(2);
+
+        const notesByName = new Map(freeTextRefs.map((ref) => {
+            const dict = getAnnotDict(saved, ref)!;
+            return [
+                getPdfStringValue(dict.get(PDFName.of('NM'))),
+                {
+                    dict,
+                    ref,
+                },
+            ];
+        }));
+
+        for (const comment of payload.freeTextComments) {
+            const note = notesByName.get(`evb-note:${comment.stableKey}`);
+            expect(note).toBeDefined();
+            expect(getPdfDictContents(note?.dict ?? null)).toBe(comment.text);
+            expect(note?.dict.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+            const freeTextRect = getRectNumbers(note!.dict);
+            const freeTextRectSize = getRectSize(freeTextRect);
+            expect(freeTextRectSize?.width).toBeLessThanOrEqual(2);
+            expect(freeTextRectSize?.height).toBeLessThanOrEqual(2);
+
+            const popupRef = note?.dict.get(PDFName.of('Popup'));
+            expect(popupRef).toBeInstanceOf(PDFRef);
+            const popupDict = getAnnotDict(saved, popupRef as PDFRef);
+            expect(popupDict?.get(PDFName.of('Parent'))).toBe(note?.ref);
+            expect(getPdfDictContents(popupDict ?? null)).toBe(comment.text);
+            expect(getRectNumbers(popupDict!)).toEqual(freeTextRect);
+        }
+    });
+
     it('adopts PDF.js-created FreeText popup notes without adding a duplicate', async () => {
         const doc = await PDFDocument.create();
         const page = doc.addPage([

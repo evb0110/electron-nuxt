@@ -245,6 +245,7 @@ function findExistingReplayableNewFreeTextNote(
     const subtypeName = PDFName.of('Subtype');
     const freeTextName = PDFName.of('FreeText');
     const popupName = PDFName.of('Popup');
+    const replayedNoteNamePrefix = 'evb-note:';
     let fallback: {
         dict: PDFDict;
         ref: PDFRef;
@@ -259,6 +260,14 @@ function findExistingReplayableNewFreeTextNote(
                 dict,
                 ref,
             };
+        }
+
+        const existingNoteName = getPdfStringValue(dict.get(nameKey));
+        if (
+            existingNoteName?.startsWith(replayedNoteNamePrefix)
+            && existingNoteName !== noteName
+        ) {
+            continue;
         }
 
         if (
