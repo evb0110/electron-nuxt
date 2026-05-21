@@ -16,6 +16,7 @@ import type {
     IResizeAnchorContext,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerResizeLifecycle';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
@@ -81,7 +82,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     syncHorizontalScrollForZoomMode?: (() => boolean) | undefined;
     setupPagePlaceholders: () => void;
-    scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean }) => void;
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
     resetContinuousScrollState: () => void;
     resetZoomRerenderQueueState: (reason: string) => void;

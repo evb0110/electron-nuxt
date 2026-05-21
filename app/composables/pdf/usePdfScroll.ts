@@ -1,4 +1,5 @@
 import type { IScrollSnapshot } from '@app/types/pdf';
+import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/pdfNavLog';
 import {
@@ -13,6 +14,11 @@ import {
 } from '@app/composables/pdf/pdfPageLayout';
 
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
+
+export interface IScrollToPageOptions {
+    preferExactDom?: boolean;
+    markerRect?: IAnnotationMarkerRect | null | undefined;
+}
 
 interface IUsePdfScrollOptions { getPinnedMostVisiblePage?: () => number | null; }
 
@@ -46,6 +52,52 @@ function getLayoutPageBottom(
     const pageTop = getLayoutPageTop(metrics, index);
     const pageHeight = metrics.pageHeights[index] ?? 0;
     return pageTop + pageHeight;
+}
+
+function getMarkerCenter(markerRect: IAnnotationMarkerRect | null | undefined) {
+    if (!markerRect) {
+        return null;
+    }
+
+    return {
+        x: clamp(markerRect.left + markerRect.width / 2, 0, 1),
+        y: clamp(markerRect.top + markerRect.height / 2, 0, 1),
+    };
+}
+
+function resolveMarkerScrollTop(options: {
+    pageTop: number;
+    pageHeight: number;
+    containerHeight: number;
+    margin: number;
+    markerRect?: IAnnotationMarkerRect | null | undefined;
+}) {
+    const markerCenter = getMarkerCenter(options.markerRect);
+    if (!markerCenter) {
+        return Math.max(0, options.pageTop - options.margin);
+    }
+
+    return Math.max(
+        0,
+        options.pageTop + markerCenter.y * options.pageHeight - options.containerHeight / 2,
+    );
+}
+
+function resolveMarkerScrollLeft(options: {
+    pageLeft: number;
+    pageWidth: number;
+    containerWidth: number;
+    markerRect?: IAnnotationMarkerRect | null | undefined;
+}) {
+    const markerCenter = getMarkerCenter(options.markerRect);
+    if (!markerCenter) {
+        return null;
+    }
+
+    return Math.max(
+        0,
+        options.pageLeft + markerCenter.x * options.pageWidth - options.containerWidth / 2,
+    );
 }
 
 function findFirstVisibleLayoutPageIndex(
@@ -321,7 +373,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         pageNumber: number,
         totalPages: number,
         margin: number,
-        options?: {preferExactDom?: boolean;},
+        options?: IScrollToPageOptions,
     ) {
         if (!container || totalPages === 0) {
             return;
@@ -331,12 +383,30 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         const targetEl = getPageContainerByNumber(container, targetPage);
 
         if (targetEl) {
-            const nextTop = targetEl.offsetTop - margin;
+            const pageHeight = targetEl.offsetHeight || targetEl.clientHeight;
+            const pageWidth = targetEl.offsetWidth || targetEl.clientWidth;
+            const nextTop = resolveMarkerScrollTop({
+                pageTop: targetEl.offsetTop,
+                pageHeight,
+                containerHeight: container.clientHeight,
+                margin,
+                markerRect: options?.markerRect,
+            });
+            const nextLeft = resolveMarkerScrollLeft({
+                pageLeft: targetEl.offsetLeft,
+                pageWidth,
+                containerWidth: container.clientWidth,
+                markerRect: options?.markerRect,
+            });
             logPdfNav(
                 `[PDF-NAV] usePdfScroll.scrollToPage source=dom targetPage=${targetPage}`
                 + ` offsetTop=${targetEl.offsetTop.toFixed(1)} margin=${margin.toFixed(1)}`
+                + ` marker=${options?.markerRect ? 'true' : 'false'}`
                 + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
             );
+            if (nextLeft !== null) {
+                container.scrollLeft = nextLeft;
+            }
             container.scrollTop = nextTop;
             currentPage.value = targetPage;
             return;
@@ -356,12 +426,19 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
             if (top === null || pageHeight === null) {
                 return;
             }
-            const nextTop = Math.max(0, top - margin);
+            const nextTop = resolveMarkerScrollTop({
+                pageTop: top,
+                pageHeight,
+                containerHeight: container.clientHeight,
+                margin,
+                markerRect: options?.markerRect,
+            });
             logPdfNav(
                 `[PDF-NAV] usePdfScroll.scrollToPage source=layout targetPage=${targetPage}`
                 + ` pageHeight=${pageHeight.toFixed(1)} gap=${metrics.gap.toFixed(1)}`
                 + ` paddingTop=${metrics.paddingTop.toFixed(1)}`
                 + ` top=${top.toFixed(1)} margin=${margin.toFixed(1)}`
+                + ` marker=${options?.markerRect ? 'true' : 'false'}`
                 + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
             );
             container.scrollTop = nextTop;

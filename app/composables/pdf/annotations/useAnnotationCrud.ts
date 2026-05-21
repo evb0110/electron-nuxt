@@ -147,7 +147,13 @@ interface IUseAnnotationCrudOptions {
     getToolManager: () => ICrudToolManager;
     getInlineIndicators: () => ICrudInlineIndicators;
     getHighlight: () => ICrudHighlight;
-    scrollToPage: (pageNumber: number) => void;
+    scrollToPage: (
+        pageNumber: number,
+        options?: {
+            markerRect?: IAnnotationCommentSummary['markerRect'];
+            preferExactDom?: boolean;
+        },
+    ) => void;
     renderVisiblePages: (
         range: {
             start: number;
@@ -263,7 +269,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         setActiveCommentAndSync(comment.stableKey);
 
         const pageNumber = clamp(comment.pageNumber, 1, Math.max(1, numPages.value));
-        scrollToPage(pageNumber);
+        scrollToPage(pageNumber, { markerRect: comment.markerRect });
 
         await nextTick();
         updateVisibleRange(viewerContainer.value, numPages.value);

@@ -21,6 +21,7 @@ import {
     range,
 } from 'es-toolkit/math';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
@@ -78,7 +79,7 @@ interface IUsePdfPageRendererOptions {
     managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     scrollToPage?: (
         pageNumber: number,
-        options?: { preferExactDom?: boolean; },
+        options?: IScrollToPageOptions,
     ) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;

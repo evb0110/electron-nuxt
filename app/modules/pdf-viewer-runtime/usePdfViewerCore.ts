@@ -21,6 +21,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfViewerDocumentLifecycle } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerDocumentLifecycle';
@@ -117,7 +118,7 @@ interface IUsePdfViewerCoreOptions {
         options?: { requireAuthoritative?: boolean; },
     ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean; }) => void;
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     resetContinuousScrollState: () => void;
     startDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     onDrag: (e: MouseEvent, container: HTMLElement | null) => void;

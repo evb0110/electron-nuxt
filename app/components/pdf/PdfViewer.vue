@@ -77,7 +77,10 @@ import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
 import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
-import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
+import {
+    usePdfScroll,
+    type IScrollToPageOptions,
+} from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
 import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
@@ -582,7 +585,7 @@ const {
     annotationL10n,
     scrollToPage: (
         pageNumber: number,
-        options?: { preferExactDom?: boolean; },
+        options?: IScrollToPageOptions,
     ) => singlePageScroll.scrollToPage(pageNumber, options),
     suppressSnap: () => singlePageScroll.suppressSnapFor(220),
     beginSearchNavigation: (pageNumber: number) => singlePageScroll.beginSearchNavigation(pageNumber),
@@ -1067,7 +1070,7 @@ const annotations = useAnnotationOrchestrator({
     activeCommentStableKey,
     authorName,
     stopDrag,
-    scrollToPage: (pageNumber) => singlePageScroll.scrollToPage(pageNumber),
+    scrollToPage: (pageNumber, options) => singlePageScroll.scrollToPage(pageNumber, options),
     renderVisiblePages,
     renderAnnotationEditorLayerForPage,
     updateVisibleRange,

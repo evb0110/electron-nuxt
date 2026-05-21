@@ -18,6 +18,7 @@ import {
     getPageScrollBounds as getPageScrollBoundsForContainer,
 } from '@app/composables/pdf/pdfScrollVisibility';
 import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const PAGE_FLIP_STEP_DELTA_PX = 120;
@@ -268,7 +269,7 @@ interface IUsePdfSinglePageScrollOptions {
         page: number,
         total: number,
         margin: number,
-        options?: {preferExactDom?: boolean;},
+        options?: IScrollToPageOptions,
     ) => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     updateCurrentPage: (
@@ -976,7 +977,7 @@ export const usePdfSinglePageScroll = (
 
     function scrollToPage(
         pageNumber: number,
-        options?: {preferExactDom?: boolean;},
+        options?: IScrollToPageOptions,
     ) {
         if (!viewerContainer.value || numPages.value === 0) {
             return;
