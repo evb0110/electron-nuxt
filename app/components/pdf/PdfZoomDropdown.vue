@@ -402,7 +402,7 @@ function selectCustomZoomInput(event: FocusEvent) {
 .zoom-dropdown {
     padding: 0.375rem;
     width: 15rem;
-    background: var(--app-toolbar-menu-popover-bg);
+    background: var(--app-toolbar-group-bg);
 }
 
 .zoom-divider {
@@ -414,49 +414,70 @@ function selectCustomZoomInput(event: FocusEvent) {
 .zoom-chip-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 0.25rem;
+    gap: 0.125rem;
 }
 
-.zoom-chip {
+.zoom-chip,
+.zoom-toggle-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 1.75rem;
-    padding: 0;
-    border: 1px solid var(--ui-border);
+    height: 1.875rem;
+    padding: 0 0.5rem;
+    border: 1px solid transparent;
     border-radius: 0.375rem;
     background: transparent;
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-inactive-fg);
     font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+    transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
 }
 
-.zoom-chip:hover {
-    background-color: var(--app-toolbar-menu-item-hover-bg);
+.zoom-chip:hover,
+.zoom-toggle-btn:hover {
+    background-color: var(--app-toolbar-control-hover-bg);
     border-color: var(--app-toolbar-control-hover-border);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
-.zoom-chip.is-active {
-    background-color: var(--app-toolbar-menu-item-active-bg);
-    border-color: var(--app-toolbar-menu-item-active-border);
+.zoom-chip.is-active,
+.zoom-toggle-btn.is-active {
+    background-color: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    color: var(--app-toolbar-control-hover-fg);
     font-weight: 600;
+}
+
+.zoom-chip.is-active:hover,
+.zoom-toggle-btn.is-active:hover {
+    background-color: var(--app-toolbar-control-active-hover-bg);
+    border-color: var(--app-toolbar-control-active-hover-border);
+}
+
+.zoom-chip:focus-visible,
+.zoom-toggle-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
 }
 
 .zoom-chip-custom {
     position: relative;
     cursor: text;
-    background-color: var(--ui-bg-muted);
+    background-color: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    color: var(--app-toolbar-control-hover-fg);
+    padding: 0;
 }
 
 .zoom-chip-custom:hover {
-    background-color: var(--ui-bg-muted);
+    background-color: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
 }
 
 .zoom-chip-custom:focus-within {
     border-color: var(--app-toolbar-focus-ring);
-    background-color: var(--ui-bg);
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
 }
 
 .zoom-chip-custom-input {
@@ -467,14 +488,14 @@ function selectCustomZoomInput(event: FocusEvent) {
     text-align: center;
     font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
-    color: inherit;
+    color: var(--ui-text);
     padding: 0 0.875rem 0 0;
     outline: none;
 }
 
 .zoom-chip-custom-suffix {
     position: absolute;
-    right: 0.25rem;
+    right: 0.375rem;
     top: 50%;
     transform: translateY(-50%);
     font-size: 0.6875rem;
@@ -484,40 +505,13 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 .zoom-toggle-group {
     display: flex;
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.375rem;
-    overflow: hidden;
+    gap: 0.125rem;
 }
 
 .zoom-toggle-btn {
     flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     gap: 0.375rem;
-    padding: 0.375rem 0.25rem;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--ui-text-muted);
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
-}
-
-.zoom-toggle-btn + .zoom-toggle-btn {
-    border-left: 1px solid var(--app-toolbar-group-border);
-}
-
-.zoom-toggle-btn:hover {
-    background-color: var(--app-toolbar-menu-item-hover-bg);
-    color: var(--ui-text);
-}
-
-.zoom-toggle-btn.is-active {
-    background-color: var(--app-toolbar-menu-item-active-bg);
-    border-color: var(--app-toolbar-menu-item-active-border);
-    color: var(--ui-text);
-    font-weight: 600;
+    padding: 0 0.5rem;
 }
 
 .zoom-toggle-icon {
