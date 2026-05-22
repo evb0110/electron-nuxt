@@ -28,6 +28,11 @@ const MAX_PAGE_FLIPS_PER_EVENT = 3;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 const WHEEL_DELTA_EPSILON = 0.01;
+const CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS = [
+    0,
+    80,
+    240,
+] as const;
 // Minimum gap between consecutive same-direction page flips driven by the
 // wheel handler. Prevents trackpad inertia from blasting through pages — one
 // swipe gesture should advance one page, matching Adobe Acrobat / Preview.
@@ -327,6 +332,8 @@ export const usePdfSinglePageScroll = (
     let pagedNavigationRunId = 0;
     let pagedNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
     let searchNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
+    let continuousNavigationRenderRunId = 0;
+    let continuousNavigationRenderTimers: Array<ReturnType<typeof setTimeout>> = [];
     let isDisposed = false;
 
     function clearPagedNavigationSettleTimer() {
@@ -346,6 +353,27 @@ export const usePdfSinglePageScroll = (
             clearTimeout(searchNavigationSettleTimer);
             searchNavigationSettleTimer = null;
         }
+    }
+
+    function clearContinuousNavigationRenderTimers() {
+        for (const timer of continuousNavigationRenderTimers) {
+            clearTimeout(timer);
+        }
+        continuousNavigationRenderTimers = [];
+    }
+
+    function waitForContinuousRenderFrame() {
+        return new Promise<void>((resolve) => {
+            if (
+                typeof window !== 'undefined'
+                && typeof window.requestAnimationFrame === 'function'
+            ) {
+                window.requestAnimationFrame(() => resolve());
+                return;
+            }
+
+            setTimeout(resolve, 0);
+        });
     }
 
     function markProgrammaticNavigation(ms: number) {
@@ -536,6 +564,82 @@ export const usePdfSinglePageScroll = (
                 message,
             });
         });
+    }
+
+    async function runContinuousNavigationRenderPass(
+        runId: number,
+        message: string,
+        delayMs: number,
+    ) {
+        await nextTick();
+        await waitForContinuousRenderFrame();
+
+        if (
+            isDisposed
+            || runId !== continuousNavigationRenderRunId
+            || !continuousScroll.value
+            || isLoading.value
+            || !pdfDocument.value
+        ) {
+            logPdfRenderTrace('single-page-continuous-navigation-render-skipped', {
+                runId,
+                activeRunId: continuousNavigationRenderRunId,
+                delayMs,
+                isDisposed,
+                continuousScroll: continuousScroll.value,
+                isLoading: isLoading.value,
+                hasDocument: Boolean(pdfDocument.value),
+                currentPage: currentPage.value,
+            });
+            return;
+        }
+
+        updateVisibleRange(viewerContainer.value, numPages.value);
+        const range = {
+            start: visibleRange.value.start,
+            end: visibleRange.value.end,
+        };
+
+        logPdfRenderTrace('single-page-continuous-navigation-render-run', {
+            runId,
+            delayMs,
+            range,
+            currentPage: currentPage.value,
+        });
+        runGuardedTask(() => renderVisiblePages(
+            range,
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 1,
+            },
+        ), {
+            scope: 'pdf-single-page-scroll',
+            message,
+        });
+    }
+
+    function queueContinuousNavigationRenderAfterNavigation(message: string) {
+        clearContinuousNavigationRenderTimers();
+        const runId = ++continuousNavigationRenderRunId;
+
+        logPdfRenderTrace('single-page-queue-continuous-navigation-render', {
+            runId,
+            delaysMs: [...CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS],
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
+
+        for (const delayMs of CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS) {
+            const timer = setTimeout(() => {
+                continuousNavigationRenderTimers = continuousNavigationRenderTimers
+                    .filter(activeTimer => activeTimer !== timer);
+                void runContinuousNavigationRenderPass(runId, message, delayMs);
+            }, delayMs);
+            continuousNavigationRenderTimers.push(timer);
+        }
     }
 
     function getPageScrollBounds(pageNumber: number) {
@@ -1020,22 +1124,9 @@ export const usePdfSinglePageScroll = (
             if (page !== previous) {
                 emitCurrentPage(page);
             }
-            queueMicrotask(() => {
-                if (isLoading.value || !pdfDocument.value) {
-                    return;
-                }
-                updateVisibleRange(viewerContainer.value, numPages.value);
-                runGuardedTask(() => renderVisiblePages(
-                    visibleRange.value,
-                    {
-                        preserveRenderedPages: true,
-                        bufferOverride: 0,
-                    },
-                ), {
-                    scope: 'pdf-single-page-scroll',
-                    message: 'Failed to render visible pages after scrollToPage',
-                });
-            });
+            queueContinuousNavigationRenderAfterNavigation(
+                'Failed to render visible pages after scrollToPage',
+            );
         } else {
             // Same anchor logic as the wheel and debounced snap paths: tall
             // pages can use 'center' (which clamps to topTarget when the page
@@ -1068,6 +1159,7 @@ export const usePdfSinglePageScroll = (
         isDisposed = true;
         clearPagedNavigationSettleTimer();
         clearSearchNavigationSettleTimer();
+        clearContinuousNavigationRenderTimers();
     });
 
     return {
