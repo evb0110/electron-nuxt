@@ -160,6 +160,7 @@ function createPageContainer(overrides?: {
     annotationEditorLayerDiv?: INodeLike | null;
 }) {
     const pageNumber = overrides?.pageNumber ?? 1;
+    let mountedCanvas: unknown = null;
     const canvasHost: INodeLike = {
         innerHTML: '',
         style: {},
@@ -194,6 +195,10 @@ function createPageContainer(overrides?: {
             canvasHost,
         ],
         [
+            '.page_canvas canvas',
+            mountedCanvas,
+        ],
+        [
             '.pdf-page-skeleton',
             skeleton,
         ],
@@ -224,6 +229,10 @@ function createPageContainer(overrides?: {
         pageContainer,
         canvasHost,
         textLayerDiv,
+        setMountedCanvas: (canvas: unknown) => {
+            mountedCanvas = canvas;
+            selectorMap.set('.page_canvas canvas', mountedCanvas);
+        },
     };
 }
 
@@ -664,6 +673,87 @@ describe('usePdfPageRenderer resilience', () => {
         expect(onPageRendered).not.toHaveBeenCalledWith(1);
         expect(renderer.isPageRendered(1)).toBe(false);
         expect(renderer.isPageRendered(2)).toBe(true);
+    });
+
+    it('transfers ownership when a preserved page is still rendering with a mounted canvas', async () => {
+        const {
+            pageContainer,
+            setMountedCanvas,
+        } = createPageContainer({ pageNumber: 1 });
+        const containerRoot = createContainerRoot(pageContainer);
+        const staleTextLayerRender = createDeferred();
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => ({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        canvasRendererMock.mountCanvas.mockImplementation((_host, canvas) => {
+            setMountedCanvas(canvas);
+        });
+        textLayerRendererMock.renderTextLayer
+            .mockResolvedValueOnce(undefined)
+            .mockReturnValueOnce(staleTextLayerRender.promise)
+            .mockResolvedValueOnce(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+        expect(renderer.isPageRendered(1)).toBe(true);
+
+        setMountedCanvas(null);
+        const staleRender = renderer.renderVisiblePages(
+            {
+                start: 1,
+                end: 1,
+            },
+            { preserveRenderedPages: true },
+        );
+        await vi.waitFor(() => {
+            expect(canvasRendererMock.mountCanvas).toHaveBeenCalledTimes(2);
+        });
+
+        const latestRender = renderer.renderVisiblePages(
+            {
+                start: 1,
+                end: 1,
+            },
+            { preserveRenderedPages: true },
+        );
+        await vi.waitFor(() => {
+            expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(3);
+        });
+
+        staleTextLayerRender.resolve();
+        await Promise.all([
+            staleRender,
+            latestRender,
+        ]);
+
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(pageContainer.classList.remove).not.toHaveBeenCalledWith('page_container--rendered');
     });
 
     it('keeps page rendered when text layer rendering fails', async () => {

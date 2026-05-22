@@ -331,6 +331,7 @@ function handlePageCanvasMounted(pageNumber: number) {
 
 function handlePageRendered(pageNumber: number) {
     delayedSkeleton.markPageRendered(pageNumber);
+    singlePageScroll.clearContinuousNavigationTargetForPage(pageNumber);
     managedEmbeddedPdfShapes.syncAfterPageRendered(pageNumber);
     markInitialVisualReady(pageNumber, 'page-render');
 }
@@ -626,6 +627,11 @@ const singlePageScroll = usePdfSinglePageScroll({
     visibleRange,
     emitCurrentPage: (page) => emit('update:currentPage', page),
 });
+
+const navigationAnchorPage = computed(() =>
+    singlePageScroll.searchNavigationTargetPage.value
+    ?? singlePageScroll.continuousNavigationTargetPage.value,
+);
 
 watch(
     [
@@ -1059,7 +1065,6 @@ const annotations = useAnnotationOrchestrator({
     numPages,
     currentPage: viewerCurrentPage,
     effectiveScale,
-    visibleRange,
     annotationTool,
     annotationCursorMode,
     annotationKeepActive,
@@ -1162,7 +1167,7 @@ const {
     pageLayout,
     getPagePlaceholderStyle,
     virtualizedContinuousMode,
-    searchNavigationWindow,
+    navigationAnchorWindow,
     virtualWindowStart,
     virtualWindowEnd,
     topVirtualSpacerStyle,
@@ -1182,7 +1187,7 @@ const {
     effectiveScale,
     scaledMargin,
     visibleRange,
-    searchNavigationTargetPage: singlePageScroll.searchNavigationTargetPage,
+    navigationAnchorPage,
     resizeTransitionAnchorPage,
     zoomVirtualizationFreeze,
 });
@@ -1717,7 +1722,7 @@ watch(
 
 watch(
     () => [
-        !!searchNavigationWindow.value,
+        !!navigationAnchorWindow.value,
         virtualWindowStart.value,
         virtualWindowEnd.value,
         viewerCurrentPage.value,
@@ -1733,7 +1738,7 @@ watch(
         page,
         visibleStart,
         visibleEnd,
-        navigationAnchorPage,
+        searchAnchorPage,
         searchNavigationState,
     ]) => {
         if (!virtualizedContinuousMode.value) {
@@ -1747,7 +1752,7 @@ watch(
             `[PDF-NAV] virtualWindow anchored=${anchored}`
             + ` start=${start} end=${end} currentPage=${page}`
             + ` visibleRange=${visibleStart}-${visibleEnd}`
-            + ` searchAnchor=${navigationAnchorPage ?? 'none'}`
+            + ` searchAnchor=${searchAnchorPage ?? 'none'}`
             + ` searchState=${searchNavigationState}`,
         );
     },

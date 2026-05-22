@@ -42,13 +42,13 @@ interface IUsePdfViewerVirtualizationOptions {
         start: number;
         end: number;
     }>;
-    searchNavigationTargetPage: Ref<number | null>;
+    navigationAnchorPage: Ref<number | null>;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
 }
 
 const VIRTUAL_MOUNT_BUFFER_MIN = 6;
-const SEARCH_NAV_VIRTUAL_BUFFER_MIN = 18;
+const NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN = 18;
 const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
 const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
 
@@ -93,7 +93,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         effectiveScale,
         scaledMargin,
         visibleRange,
-        searchNavigationTargetPage,
+        navigationAnchorPage,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
     } = options;
@@ -186,13 +186,13 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         && pageHeightEstimate.value > 0,
     );
 
-    const isSearchNavigationActive = computed(() =>
-        searchNavigationTargetPage.value !== null,
+    const isNavigationAnchorActive = computed(() =>
+        navigationAnchorPage.value !== null,
     );
 
     const virtualMountBuffer = computed(() =>
-        isSearchNavigationActive.value
-            ? Math.max(SEARCH_NAV_VIRTUAL_BUFFER_MIN, VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2)
+        isNavigationAnchorActive.value
+            ? Math.max(NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN, VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2)
             : Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
     );
 
@@ -204,7 +204,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             };
         }
 
-        const anchorPage = searchNavigationTargetPage.value ?? currentPage.value;
+        const anchorPage = navigationAnchorPage.value ?? currentPage.value;
         return getPageRowBoundsForViewMode({
             pageNumber: anchorPage,
             viewMode: viewMode.value,
@@ -279,11 +279,11 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return Math.min(numPages.value, visibleRange.value.end + virtualMountBuffer.value);
     });
 
-    const searchNavigationWindow = computed<{
+    const navigationAnchorWindow = computed<{
         start: number;
         end: number;
     } | null>(() => {
-        const anchorPage = searchNavigationTargetPage.value;
+        const anchorPage = navigationAnchorPage.value;
         if (!virtualizedContinuousMode.value || numPages.value <= 0 || anchorPage === null) {
             return null;
         }
@@ -325,8 +325,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
 
         let nextStart = baseVirtualWindowStart.value;
-        if (searchNavigationWindow.value) {
-            nextStart = Math.min(nextStart, searchNavigationWindow.value.start);
+        if (navigationAnchorWindow.value) {
+            nextStart = Math.min(nextStart, navigationAnchorWindow.value.start);
         }
         if (resizeTransitionWindow.value) {
             nextStart = Math.min(nextStart, resizeTransitionWindow.value.start);
@@ -343,8 +343,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
 
         let nextEnd = baseVirtualWindowEnd.value;
-        if (searchNavigationWindow.value) {
-            nextEnd = Math.max(nextEnd, searchNavigationWindow.value.end);
+        if (navigationAnchorWindow.value) {
+            nextEnd = Math.max(nextEnd, navigationAnchorWindow.value.end);
         }
         if (resizeTransitionWindow.value) {
             nextEnd = Math.max(nextEnd, resizeTransitionWindow.value.end);
@@ -459,7 +459,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         pageLayout,
         getPagePlaceholderStyle,
         virtualizedContinuousMode,
-        searchNavigationWindow,
+        navigationAnchorWindow,
         resizeTransitionWindow,
         virtualWindowStart,
         virtualWindowEnd,

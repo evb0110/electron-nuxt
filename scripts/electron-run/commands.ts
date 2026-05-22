@@ -8,6 +8,7 @@ import {
     maxBy,
 } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
+import type { Page } from 'puppeteer-core';
 import {
     COMMAND_EXECUTION_TIMEOUT_MS,
     OPEN_PDF_READY_TIMEOUT_MS,
@@ -159,6 +160,31 @@ interface ICommandContext {
 }
 
 type TSessionCommandHandler = (context: ICommandContext, args: unknown[]) => Promise<unknown> | unknown;
+
+interface IViewerComponentSnapshot {
+    exposed?: IViewerComponentExposed | null;
+    setupState: IViewerSetupState;
+}
+
+interface IViewerVueComponent {
+    exposed?: IViewerComponentExposed | null;
+    setupState?: IViewerSetupState;
+}
+
+interface IViewerComponentExposed {getCurrentPage?: () => number;}
+
+interface IViewerSetupState {
+    numPages?: number;
+    currentPage?: number;
+    isLoading?: boolean;
+    workingCopyPath?: string | null;
+}
+
+async function installPageEvaluationShims(page: Page) {
+    const source = 'window.__name = window.__name || ((fn) => fn);';
+    await page.evaluateOnNewDocument(source);
+    await page.evaluate(source);
+}
 
 function isErrorDevtoolsEvent(event: TDevtoolsEvent) {
     if (event.kind === 'error' || event.kind === 'pageerror' || event.kind === 'requestfailed') {
@@ -365,6 +391,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     const { page } = context.sessionState;
     const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
     const requestedBasename = basename(pdfPath).toLowerCase();
+    await installPageEvaluationShims(page);
     interface IViewerSnapshot {
         viewerIndex: number;
         isVisible: boolean;
@@ -410,14 +437,11 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         }
         return basename(workingCopyPath).toLowerCase() === requestedBasename;
     };
-    const isViewerReady = (viewer: Pick<IViewerSnapshot, 'numPages' | 'isLoading' | 'renderedPageContainers' | 'renderedCanvasCount' | 'renderedTextSpanCount' | 'visibleSkeletonCount' | 'visibleLoadingCount' | 'visibleErrorCount'>) => {
+    const isViewerReady = (viewer: Pick<IViewerSnapshot, 'numPages' | 'isLoading' | 'renderedPageContainers' | 'renderedCanvasCount' | 'renderedTextSpanCount'>) => {
         const hasPages = (viewer.numPages ?? 0) > 0 || viewer.renderedPageContainers > 0;
         const notLoading = viewer.isLoading === false || viewer.isLoading === null;
         const hasRenderedContent = viewer.renderedCanvasCount > 0 || viewer.renderedTextSpanCount > 0;
-        const noVisiblePendingState = viewer.visibleSkeletonCount === 0
-            && viewer.visibleLoadingCount === 0
-            && viewer.visibleErrorCount === 0;
-        return hasPages && notLoading && hasRenderedContent && noVisiblePendingState;
+        return hasPages && notLoading && hasRenderedContent;
     };
     const scoreReadyViewer = (viewer: Pick<IViewerSnapshot, 'isVisible' | 'viewerIndex'>) => (
         (viewer.isVisible ? 10_000 : 0) + viewer.viewerIndex
@@ -452,12 +476,32 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return rect.width > 0 && rect.height > 0;
         };
         const viewers = hosts.map((host, viewerIndex) => {
-            const setupState = (host as HTMLElement & {__vueParentComponent?: {setupState?: {
-                numPages?: number;
-                currentPage?: number;
-                isLoading?: boolean;
-                workingCopyPath?: string | null;
-            };};}).__vueParentComponent?.setupState;
+            const resolveViewerComponent = (): IViewerComponentSnapshot | null => {
+                let current: HTMLElement | null = host;
+                while (current) {
+                    const component = (current as HTMLElement & {__vueParentComponent?: IViewerVueComponent})
+                        .__vueParentComponent;
+                    const setupState = component?.setupState;
+                    if (
+                        setupState
+                        && (
+                            'numPages' in setupState
+                            || 'currentPage' in setupState
+                            || 'workingCopyPath' in setupState
+                        )
+                    ) {
+                        return {
+                            exposed: component.exposed ?? null,
+                            setupState,
+                        };
+                    }
+                    current = current.parentElement;
+                }
+                return null;
+            };
+            const component = resolveViewerComponent();
+            const setupState = component?.setupState ?? null;
+            const exposed = component?.exposed ?? null;
             const pageContainers = host.querySelectorAll('.page_container');
             const visibleLoadingCount = Array.from(host.querySelectorAll([
                 '.pdf-loading',
@@ -481,7 +525,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
                 viewerIndex,
                 isVisible: isElementVisible(host),
                 numPages: setupState?.numPages ?? null,
-                currentPage: setupState?.currentPage ?? null,
+                currentPage: setupState?.currentPage ?? exposed?.getCurrentPage?.() ?? null,
                 isLoading: setupState?.isLoading ?? null,
                 workingCopyPath: setupState?.workingCopyPath ?? null,
                 renderedPageContainers: pageContainers.length,
@@ -521,7 +565,12 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return score;
         };
 
-        const selectedViewer = maxBy(viewers, scoreViewer) ?? null;
+        const selectedViewer = viewers.reduce<typeof viewers[number] | null>((best, viewer) => {
+            if (!best) {
+                return viewer;
+            }
+            return scoreViewer(viewer) > scoreViewer(best) ? viewer : best;
+        }, null);
 
         const trigger = (window as any).__electronRunOpenPdfTrigger as {
             token?: string;

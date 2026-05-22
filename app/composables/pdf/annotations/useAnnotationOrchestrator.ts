@@ -31,10 +31,6 @@ interface IUseAnnotationOrchestratorOptions {
     numPages: Ref<number>;
     currentPage: Ref<number>;
     effectiveScale: Ref<number>;
-    visibleRange: Ref<{
-        start: number;
-        end: number 
-    }>;
     annotationTool: ComputedRef<TAnnotationTool>;
     annotationCursorMode: ComputedRef<boolean>;
     annotationKeepActive: ComputedRef<boolean>;
@@ -83,7 +79,6 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         numPages,
         currentPage,
         effectiveScale,
-        visibleRange,
         annotationTool,
         annotationCursorMode,
         annotationKeepActive,
@@ -244,7 +239,6 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         annotationUiManager,
         numPages,
         currentPage,
-        visibleRange,
         annotationTool,
         annotationCommentsCache,
         getIdentity: () => identity,

@@ -1122,6 +1122,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return true;
         }
 
+        if (renderingPages.get(pageNumber) === version) {
+            return renderingPageRequestIds.get(pageNumber) === requestId;
+        }
+
         if (renderedPages.has(pageNumber)) {
             const isStaleRender = staleRenderedPages.has(pageNumber);
             const hasMountedCanvas = Boolean(
@@ -1132,10 +1136,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
         }
 
-        return (
-            renderingPages.get(pageNumber) === version
-            && renderingPageRequestIds.get(pageNumber) === requestId
-        );
+        return false;
     }
 
     function getSinglePageRenderTarget(
@@ -1563,21 +1564,33 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderStart: number,
         renderEnd: number,
         forceRerender: boolean,
+        version: number,
+        requestId: number,
     ) {
         const hasMountedCanvas = (pageNumber: number) => Boolean(
             getPageContainer(containerRoot, pageNumber - 1)
                 ?.querySelector<HTMLCanvasElement>('.page_canvas canvas'),
         );
 
-        return range(renderStart, renderEnd + 1).filter(
-            (pageNumber) => shouldRenderPageWithPreservedState({
+        return range(renderStart, renderEnd + 1).filter((pageNumber) => {
+            const renderingVersion = renderingPages.get(pageNumber);
+            const renderingRequestId = renderingPageRequestIds.get(pageNumber);
+            if (
+                renderingVersion === version
+                && renderingRequestId !== undefined
+                && renderingRequestId !== requestId
+            ) {
+                return true;
+            }
+
+            return shouldRenderPageWithPreservedState({
                 pageNumber,
                 renderedPages,
                 staleRenderedPages,
                 forceRerender,
                 hasMountedCanvas,
-            }),
-        );
+            });
+        });
     }
 
     async function waitForMountedPageContainers(
@@ -1741,7 +1754,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             });
         }
 
-        const pagesToRenderNow = getPagesToRenderNow(containerRoot, renderStart, renderEnd, forceRerender);
+        const pagesToRenderNow = getPagesToRenderNow(
+            containerRoot,
+            renderStart,
+            renderEnd,
+            forceRerender,
+            version,
+            requestId,
+        );
 
         if (pagesToRenderNow.length === 0) {
             logPdfRenderTrace('renderer-visible-render-no-pages', {
@@ -2029,6 +2049,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderedPages.clear();
         staleRenderedPages.clear();
         renderingPages.clear();
+        renderingPageRequestIds.clear();
         missingRenderTargetRetries.clear();
         textLayerCleanupFns.clear();
         annotationLayerRenderer.clearAllLayers();
