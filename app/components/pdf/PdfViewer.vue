@@ -99,6 +99,7 @@ import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer-runtime/c
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerReloadTransition';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom';
 import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerDelayedSkeleton';
+import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
@@ -285,7 +286,6 @@ const pendingMarkerMoves = new Map<string, IPendingMarkerMove>();
 const locallyDeletedAnnotationComments: IAnnotationCommentSummary[] = [];
 const activeCommentStableKey = ref<string | null>(null);
 const ANNOTATION_RELOAD_CACHE_GRACE_MS = 5_000;
-const PDF_VIEWER_PAGE_SKELETON_DELAY_MS = 0;
 const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 const renderedPageStateVersion = ref(0);
@@ -1466,7 +1466,25 @@ function shouldShowPageSkeleton(page: number) {
         delayedSkeleton.markPageRendered(page);
         return false;
     }
-    return delayedSkeleton.shouldShowSkeleton(page);
+    const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);
+    const isVisiblePage = page >= visibleRange.value.start && page <= visibleRange.value.end;
+    if (showSkeleton && isVisiblePage) {
+        logPdfNav('[PDF-NAV] page skeleton visible', {
+            page,
+            currentPage: viewerCurrentPage.value,
+            visibleRange: `${visibleRange.value.start}-${visibleRange.value.end}`,
+            pagesToRender: pagesToRender.value,
+            rendered: isPageRenderedForClass(page),
+            buffered: isPageBuffered(page),
+            nearVisible: shouldShowSkeleton(page),
+            delayMs: PDF_VIEWER_PAGE_SKELETON_DELAY_MS,
+            zoom: zoom.value,
+            zoomMode: zoomMode.value,
+            fitMode: fitMode.value,
+            effectiveScale: effectiveScale.value,
+        });
+    }
+    return showSkeleton;
 }
 
 function hasMountedPageCanvas(page: number) {
