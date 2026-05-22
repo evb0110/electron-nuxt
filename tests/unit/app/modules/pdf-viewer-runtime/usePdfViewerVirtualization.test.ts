@@ -104,7 +104,7 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
             start: 9,
             end: 10,
         }),
-        searchNavigationTargetPage: ref(null),
+        navigationAnchorPage: ref(null),
         resizeTransitionAnchorPage: ref(null),
         zoomVirtualizationFreeze: ref(null),
     });
@@ -113,7 +113,7 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
 function createPagedHarness(options?: {
     viewMode?: TPdfViewMode;
     currentPage?: number;
-    searchNavigationTargetPage?: number | null;
+    navigationAnchorPage?: number | null;
     bufferPages?: number;
     visibleRange?: {
         start: number;
@@ -143,7 +143,7 @@ function createPagedHarness(options?: {
             start: 9,
             end: 10,
         }),
-        searchNavigationTargetPage: ref(options?.searchNavigationTargetPage ?? null),
+        navigationAnchorPage: ref(options?.navigationAnchorPage ?? null),
         resizeTransitionAnchorPage: ref(null),
         zoomVirtualizationFreeze: ref(null),
     });
@@ -207,11 +207,11 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.bottomVirtualSpacerStyle.value).toBeNull();
     });
 
-    it('uses a search navigation row as the temporary paged mount window', () => {
+    it('uses a navigation anchor row as the temporary paged mount window', () => {
         const virtualization = createPagedHarness({
             viewMode: 'facing-first-single',
             currentPage: 1,
-            searchNavigationTargetPage: 10,
+            navigationAnchorPage: 10,
             visibleRange: {
                 start: 1,
                 end: 1,
@@ -262,7 +262,7 @@ describe('usePdfViewerVirtualization', () => {
                 start: 2,
                 end: 3,
             }),
-            searchNavigationTargetPage: ref(null),
+            navigationAnchorPage: ref(null),
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });

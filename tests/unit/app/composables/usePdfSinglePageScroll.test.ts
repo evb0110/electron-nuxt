@@ -507,6 +507,33 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(currentPage.value).toBe(1);
     });
 
+    it('publishes a temporary continuous navigation anchor while jumping to an unmounted page', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                scrollToPageInternal,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                continuousScroll: true,
+                mountedPageNumbers: [
+                    10,
+                    11,
+                    12,
+                ],
+            });
+
+            singlePageScroll.scrollToPage(1);
+
+            expect(scrollToPageInternal).toHaveBeenCalledOnce();
+            expect(singlePageScroll.continuousNavigationTargetPage.value).toBe(1);
+
+            await vi.runAllTimersAsync();
+            expect(singlePageScroll.continuousNavigationTargetPage.value).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('throttles rapid same-direction flips on small pages (trackpad inertia guard)', () => {
         // Fixture with three small pages that each fit the viewport so no
         // tall-page interior scrolling can bypass the cooldown.

@@ -135,10 +135,6 @@ interface IUseAnnotationCrudOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
-    visibleRange: Ref<{
-        start: number;
-        end: number 
-    }>;
     annotationTool: Ref<TAnnotationTool>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     getIdentity: () => ICrudIdentity;
@@ -159,7 +155,11 @@ interface IUseAnnotationCrudOptions {
             start: number;
             end: number 
         },
-        options?: { preserveRenderedPages?: boolean },
+        options?: {
+            preserveRenderedPages?: boolean;
+            forceRerender?: boolean;
+            bufferOverride?: number;
+        },
     ) => Promise<void>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
@@ -176,7 +176,6 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         annotationUiManager,
         numPages,
         currentPage,
-        visibleRange,
         annotationTool,
         annotationCommentsCache,
         getIdentity,
@@ -213,6 +212,14 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     function setActiveCommentAndSync(stableKey: string | null) {
         getSync().setActiveCommentStableKey(stableKey);
         getInlineIndicators().debouncedSyncInlineCommentIndicators();
+    }
+
+    function hasMountedPageCanvas(pageNumber: number) {
+        return Boolean(
+            viewerContainer.value?.querySelector(
+                `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
+            ),
+        );
     }
 
     function findEditorForComment(comment: IAnnotationCommentSummary) {
@@ -273,8 +280,29 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
 
         await nextTick();
         updateVisibleRange(viewerContainer.value, numPages.value);
+        const targetRange = {
+            start: pageNumber,
+            end: pageNumber,
+        };
         try {
-            await renderVisiblePages(visibleRange.value, { preserveRenderedPages: true });
+            await renderVisiblePages(
+                targetRange,
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 0,
+                },
+            );
+            if (!hasMountedPageCanvas(pageNumber)) {
+                await nextTick();
+                await renderVisiblePages(
+                    targetRange,
+                    {
+                        preserveRenderedPages: true,
+                        forceRerender: true,
+                        bufferOverride: 0,
+                    },
+                );
+            }
         }
         catch (error) {
             BrowserLogger.warn('annotations', `Failed to render page ${pageNumber} while focusing annotation comment`, error);

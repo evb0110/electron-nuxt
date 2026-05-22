@@ -206,10 +206,6 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
         annotationUiManager,
         numPages: ref(1),
         currentPage: ref(1),
-        visibleRange: ref({
-            start: 0,
-            end: 1,
-        }),
         annotationTool: ref<TAnnotationTool>('none'),
         annotationCommentsCache,
         getIdentity: () => ({
