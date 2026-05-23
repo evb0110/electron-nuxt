@@ -155,7 +155,9 @@
 /* Text highlights are emitted as fully opaque, opacity-preblended colours.
    They are composited into one per-page overlay before blending with the page:
    same-colour overlaps do not stack, and different-colour overlaps use the
-   topmost/latest annotation colour instead of mixing into a third colour. */
+   topmost/latest annotation colour instead of mixing into a third colour.
+   Match PDF.js' native multiply blend so pale highlights remain visible on
+   scanned grayscale pages too. */
 .pdfViewer .pdf-highlight-composite-overlay,
 .pdf-viewer-container .pdf-highlight-composite-overlay {
     position: absolute;
@@ -164,7 +166,7 @@
     height: 100%;
     overflow: visible;
     pointer-events: none !important;
-    mix-blend-mode: darken !important;
+    mix-blend-mode: multiply !important;
 }
 
 .pdfViewer .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free),

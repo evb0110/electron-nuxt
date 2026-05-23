@@ -10,6 +10,7 @@ type TAnnotationLabelKey = Extract<TTranslationKey,
     | 'annotations.inlineNoteLabel'
     | 'annotations.freehandLineLabel'
     | 'annotations.lineLabel'
+    | 'annotations.arrowLabel'
     | 'annotations.rectangleLabel'
     | 'annotations.circleLabel'
     | 'annotations.polygonLabel'
@@ -82,6 +83,10 @@ const annotationKindLabelBySubtype = new Map<string, IAnnotationKindLabelDescrip
         createAnnotationKindLabelDescriptor('annotations.lineLabel', 'Line'),
     ],
     [
+        'arrow',
+        createAnnotationKindLabelDescriptor('annotations.arrowLabel', 'Arrow'),
+    ],
+    [
         'straight-line',
         createAnnotationKindLabelDescriptor('annotations.lineLabel', 'Line'),
     ],
@@ -112,6 +117,10 @@ const annotationKindLabelBySubtype = new Map<string, IAnnotationKindLabelDescrip
     [
         'polygon',
         createAnnotationKindLabelDescriptor('annotations.polygonLabel', 'Polygon'),
+    ],
+    [
+        'polyline',
+        createAnnotationKindLabelDescriptor('annotations.freehandLineLabel', 'Freehand Line'),
     ],
     [
         'stamp',

@@ -84,6 +84,7 @@ import {
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
 import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
+import { toShapeAnnotationCommentSummary } from '@app/composables/pdf/annotations/shapeAnnotationComments';
 import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
 import { usePdfShapeHistory } from '@app/composables/pdf/usePdfShapeHistory';
 import { usePdfSelectedShapeCommands } from '@app/composables/pdf/usePdfSelectedShapeCommands';
@@ -146,6 +147,7 @@ import { logPdfNav } from '@app/utils/pdfNavLog';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -723,6 +725,48 @@ watch(annotationTool, (tool) => {
     }
 });
 
+function getShapeAnnotationCommentSummaries() {
+    return shapeComposable.getAllShapes().map(shape => toShapeAnnotationCommentSummary(shape));
+}
+
+function emitAnnotationCommentsForSidebar(
+    comments: IAnnotationCommentSummary[],
+    options: { includeShapes?: boolean } = {},
+) {
+    const { includeShapes = true } = options;
+    const visibleComments = includeShapes
+        ? [
+            ...comments,
+            ...getShapeAnnotationCommentSummaries(),
+        ]
+        : comments;
+    emit('annotation-comments', visibleComments.slice().sort(compareAnnotationCommentSummaries));
+}
+
+function findShapeForAnnotationComment(comment: IAnnotationCommentSummary) {
+    if (comment.source !== 'shape') {
+        return null;
+    }
+    return shapeComposable.getAllShapes().find((shape) => {
+        const summary = toShapeAnnotationCommentSummary(shape);
+        return (
+            summary.stableKey === comment.stableKey
+            || summary.id === comment.id
+            || (summary.annotationId && summary.annotationId === comment.annotationId)
+        );
+    }) ?? null;
+}
+
+watch(
+    () => shapeComposable.shapes.value,
+    () => {
+        if (!src.value && !pdfDocument.value) {
+            return;
+        }
+        emitAnnotationCommentsForSidebar(annotationCommentsCache.value);
+    },
+);
+
 function upsertAnnotationComment(comment: IAnnotationCommentSummary) {
     clearLocalDeletionForNewTransientComment(comment);
     const next = normalizeAnnotationComments([
@@ -730,7 +774,7 @@ function upsertAnnotationComment(comment: IAnnotationCommentSummary) {
         comment,
     ]);
     annotationCommentsCache.value = next;
-    emit('annotation-comments', next);
+    emitAnnotationCommentsForSidebar(next);
 }
 
 function isAnnotationReloadCacheGraceActive() {
@@ -977,7 +1021,7 @@ function markAnnotationCommentLocallyDeleted(comment: IAnnotationCommentSummary)
     }
     const next = annotationCommentsCache.value.filter(candidate => !isLocallyDeletedAnnotationComment(candidate));
     annotationCommentsCache.value = next;
-    emit('annotation-comments', next);
+    emitAnnotationCommentsForSidebar(next);
 }
 
 function mergeAnnotationCommentsThroughReload(
@@ -1042,7 +1086,60 @@ function isGracePreservedEditorOnlyComment(comment: IAnnotationCommentSummary) {
         && annotationCommentsCache.value.some(candidate => annotationCommentsMatch(candidate, comment));
 }
 
+async function focusShapeAnnotationComment(comment: IAnnotationCommentSummary) {
+    const shape = findShapeForAnnotationComment(comment);
+    if (!shape) {
+        return;
+    }
+
+    activeCommentStableKey.value = comment.stableKey;
+    shapeComposable.selectShape(shape.id);
+
+    const pageNumber = Math.min(
+        Math.max(comment.pageNumber, 1),
+        Math.max(1, numPages.value),
+    );
+    singlePageScroll.scrollToPage(pageNumber, { markerRect: comment.markerRect });
+
+    await nextTick();
+    updateVisibleRange(viewerContainer.value, numPages.value);
+    try {
+        await renderVisiblePages(
+            {
+                start: pageNumber,
+                end: pageNumber,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            },
+        );
+    } catch (error) {
+        BrowserLogger.warn('annotations', `Failed to render page ${pageNumber} while focusing shape annotation`, error);
+    }
+}
+
+async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
+    if (comment.source === 'shape') {
+        await focusShapeAnnotationComment(comment);
+        return;
+    }
+
+    await commentCrud.focusAnnotationComment(comment);
+}
+
 async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
+    if (comment.source === 'shape') {
+        const shape = findShapeForAnnotationComment(comment);
+        if (!shape) {
+            return false;
+        }
+        shapeComposable.selectShape(shape.id);
+        selectedShapeCommands.deleteSelectedShape();
+        emitAnnotationCommentsForSidebar(annotationCommentsCache.value);
+        return true;
+    }
+
     if (isGracePreservedEditorOnlyComment(comment)) {
         markAnnotationCommentLocallyDeleted(comment);
         emit('annotation-modified', { forceDirty: true });
@@ -1059,7 +1156,7 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
 function applyAnnotationCommentsFromSync(comments: IAnnotationCommentSummary[]) {
     const previousComments = annotationCommentsCache.value;
     const merged = mergeAnnotationCommentsThroughReload(comments, previousComments);
-    emit('annotation-comments', merged);
+    emitAnnotationCommentsForSidebar(merged);
     return merged;
 }
 
@@ -1151,7 +1248,7 @@ function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnot
     const next = [...annotationCommentsCache.value];
     next[index] = updated;
     annotationCommentsCache.value = next;
-    emit('annotation-comments', next);
+    emitAnnotationCommentsForSidebar(next);
     emit('annotation-modified', { forceDirty: true });
 }
 
@@ -1233,7 +1330,7 @@ watch(() => src.value, (next, previous) => {
             locallyDeletedAnnotationComments.length = 0;
             annotationReloadCacheGraceUntil = 0;
             annotationCommentsCache.value = [];
-            emit('annotation-comments', []);
+            emitAnnotationCommentsForSidebar([], { includeShapes: false });
             return;
         }
         annotationReloadCacheGraceUntil = Date.now() + ANNOTATION_RELOAD_CACHE_GRACE_MS;
@@ -1243,7 +1340,7 @@ watch(() => src.value, (next, previous) => {
                 const next = normalizeAnnotationComments(annotationCommentsCache.value);
                 if (next.length !== annotationCommentsCache.value.length) {
                     annotationCommentsCache.value = next;
-                    emit('annotation-comments', next);
+                    emitAnnotationCommentsForSidebar(next);
                 }
                 void annotations.commentSync.syncAnnotationComments();
             }
@@ -1882,7 +1979,7 @@ defineExpose({
     undoAnnotation,
     redoAnnotation,
     registerAnnotationHistoryCommand: registerShapeHistoryCommand,
-    focusAnnotationComment: commentCrud.focusAnnotationComment,
+    focusAnnotationComment,
     updateAnnotationComment: commentCrud.updateAnnotationComment,
     deleteAnnotationComment,
     getAnnotationCommentsSnapshot,

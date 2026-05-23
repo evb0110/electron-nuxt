@@ -16,6 +16,7 @@ import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     getCommentText,
+    getEditorSelectionPreviewText,
     hasEditorCommentPayload,
     detectEditorSubtype,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
@@ -211,6 +212,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             : getCommentText(editor);
     }
 
+    function resolveEditorSummaryPreviewText(editor: IPdfjsEditor, text: string) {
+        const previewText = getEditorSelectionPreviewText(editor);
+        if (!previewText || previewText === text.trim()) {
+            return null;
+        }
+        return previewText;
+    }
+
     function resolveEditorSummarySubtype(
         editor: IPdfjsEditor,
         pageIndex: number,
@@ -258,6 +267,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const data = safeReadEditorData(editor);
 
         const text = resolveEditorSummaryText(editor, textOverride);
+        const previewText = resolveEditorSummaryPreviewText(editor, text);
 
         const resolvedSubtype = resolveEditorSummarySubtype(editor, pageIndex, markupSubtype);
 
@@ -285,6 +295,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             pageIndex,
             pageNumber: pageIndex + 1,
             text,
+            previewText,
             kindLabel: resolveAnnotationKindLabel(resolvedSubtype),
             subtype: resolvedSubtype,
             author: resolveEditorSummaryAuthor(),

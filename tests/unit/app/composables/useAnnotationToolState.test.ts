@@ -358,6 +358,48 @@ describe('useAnnotationToolState', () => {
         expect(secondEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#22c55e');
     });
 
+    it('records the per-page text markup order for subtype geometry hints', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const highlightEditor = {
+            id: 'highlight-1',
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.1,
+            width: 0.4,
+            height: 0.05,
+        };
+        highlightEditor.div.classList.add('highlightEditor');
+        const underlineEditor = {
+            id: 'underline-1',
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.1,
+            width: 0.4,
+            height: 0.05,
+        };
+        underlineEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({ getEditors: vi.fn(() => [
+            highlightEditor,
+            underlineEditor,
+        ]) });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'underline',
+        }) as never);
+
+        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+
+        const hints = manager.getMarkupSubtypeHints();
+        expect(hints).toHaveLength(1);
+        expect(hints[0]).toMatchObject({
+            id: 'underline-1',
+            subtype: 'Underline',
+            pageIndex: 0,
+            pageMarkupIndex: 1,
+        });
+    });
+
     it('keeps underline and strikethrough colors/opacity literal', async () => {
         const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager()) as never);

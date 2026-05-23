@@ -14,7 +14,11 @@ vi.stubGlobal('DOMMatrix', class {
     d = 1;
 });
 
-const { likelyEditorPdfMirror } = await import('@app/composables/pdf/annotations/annotationIdentityMatching');
+const {
+    areTextMarkupCommentsLikelySame,
+    likelyEditorPdfMirror,
+    mergeCommentSummaries,
+} = await import('@app/composables/pdf/annotations/annotationIdentityMatching');
 
 function makeRect(
     left: number,
@@ -40,6 +44,7 @@ function makeSummary(
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
         text: overrides.text ?? '',
+        previewText: overrides.previewText ?? null,
         kindLabel: overrides.kindLabel ?? null,
         subtype: overrides.subtype ?? 'FreeText',
         author: overrides.author ?? null,
@@ -480,5 +485,78 @@ describe('likelyEditorPdfMirror', () => {
             });
             expect(likelyEditorPdfMirror(left, right)).toBe(true);
         });
+    });
+});
+
+describe('areTextMarkupCommentsLikelySame', () => {
+    it('does not merge overlapping highlight and underline comments', () => {
+        const markerRect = makeRect(0.1, 0.1, 0.2, 0.05);
+        const highlight = makeSummary({
+            source: 'editor',
+            hasNote: false,
+            subtype: 'Highlight',
+            markerRect,
+        });
+        const underline = makeSummary({
+            source: 'editor',
+            hasNote: false,
+            subtype: 'Underline',
+            markerRect,
+        });
+
+        expect(areTextMarkupCommentsLikelySame(highlight, underline)).toBe(false);
+    });
+
+    it('still merges same-subtype text markup comments with matching geometry', () => {
+        const left = makeSummary({
+            source: 'editor',
+            hasNote: false,
+            subtype: 'Underline',
+            markerRect: makeRect(0.1, 0.1, 0.2, 0.05),
+        });
+        const right = makeSummary({
+            source: 'pdf',
+            hasNote: false,
+            subtype: 'Underline',
+            markerRect: makeRect(0.1, 0.1, 0.2, 0.05),
+        });
+
+        expect(areTextMarkupCommentsLikelySame(left, right)).toBe(true);
+    });
+});
+
+describe('mergeCommentSummaries', () => {
+    it('preserves selected-text previews when merging editor and PDF mirrors', () => {
+        const existing = makeSummary({
+            source: 'editor',
+            text: '',
+            previewText: 'Highlighted words',
+            subtype: 'Highlight',
+        });
+        const incoming = makeSummary({
+            source: 'pdf',
+            text: '',
+            previewText: null,
+            subtype: 'Highlight',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).previewText).toBe('Highlighted words');
+    });
+
+    it('fills selected-text preview from the incoming summary when the existing summary has none', () => {
+        const existing = makeSummary({
+            source: 'editor',
+            text: '',
+            previewText: null,
+            subtype: 'Highlight',
+        });
+        const incoming = makeSummary({
+            source: 'pdf',
+            text: '',
+            previewText: 'Reloaded highlight text',
+            subtype: 'Highlight',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).previewText).toBe('Reloaded highlight text');
     });
 });

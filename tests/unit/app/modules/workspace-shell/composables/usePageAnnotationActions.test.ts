@@ -684,6 +684,25 @@ describe('usePageAnnotationActions', () => {
         expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
     });
 
+    it('lets the viewer own shape annotation deletes even when they have embedded refs', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('shape:0:evb-shape:embedded-rect');
+        comment.source = 'shape';
+        comment.annotationId = '12R';
+        comment.subtype = 'Square';
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
+        expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+    });
+
     it('does not invent an embedded delete when a runtime editor highlight cannot be deleted by PDF.js', async () => {
         const {
             deps,

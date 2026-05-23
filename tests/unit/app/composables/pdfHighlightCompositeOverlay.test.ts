@@ -6,7 +6,19 @@ import {
 import {
     composeHighlightFragments,
     shouldCompositeHighlightClassList,
+    shouldCompositeHighlightSources,
 } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
+
+function createSource(x: number, fill = '#ffff66') {
+    return {
+        x,
+        y: 0,
+        width: 50,
+        height: 10,
+        fill,
+        opacity: '1',
+    };
+}
 
 describe('pdfHighlightCompositeOverlay', () => {
     it('uses latest highlight color in intersections instead of overlapping colors', () => {
@@ -62,5 +74,17 @@ describe('pdfHighlightCompositeOverlay', () => {
             'highlight',
             'pdf-markup-subtype-draw-strikeout',
         ])).toBe(false);
+    });
+
+    it('only needs the overlay when text highlight sources overlap', () => {
+        expect(shouldCompositeHighlightSources([createSource(0)])).toBe(false);
+        expect(shouldCompositeHighlightSources([
+            createSource(0),
+            createSource(60, '#a6e8ff'),
+        ])).toBe(false);
+        expect(shouldCompositeHighlightSources([
+            createSource(0),
+            createSource(25, '#a6e8ff'),
+        ])).toBe(true);
     });
 });

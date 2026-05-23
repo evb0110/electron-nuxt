@@ -956,6 +956,56 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         ].filter(value => value === '/Underline');
         expect(rewritten).toHaveLength(1);
     });
+
+    it('does not apply a duplicated underline hint to an overlapping highlight', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[
+            [
+                60,
+                600,
+                360,
+                700,
+            ],
+            [
+                60,
+                600,
+                180,
+                700,
+            ],
+        ]]);
+        const highlightRef = refs[0]![0]!;
+        const underlineRef = refs[0]![1]!;
+
+        const payload = createEmptyPayload();
+        const underlineHint: IMarkupSubtypeHint = {
+            id: 'editor:0:underline',
+            subtype: 'Underline',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.125,
+                width: 0.2,
+                height: 0.125,
+            },
+            consumed: false,
+            pageMarkupIndex: 1,
+        };
+        payload.markupSubtypeHints = [
+            {
+                ...underlineHint,
+                pageMarkupIndex: null,
+            },
+            underlineHint,
+        ];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        expect(getAnnotDict(doc, highlightRef)?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+        expect(getAnnotDict(doc, underlineRef)?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+    });
 });
 
 describe('serializePdfEdits free-text note rect application', () => {

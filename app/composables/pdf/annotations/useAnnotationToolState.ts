@@ -182,6 +182,52 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return rectFromEditor(editor) ?? rectFromMarkupBoxes(editor.__evbMarkupBoxes);
     }
 
+    function elementHasClass(element: HTMLElement | null | undefined, className: string) {
+        const classList = element?.classList;
+        if (!classList) {
+            return false;
+        }
+        if (typeof classList.contains === 'function') {
+            return classList.contains(className);
+        }
+        return Array.from(classList).includes(className);
+    }
+
+    function isMarkupEditorCandidate(editor: IPdfjsEditor, pageIndex: number) {
+        return Boolean(
+            elementHasClass(editor.div, 'highlightEditor')
+            || editor.__evbMarkupBoxes?.length
+            || resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+            || resolveEditorSubtypeFromPresentation(editor),
+        );
+    }
+
+    function resolveEditorPageMarkupIndex(editor: IPdfjsEditor, pageIndex: number, identity: string) {
+        const uiManager = annotationUiManager.value;
+        if (!uiManager) {
+            return null;
+        }
+
+        let pageMarkupIndex = 0;
+        for (const candidate of getEditorsOnPage(uiManager, pageIndex)) {
+            if (!isMarkupEditorCandidate(candidate, pageIndex)) {
+                continue;
+            }
+            const candidateIdentity = getEditorIdentity(candidate, pageIndex);
+            const matchingAnnotationId = Boolean(
+                editor.annotationElementId
+                && candidate.annotationElementId
+                && editor.annotationElementId === candidate.annotationElementId,
+            );
+            if (candidate === editor || candidateIdentity === identity || matchingAnnotationId) {
+                return pageMarkupIndex;
+            }
+            pageMarkupIndex += 1;
+        }
+
+        return null;
+    }
+
     function getAnnotationMode(tool: TAnnotationTool) {
         return ANNOTATION_TOOL_MODES[tool] ?? AnnotationEditorType.NONE;
     }
@@ -531,10 +577,12 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         const markerRect = resolveEditorMarkupSubtypeHintRect(editor);
         if (markerRect) {
             markupSubtypeGeometryHints.set(identity, {
+                id: identity,
                 subtype,
                 pageIndex,
                 markerRect,
                 consumed: false,
+                pageMarkupIndex: resolveEditorPageMarkupIndex(editor, pageIndex, identity),
             });
         }
         const color = resolveEditorColor(editor) ?? resolveMarkupSubtypeColor(subtype);

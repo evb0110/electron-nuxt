@@ -33,6 +33,11 @@ import {
     getOptionalString,
 } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    resolvePdfAnnotationPreviewText,
+    type IPdfTextPreviewItem,
+    type IPdfTextPreviewViewport,
+} from '@app/composables/pdf/annotations/pdfAnnotationPreviewText';
 
 export interface IPdfAnnotationRecord {
     id?: string;
@@ -48,6 +53,7 @@ export interface IPdfAnnotationRecord {
     modificationDate?: string | null;
     creationDate?: string | null;
     subtype?: string;
+    quadPoints?: ArrayLike<number> | null;
     popupRef?: string | null;
     url?: string;
 }
@@ -56,6 +62,8 @@ export interface IPdfPageAnnotationBundle {
     annotations: IPdfAnnotationRecord[];
     pageView: number[] | null;
     pageRotation: TPageRotation;
+    textItems?: IPdfTextPreviewItem[] | undefined;
+    textViewport?: IPdfTextPreviewViewport | null | undefined;
 }
 
 export interface IComputeSummaryStableKeyParams {
@@ -298,6 +306,61 @@ function hasPdfAnnotationNote(
     );
 }
 
+function shouldLoadTextPreviewItems(pageAnnotations: readonly IPdfAnnotationRecord[]) {
+    return pageAnnotations.some(annotation => isTextMarkupSubtype(annotation.subtype));
+}
+
+function toTextPreviewViewport(viewport: unknown): IPdfTextPreviewViewport | null {
+    const width = getOptionalNumber(viewport, 'width');
+    const height = getOptionalNumber(viewport, 'height');
+    const transform = getOptionalNumberArray(viewport, 'transform');
+    if (!width || !height || !transform || transform.length < 6) {
+        return null;
+    }
+
+    return {
+        transform,
+        width,
+        height,
+        scale: getOptionalNumber(viewport, 'scale'),
+    };
+}
+
+async function loadPageTextPreviewData(
+    page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
+    pageNumber: number,
+    pageAnnotations: readonly IPdfAnnotationRecord[],
+) {
+    if (!shouldLoadTextPreviewItems(pageAnnotations)) {
+        return {
+            textItems: [],
+            textViewport: null,
+        };
+    }
+
+    try {
+        const viewport = toTextPreviewViewport(page.getViewport({ scale: 1 }));
+        const textContent = await page.getTextContent();
+        const rawItems = Array.isArray(textContent.items)
+            ? textContent.items as IPdfTextPreviewItem[]
+            : [];
+        return {
+            textItems: rawItems,
+            textViewport: viewport,
+        };
+    } catch (error) {
+        BrowserLogger.debug(
+            'annotations',
+            `Failed to collect text preview data for page ${pageNumber}`,
+            error,
+        );
+        return {
+            textItems: [],
+            textViewport: null,
+        };
+    }
+}
+
 export function buildPopupIndex(
     pageAnnotations: readonly IPdfAnnotationRecord[],
 ): Map<string, IPdfAnnotationRecord> {
@@ -342,6 +405,8 @@ export function buildPdfAnnotationCommentSummary(
     pageView: number[] | null,
     pageRotation: TPageRotation,
     deps: IPdfCommentSummaryDeps,
+    textItems: readonly IPdfTextPreviewItem[] = [],
+    textViewport: IPdfTextPreviewViewport | null = null,
 ): IAnnotationCommentSummary {
     const text = resolveCombinedAnnotationText(annotation, popupAnnotation);
     const subtype = annotation.subtype ?? null;
@@ -355,6 +420,9 @@ export function buildPdfAnnotationCommentSummary(
         pageView,
         pageRotation,
     );
+    const previewText = text.trim()
+        ? null
+        : resolvePdfAnnotationPreviewText(annotation, textItems, pageView, pageRotation, textViewport);
 
     return {
         id,
@@ -369,6 +437,7 @@ export function buildPdfAnnotationCommentSummary(
         pageIndex: pageNumber - 1,
         pageNumber,
         text,
+        previewText,
         kindLabel: deps.resolveKindLabel(subtype),
         subtype,
         author: resolvePdfCommentAuthor(annotation, popupAnnotation),
@@ -393,6 +462,8 @@ export function collectPagePdfSnapshotEntries(
         annotations,
         pageView,
         pageRotation,
+        textItems,
+        textViewport,
     } = pageBundle;
     const popupById = buildPopupIndex(annotations);
 
@@ -431,6 +502,8 @@ export function collectPagePdfSnapshotEntries(
             pageView,
             pageRotation,
             summaryDeps,
+            textItems,
+            textViewport,
         ));
     });
 }
@@ -446,10 +519,16 @@ export async function loadPdfPageAnnotations(
         const annotations = Array.isArray(rawAnnotations)
             ? rawAnnotations as IPdfAnnotationRecord[]
             : [];
+        const {
+            textItems,
+            textViewport,
+        } = await loadPageTextPreviewData(page, pageNumber, annotations);
         return {
             annotations,
             pageView: getOptionalNumberArray(page, 'view'),
             pageRotation: normalizePageRotation(getOptionalNumber(page, 'rotate') ?? 0),
+            textItems,
+            textViewport,
         };
     } catch (error) {
         BrowserLogger.debug(

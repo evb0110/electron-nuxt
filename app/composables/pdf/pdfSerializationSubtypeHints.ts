@@ -10,6 +10,8 @@ export interface IMarkupSubtypeHint {
     pageIndex: number;
     markerRect: IAnnotationMarkerRect;
     consumed: boolean;
+    id?: string | null;
+    pageMarkupIndex?: number | null;
 }
 
 const SUBTYPE_HINTS = new Set<TMarkupSubtype>([
@@ -54,21 +56,29 @@ function isValidMarkerRect(value: unknown): value is IAnnotationMarkerRect {
 
 export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[]): IMarkupSubtypeHint[] {
     const hints: IMarkupSubtypeHint[] = [];
+    const pageMarkupIndexes = new Map<number, number>();
     for (const comment of comments) {
         if (comment.source !== 'editor') {
             continue;
         }
-        if (!isMarkupSubtype(comment.subtype) || !SUBTYPE_HINTS.has(comment.subtype)) {
+        if (!isMarkupSubtype(comment.subtype)) {
             continue;
         }
         if (!isValidMarkerRect(comment.markerRect)) {
             continue;
         }
+        const pageMarkupIndex = pageMarkupIndexes.get(comment.pageIndex) ?? 0;
+        pageMarkupIndexes.set(comment.pageIndex, pageMarkupIndex + 1);
+        if (!SUBTYPE_HINTS.has(comment.subtype)) {
+            continue;
+        }
         hints.push({
+            id: comment.id,
             subtype: comment.subtype,
             pageIndex: comment.pageIndex,
             markerRect: comment.markerRect,
             consumed: false,
+            pageMarkupIndex,
         });
     }
     return hints;

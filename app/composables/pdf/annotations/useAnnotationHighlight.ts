@@ -91,6 +91,7 @@ interface IUseAnnotationHighlightOptions {
 interface IHighlightCommentContext {
     targetEditor: IPdfjsEditor | null;
     pageIndex: number;
+    selectionPreviewText: string;
     editorSnapshot: IEditorSnapshot;
     getEditorsForPage: (pageIndex: number) => IPdfjsEditor[];
     identity: IHighlightIdentity;
@@ -292,6 +293,14 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         }
     }
 
+    function attachSelectionPreviewText(editor: IPdfjsEditor | null, text: string) {
+        const previewText = text.trim();
+        if (!editor || !previewText) {
+            return;
+        }
+        editor.__evbSelectionText = previewText;
+    }
+
     function emitHighlightCommentLater(context: IHighlightCommentContext) {
         let attempts = 0;
         const tryEmitLater = () => {
@@ -308,6 +317,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 }
                 return;
             }
+            attachSelectionPreviewText(lateEditor, context.selectionPreviewText);
             context.applySubtypeOverrideToEditor(lateEditor);
             context.commentSync.pendingCommentEditorKeys.add(context.identity.getEditorPendingKey(lateEditor, context.pageIndex));
             const summary = context.commentSync.toEditorSummary(lateEditor, context.pageIndex, getCommentText(lateEditor));
@@ -324,6 +334,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             emitHighlightCommentLater(context);
             return null;
         }
+        attachSelectionPreviewText(context.targetEditor, context.selectionPreviewText);
         context.commentSync.pendingCommentEditorKeys.add(
             context.identity.getEditorPendingKey(context.targetEditor, context.pageIndex),
         );
@@ -361,6 +372,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             endOffset,
         } = activeRange;
         const text = activeRange.toString();
+        const selectionPreviewText = text.trim();
 
         const textLayer = resolveTextLayerForRange(activeRange);
         if (!textLayer) {
@@ -408,7 +420,11 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         };
 
         const applySubtypeOverrideToEditor = (editor: IPdfjsEditor | null) => {
-            if (!editor || !markupSubtypeOverride || !isAnnotationUiManagerCurrent(uiManager)) {
+            if (!editor || !isAnnotationUiManagerCurrent(uiManager)) {
+                return false;
+            }
+            attachSelectionPreviewText(editor, selectionPreviewText);
+            if (!markupSubtypeOverride) {
                 return false;
             }
             editor.__evbMarkupBoxes = cloneHighlightBoxes(boxes);
@@ -496,30 +512,36 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             );
             createdAnnotation = true;
             const targetEditor = await resolveCreatedEditor(asPdfjsEditor(createdEditor));
+            attachSelectionPreviewText(targetEditor, selectionPreviewText);
             applySubtypeOverrideToEditor(targetEditor);
 
-            if (!targetEditor && !withComment && markupSubtypeOverride) {
+            if (!targetEditor && !withComment) {
                 let attempts = 0;
-                const applySubtypeLater = () => {
+                const hydrateEditorLater = () => {
                     if (!isAnnotationUiManagerCurrent(uiManager)) {
                         return;
                     }
                     const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
+                    attachSelectionPreviewText(lateEditor, selectionPreviewText);
                     if (applySubtypeOverrideToEditor(lateEditor)) {
+                        return;
+                    }
+                    if (lateEditor && !markupSubtypeOverride) {
                         return;
                     }
                     attempts += 1;
                     if (attempts < 12) {
-                        scheduleSubtypeRetry(applySubtypeLater, 80);
+                        scheduleSubtypeRetry(hydrateEditorLater, 80);
                     }
                 };
-                scheduleSubtypeRetry(applySubtypeLater, 80);
+                scheduleSubtypeRetry(hydrateEditorLater, 80);
             }
 
             if (withComment) {
                 deferredNoteSummary = handleCreatedHighlightComment({
                     targetEditor,
                     pageIndex,
+                    selectionPreviewText,
                     editorSnapshot,
                     getEditorsForPage,
                     identity,

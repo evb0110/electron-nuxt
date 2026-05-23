@@ -1,7 +1,7 @@
 <template>
     <div class="notes-list-section flex flex-col gap-2">
         <div class="notes-list-header">
-            <span class="notes-list-title">{{ t('annotations.notes') }}</span>
+            <span class="notes-list-title">{{ t('annotations.annotations') }}</span>
             <span class="notes-count">({{ filteredComments.length }})</span>
             <button
                 type="button"
@@ -14,7 +14,7 @@
             <button
                 type="button"
                 class="notes-header-btn"
-                :aria-label="t('annotations.searchNotes')"
+                :aria-label="t('annotations.searchAnnotations')"
                 @click="onSearchButtonClick"
             >
                 <UIcon name="i-ph-magnifying-glass" />
@@ -27,7 +27,7 @@
             v-model.trim="query"
             type="search"
             class="notes-search"
-            :placeholder="t('annotations.searchNotes')"
+            :placeholder="t('annotations.searchAnnotations')"
             @keydown.stop
             @keyup.stop
         />
@@ -65,7 +65,7 @@
                     </button>
                 </span>
                 <span class="note-item-text">
-                    <template v-for="(part, index) in highlightTextParts(notePreview(comment))" :key="`text-${comment.stableKey}-${index}`">
+                    <template v-for="(part, index) in highlightTextParts(annotationPreview(comment))" :key="`text-${comment.stableKey}-${index}`">
                         <span v-if="!part.match">{{ part.text }}</span>
                         <mark v-else class="note-match">{{ part.text }}</mark>
                     </template>
@@ -84,8 +84,8 @@
             <PdfPanelEmptyState
                 v-if="showEmptyState"
                 icon="i-ph-note"
-                :title="t('annotations.noNotesFound')"
-                :description="t('annotations.noNotesHint')"
+                :title="t('annotations.noAnnotationsFound')"
+                :description="t('annotations.noAnnotationsHint')"
             />
             <div
                 v-else-if="showLoadingState"
@@ -107,11 +107,12 @@ import type {
 } from '@app/types/annotations';
 import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import {
-    isTextNoteComment,
     compareComments,
+    getAnnotationCommentPreviewText,
     matchesCommentQuery,
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
+import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
 import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
 
 interface IProps {
@@ -151,10 +152,9 @@ const activeCommentStableKey = computed(() => activeCommentStableKeyProp ?? null
 const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 
 const sortedComments = computed(() => comments.slice().sort(compareComments));
-const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
 
 const filteredComments = computed(() => {
-    return noteComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
+    return sortedComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
 });
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
@@ -177,10 +177,12 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
     return t(annotationKindLabelFromSubtype(comment.subtype).key);
 }
 
-function notePreview(comment: IAnnotationCommentSummary) {
-    const text = comment.text.trim();
+function annotationPreview(comment: IAnnotationCommentSummary) {
+    const text = getAnnotationCommentPreviewText(comment);
     if (!text) {
-        return t('annotations.emptyNote');
+        return isNoteEligibleComment(comment)
+            ? t('annotations.emptyNote')
+            : t('annotations.emptyAnnotation');
     }
 
     return text;
@@ -208,7 +210,9 @@ function focusComment(comment: IAnnotationCommentSummary) {
 
 function openComment(comment: IAnnotationCommentSummary) {
     emit('focus-comment', comment);
-    emit('open-note', comment);
+    if (isNoteEligibleComment(comment)) {
+        emit('open-note', comment);
+    }
 }
 
 function deleteComment(comment: IAnnotationCommentSummary) {

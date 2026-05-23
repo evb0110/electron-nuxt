@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
+    getAnnotationCommentPreviewText,
     splitByQueryMatches,
     matchesCommentQuery,
 } from '@app/utils/pdfAnnotationComments';
@@ -45,6 +46,52 @@ describe('pdfAnnotationComments', () => {
         const comment = createComment();
 
         expect(matchesCommentQuery(comment, 'eugene')).toBe(false);
+    });
+
+    it('uses selected annotation preview text when note text is empty', () => {
+        const comment = createComment({
+            text: '',
+            previewText: 'Highlighted paragraph',
+        });
+
+        expect(getAnnotationCommentPreviewText(comment)).toBe('Highlighted paragraph');
+    });
+
+    it('prefers explicit note text over selected annotation preview text', () => {
+        const comment = createComment({
+            text: 'Sticky note',
+            previewText: 'Highlighted paragraph',
+        });
+
+        expect(getAnnotationCommentPreviewText(comment)).toBe('Sticky note');
+    });
+
+    it('matches by selected annotation preview text', () => {
+        const comment = createComment({
+            text: '',
+            previewText: 'Highlighted paragraph',
+        });
+
+        expect(matchesCommentQuery(comment, 'paragraph')).toBe(true);
+    });
+
+    it('matches by annotation subtype', () => {
+        const comment = createComment({
+            kindLabel: null,
+            subtype: 'StrikeOut',
+        });
+
+        expect(matchesCommentQuery(comment, 'strike')).toBe(true);
+    });
+
+    it('matches long page labels in addition to compact page tokens', () => {
+        const comment = createComment({
+            pageIndex: 2,
+            pageNumber: 3,
+        });
+
+        expect(matchesCommentQuery(comment, 'page 3')).toBe(true);
+        expect(matchesCommentQuery(comment, 'p3')).toBe(true);
     });
 
     it('splits text into highlighted and non-highlighted parts', () => {

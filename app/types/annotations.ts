@@ -94,6 +94,7 @@ export interface IAnnotationCommentSummary {
     pageIndex: number;
     pageNumber: number;
     text: string;
+    previewText?: string | null | undefined;
     kindLabel?: string | null | undefined;
     subtype?: string | null | undefined;
     author: string | null;
@@ -101,7 +102,7 @@ export interface IAnnotationCommentSummary {
     color: string | null;
     uid: string | null;
     annotationId: string | null;
-    source: 'editor' | 'pdf';
+    source: 'editor' | 'pdf' | 'shape';
     hasNote?: boolean | undefined;
     markerRect?: IAnnotationMarkerRect | null | undefined;
 }

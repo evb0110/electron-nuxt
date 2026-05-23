@@ -73,8 +73,8 @@ interface ICrudIdentity {
     computeSummaryStableKey: (params: {
         id: string;
         pageIndex: number;
-        source: 'editor' | 'pdf';
-        uid?: string;
+        source: IAnnotationCommentSummary['source'];
+        uid?: string | null;
         annotationId?: string | null;
     }) => string;
     rememberSummaryText: (summary: IAnnotationCommentSummary) => void;
