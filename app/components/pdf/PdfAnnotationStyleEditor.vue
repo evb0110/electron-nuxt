@@ -355,15 +355,18 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .swatch-row {
-    display: grid;
-    grid-template-columns: repeat(9, minmax(0, 1fr));
-    gap: 0.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
 }
 
 .swatch {
     border: 1px solid var(--app-pdf-color-swatch-border);
     border-radius: 0.3rem;
-    height: 1.1rem;
+    flex: 0 0 1.5rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
     cursor: pointer;
 }
 
@@ -456,9 +459,4 @@ function applyDrawStyle(style: TDrawStyle) {
     color: var(--ui-text);
 }
 
-@media (width <= 860px) {
-    .swatch-row {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-}
 </style>

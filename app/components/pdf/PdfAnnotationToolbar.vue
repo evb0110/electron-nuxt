@@ -106,8 +106,8 @@ function setTool(toolId: TAnnotationTool) {
 }
 
 .tool-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.3rem;
 }
 
@@ -120,7 +120,9 @@ function setTool(toolId: TAnnotationTool) {
     border-radius: 0.375rem;
     background: transparent;
     color: var(--ui-text-muted);
-    min-height: 2rem;
+    flex: 0 0 2.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
     cursor: pointer;
     transition:
         background-color 0.12s ease,
