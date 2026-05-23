@@ -227,6 +227,7 @@ export default {
             'grc': 'Greco (antico)',
             'kmr': 'Curdo (Kurmanji)',
             'rus': 'Russo',
+            'ara': 'Arabo',
             'heb': 'Ebraico',
             'syr': 'Siriaco',
         },

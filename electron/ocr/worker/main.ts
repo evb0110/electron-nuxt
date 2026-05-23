@@ -47,7 +47,7 @@ import type {
 } from '@electron/ocr/worker/types';
 import {
     clampDpi,
-    detectSourceDpi,
+    detectSourceDpiDetails,
 } from '@electron/ocr/worker/dpiDetection';
 import {
     getPngDimensions,
@@ -66,6 +66,7 @@ import {
     runOcrCommand,
     type IOcrRunCommandOptions,
 } from '@electron/ocr/worker/runCommand';
+import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -476,6 +477,7 @@ interface IOcrPageProcessingContext {
     extractionDpi: number;
     tesseractThreads: number;
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
+    pageSourceDpiByNumber: Map<number, number>;
     popplerEnv?: NodeJS.ProcessEnv;
     signal: AbortSignal;
     trackTempFile: (path: string) => string;
@@ -504,9 +506,13 @@ async function processOcrPage(
             context.signal,
         );
         resourceToken = resourceLease.token;
-        const effectiveDpi = resourceLease.effectiveDpi;
+        const pageSourceDpi = context.pageSourceDpiByNumber.get(page.pageNumber);
+        const effectiveDpi = Math.min(resourceLease.effectiveDpi, pageSourceDpi ?? resourceLease.effectiveDpi);
         if (effectiveDpi < context.extractionDpi) {
-            log('debug', `Reduced OCR render DPI for page ${page.pageNumber} from ${context.extractionDpi} to ${effectiveDpi} to stay within native resource budget`);
+            const reason = pageSourceDpi !== undefined && pageSourceDpi <= effectiveDpi
+                ? 'to avoid upscaling the embedded page image'
+                : 'to stay within native resource budget';
+            log('debug', `Reduced OCR render DPI for page ${page.pageNumber} from ${context.extractionDpi} to ${effectiveDpi} ${reason}`);
         }
 
         await renderPdfPageToPng(
@@ -559,6 +565,9 @@ async function processOcrPage(
             effectiveDpi,
         };
     } catch (err) {
+        if (isAbortError(err)) {
+            throw err;
+        }
         const errMsg = getErrorMessage(err);
         log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
         return { error: `Failed to process page ${page.pageNumber}: ${errMsg}` };
@@ -729,16 +738,22 @@ async function buildOcrPageProcessingPlan(
     popplerSourcePdfPath: string,
     renderDpi: number | undefined,
     popplerEnv: NodeJS.ProcessEnv | undefined,
-    baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber'>,
+    baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'>,
 ) {
     const targetPages = pages.filter((p): p is IOcrPdfPageRequest => !!p);
-    const detectedDpi = renderDpi ?? await detectSourceDpi(
-        popplerSourcePdfPath,
-        paths.pdfimagesBinary,
-        log,
-        popplerEnv,
-        baseContext.signal,
-    );
+    const detectedSourceDpi = renderDpi === undefined
+        ? await detectSourceDpiDetails(
+            popplerSourcePdfPath,
+            paths.pdfimagesBinary,
+            log,
+            popplerEnv,
+            baseContext.signal,
+        )
+        : {
+            documentDpi: renderDpi,
+            pageDpiByNumber: new Map<number, number>(),
+        };
+    const detectedDpi = detectedSourceDpi.documentDpi;
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(targetPages.length);
     const tesseractThreads = getTesseractThreadLimit(concurrency);
@@ -755,6 +770,7 @@ async function buildOcrPageProcessingPlan(
             extractionDpi,
             tesseractThreads,
             pageSizeByNumber,
+            pageSourceDpiByNumber: detectedSourceDpi.pageDpiByNumber,
         },
     };
 }
@@ -841,7 +857,7 @@ async function processOcrJob(
         const popplerEnv = buildPopplerEnv();
         logPopplerEnvironment(popplerEnv);
 
-        const planOptions: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber'> = {
+        const planOptions: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'> = {
             sessionId,
             jobId,
             popplerSourcePdfPath,
@@ -909,6 +925,14 @@ async function processOcrJob(
         });
     } catch (err) {
         const errMsg = getErrorMessage(err);
+        if (isAbortError(err)) {
+            log('debug', `OCR job ${jobId} aborted: ${errMsg}`);
+            sendComplete(jobId, {
+                success: false,
+                errors: [errMsg],
+            });
+            return;
+        }
         log('error', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
         sendComplete(jobId, {
             success: false,

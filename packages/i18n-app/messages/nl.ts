@@ -227,6 +227,7 @@ export default {
             'grc': 'Grieks (oud)',
             'kmr': 'Koermandji',
             'rus': 'Russisch',
+            'ara': 'Arabisch',
             'heb': 'Hebreeuws',
             'syr': 'Syrisch',
         },
