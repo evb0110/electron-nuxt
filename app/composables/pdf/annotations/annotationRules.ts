@@ -9,7 +9,7 @@ import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComme
 export function isNoteEligible(
     subtype: string | null | undefined,
     hasNote?: boolean,
-    source?: 'editor' | 'pdf',
+    source?: IAnnotationCommentSummary['source'],
     text?: string,
 ): boolean {
     if (hasNote === true) {

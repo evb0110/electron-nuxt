@@ -531,8 +531,8 @@ const tabs = computed<IPdfSidebarTabItem[]>(() => {
 
     return items.map((tab) => ({
         ...tab,
-        label: isCompact.value ? '' : t(`sidebar.${tab.value === 'annotations' ? 'notes' : tab.value === 'thumbnails' ? 'pages' : tab.value}`),
-        title: t(`sidebar.${tab.value === 'annotations' ? 'notes' : tab.value === 'thumbnails' ? 'pages' : tab.value}`),
+        label: isCompact.value ? '' : t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
+        title: t(`sidebar.${tab.value === 'thumbnails' ? 'pages' : tab.value}`),
     }));
 });
 

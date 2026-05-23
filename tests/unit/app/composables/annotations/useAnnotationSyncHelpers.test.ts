@@ -562,6 +562,108 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.annotationId).toBeNull();
     });
 
+    it('extracts preview text for PDF-backed text markup with empty contents', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'highlight-1',
+                subtype: 'Highlight',
+                contents: '',
+                rect: [
+                    10,
+                    60,
+                    50,
+                    80,
+                ],
+            },
+            null,
+            1,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+            [{
+                str: 'Highlighted text',
+                transform: [
+                    10,
+                    0,
+                    0,
+                    10,
+                    10,
+                    70,
+                ],
+                width: 40,
+                height: 10,
+            }],
+            {
+                transform: [
+                    1,
+                    0,
+                    0,
+                    -1,
+                    0,
+                    100,
+                ],
+                width: 100,
+                height: 100,
+                scale: 1,
+            },
+        );
+
+        expect(summary.text).toBe('');
+        expect(summary.previewText).toBe('Highlighted text');
+    });
+
+    it('does not replace explicit markup note text with extracted preview text', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'highlight-2',
+                subtype: 'Highlight',
+                contents: 'existing note',
+                rect: [
+                    10,
+                    60,
+                    50,
+                    80,
+                ],
+            },
+            null,
+            1,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+            [{
+                str: 'Highlighted text',
+                transform: [
+                    10,
+                    0,
+                    0,
+                    10,
+                    10,
+                    70,
+                ],
+                width: 40,
+                height: 10,
+            }],
+            {
+                transform: [
+                    1,
+                    0,
+                    0,
+                    -1,
+                    0,
+                    100,
+                ],
+                width: 100,
+                height: 100,
+                scale: 1,
+            },
+        );
+
+        expect(summary.text).toBe('existing note');
+        expect(summary.previewText).toBeNull();
+    });
+
     it('uses popup author when annotation has no author', () => {
         const summary = __test__.buildPdfAnnotationCommentSummary(
             {

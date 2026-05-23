@@ -38,6 +38,7 @@ export interface IPdfjsEditor {
     __evbPlacementAttemptId?: string | null;
     __evbMarkupSubtypeColor?: string | null;
     __evbMarkupBoxes?: IPdfjsHighlightBox[] | null;
+    __evbSelectionText?: string | null;
     getData?: () => {
         modificationDate?: string | null;
         creationDate?: string | null;

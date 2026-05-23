@@ -74,14 +74,51 @@ describe('pdfSerializationSubtypeHints', () => {
 
         expect(hints).toHaveLength(2);
         expect(hints[0]).toMatchObject({
+            id: 'id-1',
             subtype: 'Underline',
             pageIndex: 0,
             consumed: false,
+            pageMarkupIndex: 0,
         });
         expect(hints[1]).toMatchObject({
             subtype: 'StrikeOut',
             pageIndex: 2,
             consumed: false,
+            pageMarkupIndex: 0,
+        });
+    });
+
+    it('counts highlight comments in the page markup order without collecting them as hints', () => {
+        const hints = collectMarkupSubtypeHints([
+            createComment({
+                id: 'highlight-1',
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: {
+                    left: 1,
+                    top: 2,
+                    width: 3,
+                    height: 4,
+                },
+            }),
+            createComment({
+                id: 'underline-1',
+                subtype: 'Underline',
+                pageIndex: 0,
+                markerRect: {
+                    left: 10,
+                    top: 20,
+                    width: 30,
+                    height: 8,
+                },
+            }),
+        ]);
+
+        expect(hints).toHaveLength(1);
+        expect(hints[0]).toMatchObject({
+            id: 'underline-1',
+            pageMarkupIndex: 1,
+            subtype: 'Underline',
         });
     });
 

@@ -34,6 +34,8 @@ const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
 };
 const SAME_MARKUP_QUAD_LINE_CENTER_TOLERANCE_RATIO = 0.35;
 const MIN_MARKUP_QUAD_HEIGHT = 0.01;
+const MIN_MARKUP_SUBTYPE_HINT_IOU = 0.45;
+const MIN_ORDERED_MARKUP_SUBTYPE_HINT_IOU = 0.2;
 
 interface IPdfMarkupQuad {
     bottom: number;
@@ -67,7 +69,7 @@ function buildMarkupRewriteInputs(
     }
 
     const hintsByPage = new Map<number, IMarkupSubtypeHint[]>();
-    subtypeHints.forEach((hint) => {
+    dedupeMarkupSubtypeHints(subtypeHints).forEach((hint) => {
         const pageHints = hintsByPage.get(hint.pageIndex);
         const cloned: IMarkupSubtypeHint = {
             ...hint,
@@ -86,9 +88,50 @@ function buildMarkupRewriteInputs(
     };
 }
 
+function toSubtypeHintKey(hint: IMarkupSubtypeHint) {
+    if (hint.id) {
+        return `${hint.pageIndex}:${hint.subtype}:id:${hint.id}`;
+    }
+    const rect = hint.markerRect;
+    return [
+        hint.pageIndex,
+        hint.subtype,
+        rect.left.toFixed(6),
+        rect.top.toFixed(6),
+        rect.width.toFixed(6),
+        rect.height.toFixed(6),
+    ].join(':');
+}
+
+function mergeSubtypeHints(existing: IMarkupSubtypeHint, incoming: IMarkupSubtypeHint): IMarkupSubtypeHint {
+    return {
+        ...existing,
+        id: existing.id ?? incoming.id ?? null,
+        pageMarkupIndex: existing.pageMarkupIndex ?? incoming.pageMarkupIndex ?? null,
+        consumed: false,
+    };
+}
+
+function dedupeMarkupSubtypeHints(subtypeHints: IMarkupSubtypeHint[]) {
+    const deduped = new Map<string, IMarkupSubtypeHint>();
+    subtypeHints.forEach((hint) => {
+        const key = toSubtypeHintKey(hint);
+        const existing = deduped.get(key);
+        deduped.set(key, existing ? mergeSubtypeHints(existing, hint) : hint);
+    });
+    return Array.from(deduped.values());
+}
+
+function toHintPageMarkupIndex(hint: IMarkupSubtypeHint) {
+    return typeof hint.pageMarkupIndex === 'number' && Number.isInteger(hint.pageMarkupIndex)
+        ? hint.pageMarkupIndex
+        : null;
+}
+
 function findBestUnconsumedSubtypeHint(
     pageHints: IMarkupSubtypeHint[],
     markerRect: IAnnotationMarkerRect | null,
+    pageMarkupIndex: number,
 ): IMarkupSubtypeHint | null {
     let best: {
         score: number;
@@ -98,8 +141,15 @@ function findBestUnconsumedSubtypeHint(
         if (hint.consumed) {
             continue;
         }
+        const hintPageMarkupIndex = toHintPageMarkupIndex(hint);
+        if (hintPageMarkupIndex !== null && hintPageMarkupIndex !== pageMarkupIndex) {
+            continue;
+        }
         const score = markerRectIoU(markerRect, hint.markerRect);
-        if (score <= 0) {
+        const minScore = hintPageMarkupIndex === null
+            ? MIN_MARKUP_SUBTYPE_HINT_IOU
+            : MIN_ORDERED_MARKUP_SUBTYPE_HINT_IOU;
+        if (score < minScore) {
             continue;
         }
         if (!best || score > best.score) {
@@ -109,7 +159,7 @@ function findBestUnconsumedSubtypeHint(
             };
         }
     }
-    return best && best.score >= 0.2 ? best.hint : null;
+    return best?.hint ?? null;
 }
 
 function resolveMarkupSubtypeForAnnotation(
@@ -119,6 +169,7 @@ function resolveMarkupSubtypeForAnnotation(
     pageHints: IMarkupSubtypeHint[],
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
+    pageMarkupIndex: number,
 ): TMarkupSubtype | null {
     const overrideSubtype = overridesMap.get(formatPdfJsAnnotationRef(ref)) ?? null;
     if (overrideSubtype) {
@@ -133,7 +184,7 @@ function resolveMarkupSubtypeForAnnotation(
         pageView,
         pageRotation,
     );
-    const matchedHint = findBestUnconsumedSubtypeHint(pageHints, markerRect);
+    const matchedHint = findBestUnconsumedSubtypeHint(pageHints, markerRect, pageMarkupIndex);
     if (!matchedHint) {
         return null;
     }
@@ -359,6 +410,7 @@ export function applyMarkupSubtypeRewrites(
 
     forEachPageAnnotationContext(doc, (pageIndex, context) => {
         const pageHints = inputs.hintsByPage.get(pageIndex) ?? [];
+        let pageMarkupIndex = 0;
 
         for (const {
             dict,
@@ -376,7 +428,9 @@ export function applyMarkupSubtypeRewrites(
                 pageHints,
                 context.pageView,
                 context.pageRotation,
+                pageMarkupIndex,
             );
+            pageMarkupIndex += 1;
             if (!targetSubtype) {
                 continue;
             }

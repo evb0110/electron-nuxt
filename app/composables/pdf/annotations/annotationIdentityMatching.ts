@@ -81,6 +81,10 @@ function isTextLikeNoteSubtype(subtype: IAnnotationCommentSummary['subtype']) {
     );
 }
 
+function normalizeSubtypeForIdentity(subtype: IAnnotationCommentSummary['subtype']) {
+    return (subtype ?? '').trim().toLowerCase();
+}
+
 function intervalOverlap(
     leftStart: number,
     leftEnd: number,
@@ -307,6 +311,9 @@ export function areTextMarkupCommentsLikelySame(
         return false;
     }
     if (!isTextMarkupSubtype(left.subtype) || !isTextMarkupSubtype(right.subtype)) {
+        return false;
+    }
+    if (normalizeSubtypeForIdentity(left.subtype) !== normalizeSubtypeForIdentity(right.subtype)) {
         return false;
     }
 
@@ -567,6 +574,10 @@ export function mergeCommentSummaries(
 ): IAnnotationCommentSummary {
     const existingText = existing.text.trim();
     const text = existingText.length > 0 ? existing.text : incoming.text;
+    const existingPreviewText = existing.previewText?.trim() ?? '';
+    const previewText = existingPreviewText.length > 0
+        ? existing.previewText
+        : incoming.previewText;
 
     const author = existing.author?.trim() ? existing.author : incoming.author;
 
@@ -586,6 +597,7 @@ export function mergeCommentSummaries(
     return {
         ...existing,
         text,
+        previewText: previewText ?? null,
         author,
         kindLabel: kindLabel ?? null,
         modifiedAt,

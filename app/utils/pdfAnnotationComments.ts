@@ -60,6 +60,10 @@ export function compareComments(left: IAnnotationCommentSummary, right: IAnnotat
     return compareAnnotationCommentSummaries(left, right);
 }
 
+export function getAnnotationCommentPreviewText(comment: IAnnotationCommentSummary) {
+    return comment.text.trim() || comment.previewText?.trim() || '';
+}
+
 export function matchesCommentQuery(
     comment: IAnnotationCommentSummary,
     normalizedQuery: string,
@@ -70,12 +74,19 @@ export function matchesCommentQuery(
     }
 
     const author = comment.author?.trim() || fallbackAuthor?.trim() || '';
+    const pageNumber = String(comment.pageNumber);
+    const pageTokens = [
+        `p${pageNumber}`,
+        `page ${pageNumber}`,
+    ];
 
     return (
         comment.text.toLowerCase().includes(normalizedQuery)
+        || (comment.previewText ?? '').toLowerCase().includes(normalizedQuery)
         || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)
+        || (comment.subtype ?? '').toLowerCase().includes(normalizedQuery)
         || author.toLowerCase().includes(normalizedQuery)
-        || `p${comment.pageNumber}`.includes(normalizedQuery)
+        || pageTokens.some(token => token.includes(normalizedQuery))
     );
 }
 

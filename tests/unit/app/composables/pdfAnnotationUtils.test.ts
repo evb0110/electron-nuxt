@@ -9,11 +9,18 @@ import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubt
 import {
     detectEditorSubtype,
     getCommentText,
+    getEditorSelectionPreviewText,
     hasEditorCommentPayload,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
+
+function createAriaDiv(label: string) {
+    const div = Object.create(null) as HTMLElement;
+    div.getAttribute = vi.fn((name: string) => name === 'aria-label' ? label : null);
+    return div;
+}
 
 describe('getCommentText', () => {
     it('returns direct string comments', () => {
@@ -68,6 +75,23 @@ describe('hasEditorCommentPayload', () => {
     });
 });
 
+describe('getEditorSelectionPreviewText', () => {
+    it('returns explicit selection preview text captured during highlight creation', () => {
+        const editor: IPdfjsEditor = {
+            __evbSelectionText: ' highlighted text ',
+            div: createAriaDiv('aria text'),
+        };
+
+        expect(getEditorSelectionPreviewText(editor)).toBe('highlighted text');
+    });
+
+    it('falls back to the PDF.js editor aria label', () => {
+        const div = createAriaDiv('selected text from pdf.js');
+
+        expect(getEditorSelectionPreviewText({ div })).toBe('selected text from pdf.js');
+    });
+});
+
 describe('detectEditorSubtype', () => {
     it('detects stamp editors from their constructor type without serializing', () => {
         const serialize = vi.fn(() => {
@@ -96,6 +120,20 @@ describe('annotationKindLabelFromSubtype', () => {
         expect(annotationKindLabelFromSubtype('stamp')).toEqual({
             key: 'annotations.imageLabel',
             fallback: 'Image',
+        });
+    });
+
+    it('labels arrow shape annotations distinctly', () => {
+        expect(annotationKindLabelFromSubtype('Arrow')).toEqual({
+            key: 'annotations.arrowLabel',
+            fallback: 'Arrow',
+        });
+    });
+
+    it('labels PDF polyline annotations as freehand lines', () => {
+        expect(annotationKindLabelFromSubtype('PolyLine')).toEqual({
+            key: 'annotations.freehandLineLabel',
+            fallback: 'Freehand Line',
         });
     });
 });

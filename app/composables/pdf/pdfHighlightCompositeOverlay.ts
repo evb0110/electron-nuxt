@@ -12,6 +12,13 @@ interface IHighlightPaintFragment extends IHighlightRect {
 
 export type THighlightCompositeSource = IHighlightPaintFragment;
 
+interface IMeasuredHighlightCompositeSource extends THighlightCompositeSource { svg: SVGElement; }
+
+interface IHighlightCompositePlan {
+    fragments: IHighlightPaintFragment[];
+    sourceSvgs: Set<SVGElement>;
+}
+
 const OVERLAY_CLASS = 'pdf-highlight-composite-overlay';
 const ORIGINAL_HIDDEN_CLASS = 'pdf-highlight-composite-source';
 const MARKUP_SUBTYPE_DRAW_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
@@ -158,17 +165,36 @@ function renderCompositeOverlay(host: HTMLElement, fragments: IHighlightPaintFra
     host.append(overlay);
 }
 
-function buildCompositeFragments(host: HTMLElement) {
+export function shouldCompositeHighlightSources(sources: readonly THighlightCompositeSource[]) {
+    for (let i = 0; i < sources.length; i += 1) {
+        const source = sources[i];
+        if (!source) {
+            continue;
+        }
+        for (let j = i + 1; j < sources.length; j += 1) {
+            const candidate = sources[j];
+            if (candidate && overlapRect(source, candidate)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function buildCompositePlan(host: HTMLElement): IHighlightCompositePlan {
     const highlightSvgs = Array.from(
         host.querySelectorAll<SVGElement>(':scope > svg.highlight:not(.free)'),
     ).filter(shouldCompositeHighlightSvg);
 
     if (highlightSvgs.length === 0) {
-        return [];
+        return {
+            fragments: [],
+            sourceSvgs: new Set<SVGElement>(),
+        };
     }
 
     const hostRect = host.getBoundingClientRect();
-    const sources: THighlightCompositeSource[] = [];
+    const sources: IMeasuredHighlightCompositeSource[] = [];
 
     for (const svg of highlightSvgs) {
         const rect = rectFromSvg(hostRect, svg);
@@ -179,10 +205,21 @@ function buildCompositeFragments(host: HTMLElement) {
         sources.push({
             ...rect,
             ...paint,
+            svg,
         });
     }
 
-    return composeHighlightFragments(sources);
+    if (!shouldCompositeHighlightSources(sources)) {
+        return {
+            fragments: [],
+            sourceSvgs: new Set<SVGElement>(),
+        };
+    }
+
+    return {
+        fragments: composeHighlightFragments(sources),
+        sourceSvgs: new Set(sources.map(source => source.svg)),
+    };
 }
 
 export function composeHighlightFragments(sources: THighlightCompositeSource[]) {
@@ -208,14 +245,18 @@ export function refreshHighlightCompositeOverlay(pageContainer: HTMLElement) {
         return;
     }
 
-    const fragments = buildCompositeFragments(host);
+    const plan = buildCompositePlan(host);
+    const {
+        fragments,
+        sourceSvgs,
+    } = plan;
     if (fragments.length === 0) {
         removeCompositeOverlay(host);
         return;
     }
 
     host.querySelectorAll<SVGElement>(':scope > svg.highlight:not(.free)').forEach((svg) => {
-        svg.classList.toggle(ORIGINAL_HIDDEN_CLASS, shouldCompositeHighlightSvg(svg));
+        svg.classList.toggle(ORIGINAL_HIDDEN_CLASS, sourceSvgs.has(svg));
     });
     renderCompositeOverlay(host, fragments);
 }

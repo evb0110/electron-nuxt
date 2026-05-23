@@ -874,7 +874,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function shouldUseEmbeddedDeletePath(comment: IAnnotationCommentSummary) {
-        return comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment));
+        return comment.source !== 'shape'
+            && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
     }
 
     function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
