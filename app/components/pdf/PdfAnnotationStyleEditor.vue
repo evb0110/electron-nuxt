@@ -93,7 +93,7 @@ import {
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
 interface IWidthControl {
-    key: 'inkThickness' | 'highlightThickness' | 'shapeStrokeWidth' | 'textSize';
+    key: 'inkThickness' | 'shapeStrokeWidth' | 'textSize';
     min: number;
     max: number;
     step: number;
@@ -164,14 +164,6 @@ const activeWidthControl = computed<IWidthControl | null>(() => {
             key: 'inkThickness',
             ...ANNOTATION_PROPERTY_RANGES.inkThickness,
             label: t('annotations.drawThickness'),
-        };
-    }
-
-    if (tool === 'highlight') {
-        return {
-            key: 'highlightThickness',
-            ...ANNOTATION_PROPERTY_RANGES.highlightThickness,
-            label: t('annotations.thickness'),
         };
     }
 
