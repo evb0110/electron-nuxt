@@ -15,7 +15,9 @@ const fs = require('fs');
 const path = require('path');
 const registryPath = path.join(process.env.PROJECT_ROOT, 'packages/contracts/ocrLanguages.ts');
 const source = fs.readFileSync(registryPath, 'utf8');
-const codes = [...source.matchAll(/code:\s*'([^']+)'/g)].map(match => match[1]);
+const quote = String.fromCharCode(39);
+const languageCodePattern = new RegExp(`code:\\s*${quote}([^${quote}]+)${quote}`, 'g');
+const codes = [...source.matchAll(languageCodePattern)].map(match => match[1]);
 if (codes.length === 0) {
   throw new Error(`No OCR language codes found in ${registryPath}`);
 }

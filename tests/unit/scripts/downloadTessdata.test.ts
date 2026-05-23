@@ -25,10 +25,11 @@ describe('download-tessdata.sh', () => {
             'grc',
             'kmr',
             'rus',
+            'ara',
             'heb',
             'syr',
         ]);
         expect(scriptSource).toContain('packages/contracts/ocrLanguages.ts');
-        expect(scriptSource).toMatch(/matchAll\(\s*\/code:\\s\*'\(\[\^'\]\+\)'\/g\s*\)/u);
+        expect(scriptSource).toContain('source.matchAll(languageCodePattern)');
     });
 });
