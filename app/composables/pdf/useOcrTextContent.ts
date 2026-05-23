@@ -15,6 +15,7 @@ import {
 import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 
 const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
+    'ara',
     'heb',
     'syr',
 ] as const);

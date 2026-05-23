@@ -4,6 +4,7 @@ import {
 } from 'es-toolkit/array';
 
 const RTL_LANGUAGE_CODES = new Set([
+    'ara',
     'heb',
     'syr',
 ]);

@@ -8,15 +8,54 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
 
-export async function detectSourceDpi(
+export interface ISourceDpiDetectionResult {
+    documentDpi: number | null;
+    pageDpiByNumber: Map<number, number>;
+}
+
+function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
+    const pageDpiByNumber = new Map<number, number>();
+    const lines = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    let documentDpi = 0;
+
+    for (const line of lines) {
+        const parts = line.split(/\s+/);
+        if (parts.length < 14) {
+            continue;
+        }
+        const pageNumber = parseInt(parts[0] ?? '', 10);
+        const xPpi = parseInt(parts[12] ?? '', 10);
+        const yPpi = parseInt(parts[13] ?? '', 10);
+        const dpi = Math.max(
+            Number.isFinite(xPpi) ? xPpi : 0,
+            Number.isFinite(yPpi) ? yPpi : 0,
+        );
+        if (!Number.isFinite(pageNumber) || pageNumber <= 0 || dpi <= 0) {
+            continue;
+        }
+
+        documentDpi = Math.max(documentDpi, dpi);
+        pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, dpi));
+    }
+
+    return {
+        documentDpi: documentDpi > 0 ? documentDpi : null,
+        pageDpiByNumber,
+    };
+}
+
+export async function detectSourceDpiDetails(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
     log: TWorkerLog,
     commandEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
-): Promise<number | null> {
+): Promise<ISourceDpiDetectionResult> {
     if (!pdfimagesBinary) {
-        return null;
+        return {
+            documentDpi: null,
+            pageDpiByNumber: new Map(),
+        };
     }
     if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new Error('OCR job aborted');
@@ -39,31 +78,7 @@ export async function detectSourceDpi(
             '-list',
             pdfPath,
         ], commandOptions);
-        const lines = result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-        if (lines.length <= 1) {
-            return null;
-        }
-
-        let best = 0;
-        for (const line of lines.slice(1)) {
-            const parts = line.split(/\s+/);
-            if (parts.length < 14) {
-                continue;
-            }
-            const xPpi = parseInt(parts[12] ?? '', 10);
-            const yPpi = parseInt(parts[13] ?? '', 10);
-            const dpi = Math.max(
-                Number.isFinite(xPpi) ? xPpi : 0,
-                Number.isFinite(yPpi) ? yPpi : 0,
-            );
-            if (dpi > best) {
-                best = dpi;
-            }
-        }
-
-        if (best > 0) {
-            return best;
-        }
+        return parsePdfImagesListOutput(result.stdout);
     } catch (err) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
@@ -71,7 +86,26 @@ export async function detectSourceDpi(
         log('debug', `pdfimages detection failed: ${getErrorMessage(err)}`);
     }
 
-    return null;
+    return {
+        documentDpi: null,
+        pageDpiByNumber: new Map(),
+    };
+}
+
+export async function detectSourceDpi(
+    pdfPath: string,
+    pdfimagesBinary: string | undefined,
+    log: TWorkerLog,
+    commandEnv?: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
+): Promise<number | null> {
+    return (await detectSourceDpiDetails(
+        pdfPath,
+        pdfimagesBinary,
+        log,
+        commandEnv,
+        signal,
+    )).documentDpi;
 }
 
 export function clampDpi(value: number) {

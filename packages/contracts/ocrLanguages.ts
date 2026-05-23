@@ -34,6 +34,10 @@ export const AVAILABLE_OCR_LANGUAGES: IOcrLanguage[] = [
         script: 'cyrillic',
     },
     {
+        code: 'ara',
+        script: 'rtl',
+    },
+    {
         code: 'heb',
         script: 'rtl',
     },
