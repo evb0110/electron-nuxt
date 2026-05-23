@@ -205,19 +205,41 @@
 }
 
 /* Allow text selection through existing highlights while a selection-markup
-   tool is active.
+   tool or plain text-selection mode is active.
    Vendor CSS sets .highlightEditor .internal { pointer-events: auto },
    which intercepts mousedown and prevents dragging across already-highlighted
    text to make a new highlight. Vendor CSS also sets cursor:pointer for any
    .selectedEditor .highlightEditor .internal, which leaks onto a freshly
    created highlight before the .selectedEditor class is cleared. The app
-   restores PDF.js back to NONE after creating selection markup so browser
-   text selection keeps working; therefore .highlightEditing is only transient
-   and the durable selector is the app-level .is-selection-markup-tool class. */
+   restores PDF.js back to NONE after creating selection markup in some flows,
+   so .highlightEditing is only transient. Keep the bypass active through
+   durable app-level tool and text-selection classes. */
+.pdfViewer.is-text-selection-mode .annotationEditorLayer,
+.pdfViewer.is-text-selection-mode .annotation-editor-layer,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationEditorLayer,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-editor-layer {
+    pointer-events: none !important;
+}
+
+.pdfViewer.is-selection-markup-tool .textLayer,
+.pdfViewer.is-selection-markup-tool .text-layer,
+.pdfViewer.is-text-selection-mode .textLayer,
+.pdfViewer.is-text-selection-mode .text-layer,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .textLayer,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .text-layer,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .textLayer,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .text-layer {
+    cursor: text !important;
+}
+
 .pdfViewer.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
 .pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal,
+.pdfViewer.is-text-selection-mode .annotationEditorLayer .highlightEditor .internal,
+.pdfViewer.is-text-selection-mode .annotation-editor-layer .highlightEditor .internal,
 .pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal {
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationEditorLayer .highlightEditor .internal,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-editor-layer .highlightEditor .internal {
     pointer-events: none !important;
     cursor: text !important;
 }
@@ -226,13 +248,62 @@
    OUTSIDE the editor layer. SVG <path> defaults to pointer-events:visiblePainted,
    so the filled yellow shape intercepts mousedown on every highlighted glyph.
    The highlight/highlightOutline classes are on the SVG root, not descendants
-   inside the SVG. Disable them only during selection-markup authoring; select
-   and comment interactions can still use the editor layer in idle mode. */
+   inside the SVG. Disable them during markup authoring and plain text
+   selection; select and comment interactions can still use the editor layer
+   in other modes. */
 .pdfViewer.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
 .pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg),
+.pdfViewer.is-text-selection-mode .highlight:is(.canvasWrapper svg),
+.pdfViewer.is-text-selection-mode .highlightOutline:is(.canvasWrapper svg),
 .pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg) {
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg),
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .highlight:is(.canvasWrapper svg),
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .highlightOutline:is(.canvasWrapper svg) {
     pointer-events: none !important;
+}
+
+.pdfViewer.is-selection-markup-tool .annotationLayer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .highlightAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .underlineAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .strikeoutAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .squigglyAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .highlightAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .squigglyAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .editorAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .highlightAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .underlineAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .squigglyAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .editorAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .highlightAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .underlineAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .strikeoutAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .squigglyAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .highlightAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .squigglyAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .editorAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .highlightAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .underlineAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
+.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .squigglyAnnotation {
+    pointer-events: none !important;
+    cursor: text !important;
 }
 
 /* Hide native PDF.js popup trigger bubbles; custom inline note anchors
