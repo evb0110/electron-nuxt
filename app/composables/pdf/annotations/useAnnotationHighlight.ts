@@ -568,6 +568,14 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         }
         const range = explicitRange ?? getSelectionRangeForCommentAction();
         if (!range) {
+            BrowserLogger.debug('annotations', 'Selection markup skipped because no text selection was available', () => ({
+                tool: annotationTool.value,
+                viewerHasTextLayers: (viewerContainer.value?.querySelectorAll('.text-layer, .textLayer').length ?? 0) > 0,
+                renderedTextSpanCount: viewerContainer.value?.querySelectorAll('.text-layer span, .textLayer span').length ?? 0,
+                selectionText: document.getSelection()?.toString() ?? '',
+                selectionRangeCount: document.getSelection()?.rangeCount ?? 0,
+                selectionCollapsed: document.getSelection()?.isCollapsed ?? null,
+            }));
             return false;
         }
         return highlightSelectionInternal(false, range);

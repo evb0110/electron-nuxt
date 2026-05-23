@@ -109,13 +109,52 @@
        annotation-layer editor replicas to keep highlight intensity stable. */
     .page:has(
         .annotationEditorLayer.nonEditing:not([hidden]),
-        .annotation-editor-layer.nonEditing:not([hidden])
+        .annotation-editor-layer.nonEditing:not([hidden]),
+        .annotationEditorLayer.highlightEditing:not([hidden]),
+        .annotation-editor-layer.highlightEditing:not([hidden])
     ) {
         .annotationLayer,
         .annotation-layer {
             .editorAnnotation {
                 opacity: 0 !important;
                 pointer-events: none !important;
+            }
+        }
+    }
+
+    /* Allow text selection through existing highlights while either a
+       selection-markup tool or plain text-selection mode is active. */
+    &.is-selection-markup-tool,
+    &.is-text-selection-mode {
+        .annotationEditorLayer,
+        .annotation-editor-layer {
+            pointer-events: none !important;
+
+            .highlightEditor .internal {
+                pointer-events: none !important;
+                cursor: text !important;
+            }
+        }
+
+        .textLayer,
+        .text-layer {
+            cursor: text !important;
+        }
+
+        .highlight:is(.canvasWrapper svg),
+        .highlightOutline:is(.canvasWrapper svg) {
+            pointer-events: none !important;
+        }
+
+        .annotationLayer,
+        .annotation-layer {
+            .editorAnnotation,
+            .highlightAnnotation,
+            .underlineAnnotation,
+            .strikeoutAnnotation,
+            .squigglyAnnotation {
+                pointer-events: none !important;
+                cursor: text !important;
             }
         }
     }

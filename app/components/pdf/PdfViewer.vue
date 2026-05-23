@@ -699,6 +699,10 @@ const {
 const isImagePlacementActive = computed(() => pendingImagePlacement.value !== null);
 const isViewerPanDragModeActive = computed(() => dragMode.value && !isImagePlacementActive.value);
 const isSelectionMarkupToolActive = computed(() => isSelectionMarkupTool(annotationTool.value));
+const isTextSelectionModeActive = computed(() =>
+    annotationCursorMode.value
+    && (annotationTool.value === 'none' || isSelectionInteractionTool(annotationTool.value)),
+);
 
 const {
     isDragging,
@@ -1615,6 +1619,7 @@ const viewerClass = computed(() => ({
     'drag-mode': isViewerPanDragModeActive.value,
     'is-placing-comment': highlightComposable.isPlacingComment.value,
     'is-selection-markup-tool': isSelectionMarkupToolActive.value,
+    'is-text-selection-mode': isTextSelectionModeActive.value,
     'pdfViewer--single-page': !continuousScroll.value,
     'pdfViewer--mode-single': viewMode.value === 'single',
     'pdfViewer--mode-facing': viewMode.value === 'facing',
@@ -2088,8 +2093,41 @@ defineExpose({
 }
 
 .pdfViewer.is-selection-markup-tool .annotation-editor-layer,
-.pdfViewer.is-selection-markup-tool .annotationEditorLayer {
-    pointer-events: none;
+.pdfViewer.is-selection-markup-tool .annotationEditorLayer,
+.pdfViewer.is-text-selection-mode .annotation-editor-layer,
+.pdfViewer.is-text-selection-mode .annotationEditorLayer {
+    pointer-events: none !important;
+}
+
+.pdfViewer.is-selection-markup-tool .text-layer,
+.pdfViewer.is-selection-markup-tool .textLayer,
+.pdfViewer.is-text-selection-mode .text-layer,
+.pdfViewer.is-text-selection-mode .textLayer {
+    cursor: text !important;
+}
+
+.pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .highlightAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .underlineAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .strikeoutAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .squigglyAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .editorAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .highlightAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .underlineAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .squigglyAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .highlightAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .squigglyAnnotation {
+    pointer-events: none !important;
+    cursor: text !important;
 }
 
 .pdfViewer.pdfViewer--resize-transition .text-layer,
