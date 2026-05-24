@@ -80,7 +80,13 @@ export interface IDocumentsService {
     cleanupOcrTemp: (event: IpcMainInvokeEvent, filePath: string) => Promise<void>;
     setWindowTitle: (event: IpcMainInvokeEvent, title: string) => void;
     showItemInFolder: (event: IpcMainInvokeEvent, filePath: string) => Promise<boolean>;
-    setMenuDocumentState: (event: IpcMainInvokeEvent, hasDocument: boolean) => void;
+    setMenuDocumentState: (
+        event: IpcMainInvokeEvent,
+        state: boolean | {
+            hasDocument: boolean;
+            canSave: boolean 
+        },
+    ) => void;
     setMenuTabCount: (event: IpcMainInvokeEvent, tabCount: number) => void;
     getRecentFiles: (event: IpcMainInvokeEvent) => Promise<IRecentFile[]>;
     removeRecentFile: (_event: IpcMainInvokeEvent, originalPath: string) => Promise<void>;

@@ -87,7 +87,10 @@ export interface IViewerHostApi {
 }
 
 export interface IDesktopMenuCapability {
-    setMenuDocumentState(hasDocument: boolean): Promise<void>;
+    setMenuDocumentState(state: boolean | {
+        hasDocument: boolean;
+        canSave: boolean 
+    }): Promise<void>;
     setMenuTabCount(tabCount: number): Promise<void>;
     onMenuOpenPdf(callback: IMenuEventCallback): IMenuEventUnsubscribe;
     onMenuSave(callback: IMenuEventCallback): IMenuEventUnsubscribe;

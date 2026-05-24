@@ -33,6 +33,7 @@ function createDeps() {
     return {
         isActive: ref(true),
         pdfSrc: ref<TPdfSource | null>(new Blob([], { type: 'application/pdf' })),
+        canSave: ref(true),
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
         annotationPlacingPageNote: ref(false),
@@ -324,6 +325,32 @@ describe('usePageShortcuts', () => {
 
         expect(preventDefault).not.toHaveBeenCalled();
         expect(stopPropagation).not.toHaveBeenCalled();
+        expect(deps.handleSave).not.toHaveBeenCalled();
+    });
+
+    it('prevents browser save but skips app save when Cmd/Ctrl+S is disabled for a clean document', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        deps.canSave.value = false;
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        const stopPropagation = vi.fn();
+        capturedKeyDown?.(cast<KeyboardEvent>({
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+            stopPropagation,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(stopPropagation).toHaveBeenCalledOnce();
         expect(deps.handleSave).not.toHaveBeenCalled();
     });
 

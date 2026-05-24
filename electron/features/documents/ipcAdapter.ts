@@ -154,7 +154,13 @@ export function registerDocumentsIpcAdapter(
         [DOCUMENTS_CHANNELS.fileCleanupOcrTemp]: (event, filePath: string) => service.cleanupOcrTemp(event, filePath),
         [DOCUMENTS_CHANNELS.windowSetTitle]: (event, title: string) => service.setWindowTitle(event, title),
         [DOCUMENTS_CHANNELS.shellShowItemInFolder]: (event, filePath: string) => service.showItemInFolder(event, filePath),
-        [DOCUMENTS_CHANNELS.menuSetDocumentState]: (event, hasDocument: boolean) => service.setMenuDocumentState(event, hasDocument),
+        [DOCUMENTS_CHANNELS.menuSetDocumentState]: (
+            event,
+            state: boolean | {
+                hasDocument: boolean;
+                canSave: boolean 
+            },
+        ) => service.setMenuDocumentState(event, state),
         [DOCUMENTS_CHANNELS.menuSetTabCount]: (event, tabCount: number) => service.setMenuTabCount(event, tabCount),
         [DOCUMENTS_CHANNELS.recentFilesGet]: (event) => service.getRecentFiles(event),
         [DOCUMENTS_CHANNELS.recentFilesRemove]: (event, originalPath: string) => service.removeRecentFile(event, originalPath),
