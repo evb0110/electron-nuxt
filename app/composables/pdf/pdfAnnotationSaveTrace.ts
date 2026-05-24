@@ -77,7 +77,7 @@ function resolveTracePayload(
             ? payload()
             : payload;
     } catch (error) {
-        return {tracePayloadError: error instanceof Error ? error.message : String(error)};
+        return { tracePayloadError: error instanceof Error ? error.message : String(error) };
     }
 }
 
