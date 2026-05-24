@@ -126,7 +126,7 @@
                         :open="pageDropdownOpen"
                         :total-pages="documentMetadataReady ? totalPages : 0"
                         :view-mode="viewMode"
-                        :page-labels="documentMetadataReady && pageLabelsResolved ? pageLabels : null"
+                        :page-labels="toolbarPageLabels"
                         :disabled="toolbarControlsDisabled"
                         :compact-level="compactLevel"
                         @go-to-page="handleGoToPage"
@@ -952,6 +952,15 @@ const documentMetadataReady = computed(() => (
     documentMetadataAvailable.value
     && !isOpeningDocumentForToolbar.value
 ));
+const toolbarPageLabels = computed(() => {
+    if (!documentMetadataReady.value) {
+        return null;
+    }
+    if (pageLabelsResolved.value || isAnySaving.value) {
+        return pageLabels.value;
+    }
+    return null;
+});
 const toolbarControlsDisabled = computed(() => (
     !documentMetadataReady.value || toolbarDocumentBusy.value
 ));

@@ -16,6 +16,16 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import {
+    tracePdfAnnotationSaveDom,
+    tracePdfAnnotationSaveEvent,
+} from '@app/composables/pdf/pdfAnnotationSaveTrace';
+import {
+    hasPdfPageAnnotationVisualContentForSnapshotRelease,
+    preservePdfPageAnnotationVisualSnapshot,
+    schedulePdfLayerVisualSnapshotRelease,
+    type TPdfLayerVisualSnapshotRelease,
+} from '@app/composables/pdf/pdfLayerVisualSnapshot';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer-runtime/reloadZoom';
 
 interface IPageRange {
@@ -53,6 +63,7 @@ interface IPreservedVisibleContentRequest {
 interface IPreservedVisibleContentState {
     scrollPosition: IPreservedScrollPosition | null;
     pageToRestore: number | null;
+    visualSnapshotRelease: TPdfLayerVisualSnapshotRelease | null;
 }
 
 interface ICommentSyncLike {
@@ -271,12 +282,126 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             : null;
     }
 
+    function asHtmlElement(value: Element | null | undefined) {
+        if (!value) {
+            return null;
+        }
+        if (typeof HTMLElement === 'undefined') {
+            return value as HTMLElement;
+        }
+        return value instanceof HTMLElement ? value : null;
+    }
+
+    function findPreservedPageContainer(pageNumber: number | null | undefined) {
+        const container = options.viewerContainer.value;
+        const normalizedPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
+        return asHtmlElement(
+            container?.querySelector(`.page_container[data-page="${normalizedPage}"]`),
+        );
+    }
+
+    function createTracedPreservedVisualSnapshotRelease(
+        release: TPdfLayerVisualSnapshotRelease | null,
+        pageNumber: number | null,
+        pageContainer: HTMLElement | null,
+    ) {
+        if (!release) {
+            return null;
+        }
+
+        let released = false;
+        return () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            tracePdfAnnotationSaveDom(
+                'document-lifecycle:preserved-visual-snapshot:release',
+                pageContainer,
+                { pageNumber },
+            );
+            release();
+        };
+    }
+
+    function capturePreservedVisualSnapshot(pageNumber: number | null) {
+        const snapshotPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
+        const pageContainer = findPreservedPageContainer(snapshotPage);
+        const release = createTracedPreservedVisualSnapshotRelease(
+            preservePdfPageAnnotationVisualSnapshot(pageContainer, null),
+            snapshotPage,
+            pageContainer,
+        );
+        tracePdfAnnotationSaveDom(
+            'document-lifecycle:preserved-visual-snapshot:capture',
+            pageContainer,
+            {
+                hasSnapshot: Boolean(release),
+                pageNumber: snapshotPage,
+            },
+        );
+        schedulePdfLayerVisualSnapshotRelease(release, {
+            maxDelayMs: 15_000,
+            minFrames: 1,
+            waitFor: () => false,
+        });
+        return release;
+    }
+
+    function releasePreservedVisualSnapshotNow(
+        state: IPreservedVisibleContentState | null,
+        reason: string,
+    ) {
+        if (!state?.visualSnapshotRelease) {
+            return;
+        }
+        tracePdfAnnotationSaveEvent(
+            'document-lifecycle:preserved-visual-snapshot:release-now',
+            {
+                pageNumber: state.pageToRestore,
+                reason,
+            },
+        );
+        state.visualSnapshotRelease();
+        state.visualSnapshotRelease = null;
+    }
+
+    function schedulePreservedVisualSnapshotRelease(
+        plan: IReloadPlan,
+        reason: string,
+    ) {
+        const state = plan.preservedVisibleContent;
+        if (!state?.visualSnapshotRelease) {
+            return;
+        }
+
+        const release = state.visualSnapshotRelease;
+        state.visualSnapshotRelease = null;
+        const pageNumber = plan.resolvedPageToRestore;
+        tracePdfAnnotationSaveDom(
+            'document-lifecycle:preserved-visual-snapshot:schedule-release',
+            findPreservedPageContainer(pageNumber),
+            {
+                pageNumber,
+                reason,
+            },
+        );
+        schedulePdfLayerVisualSnapshotRelease(release, {
+            maxDelayMs: 2_500,
+            minFrames: 1,
+            waitFor: () => hasPdfPageAnnotationVisualContentForSnapshotRelease(
+                findPreservedPageContainer(pageNumber),
+            ),
+        });
+    }
+
     function capturePreservedVisibleContentState(
         request?: IPreservedVisibleContentRequest,
     ): IPreservedVisibleContentState {
         const container = options.viewerContainer.value;
         const requestPage = normalizePreservedPageNumber(request?.pageToRestore);
         const snapshotPage = normalizePreservedPageNumber(request?.scrollSnapshot?.anchorPage);
+        const pageToRestore = requestPage ?? snapshotPage ?? options.currentPage.value;
         return {
             scrollPosition: container
                 ? {
@@ -284,7 +409,8 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
                     top: container.scrollTop,
                 }
                 : null,
-            pageToRestore: requestPage ?? snapshotPage,
+            pageToRestore,
+            visualSnapshotRelease: capturePreservedVisualSnapshot(pageToRestore),
         };
     }
 
@@ -305,6 +431,12 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             isReload && !isSelectiveReload && preservedVisibleContentRequest !== null;
         shouldPreserveNextSourceReloadVisibleContent = false;
         nextPreservedVisibleContentState = null;
+        if (preservedVisibleContentRequest && !shouldPreserveVisibleContent) {
+            releasePreservedVisualSnapshotNow(
+                preservedVisibleContentRequest,
+                isSelectiveReload ? 'selective-reload' : 'non-reload-load',
+            );
+        }
         const shouldPreserveReloadDisplayZoom = isReload
             && !isSelectiveReload
             && displayZoomToRestore !== null;
@@ -681,12 +813,25 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
         if (plan.shouldPreserveVisibleContent) {
             restorePreservedScrollPosition(plan, preservedScrollPosition);
+            const currentPageContainer = options.viewerContainer.value
+                ?.querySelector<HTMLElement>(`.page_container[data-page="${options.currentPage.value}"]`);
+            tracePdfAnnotationSaveDom(
+                'document-lifecycle:preserved-render-visible:start',
+                currentPageContainer,
+                { pageNumber: options.currentPage.value },
+            );
             await options.renderVisiblePages(initialRange, {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
                 forceRerender: true,
             });
+            tracePdfAnnotationSaveDom(
+                'document-lifecycle:preserved-render-visible:done',
+                currentPageContainer,
+                { pageNumber: options.currentPage.value },
+            );
             restorePreservedScrollPosition(plan, preservedScrollPosition);
+            schedulePreservedVisualSnapshotRelease(plan, 'preserved-render-visible-done');
             return;
         }
 
@@ -717,6 +862,9 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
     async function loadFromSource(isReload = false) {
         if (!options.src.value) {
+            releasePreservedVisualSnapshotNow(nextPreservedVisibleContentState, 'empty-source');
+            shouldPreserveNextSourceReloadVisibleContent = false;
+            nextPreservedVisibleContentState = null;
             clearAnnotationCacheForEmptySource();
             return;
         }
@@ -726,6 +874,14 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
 
         try {
             const plan = computeReloadPlan(isReload);
+            tracePdfAnnotationSaveEvent(
+                'document-lifecycle:load-from-source:plan',
+                {
+                    isReload,
+                    pageToRestore: plan.pageToRestore,
+                    shouldPreserveVisibleContent: plan.shouldPreserveVisibleContent,
+                },
+            );
             const visualReload = createVisualReloadTransition(plan.shouldPinReloadPage);
             const settleVisualReloadTransition = visualReload.settle;
             const preservedScrollPosition = capturePreservedScrollPosition(plan);

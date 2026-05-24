@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     composeHighlightFragments,
+    isRectangularHighlightPathData,
     shouldCompositeHighlightClassList,
     shouldCompositeHighlightSources,
 } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
@@ -74,6 +75,10 @@ describe('pdfHighlightCompositeOverlay', () => {
             'highlight',
             'pdf-markup-subtype-draw-strikeout',
         ])).toBe(false);
+        expect(shouldCompositeHighlightClassList([
+            'highlight',
+            'pdf-layer-preserve-snapshot',
+        ])).toBe(false);
     });
 
     it('only needs the overlay when text highlight sources overlap', () => {
@@ -86,5 +91,11 @@ describe('pdfHighlightCompositeOverlay', () => {
             createSource(0),
             createSource(25, '#a6e8ff'),
         ])).toBe(true);
+    });
+
+    it('does not treat multi-line highlight paths as rectangular overlay sources', () => {
+        expect(isRectangularHighlightPathData('M0 0 V1 H1 V0 Z')).toBe(true);
+        expect(isRectangularHighlightPathData('M0 0 V0.5 H1 V0.75 H0.2 V1 H0 Z')).toBe(false);
+        expect(isRectangularHighlightPathData('M0 0 V1 H1 V0 Z M2 0 V1 H3 V0 Z')).toBe(false);
     });
 });

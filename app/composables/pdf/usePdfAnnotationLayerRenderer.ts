@@ -29,6 +29,18 @@ import {
     observeHighlightCompositeOverlay,
     refreshHighlightCompositeOverlay,
 } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
+import {
+    combinePdfLayerVisualSnapshotReleases,
+    hasPdfPageAnnotationVisualContentForSnapshotRelease,
+    hasPdfPageDrawLayerVisualContent,
+    preservePdfLayerVisualSnapshot,
+    preservePdfPageAnnotationVisualSnapshot,
+    schedulePdfLayerVisualSnapshotRelease,
+} from '@app/composables/pdf/pdfLayerVisualSnapshot';
+import {
+    tracePdfAnnotationSaveDom,
+    tracePdfAnnotationSaveEvent,
+} from '@app/composables/pdf/pdfAnnotationSaveTrace';
 import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -556,18 +568,38 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return { div: textLayerDiv } as IPdfjsTextLayerElement;
     }
 
-    function syncEditorLayersWithCurrentDocument() {
+    function syncEditorLayersWithCurrentDocument(
+        pageContainer?: HTMLElement | null,
+        annotationEditorLayerDiv?: HTMLElement | null,
+    ) {
         const currentDocument = deps.pdfDocument.value;
         const currentUiManager = toValue(deps.annotationUiManager) ?? null;
         if (
             currentDocument === activeEditorDocument
             && currentUiManager === activeAnnotationUiManager
         ) {
-            return;
+            return null;
         }
+        tracePdfAnnotationSaveDom(
+            'editor-layer:document-ui-manager-changed:before-clear',
+            pageContainer ?? null,
+            {
+                hasCurrentDocument: Boolean(currentDocument),
+                hasCurrentUiManager: Boolean(currentUiManager),
+            },
+        );
+        const snapshotRelease = preservePdfPageAnnotationVisualSnapshot(
+            pageContainer ?? null,
+            annotationEditorLayerDiv ?? null,
+        );
         activeEditorDocument = currentDocument;
         activeAnnotationUiManager = currentUiManager;
         clearAllLayers();
+        tracePdfAnnotationSaveDom(
+            'editor-layer:document-ui-manager-changed:after-clear',
+            pageContainer ?? null,
+        );
+        return snapshotRelease;
     }
 
     function isAnnotationEditorLayerDisabledForCurrentDocument() {
@@ -625,6 +657,12 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationEditorLayerDiv.hidden = true;
     }
 
+    function getPageContainerForLayer(layer: HTMLElement) {
+        return typeof layer.closest === 'function'
+            ? layer.closest<HTMLElement>('.page_container')
+            : null;
+    }
+
     async function renderAnnotationLayer(
         pdfPage: PDFPageProxy,
         annotationLayerDiv: HTMLElement,
@@ -632,112 +670,173 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pageNumber: number,
         annotationCanvasMap?: Map<string, HTMLCanvasElement> | null,
     ) {
-        annotationLayerDiv.innerHTML = '';
-
         const renderToken = ++annotationLayerRenderToken;
         annotationLayerPageRenderTokens.set(pageNumber, renderToken);
-        const annotations = await pdfPage.getAnnotations();
-        if (annotationLayerPageRenderTokens.get(pageNumber) !== renderToken) {
-            return null;
-        }
-        const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
-        const visibleAnnotations = hiddenAnnotationIds.size === 0
-            ? annotations
-            : annotations.filter(annotation => {
-                const annotationId = normalizePdfJsAnnotationId(getAnnotationId(annotation));
-                return !annotationId || !hiddenAnnotationIds.has(annotationId);
-            });
-        const annotationStorage = deps.pdfDocument.value?.annotationStorage;
-        const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
-
-        const simpleLinkService = {
-            pagesCount: deps.numPages.value,
-            page: deps.currentPage.value,
-            rotation: 0,
-            isInPresentationMode: false,
-            externalLinkEnabled: true,
-            goToDestination: async () => {},
-            goToPage: (page: number) => deps.scrollToPage?.(page),
-            goToXY: () => {},
-            addLinkAttributes: (
-                link: HTMLAnchorElement,
-                url: string,
-                _newWindow?: boolean,
-            ) => {
-                const openLink = () => {
-                    const normalizedUrl = normalizeAllowedExternalUrl(url);
-                    if (!normalizedUrl) {
-                        BrowserLogger.warn('pdf-annotation-layer', `Blocked unsupported annotation link: ${url}`);
-                        return;
-                    }
-
-                    void getShellCapability().openExternal(normalizedUrl).catch((error) => {
-                        BrowserLogger.warn(
-                            'pdf-annotation-layer',
-                            `Failed to open annotation link: ${normalizedUrl}`,
-                            error,
-                        );
-                    });
-                };
-
-                link.removeAttribute('href');
-                link.removeAttribute('target');
-                link.removeAttribute('rel');
-                link.setAttribute('role', 'link');
-                link.setAttribute('tabindex', '0');
-                link.dataset.href = url;
-                link.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    openLink();
-                });
-                link.addEventListener('auxclick', (event) => {
-                    event.preventDefault();
-                });
-                link.addEventListener('contextmenu', (event) => {
-                    event.preventDefault();
-                });
-                link.addEventListener('keydown', (event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') {
-                        return;
-                    }
-                    event.preventDefault();
-                    openLink();
-                });
+        const pageContainer = getPageContainerForLayer(annotationLayerDiv);
+        const annotationLayerSnapshotRelease =
+            preservePdfLayerVisualSnapshot(annotationLayerDiv);
+        tracePdfAnnotationSaveDom(
+            'annotation-layer:get-annotations:start',
+            pageContainer,
+            {
+                pageNumber,
+                renderToken,
             },
-            getDestinationHash: () => '#',
-            getAnchorUrl: () => '#',
-            setHash: () => {},
-            executeNamedAction: () => {},
-            executeSetOCGState: () => {},
-        } as IPDFLinkService;
+        );
+        try {
+            const annotations = await pdfPage.getAnnotations();
+            tracePdfAnnotationSaveEvent(
+                'annotation-layer:get-annotations:resolved',
+                {
+                    annotations: annotations.length,
+                    pageNumber,
+                    renderToken,
+                },
+            );
+            if (annotationLayerPageRenderTokens.get(pageNumber) !== renderToken) {
+                tracePdfAnnotationSaveDom(
+                    'annotation-layer:get-annotations:stale-token',
+                    pageContainer,
+                    {
+                        pageNumber,
+                        renderToken,
+                    },
+                );
+                return null;
+            }
+            const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
+            const visibleAnnotations = hiddenAnnotationIds.size === 0
+                ? annotations
+                : annotations.filter(annotation => {
+                    const annotationId = normalizePdfJsAnnotationId(getAnnotationId(annotation));
+                    return !annotationId || !hiddenAnnotationIds.has(annotationId);
+                });
+            const annotationStorage = deps.pdfDocument.value?.annotationStorage;
+            const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
 
-        const annotationLayerInstance = new AnnotationLayer({
-            div: annotationLayerDiv as HTMLDivElement,
-            page: pdfPage,
-            viewport,
-            accessibilityManager: null,
-            annotationCanvasMap: annotationCanvasMap ?? null,
-            annotationEditorUIManager: annotationUiManager,
-            structTreeLayer: null,
-            commentManager: null,
-            linkService: simpleLinkService,
-            annotationStorage,
-        });
+            const simpleLinkService = {
+                pagesCount: deps.numPages.value,
+                page: deps.currentPage.value,
+                rotation: 0,
+                isInPresentationMode: false,
+                externalLinkEnabled: true,
+                goToDestination: async () => {},
+                goToPage: (page: number) => deps.scrollToPage?.(page),
+                goToXY: () => {},
+                addLinkAttributes: (
+                    link: HTMLAnchorElement,
+                    url: string,
+                    _newWindow?: boolean,
+                ) => {
+                    const openLink = () => {
+                        const normalizedUrl = normalizeAllowedExternalUrl(url);
+                        if (!normalizedUrl) {
+                            BrowserLogger.warn('pdf-annotation-layer', `Blocked unsupported annotation link: ${url}`);
+                            return;
+                        }
 
-        await withHiddenAnnotationRenderGuards(annotationUiManager, async () => {
-            await annotationLayerInstance.render({
-                annotations: visibleAnnotations,
-                viewport,
+                        void getShellCapability().openExternal(normalizedUrl).catch((error) => {
+                            BrowserLogger.warn(
+                                'pdf-annotation-layer',
+                                `Failed to open annotation link: ${normalizedUrl}`,
+                                error,
+                            );
+                        });
+                    };
+
+                    link.removeAttribute('href');
+                    link.removeAttribute('target');
+                    link.removeAttribute('rel');
+                    link.setAttribute('role', 'link');
+                    link.setAttribute('tabindex', '0');
+                    link.dataset.href = url;
+                    link.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        openLink();
+                    });
+                    link.addEventListener('auxclick', (event) => {
+                        event.preventDefault();
+                    });
+                    link.addEventListener('contextmenu', (event) => {
+                        event.preventDefault();
+                    });
+                    link.addEventListener('keydown', (event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') {
+                            return;
+                        }
+                        event.preventDefault();
+                        openLink();
+                    });
+                },
+                getDestinationHash: () => '#',
+                getAnchorUrl: () => '#',
+                setHash: () => {},
+                executeNamedAction: () => {},
+                executeSetOCGState: () => {},
+            } as IPDFLinkService;
+
+            const annotationLayerInstance = new AnnotationLayer({
                 div: annotationLayerDiv as HTMLDivElement,
                 page: pdfPage,
+                viewport,
+                accessibilityManager: null,
+                annotationCanvasMap: annotationCanvasMap ?? null,
+                annotationEditorUIManager: annotationUiManager,
+                structTreeLayer: null,
+                commentManager: null,
                 linkService: simpleLinkService,
-                renderForms: false,
                 annotationStorage,
             });
-        });
-        removeHiddenAnnotations(annotationLayerDiv);
 
-        return applyHiddenEditableAnnotationFilter(annotationLayerInstance);
+            tracePdfAnnotationSaveDom(
+                'annotation-layer:render:start',
+                pageContainer,
+                {
+                    annotations: annotations.length,
+                    hiddenAnnotations: hiddenAnnotationIds.size,
+                    hiddenAnnotationIds: Array.from(hiddenAnnotationIds).slice(0, 30),
+                    pageNumber,
+                    visibleAnnotations: visibleAnnotations.length,
+                },
+            );
+            await withHiddenAnnotationRenderGuards(annotationUiManager, async () => {
+                await annotationLayerInstance.render({
+                    annotations: visibleAnnotations,
+                    viewport,
+                    div: annotationLayerDiv as HTMLDivElement,
+                    page: pdfPage,
+                    linkService: simpleLinkService,
+                    renderForms: false,
+                    annotationStorage,
+                });
+            });
+            tracePdfAnnotationSaveDom(
+                'annotation-layer:render:done',
+                pageContainer,
+                {
+                    pageNumber,
+                    visibleAnnotations: visibleAnnotations.length,
+                },
+            );
+            if (visibleAnnotations.length === 0) {
+                annotationLayerDiv.innerHTML = '';
+                tracePdfAnnotationSaveDom(
+                    'annotation-layer:render:cleared-empty',
+                    pageContainer,
+                    { pageNumber },
+                );
+            }
+            removeHiddenAnnotations(annotationLayerDiv);
+            tracePdfAnnotationSaveDom(
+                'annotation-layer:render:after-hidden-filter',
+                pageContainer,
+                { pageNumber },
+            );
+
+            return applyHiddenEditableAnnotationFilter(annotationLayerInstance);
+        } finally {
+            schedulePdfLayerVisualSnapshotRelease(annotationLayerSnapshotRelease, { minFrames: 2 });
+        }
     }
 
     async function renderAnnotationEditorLayer(
@@ -748,20 +847,50 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pageNumber: number,
         annotationLayerInstance: TAnnotationLayer | null,
     ) {
-        syncEditorLayersWithCurrentDocument();
-
-        const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
-        if (
-            !annotationUiManager ||
-      isAnnotationEditorLayerDisabledForCurrentDocument()
-        ) {
-            hideAnnotationEditorLayer(annotationEditorLayerDiv);
-            return false;
-        }
+        tracePdfAnnotationSaveDom(
+            'editor-layer:render:start',
+            container,
+            { pageNumber },
+        );
+        let shouldWaitForDrawLayerVisuals =
+            hasPdfPageDrawLayerVisualContent(container);
+        let snapshotRelease = syncEditorLayersWithCurrentDocument(
+            container,
+            annotationEditorLayerDiv,
+        );
 
         try {
+            const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
+            if (
+                !annotationUiManager ||
+                isAnnotationEditorLayerDisabledForCurrentDocument()
+            ) {
+                hideAnnotationEditorLayer(annotationEditorLayerDiv);
+                tracePdfAnnotationSaveDom(
+                    'editor-layer:render:hidden-no-ui-manager',
+                    container,
+                    { pageNumber },
+                );
+                return false;
+            }
+
             const pageMetrics = getAnnotationEditorPageMetrics(viewport);
             const signatures = getAnnotationEditorSignatures(pageNumber);
+            if (willReplaceAnnotationEditorLayer(pageNumber, signatures)) {
+                tracePdfAnnotationSaveDom(
+                    'editor-layer:render:will-replace',
+                    container,
+                    { pageNumber },
+                );
+                shouldWaitForDrawLayerVisuals ||= hasPdfPageDrawLayerVisualContent(container);
+                snapshotRelease = combinePdfLayerVisualSnapshotReleases([
+                    snapshotRelease,
+                    preservePdfPageAnnotationVisualSnapshot(
+                        container,
+                        annotationEditorLayerDiv,
+                    ),
+                ]);
+            }
             const editorLayer = getReusableAnnotationEditorLayer(
                 pageNumber,
                 signatures,
@@ -769,6 +898,19 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             const drawLayer = getOrCreateDrawLayer(container, pageNumber);
 
             if (!editorLayer) {
+                tracePdfAnnotationSaveDom(
+                    'editor-layer:render:create-layer',
+                    container,
+                    { pageNumber },
+                );
+                shouldWaitForDrawLayerVisuals ||= hasPdfPageDrawLayerVisualContent(container);
+                snapshotRelease = combinePdfLayerVisualSnapshotReleases([
+                    snapshotRelease,
+                    preservePdfPageAnnotationVisualSnapshot(
+                        container,
+                        annotationEditorLayerDiv,
+                    ),
+                ]);
                 prepareAnnotationEditorLayerDiv(
                     annotationEditorLayerDiv,
                     annotationUiManager,
@@ -791,6 +933,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 annotationUiManager,
                 activeLayer,
             );
+            tracePdfAnnotationSaveDom(
+                'editor-layer:render:done',
+                container,
+                { pageNumber },
+            );
             saveAnnotationEditorSignatures(pageNumber, signatures);
             annotationEditorLayerContainers.set(pageNumber, container);
             hideHiddenManagedEditors(pageNumber);
@@ -798,9 +945,35 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             scheduleHighlightCompositeRefresh(container);
             return true;
         } catch (error) {
+            tracePdfAnnotationSaveDom(
+                'editor-layer:render:error',
+                container,
+                {
+                    error: error instanceof Error ? error.message : String(error),
+                    pageNumber,
+                },
+            );
             disableAnnotationEditorLayerForCurrentDocument(error, pageNumber);
             hideAnnotationEditorLayer(annotationEditorLayerDiv);
             return false;
+        } finally {
+            tracePdfAnnotationSaveDom(
+                'editor-layer:render:release-snapshot',
+                container,
+                {
+                    pageNumber,
+                    shouldWaitForDrawLayerVisuals,
+                },
+            );
+            if (shouldWaitForDrawLayerVisuals) {
+                schedulePdfLayerVisualSnapshotRelease(snapshotRelease, {
+                    maxDelayMs: 1200,
+                    minFrames: 1,
+                    waitFor: () => hasPdfPageAnnotationVisualContentForSnapshotRelease(container),
+                });
+            } else {
+                schedulePdfLayerVisualSnapshotRelease(snapshotRelease);
+            }
         }
     }
 
@@ -824,18 +997,25 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         signatures: ReturnType<typeof getAnnotationEditorSignatures>,
     ) {
         const editorLayer = annotationEditorLayers.get(pageNumber);
-        if (
-            editorLayer
-            && (
-                signatures.previousHidden !== signatures.hidden
-                || signatures.previousManaged !== signatures.managed
-            )
-        ) {
+        if (willReplaceAnnotationEditorLayer(pageNumber, signatures)) {
             cleanupEditorLayer(pageNumber);
             return undefined;
         }
 
         return editorLayer;
+    }
+
+    function willReplaceAnnotationEditorLayer(
+        pageNumber: number,
+        signatures: ReturnType<typeof getAnnotationEditorSignatures>,
+    ) {
+        return Boolean(
+            annotationEditorLayers.get(pageNumber)
+            && (
+                signatures.previousHidden !== signatures.hidden
+                || signatures.previousManaged !== signatures.managed
+            ),
+        );
     }
 
     function getOrCreateDrawLayer(

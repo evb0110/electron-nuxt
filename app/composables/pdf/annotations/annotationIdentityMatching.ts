@@ -568,12 +568,34 @@ export function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnno
     return compareSummarySortOrder(a, b);
 }
 
+function getNoNoteTextMarkupDisplayText(summary: IAnnotationCommentSummary) {
+    if (!isTextMarkupSubtype(summary.subtype) || summary.text.trim()) {
+        return null;
+    }
+    return summary.displayText?.trim() ? summary.displayText : null;
+}
+
+function getNoNoteEditorTextMarkupPreviewText(summary: IAnnotationCommentSummary) {
+    if (
+        summary.source !== 'editor'
+        || !isTextMarkupSubtype(summary.subtype)
+        || summary.text.trim()
+    ) {
+        return null;
+    }
+    return summary.previewText?.trim() ? summary.previewText : null;
+}
+
 export function mergeCommentSummaries(
     existing: IAnnotationCommentSummary,
     incoming: IAnnotationCommentSummary,
 ): IAnnotationCommentSummary {
     const existingText = existing.text.trim();
     const text = existingText.length > 0 ? existing.text : incoming.text;
+    const displayText = getNoNoteTextMarkupDisplayText(existing)
+        ?? getNoNoteTextMarkupDisplayText(incoming)
+        ?? getNoNoteEditorTextMarkupPreviewText(existing)
+        ?? getNoNoteEditorTextMarkupPreviewText(incoming);
     const existingPreviewText = existing.previewText?.trim() ?? '';
     const previewText = existingPreviewText.length > 0
         ? existing.previewText
@@ -597,6 +619,7 @@ export function mergeCommentSummaries(
     return {
         ...existing,
         text,
+        displayText: displayText ?? null,
         previewText: previewText ?? null,
         author,
         kindLabel: kindLabel ?? null,

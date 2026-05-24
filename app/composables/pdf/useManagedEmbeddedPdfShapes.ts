@@ -11,6 +11,7 @@ import {
 } from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/composables/pdf/pdfEmbeddedShapeImportPolicy';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
+import { tracePdfAnnotationSaveEvent } from '@app/composables/pdf/pdfAnnotationSaveTrace';
 import type { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -126,6 +127,11 @@ export function useManagedEmbeddedPdfShapes({
             ...visuallySuppressedAnnotationIds.value,
             normalizedId,
         ]);
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:suppress-annotation-id', {
+            annotationId,
+            normalizedId,
+            visuallySuppressed: Array.from(visuallySuppressedAnnotationIds.value).slice(0, 20),
+        });
     }
 
     function unsuppressAnnotationId(annotationId: string) {
@@ -136,6 +142,11 @@ export function useManagedEmbeddedPdfShapes({
         const nextIds = new Set(visuallySuppressedAnnotationIds.value);
         nextIds.delete(normalizedId);
         visuallySuppressedAnnotationIds.value = nextIds;
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:unsuppress-annotation-id', {
+            annotationId,
+            normalizedId,
+            visuallySuppressed: Array.from(visuallySuppressedAnnotationIds.value).slice(0, 20),
+        });
     }
 
     function clearVisuallySuppressedAnnotationIds() {
@@ -143,6 +154,7 @@ export function useManagedEmbeddedPdfShapes({
             return;
         }
         visuallySuppressedAnnotationIds.value = new Set();
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:clear-visually-suppressed-ids');
     }
 
     function syncHiddenEmbeddedAnnotationDom() {
@@ -586,6 +598,11 @@ export function useManagedEmbeddedPdfShapes({
     }
 
     watch(hiddenEmbeddedAnnotationIds, () => {
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:hidden-ids-changed', {
+            hiddenIds: Array.from(hiddenEmbeddedAnnotationIds.value).slice(0, 30),
+            hiddenIdsCount: hiddenEmbeddedAnnotationIds.value.size,
+            managedIdsCount: managedEmbeddedAnnotationIds.value.size,
+        });
         const localToken = embeddedShapeImportToken;
         const path = workingCopyPath.value;
         void waitForNextTick().then(() => {

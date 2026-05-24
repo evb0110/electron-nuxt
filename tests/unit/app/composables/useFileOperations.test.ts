@@ -437,7 +437,10 @@ describe('useFileOperations', () => {
     it('waits for the post-save reload after clearing the visible save indicator', async () => {
         const deferredReload = createDeferred<undefined>();
         const cancel = vi.fn();
-        const { deps } = createDeps({
+        const {
+            deps,
+            resetModified,
+        } = createDeps({
             annotationDirty: ref(true),
             hasShapeChanges: vi.fn(() => true),
             preparePostSaveReload: () => ({
@@ -462,6 +465,10 @@ describe('useFileOperations', () => {
         });
         await expect(handleSave()).resolves.toBe(false);
         expect(deps.saveFile).toHaveBeenCalledOnce();
+        expect(resetModified).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
+        expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
         expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
         const adoptPersistedShapeStateForNextReload = vi.mocked(
             deps.adoptPersistedShapeStateForNextReload!,
@@ -476,6 +483,10 @@ describe('useFileOperations', () => {
         await savePromise;
 
         expect(settled).toBe(true);
+        expect(resetModified).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
+        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
         expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
     });
 

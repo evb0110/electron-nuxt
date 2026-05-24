@@ -4,6 +4,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     areTextMarkupCommentsLikelySame,
@@ -22,6 +23,9 @@ import {
 
 interface ISummaryMemoryEntry {
     text: string;
+    displayText: string | null;
+    previewText: string | null;
+    pageIndex: number;
     modifiedAt: number | null;
     author: string | null;
     kindLabel: string | null;
@@ -34,26 +38,154 @@ function shouldHydrateSummaryFromMemory(summary: IAnnotationCommentSummary) {
     return !summary.text.trim() && !summary.hasNote;
 }
 
+function getSelectedMarkupPreviewText(summary: IAnnotationCommentSummary) {
+    if (!isTextMarkupSubtype(summary.subtype)) {
+        return '';
+    }
+    return summary.displayText?.trim()
+        || summary.previewText?.trim()
+        || '';
+}
+
+function getSelectedMarkupPreviewTextFromMemory(entry: ISummaryMemoryEntry) {
+    if (!isTextMarkupSubtype(entry.subtype)) {
+        return '';
+    }
+    return entry.displayText?.trim()
+        || entry.previewText?.trim()
+        || '';
+}
+
+function normalizePreviewForMatching(text: string) {
+    return text.replace(/\s+/gu, ' ').trim().toLowerCase();
+}
+
+function rectAxisOverlap(
+    leftStart: number,
+    leftSize: number,
+    rightStart: number,
+    rightSize: number,
+) {
+    return Math.max(0, Math.min(leftStart + leftSize, rightStart + rightSize) - Math.max(leftStart, rightStart));
+}
+
+function markerRectsShareTextLine(
+    left: IAnnotationMarkerRect | null,
+    right: IAnnotationMarkerRect | null | undefined,
+) {
+    if (!left || !right) {
+        return false;
+    }
+
+    const verticalOverlap = rectAxisOverlap(left.top, left.height, right.top, right.height);
+    const minHeight = Math.min(left.height, right.height);
+    if (minHeight <= 0 || verticalOverlap / minHeight < 0.45) {
+        return false;
+    }
+
+    return rectAxisOverlap(left.left, left.width, right.left, right.width) > 0;
+}
+
+function toMemorySummary(entry: ISummaryMemoryEntry): IAnnotationCommentSummary {
+    return {
+        id: 'memory',
+        stableKey: 'memory',
+        pageIndex: entry.pageIndex,
+        pageNumber: entry.pageIndex + 1,
+        text: entry.text,
+        displayText: entry.displayText,
+        previewText: entry.previewText,
+        kindLabel: entry.kindLabel,
+        subtype: entry.subtype,
+        author: entry.author,
+        modifiedAt: entry.modifiedAt,
+        color: entry.color,
+        uid: null,
+        annotationId: null,
+        source: 'editor',
+        hasNote: Boolean(entry.text.trim()),
+        markerRect: entry.markerRect,
+    };
+}
+
+function memoryEntryMatchesTextMarkupSummary(
+    entry: ISummaryMemoryEntry,
+    summary: IAnnotationCommentSummary,
+) {
+    if (
+        entry.pageIndex !== summary.pageIndex
+        || !isTextMarkupSubtype(entry.subtype)
+        || !isTextMarkupSubtype(summary.subtype)
+        || (entry.subtype ?? '').toLowerCase() !== (summary.subtype ?? '').toLowerCase()
+    ) {
+        return false;
+    }
+
+    const cachedPreview = normalizePreviewForMatching(getSelectedMarkupPreviewTextFromMemory(entry));
+    if (!cachedPreview) {
+        return false;
+    }
+
+    const geometryMatches = markerRectsShareTextLine(entry.markerRect, summary.markerRect)
+        || areTextMarkupCommentsLikelySame(toMemorySummary(entry), summary);
+    if (geometryMatches) {
+        return true;
+    }
+
+    const summaryPreview = normalizePreviewForMatching(getSelectedMarkupPreviewText(summary));
+    const modifiedDelta = Math.abs((entry.modifiedAt ?? 0) - (summary.modifiedAt ?? 0));
+    const modifiedClose = Boolean(entry.modifiedAt && summary.modifiedAt && modifiedDelta <= 15_000);
+    return modifiedClose && Boolean(summaryPreview && summaryPreview.includes(cachedPreview));
+}
+
+function findTextMarkupMemoryEntry(
+    summary: IAnnotationCommentSummary,
+    commentSummaryMemory: Map<string, ISummaryMemoryEntry>,
+) {
+    if (!isTextMarkupSubtype(summary.subtype)) {
+        return null;
+    }
+
+    const candidates = Array.from(commentSummaryMemory.values())
+        .filter(entry => memoryEntryMatchesTextMarkupSummary(entry, summary));
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    return candidates.sort((left, right) => {
+        const leftModifiedDelta = Math.abs((left.modifiedAt ?? 0) - (summary.modifiedAt ?? 0));
+        const rightModifiedDelta = Math.abs((right.modifiedAt ?? 0) - (summary.modifiedAt ?? 0));
+        if (leftModifiedDelta !== rightModifiedDelta) {
+            return leftModifiedDelta - rightModifiedDelta;
+        }
+        return getSelectedMarkupPreviewTextFromMemory(left).length
+            - getSelectedMarkupPreviewTextFromMemory(right).length;
+    })[0] ?? null;
+}
+
 function findSummaryMemoryEntry(
     summary: IAnnotationCommentSummary,
     commentSummaryMemory: Map<string, ISummaryMemoryEntry>,
 ) {
     for (const key of getSummaryMemoryKeys(summary)) {
         const cached = commentSummaryMemory.get(key);
-        if (cached?.text.trim()) {
+        if (cached && (cached.text.trim() || getSelectedMarkupPreviewTextFromMemory(cached))) {
             return cached;
         }
     }
-    return null;
+    return findTextMarkupMemoryEntry(summary, commentSummaryMemory);
 }
 
 function applySummaryMemory(
     summary: IAnnotationCommentSummary,
     cached: ISummaryMemoryEntry,
 ) {
+    const selectedMarkupPreview = getSelectedMarkupPreviewTextFromMemory(cached);
     return {
         ...summary,
-        text: cached.text,
+        text: cached.text.trim() ? cached.text : summary.text,
+        displayText: summary.displayText ?? (selectedMarkupPreview || null),
+        previewText: summary.previewText ?? cached.previewText,
         modifiedAt: summary.modifiedAt ?? cached.modifiedAt,
         author: summary.author ?? cached.author,
         kindLabel: summary.kindLabel ?? cached.kindLabel,
@@ -104,7 +236,8 @@ export const useAnnotationIdentity = (
 
     function rememberSummaryText(summary: IAnnotationCommentSummary) {
         const text = summary.text.trim();
-        if (!text) {
+        const selectedMarkupPreview = getSelectedMarkupPreviewText(summary);
+        if (!text && !selectedMarkupPreview) {
             getSummaryMemoryKeys(summary).forEach((key) => {
                 commentSummaryMemory.delete(key);
             });
@@ -112,6 +245,9 @@ export const useAnnotationIdentity = (
         }
         const payload: ISummaryMemoryEntry = {
             text: summary.text,
+            displayText: summary.displayText?.trim() || null,
+            previewText: summary.previewText?.trim() || null,
+            pageIndex: summary.pageIndex,
             modifiedAt: summary.modifiedAt ?? null,
             author: summary.author ?? null,
             kindLabel: summary.kindLabel ?? null,

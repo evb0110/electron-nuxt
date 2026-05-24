@@ -66,6 +66,16 @@ describe('pdfAnnotationComments', () => {
         expect(getAnnotationCommentPreviewText(comment)).toBe('Sticky note');
     });
 
+    it('prefers transient display text during save reload handoff', () => {
+        const comment = createComment({
+            displayText: 'An Introductionto',
+            text: 'An Introduction to Koranic and d',
+            previewText: 'An Introduction to Koranic and d',
+        });
+
+        expect(getAnnotationCommentPreviewText(comment)).toBe('An Introductionto');
+    });
+
     it('matches by selected annotation preview text', () => {
         const comment = createComment({
             text: '',
@@ -73,6 +83,15 @@ describe('pdfAnnotationComments', () => {
         });
 
         expect(matchesCommentQuery(comment, 'paragraph')).toBe(true);
+    });
+
+    it('matches by transient display text', () => {
+        const comment = createComment({
+            displayText: 'An Introductionto',
+            text: 'An Introduction to Koranic and d',
+        });
+
+        expect(matchesCommentQuery(comment, 'introductionto')).toBe(true);
     });
 
     it('matches by annotation subtype', () => {
