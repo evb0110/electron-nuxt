@@ -2498,11 +2498,7 @@ defineExpose({
     mix-blend-mode: normal !important;
 }
 
-.pdfViewer svg.highlight .pdf-markup-subtype-draw-visual {
-    fill: none !important;
-    stroke: var(--pdf-markup-subtype-color, var(--ui-primary));
-    stroke-linecap: butt;
-    stroke-linejoin: miter;
+.pdfViewer svg.pdf-markup-subtype-draw-visual {
     mix-blend-mode: normal;
     pointer-events: none;
 }

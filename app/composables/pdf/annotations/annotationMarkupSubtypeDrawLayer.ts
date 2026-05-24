@@ -1,6 +1,9 @@
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { TMarkupSubtype } from '@app/types/annotations';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type {
+    IPdfjsDrawLayer,
+    IPdfjsEditor,
+} from '@app/types/pdfjs';
 import {
     rectCenterDistance,
     rectIoU,
@@ -12,10 +15,8 @@ import {
 
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 const MARKUP_DRAW_LAYER_VISUAL_CLASS = 'pdf-markup-subtype-draw-visual';
-const MARKUP_DRAW_LAYER_PATH_CLASS = 'pdf-markup-subtype-draw-path';
 const MARKUP_VISUAL_READY_CLASS = 'pdf-markup-subtype-visual-ready';
 const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
-const SVG_NS = 'http://www.w3.org/2000/svg';
 const DRAW_LAYER_RETRY_LIMIT = 18;
 const DRAW_LAYER_RETRY_DELAY_MS = 50;
 
@@ -116,16 +117,6 @@ function toAttributeSelectorValue(value: string) {
         .replaceAll('"', '\\"');
 }
 
-function getOrCreateSvgDefs(svg: SVGElement) {
-    const existing = svg.querySelector<SVGDefsElement>('defs');
-    if (existing) {
-        return existing;
-    }
-    const defs = document.createElementNS(SVG_NS, 'defs');
-    svg.prepend(defs);
-    return defs;
-}
-
 function toHighlightDrawLayerCandidate(editorRect: DOMRect, svg: SVGElement): IHighlightDrawLayerCandidate | null {
     const rect = svg.getBoundingClientRect();
     if (!isRenderableRect(rect)) {
@@ -192,10 +183,14 @@ export function findClosestHighlightDrawLayerSvg(pageContainer: HTMLElement, edi
 
 export function createAnnotationMarkupSubtypeDrawLayer() {
     let editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
-    let drawLayerVisualId = 0;
+    let editorSubtypeDrawLayerRefs = new WeakMap<IPdfjsEditor, {
+        drawLayer: IPdfjsDrawLayer;
+        ids: number[];
+    }>();
     let presentationToken = 0;
     let drawLayerStateVersion = 0;
     const knownHighlightSvgs = new Set<SVGElement>();
+    const knownSubtypeDrawLayerVisuals = new Map<number, IPdfjsDrawLayer>();
     const editorPresentationTokens = new WeakMap<IPdfjsEditor, number>();
     const markupSubtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
@@ -250,9 +245,30 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         return highlightSvg;
     }
 
+    function resolveEditorDrawLayer(editor: IPdfjsEditor) {
+        return editor.parent?.drawLayer ?? null;
+    }
+
+    function removeSubtypeDrawLayerVisual(drawLayer: IPdfjsDrawLayer, id: number) {
+        try {
+            drawLayer.remove(id);
+        } finally {
+            knownSubtypeDrawLayerVisuals.delete(id);
+        }
+    }
+
+    function clearEditorSubtypeDrawLayerVisuals(editor: IPdfjsEditor) {
+        const refs = editorSubtypeDrawLayerRefs.get(editor);
+        if (!refs) {
+            return;
+        }
+        refs.ids.forEach(id => removeSubtypeDrawLayerVisual(refs.drawLayer, id));
+        editorSubtypeDrawLayerRefs.delete(editor);
+    }
+
     function clearMarkupSubtypeDrawLayerVisual(highlightSvg: SVGElement) {
         highlightSvg.querySelectorAll(
-            `.${MARKUP_DRAW_LAYER_VISUAL_CLASS}, .${MARKUP_DRAW_LAYER_PATH_CLASS}`,
+            `.${MARKUP_DRAW_LAYER_VISUAL_CLASS}`,
         ).forEach(node => node.remove());
         highlightSvg.classList.remove(
             `${MARKUP_DRAW_LAYER_CLASS_PREFIX}underline`,
@@ -265,6 +281,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
     function clearMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor) {
         beginEditorPresentation(editor);
         editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
+        clearEditorSubtypeDrawLayerVisuals(editor);
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
         if (!highlightSvg) {
             return;
@@ -273,43 +290,60 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
     }
 
     function appendMarkupSubtypeDrawLayerVisual(
+        editor: IPdfjsEditor,
+        drawLayer: IPdfjsDrawLayer,
+        drawLayerRect: ITextMarkupRect,
         highlightSvg: SVGElement,
         subtype: TMarkupSubtype,
         color: string | null,
         plan: NonNullable<ReturnType<typeof createTextMarkupDrawLayerVisualPlan>>,
     ) {
-        const defs = getOrCreateSvgDefs(highlightSvg);
-        highlightSvg.setAttribute('viewBox', plan.viewBox);
         highlightSvg.classList.add(`${MARKUP_DRAW_LAYER_CLASS_PREFIX}${subtype.toLowerCase()}`);
         if (color) {
             highlightSvg.style.setProperty('--pdf-markup-subtype-color', color);
         }
+        const ids: number[] = [];
 
-        for (const pathPlan of plan.paths) {
-            drawLayerVisualId += 1;
-            const pathId = `pdf_markup_subtype_draw_${drawLayerVisualId}`;
-            const path = document.createElementNS(SVG_NS, 'path');
-            path.id = pathId;
-            path.classList.add(MARKUP_DRAW_LAYER_PATH_CLASS);
-            path.setAttribute('d', pathPlan.d);
-            path.setAttribute('vector-effect', 'non-scaling-stroke');
-            defs.append(path);
-
-            const use = document.createElementNS(SVG_NS, 'use');
-            use.classList.add(
-                MARKUP_DRAW_LAYER_VISUAL_CLASS,
-                `${MARKUP_DRAW_LAYER_VISUAL_CLASS}--${subtype.toLowerCase()}`,
-            );
-            use.setAttribute('href', `#${pathId}`);
-            use.setAttribute('fill', 'none');
-            use.setAttribute('stroke', 'var(--pdf-markup-subtype-color, currentColor)');
-            use.setAttribute('stroke-linecap', 'butt');
-            use.setAttribute('stroke-linejoin', 'miter');
-            use.setAttribute('vector-effect', 'non-scaling-stroke');
-            use.style.pointerEvents = 'none';
-            use.style.strokeWidth = toNativeStrokeCssLength(pathPlan.strokeWidthPdfUnits);
-            highlightSvg.append(use);
+        try {
+            for (const pathPlan of plan.paths) {
+                const { id } = drawLayer.draw({
+                    bbox: [
+                        drawLayerRect.left,
+                        drawLayerRect.top,
+                        drawLayerRect.width,
+                        drawLayerRect.height,
+                    ],
+                    root: {
+                        viewBox: plan.viewBox,
+                        fill: 'transparent',
+                        'fill-opacity': '0',
+                    },
+                    rootClass: {
+                        [MARKUP_DRAW_LAYER_VISUAL_CLASS]: true,
+                        [`${MARKUP_DRAW_LAYER_VISUAL_CLASS}--${subtype.toLowerCase()}`]: true,
+                        [`${MARKUP_DRAW_LAYER_CLASS_PREFIX}${subtype.toLowerCase()}`]: true,
+                    },
+                    path: {
+                        d: pathPlan.d,
+                        fill: 'none',
+                        stroke: color ?? 'currentColor',
+                        'stroke-linecap': 'butt',
+                        'stroke-linejoin': 'miter',
+                        'stroke-width': toNativeStrokeCssLength(pathPlan.strokeWidthPdfUnits),
+                        'vector-effect': 'non-scaling-stroke',
+                    },
+                });
+                ids.push(id);
+                knownSubtypeDrawLayerVisuals.set(id, drawLayer);
+            }
+        } catch (error) {
+            ids.forEach(id => removeSubtypeDrawLayerVisual(drawLayer, id));
+            throw error;
         }
+        editorSubtypeDrawLayerRefs.set(editor, {
+            drawLayer,
+            ids,
+        });
     }
 
     function applyMarkupSubtypeDrawLayerClass(
@@ -323,6 +357,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         if (!isEditorPresentationCurrent(editor, token, stateVersion)) {
             return false;
         }
+        clearEditorSubtypeDrawLayerVisuals(editor);
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
         if (!highlightSvg) {
             if (attempt < DRAW_LAYER_RETRY_LIMIT && editor.div?.isConnected) {
@@ -340,7 +375,8 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
 
         const drawLayerRect = resolveDrawLayerSvgRect(highlightSvg);
         const pageDimensions = resolveEditorPageDimensions(editor);
-        if (!drawLayerRect || !pageDimensions || !editor.__evbMarkupBoxes?.length) {
+        const drawLayer = resolveEditorDrawLayer(editor);
+        if (!drawLayer || !drawLayerRect || !pageDimensions || !editor.__evbMarkupBoxes?.length) {
             if (attempt < DRAW_LAYER_RETRY_LIMIT && editor.div?.isConnected) {
                 scheduleMarkupSubtypeRetry(() => {
                     applyMarkupSubtypeDrawLayerClass(editor, subtype, color, attempt + 1, token, stateVersion);
@@ -361,9 +397,10 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
             return false;
         }
 
-        appendMarkupSubtypeDrawLayerVisual(highlightSvg, subtype, color, plan);
+        appendMarkupSubtypeDrawLayerVisual(editor, drawLayer, drawLayerRect, highlightSvg, subtype, color, plan);
         if (!isEditorPresentationCurrent(editor, token, stateVersion)) {
             clearMarkupSubtypeDrawLayerVisual(highlightSvg);
+            clearEditorSubtypeDrawLayerVisuals(editor);
             editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
             return false;
         }
@@ -374,8 +411,11 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
     function clearDrawLayerState() {
         drawLayerStateVersion += 1;
         editorDrawLayerHighlightRefs = new WeakMap();
+        editorSubtypeDrawLayerRefs = new WeakMap();
         knownHighlightSvgs.forEach(clearMarkupSubtypeDrawLayerVisual);
         knownHighlightSvgs.clear();
+        knownSubtypeDrawLayerVisuals.forEach((drawLayer, id) => removeSubtypeDrawLayerVisual(drawLayer, id));
+        knownSubtypeDrawLayerVisuals.clear();
         markupSubtypeRetryTimers.forEach(timer => clearTimeout(timer));
         markupSubtypeRetryTimers.clear();
     }
