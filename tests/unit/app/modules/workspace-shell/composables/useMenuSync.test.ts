@@ -47,7 +47,10 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith(false);
+        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith({
+            hasDocument: false,
+            canSave: false,
+        });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
         hasPdfRef.value = true;
@@ -60,8 +63,44 @@ describe('useMenuSync', () => {
         });
         await nextTick();
 
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(true);
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: false,
+        });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
+    });
+
+    it('syncs save availability separately from document presence', async () => {
+        const canSaveRef = ref(false);
+
+        useMenuSync({
+            activeWorkspace: ref({
+                hasPdf: true,
+                getToolbarSnapshot: () => ({ canSave: canSaveRef.value }),
+            }),
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: false,
+        });
+
+        canSaveRef.value = true;
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
+            hasDocument: true,
+            canSave: true,
+        });
     });
 
     it('resolves hasPdf from boolean, ref, or null workspace', () => {
