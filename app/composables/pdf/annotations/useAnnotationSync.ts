@@ -54,8 +54,10 @@ interface ISyncIdentity {
 
 interface ISyncMarkupSubtype {
     resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
+    resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
     syncMarkupSubtypePresentationForEditors: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
+    forgetMarkupSubtypeOverride: (annotationId: string | null | undefined) => void;
     clearOverrides: () => void;
 }
 
@@ -171,6 +173,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
     function suppressAnnotationId(id: string) {
         suppressedAnnotationIds.add(id);
+        getMarkupSubtype().forgetMarkupSubtypeOverride(id);
         tracePdfAnnotationSaveEvent('annotation-sync:suppress-annotation-id', () => ({
             id,
             suppressed: summarizeSuppressedForTrace(),
@@ -225,6 +228,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     ) {
         const overrideRegistration = resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype);
         if (!overrideRegistration) {
+            markupSubtype.forgetMarkupSubtypeOverride(annotationId);
             return;
         }
         markupSubtype.getMarkupSubtypeOverrides().set(
@@ -284,6 +288,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         markupSubtype: ISyncMarkupSubtype,
     ) {
         return markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+            ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor)
             ?? detectEditorSubtype(editor);
     }
 

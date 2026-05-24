@@ -34,6 +34,10 @@ const TEXT_MARKUP_EDITOR_SELECTOR = [
     '[role="mark"]',
     '[class*="pdf-markup-subtype"]',
 ].join(', ');
+const DUPLICATE_TEXT_MARKUP_EDITOR_SELECTOR = [
+    '.highlightEditor:not([class*="pdf-markup-subtype"])',
+    '[role="mark"]:not([class*="pdf-markup-subtype"])',
+].join(', ');
 const COMPOSITE_SOURCE_CLASS = 'pdf-highlight-composite-source';
 const SVG_REFERENCE_ATTRIBUTES = [
     'clip-path',
@@ -496,8 +500,8 @@ export function preservePdfPageAnnotationVisualSnapshot(
     const annotationLayerExcludeSelectors = hasDrawLayerVisuals || hasTextMarkupEditors
         ? ['.editorAnnotation']
         : [];
-    const editorLayerExcludeSelectors = hasTextMarkupEditors
-        ? [TEXT_MARKUP_EDITOR_SELECTOR]
+    const editorLayerExcludeSelectors = hasDrawLayerVisuals
+        ? [DUPLICATE_TEXT_MARKUP_EDITOR_SELECTOR]
         : [];
     return combinePdfLayerVisualSnapshotReleases([
         preservePdfLayerVisualSnapshot(getAnnotationLayer(pageContainer), {

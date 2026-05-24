@@ -46,6 +46,7 @@ import {
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = Parameters<TAnnotationEditorUIManager['updateParams']>[1];
@@ -306,6 +307,18 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         return didUpdate;
     }
 
+    function shouldInferMarkupSubtypeFromActiveTool(
+        editor: IPdfjsEditor,
+        editorSubtype: string | null,
+        toolSubtype: TMarkupSubtype | null,
+    ) {
+        return Boolean(
+            toolSubtype
+            && editorSubtype === 'Highlight'
+            && !parsePdfJsAnnotationRef(editor.annotationElementId),
+        );
+    }
+
     function destroyAnnotationEditor() {
         const commentSync = getCommentSync();
         commentSync.incrementSyncToken();
@@ -490,12 +503,10 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                     if (!knownSubtype) {
                         knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
                     }
-                    if (!knownSubtype && detectEditorSubtype(normalizedEditor) === 'Highlight') {
-                        const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
-                        if (toolSubtype) {
-                            markupSubtype.setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
-                            knownSubtype = toolSubtype;
-                        }
+                    const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
+                    if (!knownSubtype && toolSubtype && shouldInferMarkupSubtypeFromActiveTool(normalizedEditor, editorSubtype, toolSubtype)) {
+                        markupSubtype.setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
+                        knownSubtype = toolSubtype;
                     }
                     if (knownSubtype) {
                         markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);

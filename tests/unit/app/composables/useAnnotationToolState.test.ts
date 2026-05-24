@@ -397,7 +397,59 @@ describe('useAnnotationToolState', () => {
             subtype: 'Underline',
             pageIndex: 0,
             pageMarkupIndex: 1,
+            source: 'editor-live',
         });
+    });
+
+    it('drops subtype geometry hints for editors no longer present on the page', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const underlineEditor = {
+            id: 'underline-1',
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.1,
+            width: 0.4,
+            height: 0.05,
+        };
+        underlineEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({ getEditors: vi.fn(() => [underlineEditor]) });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'underline',
+        }) as never);
+
+        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        uiManager.getEditors.mockReturnValue([]);
+
+        expect(manager.getMarkupSubtypeHints()).toEqual([]);
+    });
+
+    it('clears stale ref overrides for materialized PDF annotations', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const underlineEditor = {
+            id: 'underline-1',
+            annotationElementId: '42R0',
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.1,
+            width: 0.4,
+            height: 0.05,
+        };
+        underlineEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({ getEditors: vi.fn(() => [underlineEditor]) });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'underline',
+        }) as never);
+
+        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        manager.forgetMarkupSubtypeOverride('42R0');
+
+        expect(manager.getMarkupSubtypeOverrides().has('42R0')).toBe(false);
+        expect(manager.resolveEditorMarkupSubtypeOverride(underlineEditor as never, 0)).toBeNull();
+        expect(manager.getMarkupSubtypeHints()).toEqual([]);
     });
 
     it('keeps underline and strikethrough colors/opacity literal', async () => {

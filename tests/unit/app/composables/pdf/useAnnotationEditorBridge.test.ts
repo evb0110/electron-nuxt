@@ -18,8 +18,10 @@ import type {
     IAnnotationEditorState,
     IAnnotationSettings,
     TAnnotationTool,
+    TMarkupSubtype,
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 const annotationUiManagerInstances: FakeAnnotationEditorUIManager[] = [];
 
@@ -172,9 +174,24 @@ function createAnnotationSettings(): IAnnotationSettings {
     };
 }
 
+interface IMarkupSubtypeHarness {
+    TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
+    shouldForceTextMarkup: (tool: TAnnotationTool) => boolean;
+    applyHighlightParamsForTool: (mgr: AnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
+    resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
+    resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
+    setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
+    applyEditorMarkupSubtypePresentation: (e: IPdfjsEditor, s: TMarkupSubtype | null) => void;
+    syncMarkupSubtypePresentationForEditors: () => void;
+    clearOverrides: () => void;
+}
+
 async function createBridgeHarness(
-    tool: 'draw' | 'text' = 'draw',
-    options?: { autoResetTo?: TAnnotationTool | null; },
+    tool: TAnnotationTool = 'draw',
+    options?: {
+        autoResetTo?: TAnnotationTool | null;
+        markupSubtype?: Partial<IMarkupSubtypeHarness>;
+    },
 ) {
     const { useAnnotationEditorBridge } = await import('@app/composables/pdf/annotations/useAnnotationEditorBridge');
     const container = document.createElement('div');
@@ -197,6 +214,7 @@ async function createBridgeHarness(
         pendingAnnotationTool.value = options.autoResetTo;
     });
     const scheduleAnnotationCommentsSync = vi.fn();
+    const markupSubtype = createMarkupSubtypeHarness(options?.markupSubtype);
 
     const bridge = useAnnotationEditorBridge({
         viewerContainer: ref(container),
@@ -228,17 +246,7 @@ async function createBridgeHarness(
             captureHighlightEditorClassFromTypes: vi.fn(),
             enforceHighlightDefaultsForNewEditor: vi.fn(),
         }),
-        getMarkupSubtype: () => ({
-            TOOL_TO_MARKUP_SUBTYPE: {},
-            shouldForceTextMarkup: vi.fn(() => false),
-            applyHighlightParamsForTool: vi.fn(),
-            resolveEditorMarkupSubtypeOverride: vi.fn(() => null),
-            resolveEditorSubtypeFromPresentation: vi.fn(() => null),
-            setEditorMarkupSubtypeOverride: vi.fn(),
-            applyEditorMarkupSubtypePresentation: vi.fn(),
-            syncMarkupSubtypePresentationForEditors: vi.fn(),
-            clearOverrides: vi.fn(),
-        }),
+        getMarkupSubtype: () => markupSubtype,
         getFreeTextResize: () => ({
             ensureFreeTextEditorCanResize: vi.fn(),
             patchResizableFreeTextEditors: vi.fn(),
@@ -257,8 +265,24 @@ async function createBridgeHarness(
 
     return {
         emitAnnotationModified,
+        markupSubtype,
         scheduleAnnotationCommentsSync,
         uiManager,
+    };
+}
+
+function createMarkupSubtypeHarness(overrides?: Partial<IMarkupSubtypeHarness>) {
+    return {
+        TOOL_TO_MARKUP_SUBTYPE: {},
+        shouldForceTextMarkup: vi.fn<IMarkupSubtypeHarness['shouldForceTextMarkup']>(() => false),
+        applyHighlightParamsForTool: vi.fn<IMarkupSubtypeHarness['applyHighlightParamsForTool']>(),
+        resolveEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['resolveEditorMarkupSubtypeOverride']>(() => null),
+        resolveEditorSubtypeFromPresentation: vi.fn<IMarkupSubtypeHarness['resolveEditorSubtypeFromPresentation']>(() => null),
+        setEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['setEditorMarkupSubtypeOverride']>(),
+        applyEditorMarkupSubtypePresentation: vi.fn<IMarkupSubtypeHarness['applyEditorMarkupSubtypePresentation']>(),
+        syncMarkupSubtypePresentationForEditors: vi.fn<IMarkupSubtypeHarness['syncMarkupSubtypePresentationForEditors']>(),
+        clearOverrides: vi.fn<IMarkupSubtypeHarness['clearOverrides']>(),
+        ...overrides,
     };
 }
 
@@ -374,6 +398,27 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(uiManager.unselectAll).not.toHaveBeenCalled();
         expect(uiManager.__setSelectedSpy).not.toHaveBeenCalledWith(null);
+    });
+
+    it('does not infer the active underline tool for an existing PDF highlight editor', async () => {
+        const {
+            markupSubtype,
+            uiManager,
+        } = await createBridgeHarness('underline', { markupSubtype: { TOOL_TO_MARKUP_SUBTYPE: { underline: 'Underline' } } });
+        const editor = {
+            id: 'highlight-1',
+            div: document.createElement('div'),
+            annotationElementId: '42R0',
+            parentPageIndex: 0,
+            isEmpty: vi.fn(() => false),
+        };
+        editor.div.className = 'highlightEditor';
+
+        uiManager.addToAnnotationStorage(editor);
+
+        const applyPresentation = vi.mocked(markupSubtype.applyEditorMarkupSubtypePresentation);
+        expect(markupSubtype.setEditorMarkupSubtypeOverride).not.toHaveBeenCalled();
+        expect(applyPresentation.mock.calls.map(call => call[1])).not.toContain('Underline');
     });
 
     it('installs a default-param updater for toolbar settings', async () => {

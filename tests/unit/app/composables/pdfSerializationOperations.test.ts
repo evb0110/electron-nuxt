@@ -593,6 +593,8 @@ describe('serializePdfEdits embedded geometric shapes', () => {
 async function createPdfWithHighlightAnnotations(
     rectsByPage: number[][][],
     options: {
+        colorsByPage?: number[][][];
+        opacitiesByPage?: number[][];
         quadPointsByPage?: number[][][];
         withAppearance?: boolean;
     } = {},
@@ -625,6 +627,14 @@ async function createPdfWithHighlightAnnotations(
                     ? { AP: doc.context.obj({ N: doc.context.register(doc.context.formXObject([], {})) }) }
                     : {}),
             });
+            const color = options.colorsByPage?.[pageIndex]?.[rectIndex];
+            if (color) {
+                dict.set(PDFName.of('C'), doc.context.obj(color.map(value => PDFNumber.of(value))));
+            }
+            const opacity = options.opacitiesByPage?.[pageIndex]?.[rectIndex];
+            if (typeof opacity === 'number') {
+                dict.set(PDFName.of('CA'), PDFNumber.of(opacity));
+            }
             const quadPoints = options.quadPointsByPage?.[pageIndex]?.[rectIndex];
             if (quadPoints) {
                 dict.set(PDFName.of('QuadPoints'), doc.context.obj(quadPoints.map(value => PDFNumber.of(value))));
@@ -639,6 +649,38 @@ async function createPdfWithHighlightAnnotations(
     return {
         bytes: new Uint8Array(await doc.save()),
         refs,
+    };
+}
+
+async function createPdfWithNativeTextMarkupAnnotation(subtype: TMarkupSubtype = 'Underline') {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        600,
+        800,
+    ]);
+    const dict = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of(subtype),
+        Rect: [
+            PDFNumber.of(60),
+            PDFNumber.of(480),
+            PDFNumber.of(180),
+            PDFNumber.of(680),
+        ],
+        C: [
+            PDFNumber.of(0),
+            PDFNumber.of(188),
+            PDFNumber.of(212),
+        ],
+        CA: PDFNumber.of(0.7),
+        AP: doc.context.obj({ N: doc.context.register(doc.context.formXObject([], {})) }),
+    });
+    const ref = doc.context.register(dict);
+    page.node.set(PDFName.of('Annots'), doc.context.obj([ref]));
+
+    return {
+        bytes: new Uint8Array(await doc.save()),
+        ref,
     };
 }
 
@@ -764,6 +806,132 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
     });
 
+    it('lets a current exact Highlight hint neutralize a stale ref override', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+        const overrideTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [[
+            overrideTag,
+                'Underline' satisfies TMarkupSubtype,
+        ]];
+        payload.markupSubtypeHints = [{
+            annotationId: overrideTag,
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            consumed: false,
+            source: 'pdf',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+    });
+
+    it('lets a current exact Highlight hint neutralize a stale exact live subtype hint', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+        const refTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+        const markerRect = {
+            left: 0.1,
+            top: 0.15,
+            width: 0.2,
+            height: 0.25,
+        };
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [
+            {
+                annotationId: refTag,
+                subtype: 'Underline',
+                pageIndex: 0,
+                markerRect,
+                consumed: false,
+                source: 'editor-live',
+            },
+            {
+                annotationId: refTag,
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect,
+                consumed: false,
+                source: 'pdf',
+            },
+        ];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+    });
+
+    it('uses an exact PDF-sourced subtype hint to preserve a materialized Underline', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+        const refTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            annotationId: refTag,
+            subtype: 'Underline',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            consumed: false,
+            source: 'pdf',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+    });
+
     it('removes a stale Highlight appearance stream when rewriting subtype', async () => {
         const {
             bytes,
@@ -788,6 +956,193 @@ describe('serializePdfEdits markup subtype rewrites', () => {
 
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('preserves StrikeOut color, opacity, and QuadPoints while handing reload appearance to PDF.js', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]], {
+            colorsByPage: [[[
+                0,
+                188,
+                212,
+            ]]],
+            opacitiesByPage: [[0.7]],
+            quadPointsByPage: [[[
+                60,
+                680,
+                180,
+                680,
+                60,
+                480,
+                180,
+                480,
+            ]]],
+            withAppearance: true,
+        });
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [[
+            `${targetRef.objectNumber}R`,
+                'StrikeOut' satisfies TMarkupSubtype,
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/StrikeOut');
+        expect(getNumberArray(dict!, 'C')).toEqual([
+            0,
+            188,
+            212,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber()).toBe(0.7);
+        expect(getNumberArray(dict!, 'QuadPoints')).toEqual([
+            60,
+            680,
+            180,
+            680,
+            60,
+            480,
+            180,
+            480,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('preserves native non-highlight markup appearance streams during unrelated saves', async () => {
+        const {
+            bytes,
+            ref,
+        } = await createPdfWithNativeTextMarkupAnnotation('Underline');
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            annotationId: `${ref.objectNumber}R`,
+            subtype: 'Underline',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            consumed: false,
+            source: 'pdf',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, ref);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getNumberArray(dict!, 'QuadPoints')).toEqual([
+            60,
+            680,
+            180,
+            680,
+            60,
+            480,
+            180,
+            480,
+        ]);
+    });
+
+    it('keeps rewritten text markup stable across repeated saves', async () => {
+        const rects = [
+            [
+                60,
+                640,
+                220,
+                700,
+            ],
+            [
+                60,
+                540,
+                220,
+                600,
+            ],
+            [
+                60,
+                440,
+                220,
+                500,
+            ],
+        ];
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([rects], {
+            colorsByPage: [[
+                [
+                    1,
+                    0.84,
+                    0,
+                ],
+                [
+                    0,
+                    188,
+                    212,
+                ],
+                [
+                    244,
+                    67,
+                    54,
+                ],
+            ]],
+            opacitiesByPage: [[
+                0.6,
+                0.7,
+                0.8,
+            ]],
+            withAppearance: true,
+        });
+        const highlightRef = refs[0]![0]!;
+        const underlineRef = refs[0]![1]!;
+        const strikeoutRef = refs[0]![2]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [
+            [
+                `${underlineRef.objectNumber}R`,
+                'Underline' satisfies TMarkupSubtype,
+            ],
+            [
+                `${strikeoutRef.objectNumber}R`,
+                'StrikeOut' satisfies TMarkupSubtype,
+            ],
+        ];
+
+        const firstSave = await serializePdfEdits(bytes, payload);
+        const secondSave = await serializePdfEdits(firstSave, payload);
+        const snapshotMarkup = async (savedBytes: Uint8Array) => {
+            const doc = await PDFDocument.load(savedBytes, { updateMetadata: false });
+            return [
+                highlightRef,
+                underlineRef,
+                strikeoutRef,
+            ].map((ref) => {
+                const dict = getAnnotDict(doc, ref)!;
+                return {
+                    hasAppearance: Boolean(dict.lookupMaybe(PDFName.of('AP'), PDFDict)),
+                    color: getNumberArray(dict, 'C'),
+                    opacity: dict.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber() ?? null,
+                    quadPoints: getNumberArray(dict, 'QuadPoints'),
+                    subtype: dict.get(PDFName.of('Subtype'))?.toString(),
+                };
+            });
+        };
+
+        expect(await snapshotMarkup(secondSave)).toEqual(await snapshotMarkup(firstSave));
     });
 
     it('clips overlapping saved highlight QuadPoints when rewriting to Underline', async () => {
@@ -908,6 +1263,103 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const dict = getAnnotDict(doc, targetRef);
 
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/StrikeOut');
+    });
+
+    it('does not let comment-derived underline hints migrate onto a highlight', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            600,
+            360,
+            700,
+        ]]]);
+        const highlightRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            id: 'stale-comment-summary',
+            subtype: 'Underline',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.125,
+                width: 0.5,
+                height: 0.125,
+            },
+            consumed: false,
+            source: 'editor',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        expect(getAnnotDict(doc, highlightRef)?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+    });
+
+    it('keeps an existing highlight when a new overlapping underline is materialized as Highlight', async () => {
+        const sharedRect = [
+            60,
+            600,
+            360,
+            700,
+        ];
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[
+            sharedRect,
+            sharedRect,
+        ]], { colorsByPage: [[
+            [
+                1,
+                0.84,
+                0,
+            ],
+            [
+                0.13,
+                0.77,
+                0.37,
+            ],
+        ]] });
+        const highlightRef = refs[0]![0]!;
+        const underlineRef = refs[0]![1]!;
+
+        const payload = createEmptyPayload();
+        const markerRect: IAnnotationMarkerRect = {
+            left: 0.1,
+            top: 0.125,
+            width: 0.5,
+            height: 0.125,
+        };
+        payload.markupSubtypeHints = [
+            {
+                id: 'new-underline-editor',
+                subtype: 'Underline',
+                pageIndex: 0,
+                markerRect,
+                color: '#22c55e',
+                consumed: false,
+                pageMarkupIndex: 0,
+            },
+            {
+                id: 'existing-highlight-comment',
+                annotationId: `${highlightRef.objectNumber}R`,
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect,
+                color: '#ffd400',
+                consumed: false,
+                pageMarkupIndex: 0,
+            },
+        ];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        expect(getAnnotDict(doc, highlightRef)?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+        expect(getAnnotDict(doc, underlineRef)?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
     });
 
     it('does not consume the same hint twice across multiple highlights on a page', async () => {

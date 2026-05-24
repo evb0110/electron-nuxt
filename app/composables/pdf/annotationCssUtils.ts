@@ -15,6 +15,63 @@ function isRgbObject(value: unknown): value is {
         && typeof value.b === 'number';
 }
 
+function clampOpacity(value: number) {
+    return Number.isFinite(value)
+        ? Math.max(0, Math.min(1, value))
+        : 1;
+}
+
+function toRgbaString(
+    r: number,
+    g: number,
+    b: number,
+    opacity: number,
+) {
+    return `rgba(${r}, ${g}, ${b}, ${clampOpacity(opacity)})`;
+}
+
+function parseHexColor(value: string) {
+    const match = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+    const hex = match?.groups?.hex;
+    if (!hex) {
+        return null;
+    }
+    const expanded = hex.length === 3
+        ? hex.split('').map(channel => channel + channel).join('')
+        : hex;
+    return {
+        r: Number.parseInt(expanded.slice(0, 2), 16),
+        g: Number.parseInt(expanded.slice(2, 4), 16),
+        b: Number.parseInt(expanded.slice(4, 6), 16),
+    };
+}
+
+function applyOpacityToCssString(value: string, opacity: number) {
+    const normalizedOpacity = clampOpacity(opacity);
+    if (normalizedOpacity >= 1) {
+        return value;
+    }
+
+    const hex = parseHexColor(value);
+    if (hex) {
+        return toRgbaString(hex.r, hex.g, hex.b, normalizedOpacity);
+    }
+
+    const trimmed = value.trim();
+    if (/^rgba\(/i.test(trimmed)) {
+        return value;
+    }
+    const rgbMatch = /^rgb\((?<channels>.+)\)$/i.exec(trimmed);
+    const channels = rgbMatch?.groups?.channels
+        ?.split(',')
+        .map(channel => Number.parseFloat(channel.trim()));
+    if (channels?.length === 3 && channels.every(channel => Number.isFinite(channel))) {
+        return toRgbaString(channels[0]!, channels[1]!, channels[2]!, normalizedOpacity);
+    }
+
+    return value;
+}
+
 export function toCssColor(
     color: string | number[] | {
         r: number;
@@ -28,15 +85,15 @@ export function toCssColor(
     }
 
     if (typeof color === 'string') {
-        return color;
+        return applyOpacityToCssString(color, opacity);
     }
 
     if (Array.isArray(color) && color.length >= 3) {
-        return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${opacity})`;
+        return toRgbaString(color[0]!, color[1]!, color[2]!, opacity);
     }
 
     if (isRgbObject(color)) {
-        return `rgba(${color.r}, ${color.g}, ${color.b}, ${opacity})`;
+        return toRgbaString(color.r, color.g, color.b, opacity);
     }
 
     return null;

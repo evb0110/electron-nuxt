@@ -220,6 +220,19 @@ class FakeElement {
                 || Array.from(element.classList.names).some(name => name.includes('pdf-markup-subtype'))
             ));
         }
+        const duplicateTextMarkupEditorSelector = [
+            '.highlightEditor:not([class*="pdf-markup-subtype"])',
+            '[role="mark"]:not([class*="pdf-markup-subtype"])',
+        ].join(', ');
+        if (selector === duplicateTextMarkupEditorSelector) {
+            return descendants.filter(element => (
+                (
+                    element.classList.contains('highlightEditor')
+                    || element.getAttribute('role') === 'mark'
+                )
+                && !Array.from(element.classList.names).some(name => name.includes('pdf-markup-subtype'))
+            ));
+        }
         if (selector.startsWith('.')) {
             const className = selector.slice(1);
             return descendants.filter(element => element.classList.contains(className));
@@ -529,6 +542,39 @@ describe('pdfLayerVisualSnapshot', () => {
         expect(editorLayer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
         expect(editorReplica.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
         expect(highlightEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
+    });
+
+    it('keeps subtype editor presentations in page handoff snapshots', () => {
+        const page = new FakeElement();
+        const canvasHost = new FakeElement();
+        canvasHost.classList.add('page_canvas', 'canvasWrapper');
+        canvasHost.append(createSvg('highlight'));
+        const editorLayer = new FakeElement();
+        editorLayer.classList.add('annotation-editor-layer');
+        const underlineEditor = new FakeElement();
+        underlineEditor.classList.add('highlightEditor', 'pdf-markup-subtype-underline');
+        editorLayer.append(underlineEditor);
+        page.append(
+            canvasHost,
+            editorLayer,
+        );
+
+        const release = preservePdfPageAnnotationVisualSnapshot(
+            asElement(page),
+            asElement(editorLayer),
+        );
+        const snapshots = page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`);
+        const editorSnapshot = snapshots.find(snapshot => snapshot.tagName !== 'SVG');
+
+        expect(release).toBeTypeOf('function');
+        expect(snapshots).toHaveLength(2);
+        expect(editorSnapshot?.querySelector('.pdf-markup-subtype-underline')).not.toBeNull();
+        expect(underlineEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
+
+        release?.();
+
+        expect(page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
+        expect(underlineEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
     });
 
     it('detects live page annotation visuals but ignores snapshot-only content', () => {
