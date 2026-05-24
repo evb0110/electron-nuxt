@@ -457,6 +457,90 @@ describe('useAnnotationNoteWindows', () => {
         expect(windows.findAnnotationNoteWindow('ann:0:4860R')).toBeNull();
     });
 
+    it('keeps distinct same-source note windows separate even when their markers are nearby', () => {
+        const first = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: '',
+            subtype: 'FreeText',
+            markerRect: {
+                left: 0.5,
+                top: 0.5,
+                width: 0.001,
+                height: 0.001,
+            },
+        });
+        const second = createComment({
+            id: 'editor:0:pdfjs_internal_editor_1',
+            stableKey: 'uid:0:pdfjs_internal_editor_1',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_1',
+            source: 'editor',
+            text: '',
+            subtype: 'FreeText',
+            markerRect: {
+                left: 0.504,
+                top: 0.504,
+                width: 0.001,
+                height: 0.001,
+            },
+        });
+        const { windows } = createHarness(first);
+
+        windows.handleOpenAnnotationNote(first);
+        windows.handleOpenAnnotationNote(second);
+
+        expect(windows.annotationNoteWindows.value).toHaveLength(2);
+        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0')).not.toBeNull();
+        expect(windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_1')).not.toBeNull();
+        expect(windows.annotationNotePositions.value['uid:0:pdfjs_internal_editor_1']?.y).toBeGreaterThanOrEqual(
+            (windows.annotationNotePositions.value['uid:0:pdfjs_internal_editor_0']?.y ?? 0) + 32,
+        );
+    });
+
+    it('matches an open note to its persisted annotation summary during explicit delete cleanup', () => {
+        const markerRect = {
+            left: 0.42,
+            top: 0.24,
+            width: 0.01,
+            height: 0.01,
+        };
+        const openEditorNote = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: 'Unsaved note window text',
+            subtype: 'FreeText',
+            markerRect,
+        });
+        const persistedDeleteSummary = createComment({
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            annotationId: '3856R',
+            uid: null,
+            source: 'pdf',
+            text: '',
+            subtype: 'FreeText',
+            markerRect,
+        });
+        const { windows } = createHarness(openEditorNote);
+
+        windows.handleOpenAnnotationNote(openEditorNote);
+        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+        note.text = 'Dirty text that should not keep a deleted note alive';
+
+        expect(windows.isSameAnnotationComment(note.comment, persistedDeleteSummary)).toBe(true);
+    });
+
     it('migrates a transient note window to a persisted PDF note at the same placement', async () => {
         const transient = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
