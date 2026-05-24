@@ -596,6 +596,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         effectiveZoom,
         zoomMode,
         pdfSrc,
+        canSave,
         showSettings,
         annotationTool,
         annotationPlacingPageNote,

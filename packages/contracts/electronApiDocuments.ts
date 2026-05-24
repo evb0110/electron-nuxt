@@ -48,7 +48,10 @@ export interface IImageExportCapability {
 }
 
 export interface IDocumentsMenuCapability {
-    setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
+    setMenuDocumentState: (state: boolean | {
+        hasDocument: boolean;
+        canSave: boolean 
+    }) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuInsertImageFromFile: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

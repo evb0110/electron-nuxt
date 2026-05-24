@@ -85,8 +85,11 @@ export function createDocumentsPreloadMenuClient(
     } satisfies TNoArgDocumentMenuSubscriptions;
 
     return {
-        setMenuDocumentState: (hasDocument: boolean) =>
-            invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, hasDocument),
+        setMenuDocumentState: (state: boolean | {
+            hasDocument: boolean;
+            canSave: boolean 
+        }) =>
+            invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, state),
         setMenuTabCount: (tabCount: number) =>
             invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
         ...noArgMenuSubscriptions,

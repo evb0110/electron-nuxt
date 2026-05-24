@@ -16,6 +16,7 @@ interface IPdfViewerForShortcuts {
 interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
+    canSave: Ref<boolean>;
     showSettings: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
@@ -123,6 +124,9 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             return false;
         }
         event.preventDefault();
+        if (!deps.canSave.value) {
+            return true;
+        }
         deps.handleSave();
         return true;
     }
@@ -206,6 +210,9 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
 
         if (key === 's') {
+            if (!deps.canSave.value) {
+                return;
+            }
             deps.handleSave();
             return;
         }

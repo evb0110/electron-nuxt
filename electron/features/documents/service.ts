@@ -110,13 +110,13 @@ export function createDocumentsService(): IDocumentsService {
         cleanupOcrTemp: (event, filePath) => handleCleanupOcrTemp(event, filePath),
         setWindowTitle: (event, title) => handleSetWindowTitle(event, title),
         showItemInFolder: (event, filePath) => handleShowItemInFolder(event, filePath),
-        setMenuDocumentState: (event, hasDocument) => {
+        setMenuDocumentState: (event, state) => {
             const window = BrowserWindow.fromWebContents(event.sender);
             if (!window) {
                 return;
             }
 
-            setMenuDocumentState(window.id, hasDocument);
+            setMenuDocumentState(window.id, state);
         },
         setMenuTabCount: (event, tabCount) => {
             const window = BrowserWindow.fromWebContents(event.sender);
