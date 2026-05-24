@@ -9,7 +9,10 @@ import {
     type Ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
+import {
+    resolveVisiblePageLabelsDuringMetadataRefresh,
+    usePageLabelState,
+} from '@app/composables/pdf/usePageLabelState';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 
 function cast<T>(obj: unknown): T {
@@ -27,6 +30,30 @@ function createPdfDocumentRef(
 }
 
 describe('usePageLabelState', () => {
+    it('keeps complete labels visible while refreshed document metadata is unresolved', () => {
+        const labels = [
+            'i',
+            'ii',
+            '1',
+        ];
+
+        expect(resolveVisiblePageLabelsDuringMetadataRefresh({
+            pageLabels: labels,
+            pageLabelsResolved: false,
+            isSaving: false,
+            totalPages: 3,
+        })).toBe(labels);
+    });
+
+    it('hides incomplete labels while refreshed document metadata is unresolved', () => {
+        expect(resolveVisiblePageLabelsDuringMetadataRefresh({
+            pageLabels: ['i'],
+            pageLabelsResolved: false,
+            isSaving: false,
+            totalPages: 3,
+        })).toBeNull();
+    });
+
     it('loads labels from document when available', async () => {
         const markDirty = vi.fn();
         const pdfDocument = createPdfDocumentRef(3, async () => [

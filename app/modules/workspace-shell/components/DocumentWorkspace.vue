@@ -529,6 +529,7 @@ import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/compo
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
+import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/composables/pdf/usePageLabelState';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -956,10 +957,12 @@ const toolbarPageLabels = computed(() => {
     if (!documentMetadataReady.value) {
         return null;
     }
-    if (pageLabelsResolved.value || isAnySaving.value) {
-        return pageLabels.value;
-    }
-    return null;
+    return resolveVisiblePageLabelsDuringMetadataRefresh({
+        pageLabels: pageLabels.value,
+        pageLabelsResolved: pageLabelsResolved.value,
+        isSaving: isAnySaving.value,
+        totalPages: totalPages.value,
+    });
 });
 const toolbarControlsDisabled = computed(() => (
     !documentMetadataReady.value || toolbarDocumentBusy.value
