@@ -127,11 +127,11 @@ export function useManagedEmbeddedPdfShapes({
             ...visuallySuppressedAnnotationIds.value,
             normalizedId,
         ]);
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:suppress-annotation-id', {
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:suppress-annotation-id', () => ({
             annotationId,
             normalizedId,
             visuallySuppressed: Array.from(visuallySuppressedAnnotationIds.value).slice(0, 20),
-        });
+        }));
     }
 
     function unsuppressAnnotationId(annotationId: string) {
@@ -142,11 +142,11 @@ export function useManagedEmbeddedPdfShapes({
         const nextIds = new Set(visuallySuppressedAnnotationIds.value);
         nextIds.delete(normalizedId);
         visuallySuppressedAnnotationIds.value = nextIds;
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:unsuppress-annotation-id', {
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:unsuppress-annotation-id', () => ({
             annotationId,
             normalizedId,
             visuallySuppressed: Array.from(visuallySuppressedAnnotationIds.value).slice(0, 20),
-        });
+        }));
     }
 
     function clearVisuallySuppressedAnnotationIds() {
@@ -598,11 +598,11 @@ export function useManagedEmbeddedPdfShapes({
     }
 
     watch(hiddenEmbeddedAnnotationIds, () => {
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:hidden-ids-changed', {
+        tracePdfAnnotationSaveEvent('managed-embedded-shapes:hidden-ids-changed', () => ({
             hiddenIds: Array.from(hiddenEmbeddedAnnotationIds.value).slice(0, 30),
             hiddenIdsCount: hiddenEmbeddedAnnotationIds.value.size,
             managedIdsCount: managedEmbeddedAnnotationIds.value.size,
-        });
+        }));
         const localToken = embeddedShapeImportToken;
         const path = workingCopyPath.value;
         void waitForNextTick().then(() => {

@@ -30,6 +30,10 @@ interface IWindowWithAnnotationSaveTrace extends Window {
     __evbFlushPdfAnnotationSaveTrace?: () => Promise<string>;
 }
 
+type TAnnotationSaveTracePayload =
+    | Record<string, unknown>
+    | (() => Record<string, unknown>);
+
 let sequence = 0;
 let flushTimer: number | null = null;
 let isFlushPending = false;
@@ -50,7 +54,7 @@ function getTraceEntries() {
     return traceWindow.__evbPdfAnnotationSaveTrace;
 }
 
-function isTraceEnabled() {
+export function isPdfAnnotationSaveTraceEnabled() {
     return import.meta.dev && Boolean(getTraceWindow());
 }
 
@@ -59,6 +63,22 @@ function trimTraceEntries(entries: IAnnotationSaveTraceEntry[]) {
         return;
     }
     entries.splice(0, entries.length - MAX_TRACE_ENTRIES);
+}
+
+function resolveTracePayload(
+    payload: TAnnotationSaveTracePayload | undefined,
+) {
+    if (payload === undefined) {
+        return undefined;
+    }
+
+    try {
+        return typeof payload === 'function'
+            ? payload()
+            : payload;
+    } catch (error) {
+        return {tracePayloadError: error instanceof Error ? error.message : String(error)};
+    }
 }
 
 function count(root: ParentNode | null | undefined, selector: string) {
@@ -316,9 +336,9 @@ export const PDF_ANNOTATION_SAVE_TRACE_FILE_PATH = TRACE_FILE_PATH;
 
 export function tracePdfAnnotationSaveEvent(
     event: string,
-    payload?: Record<string, unknown>,
+    payload?: TAnnotationSaveTracePayload,
 ) {
-    if (!isTraceEnabled()) {
+    if (!isPdfAnnotationSaveTraceEnabled()) {
         return;
     }
 
@@ -328,8 +348,9 @@ export function tracePdfAnnotationSaveEvent(
         sequence: ++sequence,
         timestamp: new Date().toISOString(),
     };
-    if (payload !== undefined) {
-        entry.payload = payload;
+    const resolvedPayload = resolveTracePayload(payload);
+    if (resolvedPayload !== undefined) {
+        entry.payload = resolvedPayload;
     }
 
     entries.push(entry);
@@ -341,12 +362,16 @@ export function tracePdfAnnotationSaveEvent(
 export function tracePdfAnnotationSaveDom(
     event: string,
     container: HTMLElement | null | undefined,
-    payload?: Record<string, unknown>,
+    payload?: TAnnotationSaveTracePayload,
 ) {
-    tracePdfAnnotationSaveEvent(event, {
-        ...payload,
+    if (!isPdfAnnotationSaveTraceEnabled()) {
+        return;
+    }
+
+    tracePdfAnnotationSaveEvent(event, () => ({
+        ...resolveTracePayload(payload),
         layers: layerSummary(container),
-    });
+    }));
 }
 
 export async function flushPdfAnnotationSaveTrace() {

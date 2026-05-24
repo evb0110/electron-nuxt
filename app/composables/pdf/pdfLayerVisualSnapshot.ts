@@ -49,14 +49,28 @@ const SVG_REFERENCE_ATTRIBUTES = [
 let snapshotSvgIdSequence = 0;
 const activeSnapshotHostCounts = new WeakMap<Element, number>();
 
+function queryAll<T extends Element>(
+    root: ParentNode | null | undefined,
+    selector: string,
+) {
+    return typeof root?.querySelectorAll === 'function'
+        ? Array.from(root.querySelectorAll<T>(selector))
+        : [];
+}
+
+function getChildren(element: Element | null | undefined) {
+    return element?.children
+        ? Array.from(element.children)
+        : [];
+}
+
 function disableSnapshotInteractivity(snapshot: Element) {
     snapshot.setAttribute('aria-hidden', 'true');
     if (snapshot instanceof HTMLElement) {
         snapshot.inert = true;
     }
 
-    snapshot
-        .querySelectorAll<HTMLElement>('a, button, input, select, textarea, [tabindex]')
+    queryAll<HTMLElement>(snapshot, 'a, button, input, select, textarea, [tabindex]')
         .forEach((element) => {
             element.tabIndex = -1;
         });
@@ -70,7 +84,12 @@ function createRelease(
         return null;
     }
 
+    let released = false;
     return () => {
+        if (released) {
+            return;
+        }
+        released = true;
         snapshots.forEach(snapshot => snapshot.remove());
         restoreOriginals.forEach(restoreOriginal => restoreOriginal());
     };
@@ -82,7 +101,7 @@ function removeExcludedSnapshotContent(
 ) {
     const selectors = options.excludeSelectors?.filter(Boolean) ?? [];
     selectors.forEach((selector) => {
-        snapshot.querySelectorAll(selector).forEach(element => element.remove());
+        queryAll(snapshot, selector).forEach(element => element.remove());
     });
 }
 
@@ -94,7 +113,12 @@ export function combinePdfLayerVisualSnapshotReleases(
         return null;
     }
 
+    let released = false;
     return () => {
+        if (released) {
+            return;
+        }
+        released = true;
         activeReleases.forEach(release => release());
     };
 }
@@ -139,8 +163,9 @@ export function preservePdfDrawLayerVisualSnapshot(canvasHost: HTMLElement | nul
         return null;
     }
 
-    const drawNodes = Array.from(
-        canvasHost.querySelectorAll<SVGElement>(DRAW_LAYER_VISUAL_SELECTOR),
+    const drawNodes = queryAll<SVGElement>(
+        canvasHost,
+        DRAW_LAYER_VISUAL_SELECTOR,
     ).filter(drawNode => (
         !isSnapshotElement(drawNode)
         && !drawNode.classList.contains(COMPOSITE_SOURCE_CLASS)
@@ -213,7 +238,7 @@ function isInsideActiveSnapshotHost(element: Element) {
 function getElementAndDescendants(element: Element) {
     return [
         element,
-        ...Array.from(element.querySelectorAll('*')),
+        ...queryAll(element, '*'),
     ];
 }
 
@@ -281,7 +306,7 @@ function uniquifyClonedSvgReferences(snapshot: SVGElement) {
 }
 
 function hideLiveLayerSnapshotSources(layer: HTMLElement) {
-    return Array.from(layer.children)
+    return getChildren(layer)
         .filter(child => !isSnapshotElement(child))
         .map(child => hideLiveElementDuringSnapshot(child as HTMLElement | SVGElement));
 }
@@ -364,7 +389,7 @@ function hasAnnotationLayerVisualContent(layer: HTMLElement | null | undefined) 
         return false;
     }
 
-    return Array.from(layer.querySelectorAll(ANNOTATION_LAYER_VISUAL_SELECTOR))
+    return queryAll(layer, ANNOTATION_LAYER_VISUAL_SELECTOR)
         .some(isElementVisiblyPainted);
 }
 
@@ -373,7 +398,7 @@ function hasAnnotationLayerReleaseContent(layer: HTMLElement | null | undefined)
         return false;
     }
 
-    return Array.from(layer.querySelectorAll(ANNOTATION_LAYER_VISUAL_SELECTOR))
+    return queryAll(layer, ANNOTATION_LAYER_VISUAL_SELECTOR)
         .some(isElementReadyForSnapshotRelease);
 }
 
@@ -382,7 +407,7 @@ function hasAnnotationEditorLayerVisualContent(layer: HTMLElement | null | undef
         return false;
     }
 
-    return Array.from(layer.children)
+    return getChildren(layer)
         .some(isElementVisiblyPainted);
 }
 
@@ -391,7 +416,7 @@ function hasAnnotationEditorLayerReleaseContent(layer: HTMLElement | null | unde
         return false;
     }
 
-    return Array.from(layer.children)
+    return getChildren(layer)
         .some(isElementReadyForSnapshotRelease);
 }
 
@@ -400,7 +425,7 @@ function hasTextMarkupEditorLayerVisualContent(layer: HTMLElement | null | undef
         return false;
     }
 
-    return Array.from(layer.querySelectorAll(TEXT_MARKUP_EDITOR_SELECTOR))
+    return queryAll(layer, TEXT_MARKUP_EDITOR_SELECTOR)
         .some(isElementVisiblyPainted);
 }
 
@@ -409,8 +434,9 @@ export function hasPdfDrawLayerVisualContent(canvasHost: HTMLElement | null | un
         return false;
     }
 
-    return Array.from(
-        canvasHost.querySelectorAll<SVGElement>(DRAW_LAYER_VISUAL_SELECTOR),
+    return queryAll<SVGElement>(
+        canvasHost,
+        DRAW_LAYER_VISUAL_SELECTOR,
     ).some(isElementVisiblyPainted);
 }
 
@@ -419,8 +445,9 @@ function hasPdfDrawLayerReleaseContent(canvasHost: HTMLElement | null | undefine
         return false;
     }
 
-    return Array.from(
-        canvasHost.querySelectorAll<SVGElement>(DRAW_LAYER_VISUAL_SELECTOR),
+    return queryAll<SVGElement>(
+        canvasHost,
+        DRAW_LAYER_VISUAL_SELECTOR,
     ).some(isElementReadyForSnapshotRelease);
 }
 
