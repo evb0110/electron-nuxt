@@ -130,7 +130,7 @@ describe('page crop operations', () => {
         })).rejects.toThrow('Invalid crop margins');
     });
 
-    it('recovers the working-copy directory before local crop reads and writes', async () => {
+    it('recovers the working-copy directory before local crop reads', async () => {
         await createPdf(pdfPath);
 
         await cropPages(pdfPath, [1], {
@@ -141,6 +141,15 @@ describe('page crop operations', () => {
         }, 17);
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath, 17);
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(2);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(1);
+    });
+
+    it('recovers the working-copy directory before local page geometry reads', async () => {
+        await createPdf(pdfPath);
+
+        await getPageGeometry(pdfPath, 1, 17);
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath, 17);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(1);
     });
 });

@@ -16,7 +16,6 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 
 const log = createLogger('page-ops-crop');
 
@@ -67,10 +66,7 @@ function boxesEqual(
         && left.height === right.height;
 }
 
-async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string, senderWebContentsId?: number) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
+async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string) {
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
     try {
         const outputBytes = await pdfDoc.save();
@@ -85,23 +81,18 @@ async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string, s
 async function mutatePdfPages(
     workingCopyPath: string,
     mutate: (pages: ReturnType<PDFDocument['getPages']>) => void,
-    senderWebContentsId?: number,
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
     const pdfBytes = await readFile(workingCopyPath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const pages = pdfDoc.getPages();
     mutate(pages);
-    await savePdfAtomically(pdfDoc, workingCopyPath, senderWebContentsId);
+    await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
 export async function cropPagesLocal(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
-    senderWebContentsId?: number,
 ) {
     assertValidMargins(margins);
 
@@ -123,13 +114,12 @@ export async function cropPagesLocal(
 
             page.setCropBox(cropX, cropY, cropWidth, cropHeight);
         }
-    }, senderWebContentsId);
+    });
 }
 
 export async function removeCropFromPagesLocal(
     workingCopyPath: string,
     pages: number[],
-    senderWebContentsId?: number,
 ) {
     await mutatePdfPages(workingCopyPath, (allPages) => {
         assertValidRequestedPages(pages, allPages.length);
@@ -146,7 +136,7 @@ export async function removeCropFromPagesLocal(
 
             page.setCropBox(mediaBox.x, mediaBox.y, mediaBox.width, mediaBox.height);
         }
-    }, senderWebContentsId);
+    });
 }
 
 export async function getPageGeometryLocal(
