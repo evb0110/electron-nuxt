@@ -334,6 +334,25 @@ describe('pdfLayerVisualSnapshot', () => {
         expect(canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
     });
 
+    it('allows snapshot releases to be called more than once', () => {
+        const canvasHost = new FakeElement();
+        canvasHost.classList.add('page_canvas', 'canvasWrapper');
+        const highlight = createSvg('highlight');
+        canvasHost.append(highlight);
+
+        const release = preservePdfDrawLayerVisualSnapshot(asElement(canvasHost));
+
+        expect(release).toBeTypeOf('function');
+
+        release?.();
+        release?.();
+
+        expect(highlight.style.visibility).toBe('');
+        expect(highlight.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
+        expect(canvasHost.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
+        expect(canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
+    });
+
     it('does not clone hidden composite source highlights', () => {
         const canvasHost = new FakeElement();
         canvasHost.classList.add('page_canvas', 'canvasWrapper');

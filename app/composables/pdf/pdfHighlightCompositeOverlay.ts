@@ -32,6 +32,15 @@ type THighlightCompositeHost = HTMLElement & {
     [SCHEDULED_KEY]?: boolean | undefined;
 };
 
+function queryAll<T extends Element>(
+    root: ParentNode | null | undefined,
+    selector: string,
+) {
+    return typeof root?.querySelectorAll === 'function'
+        ? Array.from(root.querySelectorAll<T>(selector))
+        : [];
+}
+
 function overlapRect(left: IHighlightRect, right: IHighlightRect): IHighlightRect | null {
     const x1 = Math.max(left.x, right.x);
     const y1 = Math.max(left.y, right.y);
@@ -164,14 +173,21 @@ function isRectangularHighlightSourceSvg(svg: SVGElement) {
 }
 
 function removeCompositeOverlay(host: HTMLElement) {
-    host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
-    host.querySelectorAll<SVGElement>(`:scope > svg.${ORIGINAL_HIDDEN_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`).forEach((svg) => {
+    if (typeof host.querySelector === 'function') {
+        host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
+    }
+    queryAll<SVGElement>(
+        host,
+        `:scope > svg.${ORIGINAL_HIDDEN_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+    ).forEach((svg) => {
         svg.classList.remove(ORIGINAL_HIDDEN_CLASS);
     });
 }
 
 function renderCompositeOverlay(host: HTMLElement, fragments: IHighlightPaintFragment[]) {
-    host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
+    if (typeof host.querySelector === 'function') {
+        host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
+    }
     if (fragments.length === 0) {
         return;
     }
@@ -211,8 +227,9 @@ export function shouldCompositeHighlightSources(sources: readonly THighlightComp
 }
 
 function buildCompositePlan(host: HTMLElement): IHighlightCompositePlan {
-    const highlightSvgs = Array.from(
-        host.querySelectorAll<SVGElement>(`:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`),
+    const highlightSvgs = queryAll<SVGElement>(
+        host,
+        `:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`,
     ).filter(shouldCompositeHighlightSvg);
 
     if (highlightSvgs.length === 0) {
@@ -284,7 +301,10 @@ export function refreshHighlightCompositeOverlay(pageContainer: HTMLElement) {
         return;
     }
 
-    host.querySelectorAll<SVGElement>(`:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`).forEach((svg) => {
+    queryAll<SVGElement>(
+        host,
+        `:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`,
+    ).forEach((svg) => {
         svg.classList.toggle(ORIGINAL_HIDDEN_CLASS, sourceSvgs.has(svg));
     });
     renderCompositeOverlay(host, fragments);
