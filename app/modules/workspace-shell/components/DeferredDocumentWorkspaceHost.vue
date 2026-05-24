@@ -355,15 +355,15 @@ const hasPdf = computed<boolean>(() => {
     return value?.value ?? false;
 });
 
-const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createDefaultWorkspaceToolbarSnapshot());
+let lastToolbarSnapshot: IWorkspaceToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
 
 function readWorkspaceToolbarSnapshot() {
     const workspace = mountedWorkspace.value;
     const isOpeningDocument = isDocumentOpenInFlight.value || hasPendingDocumentHint.value;
     if (isPlaceholderVisible.value) {
-        lastToolbarSnapshot.value = createDefaultWorkspaceToolbarSnapshot();
+        lastToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
         return {
-            ...lastToolbarSnapshot.value,
+            ...lastToolbarSnapshot,
             isOpeningDocument,
         };
     }
@@ -371,13 +371,13 @@ function readWorkspaceToolbarSnapshot() {
     if (!workspace) {
         if (workspaceRequested.value || isOpeningDocument || hasQueuedSplitRestore.value) {
             return {
-                ...lastToolbarSnapshot.value,
+                ...lastToolbarSnapshot,
                 isOpeningDocument,
             };
         }
 
-        lastToolbarSnapshot.value = createDefaultWorkspaceToolbarSnapshot();
-        return lastToolbarSnapshot.value;
+        lastToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
+        return lastToolbarSnapshot;
     }
 
     const workspaceSnapshot = workspace.getToolbarSnapshot();
@@ -385,7 +385,7 @@ function readWorkspaceToolbarSnapshot() {
         ...workspaceSnapshot,
         isOpeningDocument: workspaceSnapshot.isOpeningDocument || isOpeningDocument,
     };
-    lastToolbarSnapshot.value = snapshot;
+    lastToolbarSnapshot = snapshot;
     return snapshot;
 }
 
