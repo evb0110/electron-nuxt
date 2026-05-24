@@ -16,20 +16,33 @@ export { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWor
 export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     const autoShellState = useWorkspaceShellState(deps);
     const shellState = deps.shellState ?? autoShellState;
-    let lastSyncedMenuDocumentState: boolean | null = null;
+    let lastSyncedMenuDocumentState: {
+        hasDocument: boolean;
+        canSave: boolean 
+    } | null = null;
     let lastSyncedMenuTabCount: number | null = null;
 
     function syncMenuDocumentState() {
         const hasDocument = shellState.hasDocument.value;
-        if (lastSyncedMenuDocumentState === hasDocument) {
+        const canSave = shellState.activeWorkspaceCanSave.value;
+        if (
+            lastSyncedMenuDocumentState?.hasDocument === hasDocument
+            && lastSyncedMenuDocumentState.canSave === canSave
+        ) {
             return;
         }
-        lastSyncedMenuDocumentState = hasDocument;
+        lastSyncedMenuDocumentState = {
+            hasDocument,
+            canSave, 
+        };
         const setMenuDocumentState = getPlatformAPI().documents?.setMenuDocumentState;
         if (!setMenuDocumentState) {
             return;
         }
-        guardAsync(setMenuDocumentState(hasDocument), {
+        guardAsync(setMenuDocumentState({
+            hasDocument,
+            canSave, 
+        }), {
             scope: 'menu-sync',
             message: 'Failed to sync menu document state',
         });

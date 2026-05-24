@@ -217,6 +217,25 @@ describe('menu per-window document state', () => {
         expect(isSaveEnabled(template)).toBe(true);
     });
 
+    it('disables save while keeping document actions enabled when a document is clean', () => {
+        const firstWindow = mocks.createWindow(1, 'First Window');
+        mocks.windows.push(firstWindow);
+        mocks.focusWindow(firstWindow);
+
+        setupMenu();
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+        });
+
+        const template = getLastMenuTemplate();
+        const fileSubmenu = getFileMenuSubmenu(template);
+
+        expect(isSaveEnabled(template)).toBe(false);
+        expect(fileSubmenu.find(item => item.label === 'menu.saveAs')?.enabled).toBe(true);
+        expect(fileSubmenu.find(item => item.label === 'menu.print')?.enabled).toBe(true);
+    });
+
     it('disables move-to-new-window when focused window has one tab', () => {
         const firstWindow = mocks.createWindow(1, 'First Window');
         const secondWindow = mocks.createWindow(2, 'Second Window');

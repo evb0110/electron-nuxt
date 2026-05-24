@@ -21,6 +21,7 @@ describe('useWorkspaceShellState', () => {
         });
 
         expect(shellState.activeWorkspaceHasDocument.value).toBe(false);
+        expect(shellState.activeWorkspaceCanSave.value).toBe(false);
         expect(shellState.activeTabHasDocumentHint.value).toBe(true);
         expect(shellState.hasDocument.value).toBe(true);
         expect(shellState.tabCount.value).toBe(1);
@@ -34,8 +35,33 @@ describe('useWorkspaceShellState', () => {
         });
 
         expect(shellState.activeTab.value).toBeNull();
+        expect(shellState.activeWorkspaceCanSave.value).toBe(false);
         expect(shellState.activeTabHasDocumentHint.value).toBe(false);
         expect(shellState.hasDocument.value).toBe(false);
         expect(shellState.tabCount.value).toBe(0);
+    });
+
+    it('reads save availability from the active workspace toolbar snapshot', () => {
+        const canSave = ref(false);
+        const shellState = useWorkspaceShellState({
+            activeWorkspace: ref({
+                hasPdf: true,
+                getToolbarSnapshot: () => ({ canSave: canSave.value }),
+            }),
+            activeTabId: ref<string | null>('tab-1'),
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: 'example.pdf',
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+        });
+
+        expect(shellState.activeWorkspaceCanSave.value).toBe(false);
+
+        canSave.value = true;
+
+        expect(shellState.activeWorkspaceCanSave.value).toBe(true);
     });
 });

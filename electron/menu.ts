@@ -28,6 +28,7 @@ const logger = createLogger('menu');
 const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
+const menuSaveStateByWindow = new Map<number, boolean>();
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
@@ -81,6 +82,14 @@ function getWindowDocumentState(window: BrowserWindow | null) {
     }
 
     return menuDocumentStateByWindow.get(window.id) ?? false;
+}
+
+function getWindowSaveState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
 }
 
 function getWindowTabCount(window: BrowserWindow | null) {
@@ -276,7 +285,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     ];
 }
 
-function getFileMenu(documentActionsEnabled: boolean): MenuItemConstructorOptions {
+function getFileMenu(documentActionsEnabled: boolean, saveActionEnabled: boolean): MenuItemConstructorOptions {
     return {
         label: te('menu.file'),
         submenu: [
@@ -292,7 +301,7 @@ function getFileMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
             createWindowMenuAction({
                 label: te('menu.save'),
                 accelerator: 'CmdOrCtrl+S',
-                enabled: documentActionsEnabled,
+                enabled: saveActionEnabled,
                 channel: 'menu:save',
             }),
             createWindowMenuAction({
@@ -678,13 +687,14 @@ function getMacAppMenu(): MenuItemConstructorOptions {
 function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
     const template: MenuItemConstructorOptions[] = [];
     const documentActionsEnabled = getWindowDocumentState(activeWindow);
+    const saveActionEnabled = getWindowSaveState(activeWindow);
 
     if (config.isMac) {
         template.push(getMacAppMenu());
     }
 
     template.push(
-        getFileMenu(documentActionsEnabled),
+        getFileMenu(documentActionsEnabled, saveActionEnabled),
         getEditMenu(documentActionsEnabled),
         getPagesMenu(documentActionsEnabled),
         getViewMenu(documentActionsEnabled),
@@ -791,13 +801,25 @@ export function refreshMenu() {
     rebuildMenu(true);
 }
 
-export function setMenuDocumentState(windowId: number, hasDocument: boolean) {
-    const normalized = Boolean(hasDocument);
-    if (menuDocumentStateByWindow.get(windowId) === normalized) {
+export function setMenuDocumentState(windowId: number, state: boolean | {
+    hasDocument: boolean;
+    canSave: boolean 
+}) {
+    const normalizedDocument = typeof state === 'boolean'
+        ? Boolean(state)
+        : Boolean(state.hasDocument);
+    const normalizedSave = typeof state === 'boolean'
+        ? normalizedDocument
+        : Boolean(state.canSave);
+    if (
+        menuDocumentStateByWindow.get(windowId) === normalizedDocument
+        && menuSaveStateByWindow.get(windowId) === normalizedSave
+    ) {
         return;
     }
 
-    menuDocumentStateByWindow.set(windowId, normalized);
+    menuDocumentStateByWindow.set(windowId, normalizedDocument);
+    menuSaveStateByWindow.set(windowId, normalizedSave);
     rebuildMenuForWindowStateChange(windowId);
 }
 
