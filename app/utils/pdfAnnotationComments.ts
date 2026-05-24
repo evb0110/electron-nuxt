@@ -61,7 +61,10 @@ export function compareComments(left: IAnnotationCommentSummary, right: IAnnotat
 }
 
 export function getAnnotationCommentPreviewText(comment: IAnnotationCommentSummary) {
-    return comment.text.trim() || comment.previewText?.trim() || '';
+    return comment.displayText?.trim()
+        || comment.text.trim()
+        || comment.previewText?.trim()
+        || '';
 }
 
 export function matchesCommentQuery(
@@ -81,6 +84,8 @@ export function matchesCommentQuery(
     ];
 
     return (
+        (comment.displayText ?? '').toLowerCase().includes(normalizedQuery)
+        ||
         comment.text.toLowerCase().includes(normalizedQuery)
         || (comment.previewText ?? '').toLowerCase().includes(normalizedQuery)
         || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)

@@ -94,6 +94,7 @@ export interface IAnnotationCommentSummary {
     pageIndex: number;
     pageNumber: number;
     text: string;
+    displayText?: string | null | undefined;
     previewText?: string | null | undefined;
     kindLabel?: string | null | undefined;
     subtype?: string | null | undefined;

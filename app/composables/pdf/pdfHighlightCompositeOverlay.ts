@@ -21,6 +21,7 @@ interface IHighlightCompositePlan {
 
 const OVERLAY_CLASS = 'pdf-highlight-composite-overlay';
 const ORIGINAL_HIDDEN_CLASS = 'pdf-highlight-composite-source';
+const PRESERVE_SNAPSHOT_CLASS = 'pdf-layer-preserve-snapshot';
 const MARKUP_SUBTYPE_DRAW_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 const OBSERVER_KEY = '__evbHighlightCompositeObserver';
 const SCHEDULED_KEY = '__evbHighlightCompositeScheduled';
@@ -126,17 +127,45 @@ function getSvgPaint(svg: SVGElement) {
 export function shouldCompositeHighlightClassList(classNames: readonly string[]) {
     return classNames.includes('highlight')
         && !classNames.includes('free')
+        && !classNames.includes(PRESERVE_SNAPSHOT_CLASS)
         && !classNames.some(className => className.startsWith(MARKUP_SUBTYPE_DRAW_CLASS_PREFIX));
 }
 
 function shouldCompositeHighlightSvg(svg: SVGElement) {
     return shouldCompositeHighlightClassList(Array.from(svg.classList))
-        && !svg.classList.contains(OVERLAY_CLASS);
+        && !svg.classList.contains(OVERLAY_CLASS)
+        && isVisibleHighlightSvg(svg)
+        && isRectangularHighlightSourceSvg(svg);
+}
+
+function isVisibleHighlightSvg(svg: SVGElement) {
+    const style = window.getComputedStyle(svg);
+    return style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && Number(style.opacity || '1') > 0;
+}
+
+export function isRectangularHighlightPathData(pathData: string | null | undefined) {
+    const normalized = pathData?.trim();
+    if (!normalized) {
+        return false;
+    }
+
+    const commands = normalized.match(/[a-z]/gi) ?? [];
+    const moveCommands = commands.filter(command => command.toUpperCase() === 'M');
+    return moveCommands.length === 1
+        && commands.length <= 6
+        && commands.every(command => 'MLHVZ'.includes(command.toUpperCase()));
+}
+
+function isRectangularHighlightSourceSvg(svg: SVGElement) {
+    const path = svg.querySelector('path');
+    return isRectangularHighlightPathData(path?.getAttribute('d'));
 }
 
 function removeCompositeOverlay(host: HTMLElement) {
     host.querySelector<SVGSVGElement>(`:scope > .${OVERLAY_CLASS}`)?.remove();
-    host.querySelectorAll<SVGElement>(`:scope > svg.${ORIGINAL_HIDDEN_CLASS}`).forEach((svg) => {
+    host.querySelectorAll<SVGElement>(`:scope > svg.${ORIGINAL_HIDDEN_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`).forEach((svg) => {
         svg.classList.remove(ORIGINAL_HIDDEN_CLASS);
     });
 }
@@ -183,7 +212,7 @@ export function shouldCompositeHighlightSources(sources: readonly THighlightComp
 
 function buildCompositePlan(host: HTMLElement): IHighlightCompositePlan {
     const highlightSvgs = Array.from(
-        host.querySelectorAll<SVGElement>(':scope > svg.highlight:not(.free)'),
+        host.querySelectorAll<SVGElement>(`:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`),
     ).filter(shouldCompositeHighlightSvg);
 
     if (highlightSvgs.length === 0) {
@@ -255,7 +284,7 @@ export function refreshHighlightCompositeOverlay(pageContainer: HTMLElement) {
         return;
     }
 
-    host.querySelectorAll<SVGElement>(':scope > svg.highlight:not(.free)').forEach((svg) => {
+    host.querySelectorAll<SVGElement>(`:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`).forEach((svg) => {
         svg.classList.toggle(ORIGINAL_HIDDEN_CLASS, sourceSvgs.has(svg));
     });
     renderCompositeOverlay(host, fragments);
@@ -290,12 +319,18 @@ export function observeHighlightCompositeOverlay(pageContainer: HTMLElement) {
             return Array.from(mutation.addedNodes).some(node => (
                 node instanceof SVGElement
                 && node.classList.contains('highlight')
+                && !node.classList.contains(PRESERVE_SNAPSHOT_CLASS)
             ))
                 || Array.from(mutation.removedNodes).some(node => (
                     node instanceof SVGElement
                     && node.classList.contains('highlight')
+                    && !node.classList.contains(PRESERVE_SNAPSHOT_CLASS)
                 ))
-                || (target instanceof SVGElement && target.classList.contains('highlight'));
+                || (
+                    target instanceof SVGElement
+                    && target.classList.contains('highlight')
+                    && !target.classList.contains(PRESERVE_SNAPSHOT_CLASS)
+                );
         });
         if (hasHighlightChange) {
             scheduleCompositeRefresh(host);

@@ -34,6 +34,7 @@ import {
     resolveMarkupSubtypeOverrideRegistration,
     safeReadEditorData,
 } from '@app/composables/pdf/annotations/annotationSyncHelpers';
+import { tracePdfAnnotationSaveEvent } from '@app/composables/pdf/pdfAnnotationSaveTrace';
 import type {
     IPdfCommentSummaryDeps,
     TComputeSummaryStableKey,
@@ -117,6 +118,46 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         promise: Promise<IPdfAnnotationSnapshot | null>;
     } | null = null;
 
+    function summarizeCommentForTrace(comment: IAnnotationCommentSummary) {
+        return {
+            annotationId: comment.annotationId,
+            displayText: comment.displayText,
+            pageNumber: comment.pageNumber,
+            previewText: comment.previewText,
+            source: comment.source,
+            stableKey: comment.stableKey,
+            subtype: comment.subtype,
+            text: comment.text,
+            uid: comment.uid,
+        };
+    }
+
+    function summarizeCommentsForTrace(comments: IAnnotationCommentSummary[]) {
+        const bySource: Record<string, number> = {};
+        const bySubtype: Record<string, number> = {};
+        comments.forEach((comment) => {
+            bySource[comment.source] = (bySource[comment.source] ?? 0) + 1;
+            const subtype = comment.subtype ?? 'none';
+            bySubtype[subtype] = (bySubtype[subtype] ?? 0) + 1;
+        });
+
+        return {
+            bySource,
+            bySubtype,
+            sample: comments.slice(0, 8).map(summarizeCommentForTrace),
+            total: comments.length,
+        };
+    }
+
+    function summarizeSuppressedForTrace() {
+        return {
+            annotationIds: Array.from(suppressedAnnotationIds).slice(0, 20),
+            annotationStableKeys: Array.from(suppressedAnnotationStableKeys).slice(0, 20),
+            suppressedAnnotationIds: suppressedAnnotationIds.size,
+            suppressedAnnotationStableKeys: suppressedAnnotationStableKeys.size,
+        };
+    }
+
     function resetPdfAnnotationSnapshot() {
         pdfAnnotationSnapshotVersion += 1;
         pdfAnnotationSnapshot = null;
@@ -130,10 +171,18 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
     function suppressAnnotationId(id: string) {
         suppressedAnnotationIds.add(id);
+        tracePdfAnnotationSaveEvent('annotation-sync:suppress-annotation-id', {
+            id,
+            suppressed: summarizeSuppressedForTrace(),
+        });
     }
 
     function unsuppressAnnotationId(id: string) {
         suppressedAnnotationIds.delete(id);
+        tracePdfAnnotationSaveEvent('annotation-sync:unsuppress-annotation-id', {
+            id,
+            suppressed: summarizeSuppressedForTrace(),
+        });
     }
 
     function suppressAnnotationStableKey(stableKey: string) {
@@ -141,6 +190,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return;
         }
         suppressedAnnotationStableKeys.add(stableKey);
+        tracePdfAnnotationSaveEvent('annotation-sync:suppress-stable-key', {
+            stableKey,
+            suppressed: summarizeSuppressedForTrace(),
+        });
     }
 
     function unsuppressAnnotationStableKey(stableKey: string) {
@@ -148,11 +201,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return;
         }
         suppressedAnnotationStableKeys.delete(stableKey);
+        tracePdfAnnotationSaveEvent('annotation-sync:unsuppress-stable-key', {
+            stableKey,
+            suppressed: summarizeSuppressedForTrace(),
+        });
     }
 
     function clearSuppressedAnnotationIds() {
         suppressedAnnotationIds.clear();
         suppressedAnnotationStableKeys.clear();
+        tracePdfAnnotationSaveEvent('annotation-sync:clear-suppressed-ids');
     }
 
     watch(pdfDocument, () => {
@@ -268,6 +326,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         const text = resolveEditorSummaryText(editor, textOverride);
         const previewText = resolveEditorSummaryPreviewText(editor, text);
+        const displayText = !text.trim() && previewText ? previewText : null;
 
         const resolvedSubtype = resolveEditorSummarySubtype(editor, pageIndex, markupSubtype);
 
@@ -295,6 +354,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             pageIndex,
             pageNumber: pageIndex + 1,
             text,
+            displayText,
             previewText,
             kindLabel: resolveAnnotationKindLabel(resolvedSubtype),
             subtype: resolvedSubtype,
@@ -429,6 +489,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         markupSubtype: ISyncMarkupSubtype,
         store: ISyncStore,
     ) {
+        tracePdfAnnotationSaveEvent('annotation-sync:empty-state');
         identity.clearMemory();
         markupSubtype.clearOverrides();
         store.setAnnotations([]);
@@ -459,22 +520,34 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     ) {
         let sourceOrder = 0;
         if (!uiManager) {
+            tracePdfAnnotationSaveEvent('annotation-sync:collected-editors', {
+                count: 0,
+                hasUiManager: false,
+            });
             return sourceOrder;
         }
 
+        const collected: IAnnotationCommentSummary[] = [];
+        let skipped = 0;
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                 const text = getCommentText(editor);
                 const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
                 sourceOrder += 1;
                 if (shouldSkipEditorCommentSummary(summary)) {
+                    skipped += 1;
                     continue;
                 }
                 const hydrated = identity.hydrateSummaryFromMemory(summary);
                 commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
+                collected.push(hydrated);
             }
         }
 
+        tracePdfAnnotationSaveEvent('annotation-sync:collected-editors', {
+            skipped,
+            ...summarizeCommentsForTrace(collected),
+        });
         return sourceOrder;
     }
 
@@ -553,6 +626,12 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             mergeHydratedSummary(identity, commentsByKey, summaryWithSortIndex);
         }
 
+        tracePdfAnnotationSaveEvent('annotation-sync:merged-pdf-snapshot', {
+            nextSourceOrder,
+            pdfSnapshot: summarizeCommentsForTrace(pdfSnapshot.comments),
+            suppressed: summarizeSuppressedForTrace(),
+            visibleCommentsByKey: commentsByKey.size,
+        });
         return nextSourceOrder;
     }
 
@@ -580,6 +659,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             identity.rememberSummaryText(comment);
         });
 
+        tracePdfAnnotationSaveEvent('annotation-sync:apply-state', {
+            comments: summarizeCommentsForTrace(comments),
+            links: links.length,
+        });
         store.setAnnotations(comments);
         store.setLinkAnnotations(links);
         markupSubtype.syncMarkupSubtypePresentationForEditors();
@@ -605,8 +688,18 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         const pdfSnapshot = await getPdfAnnotationSnapshot(doc, numPages.value, localToken);
         if (!pdfSnapshot || localToken !== syncToken) {
+            tracePdfAnnotationSaveEvent('annotation-sync:pdf-snapshot-stale', {
+                hasSnapshot: Boolean(pdfSnapshot),
+                localToken,
+                syncToken,
+            });
             return;
         }
+        tracePdfAnnotationSaveEvent('annotation-sync:pdf-snapshot', {
+            comments: summarizeCommentsForTrace(pdfSnapshot.comments),
+            links: pdfSnapshot.links.length,
+            pageCount: pdfSnapshot.pageCount,
+        });
 
         mergePdfCommentSummaries(
             identity,

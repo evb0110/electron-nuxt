@@ -143,6 +143,7 @@ import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationCommentMatching';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { logPdfNav } from '@app/utils/pdfNavLog';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -803,6 +804,111 @@ function normalizeAnnotationNoteText(comment: IAnnotationCommentSummary) {
     return comment.text.trim().replace(/[\u200B\uFEFF]/gu, '');
 }
 
+function getAnnotationDisplayText(comment: IAnnotationCommentSummary) {
+    return comment.displayText?.trim()
+        || comment.text.trim()
+        || comment.previewText?.trim()
+        || '';
+}
+
+function isTextMarkupComment(comment: IAnnotationCommentSummary) {
+    return isTextMarkupSubtype(comment.subtype);
+}
+
+function markerRectAxisOverlap(
+    leftStart: number,
+    leftSize: number,
+    rightStart: number,
+    rightSize: number,
+) {
+    return Math.max(0, Math.min(leftStart + leftSize, rightStart + rightSize) - Math.max(leftStart, rightStart));
+}
+
+function commentsShareTextMarkupLinePlacement(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    const leftRect = left.markerRect;
+    const rightRect = right.markerRect;
+    if (!leftRect || !rightRect) {
+        return false;
+    }
+
+    const verticalOverlap = markerRectAxisOverlap(
+        leftRect.top,
+        leftRect.height,
+        rightRect.top,
+        rightRect.height,
+    );
+    const minHeight = Math.min(leftRect.height, rightRect.height);
+    if (minHeight <= 0 || verticalOverlap / minHeight < 0.45) {
+        return false;
+    }
+
+    return markerRectAxisOverlap(
+        leftRect.left,
+        leftRect.width,
+        rightRect.left,
+        rightRect.width,
+    ) > 0;
+}
+
+function commentsShareTextMarkupReloadPlacement(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    return left.pageIndex === right.pageIndex
+        && isTextMarkupComment(left)
+        && isTextMarkupComment(right)
+        && (left.subtype ?? '').toLowerCase() === (right.subtype ?? '').toLowerCase()
+        && (
+            markerRectCenterDistance(left.markerRect, right.markerRect) < 0.02
+            || commentsShareTextMarkupLinePlacement(left, right)
+        );
+}
+
+function findPreviousReloadDisplayTextComment(
+    comment: IAnnotationCommentSummary,
+    previousComments: IAnnotationCommentSummary[],
+) {
+    if (!isAnnotationReloadCacheGraceActive() || !isTextMarkupComment(comment)) {
+        return null;
+    }
+
+    const candidates = previousComments.filter(previous =>
+        isTextMarkupComment(previous)
+        && getAnnotationDisplayText(previous).length > 0
+        && (
+            annotationCommentsMatch(previous, comment)
+            || commentsShareTextMarkupReloadPlacement(previous, comment)
+        ),
+    );
+    if (candidates.length === 0) {
+        return null;
+    }
+    if (candidates.length === 1) {
+        return candidates[0]!;
+    }
+    return [...candidates].sort((left, right) =>
+        markerRectCenterDistance(left.markerRect, comment.markerRect)
+        - markerRectCenterDistance(right.markerRect, comment.markerRect),
+    )[0] ?? null;
+}
+
+function withReloadStableDisplayText(
+    comment: IAnnotationCommentSummary,
+    previous: IAnnotationCommentSummary | null | undefined,
+) {
+    const displayText = previous ? getAnnotationDisplayText(previous) : '';
+    if (!displayText) {
+        return comment;
+    }
+    return {
+        ...comment,
+        displayText,
+    };
+}
+
 function commentsShareNonEmptyNoteText(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -1029,33 +1135,41 @@ function mergeAnnotationCommentsThroughReload(
     previousComments: IAnnotationCommentSummary[],
 ) {
     const merged = incomingComments.map((comment) => {
+        const previousDisplayTextComment = findPreviousReloadDisplayTextComment(
+            comment,
+            previousComments,
+        );
+        const displayStableComment = withReloadStableDisplayText(
+            comment,
+            previousDisplayTextComment,
+        );
         const pendingMarkerMove = pendingMarkerMoves.get(comment.stableKey);
         if (pendingMarkerMove) {
             return {
-                ...comment,
+                ...displayStableComment,
                 markerRect: pendingMarkerMove.markerRect,
             };
         }
 
         if (!isAnnotationReloadCacheGraceActive() || !isNoteEligibleComment(comment)) {
-            return comment;
+            return displayStableComment;
         }
 
         const transientPrevious = findPreviousTransientTransitionComment(comment, previousComments);
         if (transientPrevious?.markerRect) {
             return {
-                ...comment,
+                ...withReloadStableDisplayText(displayStableComment, transientPrevious),
                 markerRect: getPendingMarkerMove(transientPrevious)?.markerRect ?? transientPrevious.markerRect,
             };
         }
 
         const previous = previousComments.find(candidate => annotationCommentsMatch(candidate, comment));
         if (!previous?.markerRect) {
-            return comment;
+            return displayStableComment;
         }
 
         return {
-            ...comment,
+            ...withReloadStableDisplayText(displayStableComment, previous),
             markerRect: previous.markerRect,
         };
     });

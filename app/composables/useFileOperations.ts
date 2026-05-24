@@ -287,9 +287,27 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         };
     }
 
+    interface ISuccessfulSaveStateCompletionOptions {
+        markShapeStateSaved?: boolean | undefined;
+        resetAnnotationStorage?: boolean | undefined;
+    }
+
+    function completeSuccessfulSaveState(opts?: ISuccessfulSaveStateCompletionOptions) {
+        if (opts?.resetAnnotationStorage !== false) {
+            pdfDocument.value?.annotationStorage?.resetModified();
+        }
+        markAnnotationSaved();
+        markPageLabelsSaved();
+        markBookmarksSaved();
+        if (opts?.markShapeStateSaved !== false) {
+            markShapeStateSaved?.();
+        }
+    }
+
     function finalizeSuccessfulSave(result: IPdfPersistResult, opts?: {
-        resetAnnotationStorage?: boolean;
+        completeSaveState?: boolean;
         markShapeStateSaved?: boolean;
+        resetAnnotationStorage?: boolean;
     }) {
         if (!result.success) {
             return false;
@@ -307,14 +325,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             hasShapeChanges: hasShapeChanges?.() ?? false,
         }));
 
-        if (opts?.resetAnnotationStorage !== false) {
-            pdfDocument.value?.annotationStorage?.resetModified();
-        }
-        markAnnotationSaved();
-        markPageLabelsSaved();
-        markBookmarksSaved();
-        if (opts?.markShapeStateSaved !== false) {
-            markShapeStateSaved?.();
+        if (opts?.completeSaveState !== false) {
+            completeSuccessfulSaveState({
+                markShapeStateSaved: opts?.markShapeStateSaved,
+                resetAnnotationStorage: opts?.resetAnnotationStorage,
+            });
         }
 
         if (result.outPath) {
@@ -514,7 +529,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function finalizeSaveReload(
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         saveSucceeded: boolean,
-        opts?: { markShapeStateSavedOnSuccess?: boolean },
+        opts?: {
+            completeSaveStateOnSuccess?: boolean;
+            markShapeStateSavedOnSuccess?: boolean;
+            resetAnnotationStorageOnSuccess?: boolean;
+        },
     ) {
         if (!saveSucceeded) {
             clearPendingPersistedShapeStateForNextReload?.();
@@ -522,8 +541,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             return;
         }
         if (!reloadWaiter) {
-            if (opts?.markShapeStateSavedOnSuccess) {
-                markShapeStateSaved?.();
+            if (opts?.completeSaveStateOnSuccess) {
+                completeSuccessfulSaveState({
+                    markShapeStateSaved: opts.markShapeStateSavedOnSuccess,
+                    resetAnnotationStorage: opts.resetAnnotationStorageOnSuccess,
+                });
             }
             return;
         }
@@ -531,8 +553,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
             return false;
         }).finally(() => {
-            if (opts?.markShapeStateSavedOnSuccess) {
-                markShapeStateSaved?.();
+            if (opts?.completeSaveStateOnSuccess) {
+                completeSuccessfulSaveState({
+                    markShapeStateSaved: opts.markShapeStateSavedOnSuccess,
+                    resetAnnotationStorage: opts.resetAnnotationStorageOnSuccess,
+                });
             }
         });
     }
@@ -605,7 +630,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     didSaveAs: result.didSaveAs,
                 }),
             );
-            if (finalizeSuccessfulSave(persisted, { markShapeStateSaved: !reloadWaiter })) {
+            if (finalizeSuccessfulSave(persisted, {
+                completeSaveState: !reloadWaiter,
+                markShapeStateSaved: !reloadWaiter,
+            })) {
                 preparedShapeStateSnapshot = null;
                 trackSaveCompleted(mode, persisted, true);
                 return true;
@@ -709,7 +737,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     config.persistUnserialized,
                 );
                 clearSaveIndicator(config.mode);
-                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+                await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+                    completeSaveStateOnSuccess: Boolean(reloadWaiter),
+                    markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+                    resetAnnotationStorageOnSuccess: false,
+                });
                 finalizedReloadWaiter = true;
             } else if (config.mode === 'save_as' && !shouldSerialize) {
                 saveSucceeded = await saveUnserializedWorkingCopy(
@@ -720,7 +752,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     config.persistUnserialized,
                 );
                 clearSaveIndicator(config.mode);
-                await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+                await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+                    completeSaveStateOnSuccess: Boolean(reloadWaiter),
+                    markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+                    resetAnnotationStorageOnSuccess: false,
+                });
                 finalizedReloadWaiter = true;
             } else {
                 const rawData = await getSerializationBasePdfBytes({
@@ -843,8 +879,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }),
         );
         if (!finalizeSuccessfulSave(persisted, {
-            resetAnnotationStorage: false,
+            completeSaveState: !reloadWaiter,
             markShapeStateSaved: !reloadWaiter,
+            resetAnnotationStorage: false,
         })) {
             return false;
         }
@@ -892,7 +929,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             persist,
         );
         onPersistenceSettled?.();
-        await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+        await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+            completeSaveStateOnSuccess: Boolean(reloadWaiter),
+            markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+        });
         return saveSucceeded;
     }
 

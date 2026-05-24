@@ -174,34 +174,90 @@
     visibility: hidden !important;
 }
 
+.pdfViewer .pdf-layer-preserve-snapshot,
+.pdf-viewer-container .pdf-layer-preserve-snapshot {
+    display: block !important;
+    visibility: visible !important;
+    pointer-events: none !important;
+    user-select: none !important;
+}
+
+.pdfViewer .pdf-layer-preserve-snapshot *,
+.pdf-viewer-container .pdf-layer-preserve-snapshot * {
+    pointer-events: none !important;
+    user-select: none !important;
+}
+
+.pdfViewer .canvasWrapper svg.pdf-layer-preserve-snapshot,
+.pdf-viewer-container .canvasWrapper svg.pdf-layer-preserve-snapshot {
+    visibility: visible !important;
+}
+
+.pdfViewer .pdf-layer-preserve-hidden-source,
+.pdf-viewer-container .pdf-layer-preserve-hidden-source {
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+.pdfViewer .annotationLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdfViewer .annotation-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdfViewer .annotationEditorLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdfViewer .annotation-editor-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .annotationLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .annotation-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .annotationEditorLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .annotation-editor-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot) {
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+.pdfViewer .page_canvas.pdf-layer-preserve-active > svg.highlight:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .page_canvas.pdf-layer-preserve-active > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .page_canvas.pdf-layer-preserve-active > svg.draw:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .page_canvas.pdf-layer-preserve-active > svg.pdf-highlight-composite-overlay:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .canvasWrapper.pdf-layer-preserve-active > svg.highlight:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .canvasWrapper.pdf-layer-preserve-active > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .canvasWrapper.pdf-layer-preserve-active > svg.draw:not(.pdf-layer-preserve-snapshot),
+.pdfViewer .canvasWrapper.pdf-layer-preserve-active > svg.pdf-highlight-composite-overlay:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .page_canvas.pdf-layer-preserve-active > svg.highlight:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .page_canvas.pdf-layer-preserve-active > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .page_canvas.pdf-layer-preserve-active > svg.draw:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .page_canvas.pdf-layer-preserve-active > svg.pdf-highlight-composite-overlay:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.highlight:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.draw:not(.pdf-layer-preserve-snapshot),
+.pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.pdf-highlight-composite-overlay:not(.pdf-layer-preserve-snapshot) {
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
 /* Prevent double-painted editor-origin markup:
-   whenever the editor layer is visible (idle OR while editing highlights),
-   hide annotation-layer editor replicas so saved highlights don't stack
-   visually on top of their editor-layer twins. */
+   only when the editor layer actually contains highlight editors, hide
+   matching annotation-layer replicas to keep highlight intensity stable. */
 .pdfViewer .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden]),
-    .annotationEditorLayer.highlightEditing:not([hidden]),
-    .annotation-editor-layer.highlightEditing:not([hidden])
-) .annotationLayer .editorAnnotation,
+    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
+) .annotationLayer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
 .pdfViewer .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden]),
-    .annotationEditorLayer.highlightEditing:not([hidden]),
-    .annotation-editor-layer.highlightEditing:not([hidden])
-) .annotation-layer .editorAnnotation,
+    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
+) .annotation-layer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
 .pdf-viewer-container .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden]),
-    .annotationEditorLayer.highlightEditing:not([hidden]),
-    .annotation-editor-layer.highlightEditing:not([hidden])
-) .annotationLayer .editorAnnotation,
+    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
+) .annotationLayer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
 .pdf-viewer-container .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden]),
-    .annotationEditorLayer.highlightEditing:not([hidden]),
-    .annotation-editor-layer.highlightEditing:not([hidden])
-) .annotation-layer .editorAnnotation {
+    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
+) .annotation-layer:not(.pdf-layer-preserve-snapshot) .editorAnnotation {
     opacity: 0 !important;
     pointer-events: none !important;
 }

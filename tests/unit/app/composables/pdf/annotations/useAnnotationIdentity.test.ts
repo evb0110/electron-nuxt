@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -19,6 +20,7 @@ const {
     likelyEditorPdfMirror,
     mergeCommentSummaries,
 } = await import('@app/composables/pdf/annotations/annotationIdentityMatching');
+const { useAnnotationIdentity } = await import('@app/composables/pdf/annotations/useAnnotationIdentity');
 
 function makeRect(
     left: number,
@@ -44,6 +46,7 @@ function makeSummary(
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
         text: overrides.text ?? '',
+        displayText: overrides.displayText ?? null,
         previewText: overrides.previewText ?? null,
         kindLabel: overrides.kindLabel ?? null,
         subtype: overrides.subtype ?? 'FreeText',
@@ -558,5 +561,72 @@ describe('mergeCommentSummaries', () => {
         });
 
         expect(mergeCommentSummaries(existing, incoming).previewText).toBe('Reloaded highlight text');
+    });
+
+    it('carries selected display text from the incoming summary', () => {
+        const existing = makeSummary({
+            source: 'pdf',
+            text: '',
+            previewText: 'An Introduction to Koranic and d',
+            subtype: 'Highlight',
+        });
+        const incoming = makeSummary({
+            source: 'editor',
+            text: '',
+            displayText: 'An',
+            previewText: 'An',
+            subtype: 'Highlight',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).displayText).toBe('An');
+    });
+
+    it('uses incoming selected preview as display text for no-note text markup', () => {
+        const existing = makeSummary({
+            source: 'pdf',
+            text: '',
+            previewText: 'An Introduction to Koranic and d',
+            subtype: 'Highlight',
+        });
+        const incoming = makeSummary({
+            source: 'editor',
+            text: '',
+            previewText: 'An',
+            subtype: 'Highlight',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).displayText).toBe('An');
+    });
+});
+
+describe('useAnnotationIdentity memory', () => {
+    it('hydrates a PDF text-markup summary with the remembered exact editor preview', () => {
+        const identity = useAnnotationIdentity(ref([]));
+        identity.rememberSummaryText(makeSummary({
+            source: 'editor',
+            stableKey: 'src:editor:0:runtime-1',
+            text: '',
+            displayText: null,
+            previewText: 'An',
+            subtype: 'Highlight',
+            hasNote: false,
+            markerRect: makeRect(0.10, 0.20, 0.03, 0.05),
+            modifiedAt: 1_700_000_000_000,
+        }));
+
+        const hydrated = identity.hydrateSummaryFromMemory(makeSummary({
+            source: 'pdf',
+            stableKey: 'ann:0:42R',
+            annotationId: '42R',
+            text: '',
+            displayText: null,
+            previewText: 'An Introduction to Koranic and d',
+            subtype: 'Highlight',
+            hasNote: false,
+            markerRect: makeRect(0.10, 0.20, 0.80, 0.05),
+            modifiedAt: 1_700_000_000_000,
+        }));
+
+        expect(hydrated.displayText).toBe('An');
     });
 });

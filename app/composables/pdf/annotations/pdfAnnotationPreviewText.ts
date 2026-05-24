@@ -29,7 +29,13 @@ export interface IPdfTextPreviewViewport {
 
 const MAX_PREVIEW_TEXT_LENGTH = 280;
 const TARGET_RECT_PADDING = 0.006;
-const MIN_RECT_INTERSECTION_RATIO = 0.18;
+const MIN_CROSS_AXIS_OVERLAP_RATIO = 0.35;
+const TEXT_RANGE_EPSILON = 1e-6;
+
+interface ITextRange {
+    end: number;
+    start: number;
+}
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
@@ -142,32 +148,6 @@ function expandMarkerRect(rect: IAnnotationMarkerRect) {
     }) ?? rect;
 }
 
-function rectIntersectionArea(left: IAnnotationMarkerRect, right: IAnnotationMarkerRect) {
-    const x1 = Math.max(left.left, right.left);
-    const y1 = Math.max(left.top, right.top);
-    const x2 = Math.min(left.left + left.width, right.left + right.width);
-    const y2 = Math.min(left.top + left.height, right.top + right.height);
-    return Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
-}
-
-function rectArea(rect: IAnnotationMarkerRect) {
-    return Math.max(0, rect.width) * Math.max(0, rect.height);
-}
-
-function rectsOverlapEnough(textRect: IAnnotationMarkerRect, targetRect: IAnnotationMarkerRect) {
-    const intersectionArea = rectIntersectionArea(textRect, expandMarkerRect(targetRect));
-    if (intersectionArea <= 0) {
-        return false;
-    }
-
-    const textArea = rectArea(textRect);
-    if (textArea <= 0) {
-        return false;
-    }
-
-    return intersectionArea / textArea >= MIN_RECT_INTERSECTION_RATIO;
-}
-
 function toTextItemMarkerRect(
     item: IPdfTextPreviewItem,
     viewport: IPdfTextPreviewViewport,
@@ -196,13 +176,128 @@ function toTextItemMarkerRect(
     });
 }
 
-function textItemHitsTarget(
+function intervalOverlap(start: number, end: number, targetStart: number, targetEnd: number) {
+    return Math.max(0, Math.min(end, targetEnd) - Math.max(start, targetStart));
+}
+
+function clamp01(value: number) {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+    return Math.min(1, Math.max(0, value));
+}
+
+function toTextRangeForTarget(
+    text: string,
+    textRect: IAnnotationMarkerRect,
+    targetRect: IAnnotationMarkerRect,
+) {
+    const expandedTarget = expandMarkerRect(targetRect);
+    const isHorizontal = textRect.width >= textRect.height;
+
+    const inlineStart = isHorizontal ? textRect.left : textRect.top;
+    const inlineLength = isHorizontal ? textRect.width : textRect.height;
+    const inlineEnd = inlineStart + inlineLength;
+    const expandedTargetInlineStart = isHorizontal ? expandedTarget.left : expandedTarget.top;
+    const expandedTargetInlineLength = isHorizontal ? expandedTarget.width : expandedTarget.height;
+    const expandedTargetInlineEnd = expandedTargetInlineStart + expandedTargetInlineLength;
+    const inlineOverlap = intervalOverlap(
+        inlineStart,
+        inlineEnd,
+        expandedTargetInlineStart,
+        expandedTargetInlineEnd,
+    );
+    if (inlineLength <= 0 || inlineOverlap <= 0) {
+        return null;
+    }
+
+    const crossStart = isHorizontal ? textRect.top : textRect.left;
+    const crossLength = isHorizontal ? textRect.height : textRect.width;
+    const crossEnd = crossStart + crossLength;
+    const expandedTargetCrossStart = isHorizontal ? expandedTarget.top : expandedTarget.left;
+    const expandedTargetCrossLength = isHorizontal ? expandedTarget.height : expandedTarget.width;
+    const expandedTargetCrossEnd = expandedTargetCrossStart + expandedTargetCrossLength;
+    const crossOverlap = intervalOverlap(
+        crossStart,
+        crossEnd,
+        expandedTargetCrossStart,
+        expandedTargetCrossEnd,
+    );
+    const minCrossLength = Math.min(crossLength, expandedTargetCrossLength);
+    if (minCrossLength <= 0 || crossOverlap / minCrossLength < MIN_CROSS_AXIS_OVERLAP_RATIO) {
+        return null;
+    }
+
+    const targetInlineStart = isHorizontal ? targetRect.left : targetRect.top;
+    const targetInlineLength = isHorizontal ? targetRect.width : targetRect.height;
+    const targetInlineEnd = targetInlineStart + targetInlineLength;
+    const startRatio = clamp01((Math.max(inlineStart, targetInlineStart) - inlineStart) / inlineLength);
+    const endRatio = clamp01((Math.min(inlineEnd, targetInlineEnd) - inlineStart) / inlineLength);
+    if (endRatio <= startRatio) {
+        return null;
+    }
+
+    let start = Math.floor(startRatio * text.length + TEXT_RANGE_EPSILON);
+    let end = Math.ceil(endRatio * text.length - TEXT_RANGE_EPSILON);
+    if (start <= 1 && end >= text.length - 1) {
+        start = 0;
+        end = text.length;
+    }
+    if (end <= start) {
+        end = Math.min(text.length, start + 1);
+    }
+
+    return end > start
+        ? {
+            start,
+            end,
+        }
+        : null;
+}
+
+function mergeTextRanges(ranges: ITextRange[]) {
+    const ordered = [...ranges]
+        .filter(range => range.end > range.start)
+        .sort((left, right) => left.start - right.start || left.end - right.end);
+    const merged: ITextRange[] = [];
+
+    for (const range of ordered) {
+        const previous = merged.at(-1);
+        if (!previous || range.start > previous.end) {
+            merged.push({ ...range });
+            continue;
+        }
+        previous.end = Math.max(previous.end, range.end);
+    }
+
+    return merged;
+}
+
+function extractTextItemSegments(
     item: IPdfTextPreviewItem,
     viewport: IPdfTextPreviewViewport,
     targets: IAnnotationMarkerRect[],
 ) {
+    const text = item.str ?? '';
+    if (!text.trim()) {
+        return [];
+    }
+
     const rect = toTextItemMarkerRect(item, viewport);
-    return Boolean(rect && targets.some(target => rectsOverlapEnough(rect, target)));
+    if (!rect) {
+        return [];
+    }
+
+    const ranges = mergeTextRanges(
+        targets.flatMap((target) => {
+            const range = toTextRangeForTarget(text, rect, target);
+            return range ? [range] : [];
+        }),
+    );
+
+    return ranges
+        .map(range => text.slice(range.start, range.end).trim())
+        .filter(Boolean);
 }
 
 export function resolvePdfAnnotationPreviewText(
@@ -223,13 +318,7 @@ export function resolvePdfAnnotationPreviewText(
 
     const segments: string[] = [];
     for (const item of textItems) {
-        const text = item.str?.trim();
-        if (!text) {
-            continue;
-        }
-        if (textItemHitsTarget(item, viewport, targets)) {
-            segments.push(text);
-        }
+        segments.push(...extractTextItemSegments(item, viewport, targets));
     }
 
     const previewText = joinPreviewSegments(segments);

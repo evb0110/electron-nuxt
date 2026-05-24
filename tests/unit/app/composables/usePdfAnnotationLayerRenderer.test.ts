@@ -24,6 +24,9 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     AnnotationEditorLayer: class MockAnnotationEditorLayer {
         disable() {}
     },
+    AnnotationEditorUIManager: class MockAnnotationEditorUIManager {
+        readonly kind = 'mock';
+    },
     AnnotationEditorType: {},
     DrawLayer: class MockDrawLayer {
         destroy() {}
@@ -90,6 +93,45 @@ describe('usePdfAnnotationLayerRenderer', () => {
             page: pdfPage,
             viewport,
         }));
+    });
+
+    it('keeps the current annotation DOM mounted while PDF.js fetches replacement annotations', async () => {
+        const annotations = Promise.withResolvers<unknown[]>();
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(3),
+            currentPage: ref(1),
+            pdfDocument: ref({ annotationStorage: {} } as never),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+        });
+        const viewport = {
+            width: 200,
+            height: 300,
+            rotation: 0,
+        };
+        const pdfPage = {getAnnotations: vi.fn(() => annotations.promise)} as never;
+        const annotationLayerDiv = {
+            innerHTML: '<section class="underlineAnnotation"></section>',
+            querySelectorAll: vi.fn(() => []),
+        };
+
+        const renderPromise = renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv as never,
+            viewport as never,
+            1,
+        );
+        await Promise.resolve();
+
+        expect(annotationLayerDiv.innerHTML).toContain('underlineAnnotation');
+
+        annotations.resolve([{
+            id: 'underline-1',
+            annotationType: 10,
+            noHTML: false,
+        }]);
+        await renderPromise;
     });
 
     it('serializes hidden annotation UI manager guards and restores original methods', async () => {
