@@ -499,6 +499,52 @@ function mergeSpecificFirstField<T extends Pick<IAnnotationCommentSummary, 'subt
     return existingValue ?? incomingValue;
 }
 
+function textMarkupSubtypesConflict(
+    existing: Pick<IAnnotationCommentSummary, 'subtype'>,
+    incoming: Pick<IAnnotationCommentSummary, 'subtype'>,
+) {
+    return (
+        isTextMarkupSubtype(existing.subtype)
+        && isTextMarkupSubtype(incoming.subtype)
+        && normalizeSubtypeForIdentity(existing.subtype) !== normalizeSubtypeForIdentity(incoming.subtype)
+    );
+}
+
+function selectTextMarkupConflictWinner(
+    existing: IAnnotationCommentSummary,
+    incoming: IAnnotationCommentSummary,
+) {
+    if (!textMarkupSubtypesConflict(existing, incoming)) {
+        return null;
+    }
+    if (incoming.source === 'pdf') {
+        return incoming;
+    }
+    if (existing.source === 'pdf') {
+        return existing;
+    }
+    return incoming.modifiedAt && (!existing.modifiedAt || incoming.modifiedAt > existing.modifiedAt)
+        ? incoming
+        : existing;
+}
+
+function mergeSubtypeField(
+    existing: IAnnotationCommentSummary,
+    incoming: IAnnotationCommentSummary,
+) {
+    return selectTextMarkupConflictWinner(existing, incoming)?.subtype
+        ?? mergeSpecificFirstField(existing, incoming, summary => summary.subtype ?? null);
+}
+
+function mergeColorField(
+    existing: IAnnotationCommentSummary,
+    incoming: IAnnotationCommentSummary,
+) {
+    return selectTextMarkupConflictWinner(existing, incoming)?.color
+        ?? existing.color
+        ?? incoming.color;
+}
+
 function preferredMarkerRectSide(
     left: Pick<IAnnotationCommentSummary, 'source' | 'modifiedAt'> & {rect: IAnnotationMarkerRect},
     right: Pick<IAnnotationCommentSummary, 'source' | 'modifiedAt'> & {rect: IAnnotationMarkerRect},
@@ -614,7 +660,7 @@ export function mergeCommentSummaries(
     const source = existing.source === 'editor' ? 'editor' : incoming.source;
     const sortIndex = mergeSortIndex(existing, incoming);
     const hasNote = Boolean(existing.hasNote || incoming.hasNote);
-    const subtype = mergeSpecificFirstField(existing, incoming, summary => summary.subtype ?? null);
+    const subtype = mergeSubtypeField(existing, incoming);
 
     return {
         ...existing,
@@ -628,7 +674,7 @@ export function mergeCommentSummaries(
         annotationId: existing.annotationId ?? incoming.annotationId,
         uid: existing.uid ?? incoming.uid,
         subtype,
-        color: existing.color ?? incoming.color,
+        color: mergeColorField(existing, incoming),
         source,
         hasNote,
         markerRect: pickPreferredMarkerRect(existing, incoming),

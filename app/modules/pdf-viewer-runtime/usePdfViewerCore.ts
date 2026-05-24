@@ -654,6 +654,14 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             return;
         }
         annotationUiManager.value?.onScaleChanging({scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS});
+        const syncMarkupSubtypePresentation = () => {
+            annotations.editor.markupSubtype.syncMarkupSubtypePresentationForEditors();
+        };
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(syncMarkupSubtypePresentation);
+        } else {
+            queueMicrotask(syncMarkupSubtypePresentation);
+        }
     });
 
     watch(currentPage, (page) => {

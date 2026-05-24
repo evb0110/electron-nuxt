@@ -5,18 +5,24 @@ import type {
 } from '@app/types/annotations';
 import { groupBy } from 'es-toolkit/array';
 
+export type TMarkupSubtypeHintSource = 'editor-live' | IAnnotationCommentSummary['source'];
+
 export interface IMarkupSubtypeHint {
     subtype: TMarkupSubtype;
     pageIndex: number;
     markerRect: IAnnotationMarkerRect;
     consumed: boolean;
+    annotationId?: string | null;
+    color?: string | null;
     id?: string | null;
     pageMarkupIndex?: number | null;
+    source?: TMarkupSubtypeHintSource | null;
 }
 
-const SUBTYPE_HINTS = new Set<TMarkupSubtype>([
+const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>([
     'Underline',
     'StrikeOut',
+    'Squiggly',
 ]);
 
 function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
@@ -54,13 +60,17 @@ function isValidMarkerRect(value: unknown): value is IAnnotationMarkerRect {
         && height > 0;
 }
 
+function shouldCollectMarkupSubtypeHint(comment: IAnnotationCommentSummary, subtype: TMarkupSubtype) {
+    if (subtype === 'Highlight') {
+        return true;
+    }
+    return REWRITABLE_SUBTYPE_HINTS.has(subtype);
+}
+
 export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[]): IMarkupSubtypeHint[] {
     const hints: IMarkupSubtypeHint[] = [];
     const pageMarkupIndexes = new Map<number, number>();
     for (const comment of comments) {
-        if (comment.source !== 'editor') {
-            continue;
-        }
         if (!isMarkupSubtype(comment.subtype)) {
             continue;
         }
@@ -69,16 +79,19 @@ export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[])
         }
         const pageMarkupIndex = pageMarkupIndexes.get(comment.pageIndex) ?? 0;
         pageMarkupIndexes.set(comment.pageIndex, pageMarkupIndex + 1);
-        if (!SUBTYPE_HINTS.has(comment.subtype)) {
+        if (!shouldCollectMarkupSubtypeHint(comment, comment.subtype)) {
             continue;
         }
         hints.push({
+            annotationId: comment.annotationId,
+            color: comment.color,
             id: comment.id,
             subtype: comment.subtype,
             pageIndex: comment.pageIndex,
             markerRect: comment.markerRect,
             consumed: false,
             pageMarkupIndex,
+            source: comment.source,
         });
     }
     return hints;

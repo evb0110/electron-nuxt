@@ -27,11 +27,12 @@ function createComment(overrides: Partial<IAnnotationCommentSummary>): IAnnotati
 }
 
 describe('pdfSerializationSubtypeHints', () => {
-    it('collects only valid editor underline/strikeout hints', () => {
+    it('collects editor rewrite hints and highlight preservation hints', () => {
         const hints = collectMarkupSubtypeHints([
             createComment({
                 subtype: 'Underline',
                 pageIndex: 0,
+                color: '#22c55e',
                 markerRect: {
                     left: 10,
                     top: 20,
@@ -52,6 +53,9 @@ describe('pdfSerializationSubtypeHints', () => {
             createComment({
                 subtype: 'Highlight',
                 pageIndex: 0,
+                source: 'pdf',
+                annotationId: '12R',
+                color: '#facc15',
                 markerRect: {
                     left: 1,
                     top: 2,
@@ -72,12 +76,13 @@ describe('pdfSerializationSubtypeHints', () => {
             }),
         ]);
 
-        expect(hints).toHaveLength(2);
+        expect(hints).toHaveLength(4);
         expect(hints[0]).toMatchObject({
             id: 'id-1',
             subtype: 'Underline',
             pageIndex: 0,
             consumed: false,
+            color: '#22c55e',
             pageMarkupIndex: 0,
         });
         expect(hints[1]).toMatchObject({
@@ -86,9 +91,24 @@ describe('pdfSerializationSubtypeHints', () => {
             consumed: false,
             pageMarkupIndex: 0,
         });
+        expect(hints[2]).toMatchObject({
+            annotationId: '12R',
+            subtype: 'Highlight',
+            pageIndex: 0,
+            consumed: false,
+            color: '#facc15',
+            pageMarkupIndex: 1,
+        });
+        expect(hints[3]).toMatchObject({
+            subtype: 'Underline',
+            pageIndex: 0,
+            consumed: false,
+            source: 'pdf',
+            pageMarkupIndex: 2,
+        });
     });
 
-    it('counts highlight comments in the page markup order without collecting them as hints', () => {
+    it('keeps highlight comments in the page markup order when collecting preservation hints', () => {
         const hints = collectMarkupSubtypeHints([
             createComment({
                 id: 'highlight-1',
@@ -114,8 +134,13 @@ describe('pdfSerializationSubtypeHints', () => {
             }),
         ]);
 
-        expect(hints).toHaveLength(1);
+        expect(hints).toHaveLength(2);
         expect(hints[0]).toMatchObject({
+            id: 'highlight-1',
+            pageMarkupIndex: 0,
+            subtype: 'Highlight',
+        });
+        expect(hints[1]).toMatchObject({
             id: 'underline-1',
             pageMarkupIndex: 1,
             subtype: 'Underline',

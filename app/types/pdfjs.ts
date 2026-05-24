@@ -20,6 +20,7 @@ export interface IPdfjsEditor {
     color?: string | number[] | null;
     opacity?: number;
     parentPageIndex?: number;
+    pageDimensions?: [number, number];
     x?: number;
     y?: number;
     width?: number;

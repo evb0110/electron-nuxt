@@ -597,6 +597,26 @@ describe('mergeCommentSummaries', () => {
 
         expect(mergeCommentSummaries(existing, incoming).displayText).toBe('An');
     });
+
+    it('trusts the PDF snapshot when a stale editor summary conflicts on text-markup subtype', () => {
+        const existing = makeSummary({
+            source: 'editor',
+            subtype: 'Underline',
+            color: '#22c55e',
+            annotationId: '42R0',
+        });
+        const incoming = makeSummary({
+            source: 'pdf',
+            subtype: 'Highlight',
+            color: '#eab308',
+            annotationId: '42R0',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming)).toMatchObject({
+            subtype: 'Highlight',
+            color: '#eab308',
+        });
+    });
 });
 
 describe('useAnnotationIdentity memory', () => {

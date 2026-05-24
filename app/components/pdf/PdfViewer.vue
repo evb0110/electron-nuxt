@@ -2483,73 +2483,28 @@ defineExpose({
     /* stylelint-enable no-descending-specificity */
 }
 
-/* ── Markup Subtype Visual Overrides (underline / strikethrough) ──── */
+/* ── Markup Subtype Visual Overrides (underline / strikethrough / squiggly) ──── */
 
-.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal,
-.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline'] .internal,
-.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal,
-.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout'] .internal {
+.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-visual-ready .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-visual-ready .internal {
     opacity: 0 !important;
 }
 
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
-.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout {
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly {
     fill: transparent !important;
     fill-opacity: 0 !important;
     mix-blend-mode: normal !important;
 }
 
-.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragments,
-.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragments {
-    position: absolute;
-    inset: 0;
+.pdfViewer svg.highlight .pdf-markup-subtype-draw-visual {
+    fill: none !important;
+    stroke: var(--pdf-markup-subtype-color, var(--ui-primary));
+    stroke-linecap: butt;
+    stroke-linejoin: miter;
+    mix-blend-mode: normal;
     pointer-events: none;
-}
-
-.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragment,
-.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragment {
-    position: absolute;
-    pointer-events: none;
-}
-
-.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragment--underline,
-.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragment--underline {
-    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-primary));
-}
-
-.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragment--strikeout,
-.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragment--strikeout {
-    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-error));
-}
-
-.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline']::after,
-.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-underline']::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 7%;
-    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-primary));
-    pointer-events: none;
-}
-
-.pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after,
-.pdfViewer .annotation-editor-layer .highlightEditor[class*='pdf-markup-subtype-strikeout']::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 50%;
-    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-error));
-    pointer-events: none;
-}
-
-.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-underline']::after,
-.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-underline']::after,
-.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-strikeout']::after,
-.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-strikeout']::after {
-    content: none !important;
-    border: 0 !important;
 }
 
 /* ── Dark Mode (Invert Colors) Overrides ───────────────────────────── */
