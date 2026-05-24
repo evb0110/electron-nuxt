@@ -37,7 +37,7 @@
         <canvas
           :key="getThumbnailRenderKey(page)"
           class="pdf-thumbnail-canvas"
-          :style="thumbnailCanvasStyle"
+          :style="getThumbnailCanvasStyle(page)"
           :data-thumbnail-render-key="getThumbnailRenderKey(page)"
         />
         <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
@@ -148,7 +148,6 @@ let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
 let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
 let measurementState: 'ready' | 'no-item' | 'no-rendered-canvas' = 'ready';
-let hasResolvedThumbnailItemHeight = false;
 let lastUserInteractionAtMs = 0;
 let lastUserInteractionLogAtMs = 0;
 let lastUserInteractionReason: string | null = null;
@@ -160,9 +159,8 @@ let activePaneRefreshRunId = 0;
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
-const thumbnailItemHeight = ref(DEFAULT_THUMBNAIL_ITEM_HEIGHT);
 const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
-const thumbnailAspectRatio = ref<number | null>(null);
+const thumbnailAspectRatios = ref<Array<number | null>>([]);
 const documentRenderEpoch = ref(0);
 const thumbnailKeySignal = ref(0);
 const selectionFocusPage = ref<number | null>(null);
@@ -170,17 +168,114 @@ const selectionFocusPage = ref<number | null>(null);
 const multiSelection = useMultiSelection<number>();
 const selectedPagesSet = computed(() => new Set(selectedPages ?? []));
 
-const itemPitch = computed(() =>
-    Math.max(1, thumbnailItemHeight.value + THUMBNAIL_GAP),
-);
+function isValidAspectRatio(value: number | null | undefined): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function resolveThumbnailItemHeightFromAspect(
+    aspectRatio: number | null | undefined,
+    renderWidth = thumbnailRenderWidth.value,
+) {
+    if (!isValidAspectRatio(aspectRatio)) {
+        return DEFAULT_THUMBNAIL_ITEM_HEIGHT;
+    }
+
+    return resolveThumbnailItemHeightFromCanvasHeight(renderWidth * aspectRatio);
+}
+
+function getThumbnailAspectRatio(page: number) {
+    return thumbnailAspectRatios.value[page - 1] ?? null;
+}
+
+function getThumbnailItemHeight(page: number) {
+    return thumbnailItemHeights.value[page - 1] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
+}
+
+function getThumbnailTop(page: number) {
+    return thumbnailPageTops.value[page - 1] ?? 0;
+}
+
+const thumbnailItemHeights = computed(() => {
+    if (totalPages <= 0) {
+        return [] as number[];
+    }
+
+    return Array.from({length: totalPages}, (_, index) =>
+        resolveThumbnailItemHeightFromAspect(thumbnailAspectRatios.value[index]),
+    );
+});
+
+const thumbnailPageTops = computed(() => {
+    const tops: number[] = [];
+    let offset = 0;
+    for (let index = 0; index < thumbnailItemHeights.value.length; index += 1) {
+        tops[index] = offset;
+        offset += (thumbnailItemHeights.value[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT);
+        if (index < thumbnailItemHeights.value.length - 1) {
+            offset += THUMBNAIL_GAP;
+        }
+    }
+    return tops;
+});
+
+const thumbnailContentHeight = computed(() => {
+    if (totalPages <= 0) {
+        return 0;
+    }
+    const lastPage = totalPages;
+    return getThumbnailTop(lastPage) + getThumbnailItemHeight(lastPage);
+});
+
+const thumbnailLayoutSnapshot = computed(() => ({
+    tops: thumbnailPageTops.value,
+    heights: thumbnailItemHeights.value,
+    totalHeight: thumbnailContentHeight.value,
+}));
+
+function resolvePageAtScrollOffset(
+    offset: number,
+    layout = thumbnailLayoutSnapshot.value,
+) {
+    if (totalPages <= 0) {
+        return null;
+    }
+
+    const safeOffset = Math.max(0, offset);
+    for (let index = 0; index < totalPages; index += 1) {
+        const top = layout.tops[index] ?? 0;
+        const height = layout.heights[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
+        if (safeOffset < top + height + THUMBNAIL_GAP) {
+            return index + 1;
+        }
+    }
+
+    return totalPages;
+}
+
+function resolveInsertionIndex(offset: number) {
+    if (totalPages <= 0) {
+        return 0;
+    }
+
+    for (let index = 0; index < totalPages; index += 1) {
+        const top = thumbnailPageTops.value[index] ?? 0;
+        const height = thumbnailItemHeights.value[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
+        if (offset < top + height / 2) {
+            return index;
+        }
+    }
+
+    return totalPages;
+}
 
 const visibleStartIndex = computed(() => {
     if (totalPages <= 0) {
         return 0;
     }
+    const startPage = resolvePageAtScrollOffset(scrollTop.value) ?? 1;
     return Math.max(
         0,
-        Math.floor(scrollTop.value / itemPitch.value) - VIRTUAL_OVERSCAN,
+        startPage - 1 - VIRTUAL_OVERSCAN,
     );
 });
 
@@ -188,10 +283,11 @@ const visibleEndIndex = computed(() => {
     if (totalPages <= 0) {
         return -1;
     }
-    const viewportBottom = scrollTop.value + Math.max(viewportHeight.value, itemPitch.value);
+    const viewportBottom = scrollTop.value + Math.max(viewportHeight.value, DEFAULT_THUMBNAIL_ITEM_HEIGHT);
+    const endPage = resolvePageAtScrollOffset(viewportBottom) ?? totalPages;
     return Math.min(
         totalPages - 1,
-        Math.ceil(viewportBottom / itemPitch.value) + VIRTUAL_OVERSCAN,
+        endPage - 1 + VIRTUAL_OVERSCAN,
     );
 });
 
@@ -211,19 +307,18 @@ const virtualWrapperStyle = computed(() => {
     if (totalPages <= 0) {
         return {height: '0px'};
     }
-    const totalHeight = totalPages * itemPitch.value - THUMBNAIL_GAP;
-    return {height: `${Math.max(0, totalHeight)}px`};
+    return {height: `${Math.max(0, thumbnailContentHeight.value)}px`};
 });
 
-const thumbnailCanvasStyle = computed(() => {
-    const aspectRatio = thumbnailAspectRatio.value;
+function getThumbnailCanvasStyle(page: number) {
+    const aspectRatio = getThumbnailAspectRatio(page);
     return aspectRatio && aspectRatio > 0
         ? {aspectRatio: `1 / ${aspectRatio}`}
         : {};
-});
+}
 
 function getThumbnailStyle(page: number) {
-    return {transform: `translateY(${(page - 1) * itemPitch.value}px)`};
+    return {transform: `translateY(${getThumbnailTop(page)}px)`};
 }
 
 function getThumbnailRenderKey(page: number) {
@@ -258,8 +353,7 @@ const {
     resolveDropIndex: (clientY, container) => {
         const rect = container.getBoundingClientRect();
         const offsetY = clientY - rect.top + container.scrollTop;
-        const index = Math.floor(offsetY / itemPitch.value);
-        return clamp(index, 0, totalPages);
+        return clamp(resolveInsertionIndex(offsetY), 0, totalPages);
     },
     onReorder: (newOrder) => emit('reorder', newOrder),
     onExternalFileDrop: (afterPage, filePaths) =>
@@ -465,53 +559,19 @@ function resolveThumbnailItemHeightFromCanvasHeight(canvasHeight: number) {
         + THUMBNAIL_CANVAS_BORDER_WIDTH;
 }
 
-function resolveThumbnailItemHeightFromRenderWidth(renderWidth: number) {
-    const aspectRatio = thumbnailAspectRatio.value;
-    if (!aspectRatio || aspectRatio <= 0) {
-        return thumbnailItemHeight.value;
-    }
-
-    return resolveThumbnailItemHeightFromCanvasHeight(renderWidth * aspectRatio);
-}
-
-function updateThumbnailItemHeight(
-    nextHeight: number,
-    reason: string,
-    data: Record<string, unknown> = {},
-) {
-    if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
-        return false;
-    }
-
-    const normalizedHeight = Math.max(1, Math.ceil(nextHeight));
-    if (hasResolvedThumbnailItemHeight && normalizedHeight === thumbnailItemHeight.value) {
-        return false;
-    }
-
-    const previousHeight = thumbnailItemHeight.value;
-    thumbnailItemHeight.value = normalizedHeight;
-    hasResolvedThumbnailItemHeight = true;
-
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail item height changed', {
-        reason,
-        previousHeight: roundMetric(previousHeight),
-        nextHeight: roundMetric(thumbnailItemHeight.value),
-        itemPitch: roundMetric(itemPitch.value),
-        currentPage: currentPage,
-        totalPages: totalPages,
-        ...data,
-    });
-
-    return true;
-}
-
-function updateThumbnailAspectRatio(
+function updateThumbnailAspectRatioForPage(
+    page: number,
     viewportWidth: number,
     viewportHeightValue: number,
     reason: string,
     data: Record<string, unknown> = {},
 ) {
-    if (viewportWidth <= 0 || viewportHeightValue <= 0) {
+    if (
+        page < 1
+        || page > totalPages
+        || viewportWidth <= 0
+        || viewportHeightValue <= 0
+    ) {
         return false;
     }
 
@@ -520,26 +580,25 @@ function updateThumbnailAspectRatio(
         return false;
     }
 
-    const previousAspectRatio = thumbnailAspectRatio.value;
+    const previousAspectRatio = thumbnailAspectRatios.value[page - 1] ?? null;
     if (previousAspectRatio !== null && Math.abs(previousAspectRatio - nextAspectRatio) < 0.001) {
         return false;
     }
 
-    thumbnailAspectRatio.value = nextAspectRatio;
+    const nextRatios = thumbnailAspectRatios.value.slice(0, Math.max(totalPages, page));
+    nextRatios[page - 1] = nextAspectRatio;
+    thumbnailAspectRatios.value = nextRatios;
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
         reason,
+        page,
         previousAspectRatio: previousAspectRatio === null ? null : roundMetric(previousAspectRatio),
         nextAspectRatio: roundMetric(nextAspectRatio),
+        itemHeight: roundMetric(resolveThumbnailItemHeightFromAspect(nextAspectRatio)),
         currentPage: currentPage,
         totalPages: totalPages,
         ...data,
     });
 
-    updateThumbnailItemHeight(
-        resolveThumbnailItemHeightFromRenderWidth(thumbnailRenderWidth.value),
-        `${reason}-layout`,
-        data,
-    );
     return true;
 }
 
@@ -603,7 +662,7 @@ function isThumbnailPaneActive() {
 
 function isThumbnailLayoutStabilizing() {
     return (
-        !hasResolvedThumbnailItemHeight
+        thumbnailAspectRatios.value.every(aspectRatio => !isValidAspectRatio(aspectRatio))
         || measurementState !== 'ready'
         || renderedCanvases.size === 0
     );
@@ -620,8 +679,8 @@ function getComfortPaddingPx(container: HTMLElement) {
 }
 
 function getPageBounds(page: number) {
-    const top = Math.max(0, (page - 1) * itemPitch.value);
-    const height = Math.max(1, thumbnailItemHeight.value);
+    const top = Math.max(0, getThumbnailTop(page));
+    const height = Math.max(1, getThumbnailItemHeight(page));
     return {
         top,
         bottom: top + height,
@@ -633,12 +692,14 @@ function clampPage(page: number) {
     return clamp(page, 1, Math.max(1, totalPages));
 }
 
-function resolveViewportAnchorPage(pitch = itemPitch.value) {
-    if (totalPages <= 0 || pitch <= 0) {
+function resolveViewportAnchorPage(
+    layout = thumbnailLayoutSnapshot.value,
+) {
+    if (totalPages <= 0) {
         return null;
     }
 
-    return clampPage(Math.floor(scrollTop.value / pitch) + 1);
+    return clampPage(resolvePageAtScrollOffset(scrollTop.value, layout) ?? 1);
 }
 
 function shouldPreferVisibleAnchorOverCurrentPage() {
@@ -650,7 +711,9 @@ function markManualThumbnailScroll(reason: string) {
     markUserInteraction(reason);
 }
 
-function preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight: number) {
+function preserveVisibleAnchorAfterThumbnailLayoutChange(
+    previousLayout: typeof thumbnailLayoutSnapshot.value,
+) {
     if (manualScrollSourceCycleId !== thumbnailSourceCycleId) {
         return false;
     }
@@ -660,14 +723,14 @@ function preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight: number)
         return false;
     }
 
-    const previousPitch = Math.max(1, previousHeight + THUMBNAIL_GAP);
-    const anchorPage = resolveViewportAnchorPage(previousPitch);
+    const anchorPage = resolveViewportAnchorPage(previousLayout);
     if (anchorPage === null) {
         return false;
     }
 
-    const anchorOffset = scrollTop.value - ((anchorPage - 1) * previousPitch);
-    const nextScrollTop = ((anchorPage - 1) * itemPitch.value) + anchorOffset;
+    const previousTop = previousLayout.tops[anchorPage - 1] ?? 0;
+    const anchorOffset = scrollTop.value - previousTop;
+    const nextScrollTop = getThumbnailTop(anchorPage) + anchorOffset;
     return applyThumbnailScrollTop(
         container,
         clamp(nextScrollTop, 0, getMaxScrollTop(container)),
@@ -938,7 +1001,7 @@ function resolveVisibleContainer(reason: string) {
             currentPage: currentPage,
             totalPages: totalPages,
             geometry: describeContainerGeometry(container),
-            itemHeight: roundMetric(thumbnailItemHeight.value),
+            contentHeight: roundMetric(thumbnailContentHeight.value),
             renderedPages: renderedCanvases.size,
             renderingPages: renderingPages.size,
         });
@@ -963,15 +1026,6 @@ function updateViewportMetrics() {
     if (Math.abs(nextThumbnailRenderWidth - thumbnailRenderWidth.value) >= THUMBNAIL_WIDTH_CHANGE_THRESHOLD) {
         const previousThumbnailRenderWidth = thumbnailRenderWidth.value;
         thumbnailRenderWidth.value = nextThumbnailRenderWidth;
-        updateThumbnailItemHeight(
-            resolveThumbnailItemHeightFromRenderWidth(nextThumbnailRenderWidth),
-            'render-width',
-            {
-                previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
-                nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
-                geometry: describeContainerGeometry(container),
-            },
-        );
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail render width changed', {
             previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
             nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
@@ -1089,7 +1143,7 @@ function measureRenderedThumbnailHeight(container: HTMLElement) {
     }
 
     logMeasurementReady(measurementItem, canvas);
-    updateThumbnailItemHeight(resolveThumbnailItemHeightFromRenderWidth(thumbnailRenderWidth.value), 'layout-measure', {
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail layout measurement checked', {
         geometry: describeContainerGeometry(container),
         itemPage: measurementItem.dataset.page ?? null,
     });
@@ -1239,14 +1293,12 @@ function prepareThumbnailCanvas(pageNum: number) {
 
 function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNum: number) {
     const viewport = page.getViewport({ scale: 1 });
-    if (thumbnailAspectRatio.value === null) {
-        updateThumbnailAspectRatio(
-            viewport.width,
-            viewport.height,
-            'render-viewport',
-            {page: pageNum},
-        );
-    }
+    updateThumbnailAspectRatioForPage(
+        pageNum,
+        viewport.width,
+        viewport.height,
+        'render-viewport',
+    );
     const scale = thumbnailRenderWidth.value / viewport.width;
     const scaledViewport = page.getViewport({ scale });
     const outputScale = resolveThumbnailOutputScale();
@@ -1549,11 +1601,11 @@ async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId:
             }
 
             const viewport = page.getViewport({scale: 1});
-            updateThumbnailAspectRatio(
+            updateThumbnailAspectRatioForPage(
+                pageNum,
                 viewport.width,
                 viewport.height,
                 'preload-viewport',
-                {page: pageNum},
             );
             void refreshVisibleThumbnailPane('preload-viewport');
         } finally {
@@ -1582,14 +1634,12 @@ function clearRenderedState(options: {
     renderingCanvasKeys.clear();
     renderTasks.clear();
     clearVisibleThumbnailCanvases();
-    thumbnailItemHeight.value = DEFAULT_THUMBNAIL_ITEM_HEIGHT;
     if (!options.preserveRenderWidth) {
         thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
     }
     if (!options.preserveAspectRatio) {
-        thumbnailAspectRatio.value = null;
+        thumbnailAspectRatios.value = [];
     }
-    hasResolvedThumbnailItemHeight = false;
     measurementState = 'ready';
 }
 
@@ -1648,7 +1698,7 @@ watch(
 
         void nextTick(() => {
             updateViewportMetrics();
-            if (thumbnailAspectRatio.value === null) {
+            if (!isValidAspectRatio(getThumbnailAspectRatio(clampPage(currentPage || 1)))) {
                 void preloadThumbnailAspectRatio(doc, renderRunId);
                 return;
             }
@@ -1683,13 +1733,13 @@ watch(
 );
 
 watch(
-    () => thumbnailItemHeight.value,
-    (nextHeight, previousHeight) => {
-        if (Math.abs(nextHeight - previousHeight) < 1) {
+    thumbnailLayoutSnapshot,
+    (nextLayout, previousLayout) => {
+        if (Math.abs(nextLayout.totalHeight - previousLayout.totalHeight) < 1) {
             return;
         }
         void nextTick(() => {
-            if (preserveVisibleAnchorAfterThumbnailHeightChange(previousHeight)) {
+            if (preserveVisibleAnchorAfterThumbnailLayoutChange(previousLayout)) {
                 return;
             }
             if (isCurrentPageAutoSyncSuppressed()) {
@@ -1720,6 +1770,17 @@ function invalidatePages(pages: number[]) {
     pendingInvalidation = pages;
     for (const page of pages) {
         pageRenderEpochs.set(page, (pageRenderEpochs.get(page) ?? 0) + 1);
+    }
+    const nextRatios = thumbnailAspectRatios.value.slice();
+    let didClearRatio = false;
+    for (const page of pages) {
+        if (nextRatios[page - 1] !== undefined) {
+            nextRatios[page - 1] = null;
+            didClearRatio = true;
+        }
+    }
+    if (didClearRatio) {
+        thumbnailAspectRatios.value = nextRatios;
     }
     thumbnailKeySignal.value += 1;
     BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Invalidating thumbnail pages', {
