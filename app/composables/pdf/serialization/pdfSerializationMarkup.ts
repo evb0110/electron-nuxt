@@ -36,6 +36,7 @@ const SAME_MARKUP_QUAD_LINE_CENTER_TOLERANCE_RATIO = 0.35;
 const MIN_MARKUP_QUAD_HEIGHT = 0.01;
 const MIN_MARKUP_SUBTYPE_HINT_IOU = 0.45;
 const MIN_ORDERED_MARKUP_SUBTYPE_HINT_IOU = 0.2;
+const DUPLICATE_MARKUP_SUBTYPE_HINT_IOU = 0.92;
 
 interface IPdfMarkupQuad {
     bottom: number;
@@ -88,21 +89,6 @@ function buildMarkupRewriteInputs(
     };
 }
 
-function toSubtypeHintKey(hint: IMarkupSubtypeHint) {
-    if (hint.id) {
-        return `${hint.pageIndex}:${hint.subtype}:id:${hint.id}`;
-    }
-    const rect = hint.markerRect;
-    return [
-        hint.pageIndex,
-        hint.subtype,
-        rect.left.toFixed(6),
-        rect.top.toFixed(6),
-        rect.width.toFixed(6),
-        rect.height.toFixed(6),
-    ].join(':');
-}
-
 function mergeSubtypeHints(existing: IMarkupSubtypeHint, incoming: IMarkupSubtypeHint): IMarkupSubtypeHint {
     return {
         ...existing,
@@ -112,14 +98,34 @@ function mergeSubtypeHints(existing: IMarkupSubtypeHint, incoming: IMarkupSubtyp
     };
 }
 
+function subtypeHintsShareIdentity(left: IMarkupSubtypeHint, right: IMarkupSubtypeHint) {
+    return Boolean(left.id && right.id && left.id === right.id);
+}
+
+function subtypeHintsShareGeometry(left: IMarkupSubtypeHint, right: IMarkupSubtypeHint) {
+    return (
+        left.pageIndex === right.pageIndex
+        && left.subtype === right.subtype
+        && markerRectIoU(left.markerRect, right.markerRect) >= DUPLICATE_MARKUP_SUBTYPE_HINT_IOU
+    );
+}
+
+function subtypeHintsAreDuplicates(left: IMarkupSubtypeHint, right: IMarkupSubtypeHint) {
+    return subtypeHintsShareIdentity(left, right) || subtypeHintsShareGeometry(left, right);
+}
+
 function dedupeMarkupSubtypeHints(subtypeHints: IMarkupSubtypeHint[]) {
-    const deduped = new Map<string, IMarkupSubtypeHint>();
+    const deduped: IMarkupSubtypeHint[] = [];
     subtypeHints.forEach((hint) => {
-        const key = toSubtypeHintKey(hint);
-        const existing = deduped.get(key);
-        deduped.set(key, existing ? mergeSubtypeHints(existing, hint) : hint);
+        const existingIndex = deduped.findIndex(existing => subtypeHintsAreDuplicates(existing, hint));
+        const existing = deduped[existingIndex];
+        if (!existing) {
+            deduped.push(hint);
+            return;
+        }
+        deduped[existingIndex] = mergeSubtypeHints(existing, hint);
     });
-    return Array.from(deduped.values());
+    return deduped;
 }
 
 function toHintPageMarkupIndex(hint: IMarkupSubtypeHint) {

@@ -502,7 +502,17 @@ describe('usePdfViewerDocumentLifecycle', () => {
         expect(viewerContainer.scrollTop).toBe(1234);
         expect(cleanupRenderedPages).not.toHaveBeenCalled();
         expect(destroyAnnotationEditor).not.toHaveBeenCalled();
-        expect(renderVisiblePages).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 3,
+                end: 3,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+                forceRerender: true,
+            },
+        );
         expect(scrollToPage).not.toHaveBeenCalled();
         expect(updateVisibleRange).not.toHaveBeenCalled();
         expect(ensurePageMetricsInRange).not.toHaveBeenCalled();

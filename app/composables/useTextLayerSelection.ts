@@ -3,6 +3,8 @@
  * Fixes selection "wandering" by dynamically repositioning an endOfContent sentinel div
  */
 
+import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
+
 interface ITextLayerEntry {
     textLayer: HTMLElement;
     endOfContent: HTMLElement;
@@ -229,6 +231,8 @@ function enableGlobalSelectionListener() {
 }
 
 function teardownTextLayer(textLayerDiv: HTMLElement) {
+    clearPdfSelectionForLayerTeardown({ target: textLayerDiv });
+
     const entry = textLayers.get(textLayerDiv);
     if (entry) {
         textLayers.delete(textLayerDiv);
