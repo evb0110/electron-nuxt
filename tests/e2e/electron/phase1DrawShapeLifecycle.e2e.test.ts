@@ -1512,7 +1512,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
                 ],
             },
             {
-                color: '#eab308',
+                color: '#ffd400',
                 hit: {
                     x: 0.3,
                     y: 0.58,
@@ -2610,7 +2610,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
             ],
             [
                 {
-                    color: '#eab308',
+                    color: '#ffd400',
                     hit: {
                         x: 0.28,
                         y: 0.56,

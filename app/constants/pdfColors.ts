@@ -11,7 +11,7 @@ export const ANNOTATION_COLOR_SWATCHES = [
     '#111827',
     '#ef4444',
     '#f59e0b',
-    '#eab308',
+    '#ffd400',
     '#22c55e',
     '#06b6d4',
     '#3b82f6',
