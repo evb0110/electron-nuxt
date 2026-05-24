@@ -96,6 +96,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
         options?: {
             preserveRenderedPages?: boolean;
             bufferOverride?: number;
+            forceRerender?: boolean;
         },
     ) => Promise<void>;
     getVisibleRange: () => IPageRange;
@@ -679,6 +680,12 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
         } satisfies IPageRange;
 
         if (plan.shouldPreserveVisibleContent) {
+            restorePreservedScrollPosition(plan, preservedScrollPosition);
+            await options.renderVisiblePages(initialRange, {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+                forceRerender: true,
+            });
             restorePreservedScrollPosition(plan, preservedScrollPosition);
             return;
         }

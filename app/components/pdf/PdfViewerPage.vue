@@ -1,5 +1,6 @@
 <template>
     <div
+        ref="pageContainer"
         class="page_container"
         :class="{
             'page_container--spread-single': spreadSingle,
@@ -54,6 +55,7 @@
 import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
 import PdfImagePlacementOverlay from '@app/components/pdf/PdfImagePlacementOverlay.vue';
 import PdfShapeOverlay from '@app/components/pdf/PdfShapeOverlay.vue';
+import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
 import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonInsets';
 import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
 import type {
@@ -91,6 +93,7 @@ const emit = defineEmits<{
     'finalize-placed-image': [];
     'cancel-placed-image': [];
 }>();
+const pageContainer = ref<HTMLElement | null>(null);
 
 const {
     scaledSkeletonPadding,
@@ -159,4 +162,8 @@ function openShapeContextMenu(payload: {
 }) {
     shapeContext?.handleShapeContextMenu(payload);
 }
+
+onBeforeUnmount(() => {
+    clearPdfSelectionForLayerTeardown({ target: pageContainer.value });
+});
 </script>

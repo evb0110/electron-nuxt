@@ -61,6 +61,7 @@ import {
     collectPreservedRenderPageNumbers,
     shouldRenderPageWithPreservedState,
 } from '@app/composables/pdf/pdfPageRenderPreservation';
+import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
 
 export type { IPageRenderStallPayload } from '@app/composables/pdf/pdfPageRenderTimeout';
 
@@ -239,10 +240,28 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
 
-    function summarizePageDom(pageNumber: number) {
-        const container = options.container.value?.querySelector<HTMLElement>(
+    function getMountedPageContainer(
+        pageNumber: number,
+        containerRoot = options.container.value,
+    ) {
+        return containerRoot?.querySelector<HTMLElement>(
             `.page_container[data-page="${pageNumber}"]`,
-        );
+        ) ?? null;
+    }
+
+    function clearSelectionBeforePageLayerTeardown(pageNumber: number) {
+        const containerRoot = options.container.value;
+        const pageContainer = getMountedPageContainer(pageNumber, containerRoot);
+        return clearPdfSelectionForLayerTeardown({
+            target: pageContainer,
+            root: containerRoot,
+            includeDetached: true,
+            includeAnyPdfTextSelection: pageNumber === options.currentPage.value,
+        });
+    }
+
+    function summarizePageDom(pageNumber: number) {
+        const container = getMountedPageContainer(pageNumber);
         const skeleton = container?.querySelector<HTMLElement>('.pdf-page-skeleton') ?? null;
         const getChildCount = (selector: string) => {
             const node = container?.querySelector(selector);
@@ -453,6 +472,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const retryCount = missingRenderTargetRetries.get(pageNumber) ?? 0;
         if (retryCount >= MAX_MISSING_RENDER_TARGET_RETRIES) {
+            clearPdfSelectionForLayerTeardown({
+                root: options.container.value,
+                includeDetached: true,
+                includeAnyPdfTextSelection: true,
+            });
             BrowserLogger.warnThrottled(
                 'pdf-renderer',
                 `missing-render-target-retry-exhausted:${pageNumber}`,
@@ -519,6 +543,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             page: summarizePageDom(pageNumber),
         });
         const containerRoot = options.container.value;
+        const container = getMountedPageContainer(pageNumber, containerRoot);
+        clearPdfSelectionForLayerTeardown({
+            target: container,
+            root: containerRoot,
+            includeDetached: true,
+            includeAnyPdfTextSelection: pageNumber === options.currentPage.value,
+        });
         cancelActiveRenderTask(pageNumber);
         cancelActiveTextLayerRender(pageNumber);
 
@@ -541,9 +572,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationLayerRenderer.cleanupEditorLayer(pageNumber);
 
         if (containerRoot) {
-            const container = containerRoot.querySelector<HTMLElement>(
-                `.page_container[data-page="${pageNumber}"]`,
-            );
             container?.classList.remove(RENDERED_CONTAINER_CLASS);
             const skeleton =
                 container?.querySelector<HTMLElement>('.pdf-page-skeleton');
@@ -858,6 +886,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             totalScaleFactor,
         } = renderResult;
 
+        clearSelectionBeforePageLayerTeardown(pageNumber);
         cleanupTextLayer(pageNumber);
         cancelActiveTextLayerRender(pageNumber);
         let isTextLayerRendered = false;
@@ -904,6 +933,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     && (textLayerError as { name?: unknown }).name === 'AbortError'
                 )
             ) {
+                clearPdfSelectionForLayerTeardown({
+                    target: textLayerDiv,
+                    root: container,
+                });
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
                 cleanupPageIfCurrentRender(pageNumber, version, requestId);
                 return false;
@@ -913,6 +946,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 'text layer',
                 textLayerError,
             );
+            clearPdfSelectionForLayerTeardown({
+                target: textLayerDiv,
+                root: container,
+            });
             textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
         } finally {
             const activeTextLayer = activeTextLayerAbortControllers.get(pageNumber);
