@@ -86,10 +86,32 @@ vi.mock('@app/modules/pdf-viewer-runtime/composables/usePdfViewerZoomRerenderQue
 
 vi.mock('@app/modules/pdf-viewer-runtime/composables/usePdfViewerRerenderCoordinator', () => ({usePdfViewerRerenderCoordinator: () => ({reRenderVisiblePagesAndSyncCurrentPage: vi.fn()})}));
 
+async function flushActivationRendering() {
+    await nextTick();
+    await nextTick();
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
+function createViewerContainerStub(queryResult: Element | null) {
+    const container: HTMLElement = Object.create(null);
+    container.querySelector = vi.fn(() => queryResult);
+    return container;
+}
+
 function mountCore(options?: {
     isActive?: boolean;
     src?: TPdfSource | null;
     hasDocument?: boolean;
+    currentPage?: number;
+    numPages?: number;
+    visibleRange?: {
+        start: number;
+        end: number;
+    };
+    viewerContainer?: HTMLElement | null;
+    isPageRendered?: (page: number) => boolean;
+    renderVisiblePages?: typeof lifecycleMocks.renderVisiblePages;
 }) {
     const host = {};
 
@@ -100,10 +122,16 @@ function mountCore(options?: {
         size: 100,
     });
     const pdfDocument = shallowRef(options?.hasDocument ? {} : null);
-    const visibleRange = ref({
+    const visibleRange = ref(options?.visibleRange ?? {
         start: 2,
         end: 3,
     });
+    const currentPage = ref(options?.currentPage ?? 1);
+    const numPages = ref(options?.numPages ?? 5);
+    const viewerContainer = ref<HTMLElement | null>(options?.viewerContainer ?? null);
+    const renderVisiblePages = options?.renderVisiblePages ?? lifecycleMocks.renderVisiblePages;
+    const isPageRendered = vi.fn(options?.isPageRendered ?? (() => false));
+    const scrollToPage = vi.fn();
     const annotationCommentsCache = ref([]);
     const activeCommentStableKey = ref<string | null>(null);
     const highlight = {
@@ -121,7 +149,7 @@ function mountCore(options?: {
 
     const app = testRenderer.createApp(defineComponent({setup() {
         usePdfViewerCore({
-            viewerContainer: ref(null),
+            viewerContainer,
             src: computed(() => src.value),
             zoom: computed(() => 1),
             zoomMode: computed(() => 'fit-width'),
@@ -138,7 +166,7 @@ function mountCore(options?: {
             activeCommentStableKey,
             pdfDocumentResult: {
                 pdfDocument,
-                numPages: ref(5),
+                numPages,
                 isLoading: ref(false),
                 getRenderVersion: vi.fn(() => 1),
                 loadPdf: vi.fn(),
@@ -155,7 +183,7 @@ function mountCore(options?: {
                 },
                 highlight,
             } as never,
-            currentPage: ref(1),
+            currentPage,
             visibleRange,
             effectiveScale: ref(1),
             basePageWidth: ref(100),
@@ -166,16 +194,16 @@ function mountCore(options?: {
             computeSkeletonInsets: vi.fn(),
             resetInsets: vi.fn(),
             setupPagePlaceholders: vi.fn(),
-            renderVisiblePages: lifecycleMocks.renderVisiblePages,
+            renderVisiblePages,
             reRenderAllVisiblePages: vi.fn(),
             cleanupRenderedPages: lifecycleMocks.cleanupRenderedPages,
             invalidateRenderedPages: vi.fn(),
             applySearchHighlights: lifecycleMocks.applySearchHighlights,
-            isPageRendered: vi.fn(() => false),
+            isPageRendered,
             getMostVisiblePage: vi.fn(() => 1),
             updateCurrentPage: vi.fn(() => 1),
             updateVisibleRange: lifecycleMocks.updateVisibleRange,
-            scrollToPage: vi.fn(),
+            scrollToPage,
             resetContinuousScrollState: vi.fn(),
             startDrag: vi.fn(),
             onDrag: vi.fn(),
@@ -194,13 +222,19 @@ function mountCore(options?: {
         activeCommentStableKey,
         annotationCommentsCache,
         app,
+        currentPage,
         editor,
         cleanupDocument,
         highlight,
         host,
         isActive,
+        isPageRendered,
         pdfDocument,
+        renderVisiblePages,
+        scrollToPage,
         src,
+        viewerContainer,
+        visibleRange,
     };
 }
 
@@ -300,8 +334,7 @@ describe('usePdfViewerCore inactive lifecycle', () => {
         vi.clearAllMocks();
 
         harness.isActive.value = true;
-        await nextTick();
-        await nextTick();
+        await flushActivationRendering();
 
         expect(harness.editor.setAnnotationTool).toHaveBeenCalledWith('none');
         expect(harness.editor.applyAnnotationSettings).toHaveBeenCalledWith(null);
@@ -311,6 +344,68 @@ describe('usePdfViewerCore inactive lifecycle', () => {
             end: 3,
         }, { preserveRenderedPages: true });
         expect(lifecycleMocks.applySearchHighlights).toHaveBeenCalledTimes(1);
+
+        harness.app.unmount();
+    });
+
+    it('retries the current page row after activation when the normal render leaves no canvas mounted', async () => {
+        const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
+        const viewerContainer = createViewerContainerStub(null);
+        const harness = mountCore({
+            isActive: false,
+            hasDocument: true,
+            currentPage: 2,
+            visibleRange: {
+                start: 2,
+                end: 2,
+            },
+            viewerContainer,
+            renderVisiblePages,
+        });
+
+        harness.isActive.value = true;
+        await flushActivationRendering();
+
+        expect(renderVisiblePages).toHaveBeenNthCalledWith(1, {
+            start: 2,
+            end: 2,
+        }, { preserveRenderedPages: true });
+        expect(renderVisiblePages).toHaveBeenNthCalledWith(2, {
+            start: 2,
+            end: 2,
+        }, {
+            preserveRenderedPages: true,
+            forceRerender: true,
+            bufferOverride: 0,
+        });
+
+        harness.app.unmount();
+    });
+
+    it('does not force a second activation render when the current page already has a canvas', async () => {
+        const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
+        const mountedCanvas: Element = Object.create(null);
+        const viewerContainer = createViewerContainerStub(mountedCanvas);
+        const harness = mountCore({
+            isActive: false,
+            hasDocument: true,
+            currentPage: 2,
+            visibleRange: {
+                start: 2,
+                end: 2,
+            },
+            viewerContainer,
+            renderVisiblePages,
+        });
+
+        harness.isActive.value = true;
+        await flushActivationRendering();
+
+        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+        expect(renderVisiblePages).toHaveBeenCalledWith({
+            start: 2,
+            end: 2,
+        }, { preserveRenderedPages: true });
 
         harness.app.unmount();
     });

@@ -87,6 +87,7 @@ interface IUsePdfViewerCoreOptions {
         options?: {
             preserveRenderedPages?: boolean;
             bufferOverride?: number;
+            forceRerender?: boolean;
         },
     ) => Promise<void>;
     reRenderAllVisiblePages: (
@@ -280,6 +281,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     } = annotations;
 
     const SKELETON_BUFFER = 3;
+    let activeDocumentRestoreRunId = 0;
     const {
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
@@ -353,6 +355,123 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
         updateVisibleRange(viewerContainer.value, numPages.value);
         return visibleRange.value;
+    }
+
+    function getCurrentPageRowRange(): IPageRange {
+        if (numPages.value <= 0) {
+            return {
+                start: 1,
+                end: 1,
+            };
+        }
+
+        const rowBounds = getPageRowBoundsForViewMode({
+            pageNumber: currentPage.value,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+        return {
+            start: rowBounds.start,
+            end: rowBounds.end,
+        };
+    }
+
+    function rangeContainsPage(range: IPageRange, page: number) {
+        return page >= range.start && page <= range.end;
+    }
+
+    function hasMountedPageCanvas(pageNumber: number) {
+        return Boolean(
+            viewerContainer.value?.querySelector(
+                `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
+            ),
+        );
+    }
+
+    function hasRenderedContentInRange(range: IPageRange) {
+        if (!viewerContainer.value) {
+            return true;
+        }
+
+        for (let page = range.start; page <= range.end; page += 1) {
+            if (isPageRendered(page) || hasMountedPageCanvas(page)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function isActiveDocumentRestoreRunCurrent(runId: number) {
+        return runId === activeDocumentRestoreRunId
+            && isActive.value
+            && !isLoading.value
+            && Boolean(pdfDocument.value);
+    }
+
+    async function waitForActivationRenderFrame() {
+        await nextTick();
+        await new Promise<void>((resolve) => {
+            if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(() => resolve());
+                return;
+            }
+            setTimeout(resolve, 0);
+        });
+    }
+
+    async function restoreCurrentPageViewportForActivation() {
+        updateVisibleRange(viewerContainer.value, numPages.value);
+        const visible = visibleRange.value;
+        if (
+            !viewerContainer.value
+            || numPages.value <= 0
+            || rangeContainsPage(visible, currentPage.value)
+        ) {
+            return;
+        }
+
+        scrollToPage(currentPage.value);
+        await waitForActivationRenderFrame();
+        updateVisibleRange(viewerContainer.value, numPages.value);
+    }
+
+    async function renderActiveDocumentAfterActivation(runId: number) {
+        await restoreCurrentPageViewportForActivation();
+        if (!isActiveDocumentRestoreRunCurrent(runId)) {
+            return;
+        }
+
+        const activationRange = {...visibleRange.value};
+        await renderVisiblePages(activationRange, { preserveRenderedPages: true });
+        if (!isActiveDocumentRestoreRunCurrent(runId)) {
+            return;
+        }
+
+        const currentRow = getCurrentPageRowRange();
+        if (hasRenderedContentInRange(currentRow)) {
+            applySearchHighlights();
+            return;
+        }
+
+        if (!rangeContainsPage(visibleRange.value, currentPage.value)) {
+            scrollToPage(currentPage.value);
+            await waitForActivationRenderFrame();
+            updateVisibleRange(viewerContainer.value, numPages.value);
+            if (!isActiveDocumentRestoreRunCurrent(runId)) {
+                return;
+            }
+        }
+
+        await renderVisiblePages(currentRow, {
+            preserveRenderedPages: true,
+            forceRerender: true,
+            bufferOverride: 0,
+        });
+        if (!isActiveDocumentRestoreRunCurrent(runId)) {
+            return;
+        }
+        applySearchHighlights();
     }
 
     const rerenderSyncDelegate = createRequiredDelegate<
@@ -566,8 +685,12 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
 
     watch(isActive, async (active) => {
+        const runId = ++activeDocumentRestoreRunId;
         if (active) {
             await nextTick();
+            if (runId !== activeDocumentRestoreRunId || !isActive.value) {
+                return;
+            }
             scheduleSetAnnotationTool(annotationTool.value, 'restore annotation tool after tab activation');
             editor.applyAnnotationSettings(annotationSettings.value);
             if (src.value && !pdfDocument.value && !isLoading.value) {
@@ -575,9 +698,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 return;
             }
             if (pdfDocument.value && !isLoading.value) {
-                updateVisibleRange(viewerContainer.value, numPages.value);
-                void renderVisiblePages(visibleRange.value, { preserveRenderedPages: true });
-                applySearchHighlights();
+                runGuardedTask(() => renderActiveDocumentAfterActivation(runId), {
+                    scope: 'pdf-viewer',
+                    message: 'Failed to restore PDF rendering after tab activation',
+                });
             }
             return;
         }
@@ -605,6 +729,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(src, (newSrc, oldSrc) => {
         if (newSrc !== oldSrc) {
+            activeDocumentRestoreRunId += 1;
             resetRenderStallRecoveryState();
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {
