@@ -31,6 +31,7 @@ type TCropWorkerInput =
         type: 'getPageGeometry';
         workingCopyPath: string;
         pageNumber: number;
+        senderWebContentsId?: number;
     };
 
 type TCropWorkerResult =
@@ -62,14 +63,14 @@ async function run() {
         const input = getInput();
         switch (input.type) {
             case 'crop':
-                await cropPagesLocal(input.workingCopyPath, input.pages, input.margins, input.senderWebContentsId);
+                await cropPagesLocal(input.workingCopyPath, input.pages, input.margins);
                 parentPort.postMessage({
                     type: 'result',
                     ok: true,
                 } satisfies TCropWorkerResult);
                 break;
             case 'removeCrop':
-                await removeCropFromPagesLocal(input.workingCopyPath, input.pages, input.senderWebContentsId);
+                await removeCropFromPagesLocal(input.workingCopyPath, input.pages);
                 parentPort.postMessage({
                     type: 'result',
                     ok: true,
@@ -79,7 +80,10 @@ async function run() {
                 parentPort.postMessage({
                     type: 'result',
                     ok: true,
-                    data: await getPageGeometryLocal(input.workingCopyPath, input.pageNumber),
+                    data: await getPageGeometryLocal(
+                        input.workingCopyPath,
+                        input.pageNumber,
+                    ),
                 } satisfies TCropWorkerResult);
                 break;
             default:

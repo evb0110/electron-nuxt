@@ -399,7 +399,7 @@ async function handlePageOpsGetPageGeometry(
         throw new Error('Invalid page number');
     }
 
-    return getPageGeometry(normalizedWorkingCopyPath, pageNumber);
+    return getPageGeometry(normalizedWorkingCopyPath, pageNumber, event.sender?.id);
 }
 
 interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}

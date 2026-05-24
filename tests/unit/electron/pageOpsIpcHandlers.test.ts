@@ -465,6 +465,62 @@ describe('registerPageOpsHandlers', () => {
         expect(mocks.cropPages).not.toHaveBeenCalled();
     });
 
+    it('returns page geometry for a managed working copy', async () => {
+        const geometry = {
+            mediaBox: {
+                x: 0,
+                y: 0,
+                width: 612,
+                height: 792,
+            },
+            cropBox: null,
+            rotation: 90,
+        };
+        mocks.getPageGeometry.mockResolvedValueOnce(geometry);
+        const handler = getHandler('page-ops:get-page-geometry');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/work.pdf', 2)).resolves.toEqual(geometry);
+
+        expect(mocks.getPageGeometry).toHaveBeenCalledWith('/tmp/work.pdf', 2, 1);
+    });
+
+    it('resolves original paths before reading page geometry', async () => {
+        const geometry = {
+            mediaBox: {
+                x: 0,
+                y: 0,
+                width: 612,
+                height: 792,
+            },
+            cropBox: {
+                x: 10,
+                y: 20,
+                width: 500,
+                height: 700,
+            },
+            rotation: 0,
+        };
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/pdf-work-1/work.pdf');
+        mocks.getPageGeometry.mockResolvedValueOnce(geometry);
+        const handler = getHandler('page-ops:get-page-geometry');
+
+        await expect(handler({sender: {id: 7}}, '/Users/Alice/book.pdf', 1)).resolves.toEqual(geometry);
+
+        expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/Alice/book.pdf', 7);
+        expect(mocks.getPageGeometry).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf', 1, 7);
+    });
+
+    it('rejects invalid page geometry page numbers before reading geometry', async () => {
+        const handler = getHandler('page-ops:get-page-geometry');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/work.pdf', 0))
+            .rejects.toThrow('Invalid page number');
+        await expect(handler({sender: {id: 1}}, '/tmp/work.pdf', 1.5))
+            .rejects.toThrow('Invalid page number');
+
+        expect(mocks.getPageGeometry).not.toHaveBeenCalled();
+    });
+
     it('recovers the working-copy directory before inserting converted source files', async () => {
         mocks.isPdfOrImagePath.mockReturnValue(true);
         mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([

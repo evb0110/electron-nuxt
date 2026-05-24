@@ -19,6 +19,7 @@ import {
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,6 +53,7 @@ type TCropWorkerInput =
         type: 'getPageGeometry';
         workingCopyPath: string;
         pageNumber: number;
+        senderWebContentsId?: number;
     };
 
 function resolveCropWorkerPath() {
@@ -99,12 +101,19 @@ async function assertLocalCropFallbackAllowed(workingCopyPath: string, requested
     }
 }
 
+async function ensureManagedWorkingCopy(workingCopyPath: string, senderWebContentsId?: number) {
+    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
+        throw new Error('Working copy path is not managed');
+    }
+}
+
 export async function cropPages(
     workingCopyPath: string,
     pages: number[],
     margins: ICropMargins,
     senderWebContentsId?: number,
 ) {
+    await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
     try {
         await runCropWorkerTask<undefined>({
             type: 'crop',
@@ -119,7 +128,7 @@ export async function cropPages(
         }
         await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
-        await cropPagesLocal(workingCopyPath, pages, margins, senderWebContentsId);
+        await cropPagesLocal(workingCopyPath, pages, margins);
     }
 }
 
@@ -128,6 +137,7 @@ export async function removeCropFromPages(
     pages: number[],
     senderWebContentsId?: number,
 ) {
+    await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
     try {
         await runCropWorkerTask<undefined>({
             type: 'removeCrop',
@@ -141,25 +151,27 @@ export async function removeCropFromPages(
         }
         await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
-        await removeCropFromPagesLocal(workingCopyPath, pages, senderWebContentsId);
+        await removeCropFromPagesLocal(workingCopyPath, pages);
     }
 }
 
 export async function getPageGeometry(
     workingCopyPath: string,
     pageNumber: number,
+    senderWebContentsId?: number,
 ): Promise<IPageGeometry> {
+    await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
     try {
         return await runCropWorkerTask<IPageGeometry>({
             type: 'getPageGeometry',
             workingCopyPath,
             pageNumber,
+            ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
         });
     } catch (error) {
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
-        await assertLocalCropFallbackAllowed(workingCopyPath, 1);
         log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
         return getPageGeometryLocal(workingCopyPath, pageNumber);
     }
