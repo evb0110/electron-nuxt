@@ -115,6 +115,21 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return isNoteEligibleComment(comment);
     }
 
+    function hasAnnotationNoteStableIdentifier(comment: IAnnotationCommentSummary) {
+        return Boolean(comment.annotationId || comment.uid);
+    }
+
+    function canMatchAnnotationNotesByPlacement(
+        left: IAnnotationCommentSummary,
+        right: IAnnotationCommentSummary,
+    ) {
+        if (left.source !== right.source) {
+            return true;
+        }
+
+        return hasAnnotationNoteStableIdentifier(left) !== hasAnnotationNoteStableIdentifier(right);
+    }
+
     function commentsLikelyReferToSameNote(
         left: IAnnotationCommentSummary,
         right: IAnnotationCommentSummary,
@@ -152,6 +167,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return left.pageIndex === right.pageIndex
             && isCommentEligibleForNoteWindow(left)
             && isCommentEligibleForNoteWindow(right)
+            && canMatchAnnotationNotesByPlacement(left, right)
             && markerRectCenterDistance(left.markerRect, right.markerRect) < 0.01;
     }
 
@@ -216,8 +232,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         annotationNotePositions.value = {
             ...annotationNotePositions.value,
             [stableKey]: {
-                x: 14 + lane * 20,
-                y: 72 + lane * 14,
+                x: 14 + lane * 32,
+                y: 112 + lane * 56,
             },
         };
     }
@@ -235,7 +251,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         left: IAnnotationCommentSummary,
         right: IAnnotationCommentSummary,
     ) {
-        return annotationCommentsMatch(left, right);
+        return commentsLikelyReferToSameNote(left, right);
     }
 
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {

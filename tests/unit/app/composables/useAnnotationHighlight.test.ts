@@ -110,6 +110,77 @@ function createTarget(page: IFakePageElement | null): IFakeTargetElement {
     return {closest: (selector: string) => selector === '.page_container' ? page : null};
 }
 
+function createDomPageContainer(page: number, rect: IRect) {
+    const element = new FakeHTMLElement();
+    element.className = 'page_container';
+    element.dataset.page = String(page);
+    element.rect = rect;
+    return element;
+}
+
+class FakeHTMLElement {
+    className = '';
+    dataset: { page?: string } = {};
+    rect: IRect = {
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+    };
+    children: FakeHTMLElement[] = [];
+
+    append(child: FakeHTMLElement) {
+        this.children.push(child);
+    }
+
+    contains(target: FakeHTMLElement | null) {
+        return target === this || Boolean(target && this.children.includes(target));
+    }
+
+    querySelector(selector: string) {
+        if (selector === `.page_container[data-page="${this.dataset.page}"]`) {
+            return this;
+        }
+        return this.children.find(child => selector === `.page_container[data-page="${child.dataset.page}"]`) ?? null;
+    }
+
+    querySelectorAll(selector: string) {
+        if (selector !== '.page_container') {
+            return [];
+        }
+        return [
+            ...(this.className === 'page_container' ? [this] : []),
+            ...this.children.filter(child => child.className === 'page_container'),
+        ];
+    }
+
+    dispatchEvent(_event: Event) {
+        return true;
+    }
+
+    getBoundingClientRect() {
+        const rect = this.rect;
+        return {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            right: rect.left + rect.width,
+            bottom: rect.top + rect.height,
+            x: rect.left,
+            y: rect.top,
+            toJSON: () => ({}),
+        };
+    }
+}
+
+class FakePointerEvent {
+    constructor(
+        readonly type: string,
+        readonly init: PointerEventInit,
+    ) {}
+}
+
 describe('useAnnotationHighlight resolvePagePointTarget', () => {
     it('prefers geometry fallback when target page conflicts with pointer coordinates', () => {
         const page1 = createFakePageContainer(1, {
@@ -189,5 +260,95 @@ describe('useAnnotationHighlight resolvePagePointTarget', () => {
 
         expect(resolved?.pageNumber).toBe(1);
         expect(resolved?.pageContainer).toBe(page1);
+    });
+});
+
+describe('useAnnotationHighlight commentAtPoint', () => {
+    it('does not reuse an existing editor when a new sticky-note editor is not available yet', async () => {
+        vi.stubGlobal('HTMLElement', FakeHTMLElement);
+        vi.stubGlobal('PointerEvent', FakePointerEvent);
+
+        const viewer = new FakeHTMLElement();
+        const page = createDomPageContainer(1, {
+            left: 0,
+            top: 0,
+            width: 200,
+            height: 200,
+        });
+        const layerDiv = new FakeHTMLElement();
+        viewer.append(page);
+
+        const existingEditor = {
+            id: 'existing-editor',
+            parentPageIndex: 0,
+            div: new FakeHTMLElement(),
+            x: 0.1,
+            y: 0.1,
+            width: 0.01,
+            height: 0.01,
+            comment: { text: 'Existing note' },
+        };
+        const uiManager = {
+            getMode: vi.fn(() => 0),
+            getEditors: vi.fn(() => new Set([existingEditor])),
+            getLayer: vi.fn(() => ({
+                div: layerDiv,
+                createAndAddNewEditor: vi.fn(),
+            })),
+            waitForEditorsRendered: vi.fn(async () => undefined),
+        };
+        const pendingCommentEditorKeys = new Set<string>();
+        const emitAnnotationOpenNote = vi.fn();
+
+        const highlight = useAnnotationHighlight({
+            viewerContainer: ref(asElement(viewer)),
+            annotationUiManager: shallowRef(uiManager as never),
+            numPages: ref(1),
+            currentPage: ref(1),
+            annotationTool: ref('none'),
+            getIdentity: () => ({
+                getEditorIdentity: editor => String(editor.id),
+                getEditorPendingKey: editor => `pending:${String(editor.id)}`,
+            }),
+            getMarkupSubtype: () => ({
+                TOOL_TO_MARKUP_SUBTYPE: {},
+                isSelectionMarkupTool: () => false,
+                setEditorMarkupSubtypeOverride: () => {},
+                resolveEditorMarkupSubtypeOverride: () => null,
+                resolveEditorSubtypeFromPresentation: () => null,
+                syncMarkupSubtypePresentationForEditors: () => {},
+            }),
+            getSync: () => ({
+                pendingCommentEditorKeys,
+                toEditorSummary: (editor, pageIndex, text) => ({
+                    id: String(editor.id),
+                    stableKey: `src:editor:${pageIndex}:${String(editor.id)}`,
+                    pageIndex,
+                    pageNumber: pageIndex + 1,
+                    text,
+                    author: null,
+                    modifiedAt: null,
+                    color: null,
+                    uid: null,
+                    annotationId: null,
+                    source: 'editor',
+                    hasNote: true,
+                    markerRect: null,
+                }),
+            }),
+            getToolManager: () => ({
+                updateModeWithRetry: async () => null,
+                maybeAutoResetAnnotationTool: () => {},
+            }),
+            stopDrag: () => {},
+            emitAnnotationOpenNote,
+            emitAnnotationNotePlacementChange: () => {},
+        });
+
+        const created = await highlight.commentAtPoint(1, 0.5, 0.5, { preferTextAnchor: false });
+
+        expect(created).toBe(false);
+        expect(emitAnnotationOpenNote).not.toHaveBeenCalled();
+        expect(pendingCommentEditorKeys.has('pending:existing-editor')).toBe(false);
     });
 });

@@ -892,7 +892,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return true;
             }
             return !snapshot.editorsBeforeIds.has(getEditorIdentity(editor, pageIndex));
-        }) ?? editorsAfter.at(-1) ?? null;
+        }) ?? null;
     }
 
     async function commentAtPoint(
