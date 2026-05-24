@@ -7,6 +7,30 @@ export interface IPdfjsHighlightBox {
     height: number;
 }
 
+export interface IPdfjsDrawLayerDrawProperties {
+    bbox?: [number, number, number, number];
+    root?: Record<string, string | null>;
+    rootClass?: Record<string, boolean>;
+    path?: Record<string, string | null>;
+}
+
+export interface IPdfjsDrawLayer {
+    draw: (
+        properties?: IPdfjsDrawLayerDrawProperties,
+        isPathUpdatable?: boolean,
+        hasClip?: boolean,
+    ) => {
+        clipPathId?: string;
+        id: number;
+    };
+    remove: (id: number) => void;
+}
+
+export interface IPdfjsEditorParent {
+    div?: HTMLElement;
+    drawLayer?: IPdfjsDrawLayer;
+}
+
 export interface IPdfjsEditor {
     id?: string;
     div?: HTMLElement;
@@ -33,7 +57,7 @@ export interface IPdfjsEditor {
     updateParams?: (type: number, value: unknown) => void;
     setDims?: () => void;
     fixAndSetPosition?: () => void;
-    parent?: { div?: HTMLElement };
+    parent?: IPdfjsEditorParent;
     __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
     __evbResolvedPageIndex?: number;
     __evbPlacementAttemptId?: string | null;
