@@ -192,6 +192,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     }
 
     function markAnnotationCommentsLoading() {
+        if (annotationCommentsStatus.value === 'ready' && annotationComments.value.length === 0) {
+            return;
+        }
         annotationCommentsStatus.value = 'loading';
     }
 

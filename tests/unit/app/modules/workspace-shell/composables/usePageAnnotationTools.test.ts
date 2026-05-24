@@ -264,6 +264,16 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationDirty.value).toBe(true);
     });
 
+    it('keeps a resolved empty annotations list ready during a reload', () => {
+        const { tools } = createHarness();
+
+        tools.applyAnnotationComments([]);
+        tools.markAnnotationCommentsLoading();
+
+        expect(tools.annotationCommentsStatus.value).toBe('ready');
+        expect(tools.annotationComments.value).toEqual([]);
+    });
+
     it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {
         const {
             deps,
