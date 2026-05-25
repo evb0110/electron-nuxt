@@ -1896,6 +1896,7 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   overflow: auto;
   overflow-anchor: none;
+  scrollbar-gutter: stable;
   padding: 8px;
 }
 
