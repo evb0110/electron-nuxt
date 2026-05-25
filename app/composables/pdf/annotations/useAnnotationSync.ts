@@ -307,6 +307,11 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             ?? parsePdfDateTimestamp(data.creationDate);
     }
 
+    function resolveEditorSummaryCreatedAt(data: TEditorData) {
+        return parsePdfDateTimestamp(data.creationDate)
+            ?? parsePdfDateTimestamp(data.modificationDate);
+    }
+
     function resolveEditorSummaryColor(editor: IPdfjsEditor, data: TEditorData) {
         return toCssColor(
             data.color ?? editor.color,
@@ -364,6 +369,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             kindLabel: resolveAnnotationKindLabel(resolvedSubtype),
             subtype: resolvedSubtype,
             author: resolveEditorSummaryAuthor(),
+            createdAt: resolveEditorSummaryCreatedAt(data),
             modifiedAt: resolveEditorSummaryModifiedAt(data),
             color: resolveEditorSummaryColor(editor, data),
             uid,

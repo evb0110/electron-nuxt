@@ -27,9 +27,35 @@ export function isTextNoteComment(comment: IAnnotationCommentSummary) {
     );
 }
 
+function normalizeTimestamp(value: number | null | undefined) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : null;
+}
+
+export function getAnnotationCommentCreatedAt(comment: IAnnotationCommentSummary) {
+    return normalizeTimestamp(comment.createdAt)
+        ?? normalizeTimestamp(comment.modifiedAt);
+}
+
+export function getAnnotationCommentDisplayTimestamp(comment: IAnnotationCommentSummary) {
+    return normalizeTimestamp(comment.modifiedAt)
+        ?? normalizeTimestamp(comment.createdAt);
+}
+
+export function getAnnotationCommentSortTimestamp(comment: IAnnotationCommentSummary) {
+    return getAnnotationCommentCreatedAt(comment) ?? 0;
+}
+
 export function compareAnnotationCommentSummaries(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
     if (left.pageIndex !== right.pageIndex) {
         return left.pageIndex - right.pageIndex;
+    }
+
+    const leftCreated = getAnnotationCommentSortTimestamp(left);
+    const rightCreated = getAnnotationCommentSortTimestamp(right);
+    if (leftCreated !== rightCreated) {
+        return leftCreated - rightCreated;
     }
 
     const leftSort = typeof left.sortIndex === 'number' ? left.sortIndex : null;
@@ -45,12 +71,6 @@ export function compareAnnotationCommentSummaries(left: IAnnotationCommentSummar
 
     if (leftSort === null && rightSort !== null) {
         return 1;
-    }
-
-    const leftModified = left.modifiedAt ?? 0;
-    const rightModified = right.modifiedAt ?? 0;
-    if (leftModified !== rightModified) {
-        return rightModified - leftModified;
     }
 
     return left.stableKey.localeCompare(right.stableKey);

@@ -455,10 +455,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     ) {
         note.saveMode = note.saveMode === 'embedded' ? 'embedded' : 'auto';
 
+        const modifiedAt = Date.now();
         const localUpdated: IAnnotationCommentSummary = {
             ...targetComment,
             text: nextText,
-            modifiedAt: Date.now(),
+            createdAt: targetComment.createdAt ?? modifiedAt,
+            modifiedAt,
         };
         note.comment = localUpdated;
         note.text = nextText;
@@ -492,6 +494,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             ...preferred,
             text: comment.text,
             hasNote: true,
+            createdAt: preferred.createdAt ?? comment.createdAt ?? comment.modifiedAt,
             modifiedAt: comment.modifiedAt,
             markerRect: comment.markerRect ?? existing.markerRect ?? preferred.markerRect,
         };
@@ -610,11 +613,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 if (note.text.trim().length > 0) {
                     const previousStableKey = note.comment.stableKey;
                     const latestComment = findMatchingAnnotationComment(note.comment) ?? note.comment;
+                    const modifiedAt = Date.now();
                     const commentForSave: IAnnotationCommentSummary = {
                         ...latestComment,
                         text: note.text,
                         hasNote: true,
-                        modifiedAt: Date.now(),
+                        createdAt: latestComment.createdAt ?? modifiedAt,
+                        modifiedAt,
                     };
                     note.comment = commentForSave;
                     migrateAnnotationNoteWindowKey(previousStableKey, commentForSave.stableKey);

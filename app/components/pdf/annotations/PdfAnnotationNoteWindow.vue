@@ -148,10 +148,11 @@ const { settings } = useSettings();
 const title = computed(() => t('noteWindow.popUpNote', { page: comment.pageNumber }));
 const authorText = computed(() => comment.author?.trim() || settings.value.authorName?.trim() || t('noteWindow.unknownAuthor'));
 const timestampText = computed(() => {
-    if (!comment.modifiedAt) {
+    const timestamp = comment.modifiedAt ?? comment.createdAt ?? null;
+    if (!timestamp) {
         return t('noteWindow.noDate');
     }
-    return timeFormatter.format(new Date(comment.modifiedAt));
+    return timeFormatter.format(new Date(timestamp));
 });
 
 const windowStyle = computed(() => ({

@@ -2,8 +2,10 @@ import {
     PDFArray,
     PDFDict,
     PDFDocument,
+    PDFHexString,
     PDFName,
     PDFNumber,
+    PDFString,
 } from 'pdf-lib';
 import type { PDFRef } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
@@ -27,6 +29,7 @@ import {
 } from '@app/composables/pdf/pdfSerializationRefs';
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 import { readPdfRectFromDict } from '@app/composables/pdf/pdfPageBoxes';
+import { parsePdfDateStringTimestamp } from '@app/utils/pdfDate';
 import {
     computePointsMinMax,
     iterateAnnotationRefDicts,
@@ -52,6 +55,9 @@ const LINE_POINTS_NAME = PDFName.of('L');
 const VERTICES_NAME = PDFName.of('Vertices');
 const INK_LIST_NAME = PDFName.of('InkList');
 const LINE_ENDINGS_NAME = PDFName.of('LE');
+const MODIFIED_AT_NAME = PDFName.of('M');
+const CREATED_AT_NAME = PDFName.of('CreationDate');
+
 function normalizeImportedShapeSubtype(
     subtype: string | null | undefined,
 ): TEmbeddedPdfShapeSubtype | null {
@@ -205,6 +211,26 @@ function readLineEndingStyles(dict: PDFDict) {
     };
 }
 
+function readPdfTextValue(value: unknown) {
+    if (value instanceof PDFString || value instanceof PDFHexString) {
+        return value.decodeText();
+    }
+    return '';
+}
+
+function readAnnotationTimestamp(dict: PDFDict, key: PDFName) {
+    return parsePdfDateStringTimestamp(readPdfTextValue(dict.get(key)) || null);
+}
+
+function readShapeDates(dict: PDFDict) {
+    const createdAt = readAnnotationTimestamp(dict, CREATED_AT_NAME);
+    const modifiedAt = readAnnotationTimestamp(dict, MODIFIED_AT_NAME) ?? createdAt;
+    return {
+        createdAt: createdAt ?? modifiedAt,
+        modifiedAt,
+    };
+}
+
 function toImportedShapeType(
     subtype: TEmbeddedPdfShapeSubtype,
     lineStartStyle?: TLineEndStyle,
@@ -260,6 +286,7 @@ function importRectShape(
     const annotationId = refToAnnotationId(ref);
     const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const fillColor = toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '');
+    const dates = readShapeDates(dict);
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, subtype),
         type: toImportedShapeType(subtype),
@@ -276,6 +303,7 @@ function importRectShape(
         stableKey,
         annotationId,
         pdfSubtype: subtype,
+        ...dates,
     };
 }
 
@@ -318,6 +346,7 @@ function importLineShape(
         lineStartStyle,
         lineEndStyle,
     } = readLineEndingStyles(dict);
+    const dates = readShapeDates(dict);
 
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, 'Line'),
@@ -338,6 +367,7 @@ function importLineShape(
         pdfSubtype: 'Line',
         lineStartStyle,
         lineEndStyle,
+        ...dates,
     };
 }
 
@@ -379,6 +409,7 @@ function importVerticesShape(
     const fillColor = subtype === 'Polygon'
         ? toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '')
         : '';
+    const dates = readShapeDates(dict);
 
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, subtype),
@@ -399,6 +430,7 @@ function importVerticesShape(
         pdfSubtype: subtype,
         lineStartStyle,
         lineEndStyle,
+        ...dates,
     };
 }
 
@@ -454,6 +486,7 @@ function importInkShape(
     }
 
     const annotationId = refToAnnotationId(ref);
+    const dates = readShapeDates(dict);
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, 'Ink'),
         type: toImportedShapeType('Ink'),
@@ -471,6 +504,7 @@ function importInkShape(
         stableKey,
         annotationId,
         pdfSubtype: 'Ink',
+        ...dates,
     };
 }
 

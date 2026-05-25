@@ -91,6 +91,22 @@ describe('compareAnnotations', () => {
         expect(compareAnnotations(left, right)).toBeLessThan(0);
     });
 
+    it('orders by creation time before source-local sort indexes', () => {
+        const older = createComment({
+            pageIndex: 1,
+            sortIndex: 5,
+            createdAt: 100,
+            modifiedAt: 100,
+        });
+        const newer = createComment({
+            pageIndex: 1,
+            sortIndex: 1,
+            createdAt: 200,
+            modifiedAt: 200,
+        });
+        expect(compareAnnotations(older, newer)).toBeLessThan(0);
+    });
+
     it('treats a comment with sortIndex as preceding one without', () => {
         const left = createComment({
             pageIndex: 1,
@@ -104,16 +120,29 @@ describe('compareAnnotations', () => {
         expect(compareAnnotations(right, left)).toBe(1);
     });
 
-    it('falls back to descending modifiedAt when sortIndex is absent', () => {
+    it('falls back to ascending modifiedAt when creation time is absent', () => {
         const left = createComment({
-            pageIndex: 0,
-            modifiedAt: 200,
-        });
-        const right = createComment({
             pageIndex: 0,
             modifiedAt: 100,
         });
+        const right = createComment({
+            pageIndex: 0,
+            modifiedAt: 200,
+        });
         expect(compareAnnotations(left, right)).toBeLessThan(0);
+    });
+
+    it('keeps undated legacy annotations before dated additions on the same page', () => {
+        const legacy = createComment({
+            pageIndex: 0,
+            sortIndex: 10,
+        });
+        const addedLater = createComment({
+            pageIndex: 0,
+            sortIndex: 0,
+            modifiedAt: 200,
+        });
+        expect(compareAnnotations(legacy, addedLater)).toBeLessThan(0);
     });
 
     it('falls back to stableKey comparison when all other fields match', () => {

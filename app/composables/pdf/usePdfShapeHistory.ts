@@ -12,6 +12,15 @@ export function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
     };
 }
 
+function cloneShapeForHistoryComparison(shape: IShapeAnnotation) {
+    const {
+        createdAt: _createdAt,
+        modifiedAt: _modifiedAt,
+        ...comparable
+    } = cloneShape(shape);
+    return comparable;
+}
+
 export function usePdfShapeHistory(options: {
     registerCommand: (command: {
         cmd: () => void;
@@ -24,7 +33,8 @@ export function usePdfShapeHistory(options: {
     markModified: () => void;
 }) {
     function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
-        const hasChanges = JSON.stringify(cloneShape(previousShape)) !== JSON.stringify(cloneShape(nextShape));
+        const hasChanges = JSON.stringify(cloneShapeForHistoryComparison(previousShape))
+            !== JSON.stringify(cloneShapeForHistoryComparison(nextShape));
         if (!hasChanges) {
             return;
         }

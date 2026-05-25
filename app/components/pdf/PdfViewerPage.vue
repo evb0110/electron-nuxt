@@ -26,6 +26,7 @@
             :shapes="pageShapes"
             :drawing-shape="pageDrawingShape"
             :selected-shape-id="shapeContext.selectedShapeId.value"
+            :focused-shape-id="shapeContext.focusedShapeId.value"
             :is-active="shapeContext.isShapeToolActive.value"
             :is-annotation-tool-active="shapeContext.isAnyAnnotationToolActive.value"
             :selection-enabled="shapeContext.isSelectionToolActive.value"

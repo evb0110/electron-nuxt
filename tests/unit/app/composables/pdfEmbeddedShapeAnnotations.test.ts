@@ -7,6 +7,7 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
+    PDFString,
 } from 'pdf-lib';
 import {
     collectEmbeddedShapeAnnotationIds,
@@ -43,6 +44,8 @@ async function createPdfWithEmbeddedShapes(options: { managedInk?: boolean } = {
             0.94,
         ],
         CA: 0.6,
+        CreationDate: PDFString.of('D:20260525100000+00\'00\''),
+        M: PDFString.of('D:20260525100100+00\'00\''),
         Border: [
             0,
             0,
@@ -266,6 +269,8 @@ describe('importEmbeddedShapeAnnotations', () => {
             fillColor: '#abccf0',
             opacity: 0.6,
             strokeWidth: 3,
+            createdAt: Date.UTC(2026, 4, 25, 10, 0, 0),
+            modifiedAt: Date.UTC(2026, 4, 25, 10, 1, 0),
         });
         expect(shapes[0]?.x).toBeCloseTo(0.1, 6);
         expect(shapes[0]?.y).toBeCloseTo(0.1, 6);

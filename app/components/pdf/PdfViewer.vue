@@ -727,11 +727,12 @@ watch(isImagePlacementActive, (active) => {
 watch(annotationTool, (tool) => {
     if (!isSelectionInteractionTool(tool)) {
         shapeComposable.selectShape(null);
+        shapeComposable.focusShape(null);
     }
 });
 
 function getShapeAnnotationCommentSummaries() {
-    return shapeComposable.getAllShapes().map(shape => toShapeAnnotationCommentSummary(shape));
+    return shapeComposable.getAllShapes().map((shape, index) => toShapeAnnotationCommentSummary(shape, index));
 }
 
 function emitAnnotationCommentsForSidebar(
@@ -1211,7 +1212,7 @@ async function focusShapeAnnotationComment(comment: IAnnotationCommentSummary) {
     }
 
     activeCommentStableKey.value = comment.stableKey;
-    shapeComposable.selectShape(shape.id);
+    shapeComposable.focusShape(shape.id);
 
     const pageNumber = Math.min(
         Math.max(comment.pageNumber, 1),
@@ -1243,6 +1244,7 @@ async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
         return;
     }
 
+    shapeComposable.focusShape(null);
     await commentCrud.focusAnnotationComment(comment);
 }
 
@@ -1252,8 +1254,9 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
         if (!shape) {
             return false;
         }
-        shapeComposable.selectShape(shape.id);
-        selectedShapeCommands.deleteSelectedShape();
+        if (!selectedShapeCommands.deleteShapeById(shape.id)) {
+            return false;
+        }
         emitAnnotationCommentsForSidebar(annotationCommentsCache.value);
         return true;
     }
@@ -1354,6 +1357,7 @@ function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnot
     const updated = {
         ...previous,
         markerRect,
+        createdAt: previous.createdAt ?? movedAt,
         modifiedAt: movedAt,
     };
     const editor = commentCrud.findEditorForComment(updated) ?? commentCrud.findEditorForComment(comment);

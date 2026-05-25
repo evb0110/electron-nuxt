@@ -26,6 +26,7 @@ interface ISummaryMemoryEntry {
     displayText: string | null;
     previewText: string | null;
     pageIndex: number;
+    createdAt: number | null;
     modifiedAt: number | null;
     author: string | null;
     kindLabel: string | null;
@@ -98,6 +99,7 @@ function toMemorySummary(entry: ISummaryMemoryEntry): IAnnotationCommentSummary 
         kindLabel: entry.kindLabel,
         subtype: entry.subtype,
         author: entry.author,
+        createdAt: entry.createdAt,
         modifiedAt: entry.modifiedAt,
         color: entry.color,
         uid: null,
@@ -186,6 +188,7 @@ function applySummaryMemory(
         text: cached.text.trim() ? cached.text : summary.text,
         displayText: summary.displayText ?? (selectedMarkupPreview || null),
         previewText: summary.previewText ?? cached.previewText,
+        createdAt: summary.createdAt ?? cached.createdAt,
         modifiedAt: summary.modifiedAt ?? cached.modifiedAt,
         author: summary.author ?? cached.author,
         kindLabel: summary.kindLabel ?? cached.kindLabel,
@@ -248,6 +251,7 @@ export const useAnnotationIdentity = (
             displayText: summary.displayText?.trim() || null,
             previewText: summary.previewText?.trim() || null,
             pageIndex: summary.pageIndex,
+            createdAt: summary.createdAt ?? summary.modifiedAt ?? null,
             modifiedAt: summary.modifiedAt ?? null,
             author: summary.author ?? null,
             kindLabel: summary.kindLabel ?? null,
