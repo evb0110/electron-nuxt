@@ -80,11 +80,12 @@ beforeEach(() => {
 });
 
 describe('usePageOpsHandlers crop reload strategy', () => {
-    it('keeps rotation on the selective invalidation path', async () => {
+    it('waits for document reload after rotation instead of selectively invalidating stale thumbnails', async () => {
         const {
             handlers,
             invalidateThumbnailPages,
             invalidatePages,
+            preparePdfReloadWaiter,
         } = createHarness();
 
         await handlers.handlePageRotate([
@@ -92,18 +93,26 @@ describe('usePageOpsHandlers crop reload strategy', () => {
             3,
         ], 90);
 
-        expect(invalidateThumbnailPages).toHaveBeenCalledWith([
-            2,
-            3,
-        ]);
-        expect(invalidatePages).toHaveBeenCalledWith([
-            2,
-            3,
-        ]);
+        expect(invalidateThumbnailPages).not.toHaveBeenCalled();
+        expect(invalidatePages).not.toHaveBeenCalled();
+        expect(preparePdfReloadWaiter).toHaveBeenCalledWith(4, { captureScrollSnapshot: false });
         expect(operationMocks.rotatePages).toHaveBeenCalledWith([
             2,
             3,
         ], 90);
+    });
+
+    it('cancels the page-only reload waiter when rotation fails', async () => {
+        const {
+            handlers,
+            reloadWaiterCancel,
+        } = createHarness();
+        operationMocks.rotatePages.mockResolvedValueOnce(false);
+
+        const result = await handlers.handlePageRotate([2], 90);
+
+        expect(result).toBe(false);
+        expect(reloadWaiterCancel).toHaveBeenCalledOnce();
     });
 
     it('lets crop operations reload fully instead of reusing stale page geometry', async () => {

@@ -41,8 +41,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
-        invalidateThumbnailPages,
-        pdfViewerRef,
         pageContextMenu,
         closePageContextMenu,
         onExportPages,
@@ -94,10 +92,15 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         onExportPages([...pages]);
     }
 
-    function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
-        invalidateThumbnailPages([...pages]);
-        pdfViewerRef.value?.invalidatePages([...pages]);
-        return pageOpsRotate(pages, angle);
+    async function handlePageRotate(pages: number[], angle: 90 | 180 | 270) {
+        const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
+        const didRotate = await pageOpsRotate(pages, angle);
+        if (!didRotate) {
+            reloadWaiter.cancel();
+            return false;
+        }
+        await reloadWaiter.promise;
+        return true;
     }
 
     function handlePageContextMenuRotateCw() {
