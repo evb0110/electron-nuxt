@@ -1,7 +1,6 @@
 import {
     degrees,
     PDFDocument,
-    PDFName,
 } from 'pdf-lib';
 import type { PDFPage } from 'pdf-lib';
 import type {
@@ -41,6 +40,92 @@ function isSamePdfBox(
         && first.y === second.y
         && first.width === second.width
         && first.height === second.height;
+}
+
+function normalizePdfBox(box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}) {
+    const minX = Math.min(box.x, box.x + box.width);
+    const minY = Math.min(box.y, box.y + box.height);
+    const maxX = Math.max(box.x, box.x + box.width);
+    const maxY = Math.max(box.y, box.y + box.height);
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    return {
+        x: minX,
+        y: minY,
+        width,
+        height,
+    };
+}
+
+function intersectPdfBoxes(
+    first: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    },
+    second: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    },
+) {
+    const minX = Math.max(first.x, second.x);
+    const minY = Math.max(first.y, second.y);
+    const maxX = Math.min(first.x + first.width, second.x + second.width);
+    const maxY = Math.min(first.y + first.height, second.y + second.height);
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    return {
+        x: minX,
+        y: minY,
+        width,
+        height,
+    };
+}
+
+function resolvePdfJsMediaBox(page: PDFPage) {
+    const mediaBox = normalizePdfBox(page.getMediaBox())
+        ?? normalizePdfBox({
+            x: 0,
+            y: 0,
+            ...page.getSize(),
+        });
+    if (!mediaBox) {
+        throw new Error('PDF page has an invalid media box');
+    }
+
+    return mediaBox;
+}
+
+function resolvePdfJsCropBox(page: PDFPage, mediaBox: ReturnType<typeof resolvePdfJsMediaBox>) {
+    const cropBox = normalizePdfBox(page.getCropBox());
+    if (!cropBox || isSamePdfBox(cropBox, mediaBox)) {
+        return null;
+    }
+
+    const effectiveCropBox = intersectPdfBoxes(cropBox, mediaBox);
+    if (!effectiveCropBox || isSamePdfBox(effectiveCropBox, mediaBox)) {
+        return null;
+    }
+
+    return effectiveCropBox;
 }
 
 function toPageBoxGeometry(box: {
@@ -282,7 +367,7 @@ export async function cropPdfBytes(
     margins: ICropMargins,
 ): Promise<IPageMutationWorkerResult> {
     return mutateValidatedPdfPages(data, pages, 'cropPages', (page) => {
-        const cropBox = getCropBoxFromMargins(page.getMediaBox(), margins);
+        const cropBox = getCropBoxFromMargins(resolvePdfJsMediaBox(page), margins);
         if (cropBox.width <= 0 || cropBox.height <= 0) {
             return;
         }
@@ -301,13 +386,7 @@ export async function removeCropPdfBytes(
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
     return mutateValidatedPdfPages(data, pages, 'removeCrop', (page) => {
-        const mediaBox = page.getMediaBox();
-        const cropBox = page.getCropBox();
-        if (isSamePdfBox(cropBox, mediaBox)) {
-            page.node.delete(PDFName.of('CropBox'));
-            return;
-        }
-
+        const mediaBox = resolvePdfJsMediaBox(page);
         page.setCropBox(
             mediaBox.x,
             mediaBox.y,
@@ -327,11 +406,8 @@ export async function getPageGeometryFromPdfBytes(
         throw new Error(`Page ${pageNumber} not found`);
     }
 
-    const mediaBox = page.getMediaBox();
-    const resolvedCropBox = page.getCropBox();
-    const cropBox = isSamePdfBox(resolvedCropBox, mediaBox)
-        ? null
-        : resolvedCropBox;
+    const mediaBox = resolvePdfJsMediaBox(page);
+    const cropBox = resolvePdfJsCropBox(page, mediaBox);
 
     return {
         mediaBox: toPageBoxGeometry(mediaBox),

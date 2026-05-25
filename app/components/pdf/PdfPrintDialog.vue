@@ -135,7 +135,6 @@
                 color="neutral"
                 variant="ghost"
                 :label="t('common.cancel')"
-                :disabled="isPreparing"
                 @click="open = false"
             />
             <UButton

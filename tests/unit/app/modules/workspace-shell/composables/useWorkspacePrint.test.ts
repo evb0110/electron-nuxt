@@ -10,6 +10,7 @@ import {
     ref,
 } from 'vue';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 type TShouldPrintPageMetricsDirectly = (
     metrics: Array<{
@@ -51,6 +52,15 @@ vi.mock('@app/utils/pdfPrint', () => ({
         && options.orientation === 'auto'
         && (!options.pageNumbers || options.pageNumbers.length === 0)
     ),
+    normalizePrintPageNumbers: (pageNumbers: number[] | undefined, totalPages: number) => {
+        if (!pageNumbers?.length) {
+            return Array.from({ length: totalPages }, (_, index) => index + 1);
+        }
+
+        return [...new Set(pageNumbers)]
+            .filter(pageNumber => Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= totalPages)
+            .sort((left, right) => left - right);
+    },
     renderPdfPagesForBrowserPrint: renderPdfPagesForBrowserPrintMock,
     shouldPrintPageMetricsDirectly: shouldPrintPageMetricsDirectlyMock,
     shouldPrintSourcePdfDirectly: shouldPrintSourcePdfDirectlyMock,
@@ -145,11 +155,17 @@ function createState(options?: {
     workingCopyPath?: string | null;
     fileName?: string | null;
     hasPendingUnsavedChanges?: boolean;
+    hasPendingPrintSerializationChanges?: boolean;
     getQuickPrintPageMetrics?: () => Promise<Array<{
         width: number;
         height: number;
     }> | null>;
     getPrintableSourceData?: () => Promise<Uint8Array | null>;
+    renderLoadedPdfPagesForBrowserPrint?: (
+        targetDocument: IBrowserPrintDocument,
+        pageNumbers: number[],
+        options?: { signal?: AbortSignal },
+    ) => Promise<void>;
 }) {
     const getQuickPrintPageMetrics = options?.getQuickPrintPageMetrics ?? vi.fn(async () => null);
     const getPrintableSourceData = options?.getPrintableSourceData ?? vi.fn(async () => Uint8Array.of(9, 8, 7));
@@ -166,8 +182,14 @@ function createState(options?: {
         workingCopyPath: ref(options?.workingCopyPath ?? '/tmp/document.pdf'),
         fileName: ref(options?.fileName ?? 'document.pdf'),
         hasPendingUnsavedChanges: ref(options?.hasPendingUnsavedChanges ?? false),
+        ...(options?.hasPendingPrintSerializationChanges !== undefined
+            ? { hasPendingPrintSerializationChanges: ref(options.hasPendingPrintSerializationChanges) }
+            : {}),
         getQuickPrintPageMetrics,
         getPrintableSourceData,
+        ...(options?.renderLoadedPdfPagesForBrowserPrint
+            ? { renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint }
+            : {}),
     }));
 
     if (!state) {
@@ -382,6 +404,118 @@ describe('useWorkspacePrint', () => {
             await printPromise;
 
             expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('prints the current loaded PDF.js page without rebuilding the whole PDF', async () => {
+        const renderLoadedPdfPagesForBrowserPrint = vi.fn(async () => {});
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/current-page.pdf',
+            fileName: 'current-page.pdf',
+            hasPendingUnsavedChanges: true,
+            hasPendingPrintSerializationChanges: false,
+            renderLoadedPdfPagesForBrowserPrint,
+        });
+
+        try {
+            const printPromise = state.handlePrintCurrentPage();
+            await flushMicrotasks(12);
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
+
+            appFrame.frame.trigger('load');
+            await printPromise;
+
+            expect(renderLoadedPdfPagesForBrowserPrint).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                [4],
+                { signal: expect.any(AbortSignal) },
+            );
+            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cancels current-page loaded-PDF print preparation', async () => {
+        let abortSignal: AbortSignal | undefined;
+        const renderLoadedPdfPagesForBrowserPrint = vi.fn(async (
+            _targetDocument,
+            _pageNumbers,
+            options?: { signal?: AbortSignal },
+        ) => {
+            abortSignal = options?.signal;
+            await new Promise<void>((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => {
+                    const error = new Error('Print preparation was canceled');
+                    error.name = 'AbortError';
+                    reject(error);
+                }, { once: true });
+            });
+        });
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/current-page.pdf',
+            fileName: 'current-page.pdf',
+            renderLoadedPdfPagesForBrowserPrint,
+        });
+
+        try {
+            const printPromise = state.handlePrintCurrentPage();
+            await flushMicrotasks(12);
+            appFrame.frame.trigger('load');
+            await flushMicrotasks(12);
+
+            expect(state.isPreparingPrint.value).toBe(true);
+            state.handlePrintDialogOpenChange(false);
+
+            expect(abortSignal?.aborted).toBe(true);
+            expect(appFrame.frame.remove).toHaveBeenCalledTimes(1);
+
+            await printPromise;
+
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(appFrame.frameWindow.print).not.toHaveBeenCalled();
+            expect(toastAddMock).not.toHaveBeenCalled();
             expect(state.isPreparingPrint.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {
@@ -908,10 +1042,7 @@ describe('useWorkspacePrint', () => {
             expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
                 renderedFrame.frameWindow.document,
                 Uint8Array.of(7, 8, 9),
-            );
-            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
-                renderedFrame.frameWindow.document,
-                Uint8Array.of(7, 8, 9),
+                { signal: expect.any(AbortSignal) },
             );
             expect(pdfViewerFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);

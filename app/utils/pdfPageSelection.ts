@@ -11,6 +11,19 @@ export function shouldSelectPageFromThumbnailClick(modifiers: IPageThumbnailClic
     return Boolean(modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey);
 }
 
+export function resolveThumbnailContextMenuPages(
+    page: number,
+    selectedPages: number[],
+    totalPages: number,
+) {
+    const normalizedSelection = normalizeSelectedPageNumbers(selectedPages, totalPages);
+    if (normalizedSelection.includes(page)) {
+        return normalizedSelection;
+    }
+
+    return normalizeSelectedPageNumbers([page], totalPages);
+}
+
 export function normalizeSelectedPageNumbers(selectedPages: number[], totalPages: number): number[] {
     return uniq(selectedPages)
         .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages)

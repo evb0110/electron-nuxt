@@ -13,6 +13,7 @@ import {
     buildPrintSpreadGroups,
     canPrintSourcePdfDirectly,
     parsePrintPageRangeInput,
+    renderPdfDocumentPagesForBrowserPrint,
     renderPdfPagesForBrowserPrint,
     shouldPrintPageMetricsDirectly,
     shouldPrintSourcePdfDirectly,
@@ -40,6 +41,28 @@ async function createSourcePdf(pageSizes: Array<[number, number]>) {
         page.drawText(`Page ${index + 1}`, {
             x: 12,
             y: Math.max(12, size[1] - 24),
+            size: 12,
+        });
+    }
+    return pdf.save();
+}
+
+async function createCroppedSourcePdf(
+    pages: Array<{
+        mediaSize: [number, number];
+        cropBox: [number, number, number, number];
+    }>,
+) {
+    const pdf = await PDFDocument.create();
+    for (const [
+        index,
+        pageOptions,
+    ] of pages.entries()) {
+        const page = pdf.addPage(pageOptions.mediaSize);
+        page.setCropBox(...pageOptions.cropBox);
+        page.drawText(`Page ${index + 1}`, {
+            x: 12,
+            y: Math.max(12, pageOptions.mediaSize[1] - 24),
             size: 12,
         });
     }
@@ -156,6 +179,26 @@ describe('pdfPrint', () => {
         })).resolves.toBe(true);
     });
 
+    it('uses the effective CropBox when deciding whether source PDF printing is safe', async () => {
+        const sourcePdfData = await createCroppedSourcePdf([{
+            mediaSize: [
+                734.4,
+                1113.12,
+            ],
+            cropBox: [
+                0,
+                0,
+                595.28,
+                841.89,
+            ],
+        }]);
+
+        await expect(shouldPrintSourcePdfDirectly(sourcePdfData, {
+            viewMode: 'single',
+            orientation: 'auto',
+        })).resolves.toBe(true);
+    });
+
     it('can decide direct-print safety from loaded page metrics without reparsing the PDF', () => {
         expect(shouldPrintPageMetricsDirectly([{
             width: 612,
@@ -209,6 +252,81 @@ describe('pdfPrint', () => {
             height: 595.28,
         });
         expect(printablePdf.getPage(1)?.getSize()).toEqual({
+            width: 595.28,
+            height: 841.89,
+        });
+    });
+
+    it('builds single-page printable PDFs from cropped page bounds instead of full media bounds', async () => {
+        const sourcePdfData = await createCroppedSourcePdf([{
+            mediaSize: [
+                800,
+                200,
+            ],
+            cropBox: [
+                0,
+                0,
+                100,
+                200,
+            ],
+        }]);
+
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [1],
+            viewMode: 'single',
+            orientation: 'auto',
+        });
+
+        expect(printablePdfData).not.toBeNull();
+
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPage(0)?.getSize()).toEqual({
+            width: 595.28,
+            height: 841.89,
+        });
+    });
+
+    it('builds facing-page printable PDFs from cropped page bounds instead of full media bounds', async () => {
+        const sourcePdfData = await createCroppedSourcePdf([
+            {
+                mediaSize: [
+                    800,
+                    200,
+                ],
+                cropBox: [
+                    0,
+                    0,
+                    100,
+                    200,
+                ],
+            },
+            {
+                mediaSize: [
+                    800,
+                    200,
+                ],
+                cropBox: [
+                    0,
+                    0,
+                    100,
+                    200,
+                ],
+            },
+        ]);
+
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [
+                1,
+                2,
+            ],
+            viewMode: 'facing',
+            orientation: 'auto',
+        });
+
+        expect(printablePdfData).not.toBeNull();
+
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPage(0)?.getSize()).toEqual({
             width: 595.28,
             height: 841.89,
         });
@@ -458,6 +576,73 @@ describe('pdfPrint', () => {
         expect(secondPage.cleanup).toHaveBeenCalledTimes(1);
         expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
         expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders selected pages from an already loaded PDF.js document', async () => {
+        const root = {
+            append: vi.fn(),
+            replaceChildren: vi.fn(),
+        };
+        const canvas = {
+            height: 0,
+            width: 0,
+            style: {},
+            getContext: vi.fn(),
+        };
+        canvas.getContext.mockReturnValue({ canvas });
+        const printSection = {
+            append: vi.fn(),
+            className: '',
+            style: {},
+        };
+        const targetDocument: IBrowserPrintDocument = {
+            createElement: vi.fn((tag: 'canvas' | 'section' | 'style') => {
+                if (tag === 'style') {
+                    return { textContent: '' };
+                }
+
+                if (tag === 'section') {
+                    return printSection;
+                }
+
+                return canvas;
+            }),
+            querySelector: () => root,
+        };
+        const page = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
+                ? {
+                    width: 100,
+                    height: 200,
+                }
+                : {
+                    width: 416.6666666666667,
+                    height: 833.3333333333334,
+                }),
+            render: vi.fn(() => ({
+                promise: Promise.resolve(),
+                cancel: vi.fn(),
+            })),
+        };
+        const getPage = vi.fn(async () => page);
+        const pdfDocument = {
+            getPage,
+            numPages: 9,
+        };
+
+        await renderPdfDocumentPagesForBrowserPrint(
+            targetDocument,
+            pdfDocument as never,
+            [4],
+        );
+
+        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+        expect(getPage).toHaveBeenCalledWith(4);
+        expect(root.replaceChildren).toHaveBeenCalledTimes(1);
+        expect(root.append).toHaveBeenCalledWith(printSection);
+        expect(page.render).toHaveBeenCalledTimes(1);
+        expect(page.cleanup).toHaveBeenCalledTimes(1);
     });
 
     it('rejects browser printing for mixed page sizes or orientations', async () => {

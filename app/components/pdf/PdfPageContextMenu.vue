@@ -7,7 +7,7 @@
         min-width="208px"
     >
         <p class="pdf-context-menu__section-title">
-            {{ t('pageOps.pagesSelected', menu.pages.length) }}
+            {{ menuTitle }}
         </p>
 
         <button
@@ -112,7 +112,12 @@ interface IPageContextMenuState {
     pages: number[];
 }
 
-defineProps<{
+const {
+    isDjvuMode = false,
+    isOperationInProgress,
+    menu,
+    style,
+} = defineProps<{
     menu: IPageContextMenuState;
     style: Record<string, string>;
     isOperationInProgress: boolean;
@@ -132,6 +137,15 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+const menuTitle = computed(() => {
+    const [page] = menu.pages;
+    if (menu.pages.length === 1 && page !== undefined) {
+        return t('pageOps.pageTarget', { page });
+    }
+
+    return t('pageOps.pagesSelected', menu.pages.length);
+});
 
 function onDeletePages() {
     emit('delete-pages');

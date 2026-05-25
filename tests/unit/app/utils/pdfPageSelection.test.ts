@@ -7,6 +7,7 @@ import {
     createAllPageNumbers,
     expandPageRange,
     normalizeSelectedPageNumbers,
+    resolveThumbnailContextMenuPages,
     shouldSelectPageFromThumbnailClick,
 } from '@app/utils/pdfPageSelection';
 
@@ -66,5 +67,22 @@ describe('pdf page selection helpers', () => {
         { ctrlKey: true },
     ])('selects pages from thumbnail clicks with selection modifier %#', (modifiers) => {
         expect(shouldSelectPageFromThumbnailClick(modifiers)).toBe(true);
+    });
+
+    it('targets only the clicked page when opening a context menu on an unselected thumbnail', () => {
+        expect(resolveThumbnailContextMenuPages(5, [
+            2,
+            3,
+        ], 6)).toEqual([5]);
+    });
+
+    it('keeps the current selection as the context menu target when right-clicking a selected thumbnail', () => {
+        expect(resolveThumbnailContextMenuPages(3, [
+            2,
+            3,
+        ], 6)).toEqual([
+            2,
+            3,
+        ]);
     });
 });

@@ -1,4 +1,9 @@
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDocument,
+    type PageBoundingBox,
+    type PDFEmbeddedPage,
+    type PDFPage,
+} from 'pdf-lib';
 import {
     compact,
     uniq,
@@ -13,6 +18,10 @@ import {
     getPdfjsAssetDir,
     getPdfjsWorkerUrl,
 } from '@app/utils/viewerAssets';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 
 export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
 
@@ -20,7 +29,7 @@ interface IPrintEmbeddedPage {
     pageNumber: number;
     width: number;
     height: number;
-    embeddedPage: Awaited<ReturnType<PDFDocument['embedPdf']>>[number];
+    embeddedPage: PDFEmbeddedPage;
 }
 
 interface IBuildPrintablePdfDataOptions {
@@ -36,6 +45,15 @@ interface IPreferredSinglePagePrintSheet {
     fitScale: number;
     aspectDelta: number;
 }
+
+interface IPdfPageBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface IRenderPdfPagesForBrowserPrintOptions {signal?: AbortSignal;}
 
 const SAFE_DIRECT_PRINT_FIT_SCALE_THRESHOLD = 0.97;
 const SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD = 0.1;
@@ -88,6 +106,94 @@ export interface IBrowserPrintDocument {
         | IBrowserPrintPageContainer
         | IBrowserPrintCanvas
         | IBrowserPrintStyleElement;
+}
+
+function createBrowserPrintAbortError() {
+    const error = new Error('Print preparation was canceled');
+    error.name = 'AbortError';
+    return error;
+}
+
+function throwIfBrowserPrintAborted(signal: AbortSignal | undefined) {
+    if (signal?.aborted) {
+        throw createBrowserPrintAbortError();
+    }
+}
+
+function normalizePdfPageBox(box: IPdfPageBox): IPdfPageBox | null {
+    const minX = Math.min(box.x, box.x + box.width);
+    const minY = Math.min(box.y, box.y + box.height);
+    const maxX = Math.max(box.x, box.x + box.width);
+    const maxY = Math.max(box.y, box.y + box.height);
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    return {
+        x: minX,
+        y: minY,
+        width,
+        height,
+    };
+}
+
+function arePdfPageBoxesEqual(left: IPdfPageBox, right: IPdfPageBox) {
+    return left.x === right.x
+        && left.y === right.y
+        && left.width === right.width
+        && left.height === right.height;
+}
+
+function intersectPdfPageBoxes(left: IPdfPageBox, right: IPdfPageBox) {
+    const minX = Math.max(left.x, right.x);
+    const minY = Math.max(left.y, right.y);
+    const maxX = Math.min(left.x + left.width, right.x + right.width);
+    const maxY = Math.min(left.y + left.height, right.y + right.height);
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    return {
+        x: minX,
+        y: minY,
+        width,
+        height,
+    };
+}
+
+function resolvePdfJsPageViewBox(page: PDFPage): IPdfPageBox {
+    const mediaBox = normalizePdfPageBox(page.getMediaBox())
+        ?? normalizePdfPageBox({
+            x: 0,
+            y: 0,
+            ...page.getSize(),
+        });
+
+    if (!mediaBox) {
+        throw new Error('PDF page has an invalid media box');
+    }
+
+    const cropBox = normalizePdfPageBox(page.getCropBox());
+    if (!cropBox || arePdfPageBoxesEqual(cropBox, mediaBox)) {
+        return mediaBox;
+    }
+
+    return intersectPdfPageBoxes(cropBox, mediaBox) ?? mediaBox;
+}
+
+function toPageBoundingBox(box: IPdfPageBox): PageBoundingBox {
+    return {
+        left: box.x,
+        bottom: box.y,
+        right: box.x + box.width,
+        top: box.y + box.height,
+    };
 }
 
 export function buildBrowserPrintFrameMarkup() {
@@ -259,6 +365,7 @@ function assertBrowserPrintPageMatchesFirstPage(
 export async function renderPdfPagesForBrowserPrint(
     targetDocument: IBrowserPrintDocument,
     printablePdf: Blob | Uint8Array,
+    options: IRenderPdfPagesForBrowserPrintOptions = {},
 ) {
     const root = getBrowserPrintRoot(targetDocument);
     root.replaceChildren();
@@ -277,65 +384,122 @@ export async function renderPdfPagesForBrowserPrint(
         iccUrl: getPdfjsAssetDir('iccs'),
         useSystemFonts: false,
     });
-    const pdfDocument = await loadingTask.promise;
+    let pdfDocument: PDFDocumentProxy;
+    try {
+        throwIfBrowserPrintAborted(options.signal);
+        pdfDocument = await loadingTask.promise;
+        throwIfBrowserPrintAborted(options.signal);
+    } catch (error) {
+        await loadingTask.destroy();
+        throwIfBrowserPrintAborted(options.signal);
+        throw error;
+    }
 
     try {
-        let firstPageSize: {
-            width: number;
-            height: number;
-        } | null = null;
-        for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
-            const page = await pdfDocument.getPage(pageNumber);
-
-            try {
-                const displayViewport = page.getViewport({ scale: 1 });
-                if (pageNumber === 1) {
-                    firstPageSize = {
-                        width: displayViewport.width,
-                        height: displayViewport.height,
-                    };
-                    setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
-                } else if (firstPageSize) {
-                    assertBrowserPrintPageMatchesFirstPage(
-                        pageNumber,
-                        displayViewport.width,
-                        displayViewport.height,
-                        firstPageSize,
-                    );
-                }
-
-                const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
-                const pageContainer = createBrowserPrintPageContainer(targetDocument);
-                pageContainer.className = 'browser-print-page';
-
-                const canvas = createBrowserPrintCanvas(targetDocument);
-                canvas.width = Math.max(1, Math.ceil(renderViewport.width));
-                canvas.height = Math.max(1, Math.ceil(renderViewport.height));
-                canvas.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
-                canvas.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
-
-                const context = canvas.getContext('2d', { alpha: false });
-                if (!context) {
-                    throw new Error('Failed to create browser print canvas');
-                }
-
-                await page.render({
-                    canvas: context.canvas,
-                    canvasContext: context,
-                    viewport: renderViewport,
-                }).promise;
-
-                pageContainer.append(canvas);
-                root.append(pageContainer);
-            } finally {
-                if (typeof page.cleanup === 'function') {
-                    page.cleanup();
-                }
-            }
-        }
+        await renderPdfPageNumbersForBrowserPrint(
+            targetDocument,
+            root,
+            range(1, pdfDocument.numPages + 1),
+            pageNumber => pdfDocument.getPage(pageNumber),
+            options,
+        );
     } finally {
         await pdfDocument.destroy();
         await loadingTask.destroy();
+    }
+}
+
+export async function renderPdfDocumentPagesForBrowserPrint(
+    targetDocument: IBrowserPrintDocument,
+    pdfDocument: PDFDocumentProxy,
+    pageNumbers: number[],
+    options: IRenderPdfPagesForBrowserPrintOptions = {},
+) {
+    const root = getBrowserPrintRoot(targetDocument);
+    root.replaceChildren();
+    await renderPdfPageNumbersForBrowserPrint(
+        targetDocument,
+        root,
+        normalizePrintPageNumbers(pageNumbers, pdfDocument.numPages),
+        pageNumber => pdfDocument.getPage(pageNumber),
+        options,
+    );
+}
+
+async function renderPdfPageNumbersForBrowserPrint(
+    targetDocument: IBrowserPrintDocument,
+    root: IBrowserPrintRoot,
+    pageNumbers: number[],
+    getPage: (pageNumber: number) => Promise<PDFPageProxy>,
+    options: IRenderPdfPagesForBrowserPrintOptions,
+) {
+    let firstPageSize: {
+        width: number;
+        height: number;
+    } | null = null;
+
+    for (const pageNumber of pageNumbers) {
+        throwIfBrowserPrintAborted(options.signal);
+        const page = await getPage(pageNumber);
+
+        try {
+            throwIfBrowserPrintAborted(options.signal);
+            const displayViewport = page.getViewport({ scale: 1 });
+            if (!firstPageSize) {
+                firstPageSize = {
+                    width: displayViewport.width,
+                    height: displayViewport.height,
+                };
+                setBrowserPrintPageSize(targetDocument, displayViewport.width, displayViewport.height);
+            } else {
+                assertBrowserPrintPageMatchesFirstPage(
+                    pageNumber,
+                    displayViewport.width,
+                    displayViewport.height,
+                    firstPageSize,
+                );
+            }
+
+            const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
+            const pageContainer = createBrowserPrintPageContainer(targetDocument);
+            pageContainer.className = 'browser-print-page';
+
+            const canvas = createBrowserPrintCanvas(targetDocument);
+            canvas.width = Math.max(1, Math.ceil(renderViewport.width));
+            canvas.height = Math.max(1, Math.ceil(renderViewport.height));
+            canvas.style.width = formatPdfPointSizeAsCssInches(displayViewport.width);
+            canvas.style.height = formatPdfPointSizeAsCssInches(displayViewport.height);
+
+            const context = canvas.getContext('2d', { alpha: false });
+            if (!context) {
+                throw new Error('Failed to create browser print canvas');
+            }
+
+            const renderTask = page.render({
+                canvas: context.canvas,
+                canvasContext: context,
+                viewport: renderViewport,
+            });
+            const abortRender = () => renderTask.cancel();
+            options.signal?.addEventListener('abort', abortRender, { once: true });
+            try {
+                throwIfBrowserPrintAborted(options.signal);
+                await renderTask.promise;
+                throwIfBrowserPrintAborted(options.signal);
+            } catch (error) {
+                throwIfBrowserPrintAborted(options.signal);
+                throw error;
+            } finally {
+                options.signal?.removeEventListener('abort', abortRender);
+            }
+
+            pageContainer.append(canvas);
+            root.append(pageContainer);
+        } finally {
+            if (typeof page.cleanup === 'function') {
+                page.cleanup();
+            }
+        }
     }
 }
 
@@ -574,16 +738,40 @@ function resolveDefaultA4PrintSheet(
     };
 }
 
+async function embedPrintablePages(
+    targetPdf: PDFDocument,
+    sourcePdf: PDFDocument,
+    pageNumbers: number[],
+) {
+    const sourcePages = pageNumbers.map(pageNumber => sourcePdf.getPage(pageNumber - 1));
+    const visibleBoxes = sourcePages.map(resolvePdfJsPageViewBox);
+    const embeddedPages = await targetPdf.embedPages(
+        sourcePages,
+        visibleBoxes.map(toPageBoundingBox),
+    );
+
+    return embeddedPages.map((embeddedPage, index) => {
+        const pageNumber = pageNumbers[index];
+        if (!pageNumber) {
+            throw new Error('Unable to prepare printable page');
+        }
+
+        return {
+            pageNumber,
+            width: visibleBoxes[index]!.width,
+            height: visibleBoxes[index]!.height,
+            embeddedPage,
+        };
+    });
+}
+
 async function buildPaperFittedSinglePagePdf(
     targetPdf: PDFDocument,
-    sourcePdfData: Uint8Array,
+    sourcePdf: PDFDocument,
     pageNumbers: number[],
     orientation: TPrintOrientation,
 ) {
-    const embeddedPages = await targetPdf.embedPdf(
-        sourcePdfData,
-        pageNumbers.map(pageNumber => pageNumber - 1),
-    );
+    const embeddedPages = await embedPrintablePages(targetPdf, sourcePdf, pageNumbers);
 
     for (let index = 0; index < pageNumbers.length; index += 1) {
         const embeddedPage = embeddedPages[index];
@@ -615,7 +803,7 @@ async function buildPaperFittedSinglePagePdf(
         ]);
         const drawWidth = embeddedPage.width * drawScale;
         const drawHeight = embeddedPage.height * drawScale;
-        targetPage.drawPage(embeddedPage, {
+        targetPage.drawPage(embeddedPage.embeddedPage, {
             x: (preferredSheet.width - drawWidth) / 2,
             y: (preferredSheet.height - drawHeight) / 2,
             width: drawWidth,
@@ -633,7 +821,7 @@ function shouldNormalizeSinglePagePdfForPrint(
         const {
             width,
             height,
-        } = sourcePage.getSize();
+        } = resolvePdfJsPageViewBox(sourcePage);
         return shouldNormalizeSinglePageForPrint(
             resolvePreferredSinglePagePrintSheet(width, height),
         );
@@ -690,7 +878,7 @@ export async function buildPrintablePdfData(
         const targetPdf = await PDFDocument.create();
         await buildPaperFittedSinglePagePdf(
             targetPdf,
-            sourcePdfData,
+            sourcePdf,
             normalizedPageNumbers,
             options.orientation,
         );
@@ -698,10 +886,7 @@ export async function buildPrintablePdfData(
     }
 
     const targetPdf = await PDFDocument.create();
-    const embeddedPages = await targetPdf.embedPdf(
-        sourcePdfData,
-        normalizedPageNumbers.map(pageNumber => pageNumber - 1),
-    );
+    const embeddedPages = await embedPrintablePages(targetPdf, sourcePdf, normalizedPageNumbers);
     const embeddedPagesByNumber = new Map<number, IPrintEmbeddedPage>();
 
     for (let index = 0; index < normalizedPageNumbers.length; index += 1) {
@@ -715,7 +900,7 @@ export async function buildPrintablePdfData(
             pageNumber,
             width: embeddedPage.width,
             height: embeddedPage.height,
-            embeddedPage,
+            embeddedPage: embeddedPage.embeddedPage,
         });
     }
 
