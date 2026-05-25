@@ -57,23 +57,18 @@ export function usePdfSelectedShapeCommands(options: {
         options.applyShapeUpdateWithHistory(cloneShape(previousShape), nextShape);
     }
 
-    function deleteSelectedShape() {
+    function deleteShapeById(id: string) {
         if (options.isAnySaving.value) {
             BrowserLogger.debug('pdf-shapes', 'Ignoring delete while save is in flight');
-            return;
-        }
-
-        const id = options.selectedShapeId.value;
-        if (!id) {
-            return;
+            return false;
         }
 
         const deletedShape = options.getShapeById(id);
         if (!deletedShape) {
-            return;
+            return false;
         }
 
-        BrowserLogger.debug('pdf-shapes', 'Deleting selected shape from viewer', () => ({
+        BrowserLogger.debug('pdf-shapes', 'Deleting shape from viewer', () => ({
             id,
             source: deletedShape.source,
             annotationId: deletedShape.annotationId ?? null,
@@ -98,12 +93,24 @@ export function usePdfSelectedShapeCommands(options: {
                 options.markModified();
             },
         });
+
+        return true;
+    }
+
+    function deleteSelectedShape() {
+        const id = options.selectedShapeId.value;
+        if (!id) {
+            return;
+        }
+
+        deleteShapeById(id);
     }
 
     return {
         getSelectedShape,
         clearSelectedShape,
         updateShape: updateSelectedShape,
+        deleteShapeById,
         deleteSelectedShape,
     };
 }

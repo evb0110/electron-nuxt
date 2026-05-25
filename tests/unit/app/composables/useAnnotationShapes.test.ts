@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
@@ -87,6 +88,38 @@ describe('useAnnotationShapes', () => {
         expect(shapes.hasShapes.value).toBe(true);
     });
 
+    it('focuses a shape without selecting it for editing or marking the document dirty', () => {
+        const shapes = useAnnotationShapes();
+        const embeddedShape = createEmbeddedShape();
+
+        shapes.loadShapes([embeddedShape]);
+        shapes.selectShape(embeddedShape.id);
+
+        shapes.focusShape(embeddedShape.id);
+
+        expect(shapes.focusedShapeId.value).toBe(embeddedShape.id);
+        expect(shapes.selectedShapeId.value).toBeNull();
+        expect(shapes.hasShapes.value).toBe(false);
+    });
+
+    it('clears sidebar focus when a shape is selected or deleted', () => {
+        const shapes = useAnnotationShapes();
+        const embeddedShape = createEmbeddedShape();
+
+        shapes.loadShapes([embeddedShape]);
+        shapes.focusShape(embeddedShape.id);
+        shapes.selectShape(embeddedShape.id);
+
+        expect(shapes.focusedShapeId.value).toBeNull();
+        expect(shapes.selectedShapeId.value).toBe(embeddedShape.id);
+
+        shapes.focusShape(embeddedShape.id);
+        shapes.deleteShape(embeddedShape.id);
+
+        expect(shapes.focusedShapeId.value).toBeNull();
+        expect(shapes.selectedShapeId.value).toBeNull();
+    });
+
     it('tracks deleted embedded annotation ids and clears them when the same shape is restored', () => {
         const shapes = useAnnotationShapes();
         const embeddedShape = createEmbeddedShape();
@@ -125,6 +158,33 @@ describe('useAnnotationShapes', () => {
         expect(created?.strokes?.[0]).toHaveLength(3);
         expect(shapes.selectedShapeId.value).toBeNull();
         expect(shapes.hasShapes.value).toBe(true);
+    });
+
+    it('timestamps created drawings and updates their modified time on edits', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-25T10:00:00Z'));
+
+        try {
+            const shapes = useAnnotationShapes();
+            shapes.startDrawing(0, 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+
+            vi.setSystemTime(new Date('2026-05-25T10:01:00Z'));
+            shapes.continueDrawing(0.3, 0.4);
+            const created = shapes.finishDrawing();
+
+            expect(created).not.toBeNull();
+            expect(created?.createdAt).toBe(new Date('2026-05-25T10:00:00Z').getTime());
+            expect(created?.modifiedAt).toBe(new Date('2026-05-25T10:01:00Z').getTime());
+
+            vi.setSystemTime(new Date('2026-05-25T10:02:00Z'));
+            shapes.updateShape(created!.id, { color: '#ff0000' });
+
+            const updated = shapes.getShapeById(created!.id);
+            expect(updated?.createdAt).toBe(created?.createdAt);
+            expect(updated?.modifiedAt).toBe(new Date('2026-05-25T10:02:00Z').getTime());
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('reconciles a freshly saved local draw stroke onto the imported embedded shape without changing its id', () => {

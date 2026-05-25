@@ -90,6 +90,8 @@ describe('serializeShapeAnnotationsToDoc', () => {
                 fillColor: '#abcdef',
                 opacity: 0.5,
                 strokeWidth: 3,
+                createdAt: Date.UTC(2026, 4, 25, 10, 0, 0),
+                modifiedAt: Date.UTC(2026, 4, 25, 10, 1, 0),
             },
             {
                 id: 'shape-arrow',
@@ -116,6 +118,8 @@ describe('serializeShapeAnnotationsToDoc', () => {
         expect(getName(dicts[0]!, 'Subtype')).toBe('/Square');
         expect(getName(dicts[1]!, 'Subtype')).toBe('/Line');
         expect(dicts[0]!.get(PDFName.of('IC'))).toBeTruthy();
+        expect(dicts[0]!.get(PDFName.of('CreationDate'))).toBeTruthy();
+        expect(dicts[0]!.get(PDFName.of('M'))).toBeTruthy();
         expect(dicts[1]!.get(PDFName.of('LE'))).toBeTruthy();
     });
 
@@ -134,6 +138,8 @@ describe('serializeShapeAnnotationsToDoc', () => {
                 fillColor: '#abcdef',
                 opacity: 0.5,
                 strokeWidth: 3,
+                createdAt: Date.UTC(2026, 4, 25, 10, 0, 0),
+                modifiedAt: Date.UTC(2026, 4, 25, 10, 1, 0),
             },
             {
                 id: 'shape-arrow',
@@ -164,6 +170,8 @@ describe('serializeShapeAnnotationsToDoc', () => {
             fillColor: '#abcdef',
             opacity: 0.5,
             strokeWidth: 3,
+            createdAt: Date.UTC(2026, 4, 25, 10, 0, 0),
+            modifiedAt: Date.UTC(2026, 4, 25, 10, 1, 0),
         });
         expect(importedShapes[1]).toMatchObject({
             type: 'arrow',

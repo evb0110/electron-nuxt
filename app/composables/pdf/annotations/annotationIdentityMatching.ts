@@ -8,6 +8,7 @@ import {
     markerRectIoU,
 } from '@app/composables/pdf/annotationGeometry';
 import { annotationCommentsMatch } from '@app/composables/pdf/annotationCommentMatching';
+import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 export function computeSummaryStableKey(params: {
     pageIndex: number;
@@ -450,19 +451,6 @@ function mergeSortIndex(
     );
 }
 
-function compareSortIndexes(left: number | null, right: number | null) {
-    if (left === right) {
-        return 0;
-    }
-    if (left === null) {
-        return 1;
-    }
-    if (right === null) {
-        return -1;
-    }
-    return left - right;
-}
-
 function firstNonZero(values: number[]) {
     return values.find(value => value !== 0) ?? 0;
 }
@@ -475,6 +463,18 @@ function mergeModifiedAt(
     const incomingTs = incoming.modifiedAt ?? null;
     if (existingTs && incomingTs) {
         return Math.max(existingTs, incomingTs);
+    }
+    return existingTs ?? incomingTs;
+}
+
+function mergeCreatedAt(
+    existing: Pick<IAnnotationCommentSummary, 'createdAt' | 'modifiedAt'>,
+    incoming: Pick<IAnnotationCommentSummary, 'createdAt' | 'modifiedAt'>,
+) {
+    const existingTs = existing.createdAt ?? existing.modifiedAt ?? null;
+    const incomingTs = incoming.createdAt ?? incoming.modifiedAt ?? null;
+    if (existingTs && incomingTs) {
+        return Math.min(existingTs, incomingTs);
     }
     return existingTs ?? incomingTs;
 }
@@ -602,12 +602,7 @@ function selectDuplicateSummaryId(
 }
 
 function compareSummarySortOrder(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
-    return firstNonZero([
-        a.pageIndex - b.pageIndex,
-        compareSortIndexes(summarySortIndex(a), summarySortIndex(b)),
-        (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0),
-        a.stableKey.localeCompare(b.stableKey),
-    ]);
+    return compareAnnotationCommentSummaries(a, b);
 }
 
 export function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
@@ -656,6 +651,7 @@ export function mergeCommentSummaries(
     );
 
     const modifiedAt = mergeModifiedAt(existing, incoming);
+    const createdAt = mergeCreatedAt(existing, incoming);
 
     const source = existing.source === 'editor' ? 'editor' : incoming.source;
     const sortIndex = mergeSortIndex(existing, incoming);
@@ -669,6 +665,7 @@ export function mergeCommentSummaries(
         previewText: previewText ?? null,
         author,
         kindLabel: kindLabel ?? null,
+        createdAt,
         modifiedAt,
         sortIndex,
         annotationId: existing.annotationId ?? incoming.annotationId,

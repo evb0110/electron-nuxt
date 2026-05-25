@@ -272,7 +272,7 @@ function FakeHtmlElement(this: unknown) {
     void this;
 }
 
-describe('useAnnotationCrud / deleteAnnotationComment characterization', () => {
+describe('useAnnotationCrud annotation comment interactions', () => {
     beforeAll(() => {
         vi.stubGlobal('HTMLElement', FakeHtmlElement);
     });
@@ -298,6 +298,16 @@ describe('useAnnotationCrud / deleteAnnotationComment characterization', () => {
         expect(harness.scheduleAnnotationCommentsSync).not.toHaveBeenCalled();
         expect(harness.debouncedSyncInlineCommentIndicators).not.toHaveBeenCalled();
         expect(harness.forgetSummaryText).not.toHaveBeenCalled();
+    });
+
+    it('focuses a sidebar comment without opening editor comment controls', async () => {
+        const editor = createFakeEditor();
+        const harness = await createHarness({ editors: [editor] });
+
+        await harness.crud.focusAnnotationComment(createComment());
+
+        expect(editor.toggleComment).not.toHaveBeenCalled();
+        expect(harness.uiManager?.selectComment).not.toHaveBeenCalled();
     });
 
     it('deletes a standalone editor-source comment via uiManager.delete', async () => {

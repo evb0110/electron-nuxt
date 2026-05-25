@@ -38,6 +38,8 @@ export interface IShapeAnnotation {
     pdfSubtype?: TEmbeddedPdfShapeSubtype | null | undefined;
     lineStartStyle?: TLineEndStyle | undefined;
     lineEndStyle?: TLineEndStyle | undefined;
+    createdAt?: number | null | undefined;
+    modifiedAt?: number | null | undefined;
 }
 
 export interface IAnnotationSettings {
@@ -99,8 +101,12 @@ export interface IAnnotationCommentSummary {
     kindLabel?: string | null | undefined;
     subtype?: string | null | undefined;
     author: string | null;
+    createdAt?: number | null | undefined;
     modifiedAt: number | null;
     color: string | null;
+    fillColor?: string | null | undefined;
+    opacity?: number | null | undefined;
+    strokeWidth?: number | null | undefined;
     uid: string | null;
     annotationId: string | null;
     source: 'editor' | 'pdf' | 'shape';

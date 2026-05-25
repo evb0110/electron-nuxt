@@ -181,6 +181,19 @@
             />
         </g>
 
+        <rect
+            v-if="focusedShapeId && focusedShapeBounds"
+            class="focus-outline"
+            :x="focusedShapeOutline.x"
+            :y="focusedShapeOutline.y"
+            :width="focusedShapeOutline.width"
+            :height="focusedShapeOutline.height"
+            fill="none"
+            stroke-width="1.5"
+            stroke-dasharray="3 2"
+            vector-effect="non-scaling-stroke"
+        />
+
         <g v-if="drawingShape" class="is-drawing">
             <rect
                 v-if="drawingShape.type === 'rectangle'"
@@ -326,6 +339,7 @@ interface IProps {
     shapes: IShapeAnnotation[];
     drawingShape: IShapeAnnotation | null;
     selectedShapeId: string | null;
+    focusedShapeId: string | null;
     isActive: boolean;
     isAnnotationToolActive: boolean;
     selectionEnabled: boolean;
@@ -336,6 +350,7 @@ const props = defineProps<IProps>();
 const {
     isActive,
     isAnnotationToolActive,
+    focusedShapeId,
     selectedShapeId,
     shapes,
 } = toRefs(props);
@@ -562,6 +577,19 @@ const selectedShapeBounds = computed(() => {
     return getShapeRect(selectedShape.value);
 });
 
+const focusedShape = computed(() => (
+    focusedShapeId.value
+        ? shapes.value.find(shape => shape.id === focusedShapeId.value) ?? null
+        : null
+));
+
+const focusedShapeBounds = computed(() => {
+    if (!focusedShape.value) {
+        return null;
+    }
+    return getShapeRect(focusedShape.value);
+});
+
 const resizeHandleSize = computed(() => ({
     width: 10 / Math.max(svgWidth.value, 1),
     height: 10 / Math.max(svgHeight.value, 1),
@@ -622,6 +650,25 @@ const selectedShapeContextBounds = computed(() => {
 const selectedShapeOutline = computed(() => {
     const bounds = selectedShapeBounds.value;
     if (!selectedShapeId.value || !bounds) {
+        return {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        };
+    }
+
+    return {
+        x: bounds.x - SELECTION_OUTLINE_PADDING,
+        y: bounds.y - SELECTION_OUTLINE_PADDING,
+        width: bounds.width + SELECTION_OUTLINE_PADDING * 2,
+        height: bounds.height + SELECTION_OUTLINE_PADDING * 2,
+    };
+});
+
+const focusedShapeOutline = computed(() => {
+    const bounds = focusedShapeBounds.value;
+    if (!focusedShapeId.value || !bounds) {
         return {
             x: 0,
             y: 0,
@@ -730,7 +777,8 @@ const {
     pointer-events: none;
 }
 
-.selection-outline {
+.selection-outline,
+.focus-outline {
     pointer-events: none;
     stroke: var(--app-pdf-shape-selection-stroke);
 }

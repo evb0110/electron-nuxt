@@ -32,6 +32,10 @@ function generateShapeId() {
     return `shape-${crypto.randomUUID()}`;
 }
 
+function nowTimestamp() {
+    return Date.now();
+}
+
 function normalizeComparableNumber(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return null;
@@ -44,6 +48,7 @@ const MIN_DRAWN_SHAPE_SIZE = 0.005;
 
 export interface IShapeContextProvide {
     selectedShapeId: Ref<string | null>;
+    focusedShapeId: Ref<string | null>;
     drawingShape: Ref<IShapeAnnotation | null>;
     isShapeToolActive: ComputedRef<boolean>;
     isAnyAnnotationToolActive: ComputedRef<boolean>;
@@ -97,6 +102,7 @@ export interface IShapeStateSnapshot {
 export const useAnnotationShapes = () => {
     const shapes = ref<Map<number, IShapeAnnotation[]>>(new Map());
     const selectedShapeId = ref<string | null>(null);
+    const focusedShapeId = ref<string | null>(null);
     const drawingShape = ref<IShapeAnnotation | null>(null);
     const isDrawing = ref(false);
     const deletedEmbeddedAnnotationIds = ref<Set<string>>(new Set());
@@ -155,6 +161,9 @@ export const useAnnotationShapes = () => {
 
         if (selectedShapeId.value && !nextShapes.some(shape => shape.id === selectedShapeId.value)) {
             selectedShapeId.value = null;
+        }
+        if (focusedShapeId.value && !nextShapes.some(shape => shape.id === focusedShapeId.value)) {
+            focusedShapeId.value = null;
         }
     }
 
@@ -295,6 +304,7 @@ export const useAnnotationShapes = () => {
         settings: IAnnotationSettings,
     ): IShapeAnnotation {
         const style = resolveDrawingStyle(tool, settings);
+        const createdAt = nowTimestamp();
         return {
             id: generateShapeId(),
             type: resolveDrawingShapeType(tool),
@@ -309,6 +319,8 @@ export const useAnnotationShapes = () => {
             source: 'local',
             stableKey: generateManagedShapeStableKey(),
             ...createArrowDrawingGeometry(tool),
+            createdAt,
+            modifiedAt: createdAt,
         };
     }
 
@@ -495,11 +507,15 @@ export const useAnnotationShapes = () => {
         ] of shapes.value.entries()) {
             const index = pageShapes.findIndex(s => s.id === id);
             if (index !== -1) {
+                const currentShape = pageShapes[index]!;
+                const updatedAt = nowTimestamp();
                 pageShapes[index] = {
-                    ...pageShapes[index]!,
+                    ...currentShape,
                     ...updates, 
-                    points: updates.points ? cloneShapePoints(updates.points) : pageShapes[index]!.points,
-                    strokes: updates.strokes ? cloneShapeStrokes(updates.strokes) : pageShapes[index]!.strokes,
+                    points: updates.points ? cloneShapePoints(updates.points) : currentShape.points,
+                    strokes: updates.strokes ? cloneShapeStrokes(updates.strokes) : currentShape.strokes,
+                    createdAt: updates.createdAt ?? currentShape.createdAt ?? updatedAt,
+                    modifiedAt: updatedAt,
                 };
                 shapes.value.set(pageIndex, [...pageShapes]);
                 shapes.value = new Map(shapes.value);
@@ -542,6 +558,9 @@ export const useAnnotationShapes = () => {
                 if (selectedShapeId.value === id) {
                     selectedShapeId.value = null;
                 }
+                if (focusedShapeId.value === id) {
+                    focusedShapeId.value = null;
+                }
                 BrowserLogger.debug('pdf-shapes', 'Deleted shape', () => ({
                     id,
                     remainingShapeCount: getAllShapes().length,
@@ -561,11 +580,18 @@ export const useAnnotationShapes = () => {
 
     function selectShape(id: string | null) {
         selectedShapeId.value = id;
+        focusedShapeId.value = null;
+    }
+
+    function focusShape(id: string | null) {
+        focusedShapeId.value = id && getShapeById(id) ? id : null;
+        selectedShapeId.value = null;
     }
 
     function clearShapes() {
         shapes.value = new Map();
         selectedShapeId.value = null;
+        focusedShapeId.value = null;
         drawingShape.value = null;
         isDrawing.value = false;
         drawOrigin = null;
@@ -803,6 +829,7 @@ export const useAnnotationShapes = () => {
         } else {
             selectedShapeId.value = null;
         }
+        focusedShapeId.value = null;
 
         BrowserLogger.debug('pdf-shapes', 'Restored shape state snapshot', () => ({
             shapeCount: snapshot.shapes.length,
@@ -820,6 +847,7 @@ export const useAnnotationShapes = () => {
         settings: IAnnotationSettings,
     ) {
         selectedShapeId.value = null;
+        focusedShapeId.value = null;
         drawOrigin = {
             x,
             y, 
@@ -873,7 +901,10 @@ export const useAnnotationShapes = () => {
             return null;
         }
 
-        const shape = drawingShape.value;
+        const shape = {
+            ...drawingShape.value,
+            modifiedAt: nowTimestamp(),
+        };
         resetDrawingState();
 
         if (!isDrawableFinishedShape(shape)) {
@@ -897,6 +928,7 @@ export const useAnnotationShapes = () => {
     return {
         shapes,
         selectedShapeId,
+        focusedShapeId,
         drawingShape,
         isDrawing,
         hasShapes,
@@ -914,6 +946,7 @@ export const useAnnotationShapes = () => {
         deletedEmbeddedAnnotationIds,
         deletedEmbeddedShapeStableKeys,
         selectShape,
+        focusShape,
         clearShapes,
         loadShapes,
         replaceShapes,

@@ -263,6 +263,20 @@ export function pickLatestAnnotationTimestamp(
     return own ?? popup;
 }
 
+export function pickEarliestAnnotationCreationTimestamp(
+    annotation: IPdfAnnotationRecord,
+    popupAnnotation: IPdfAnnotationRecord | null,
+): number | null {
+    const own = parsePdfDateTimestamp(annotation.creationDate);
+    const popup = popupAnnotation
+        ? parsePdfDateTimestamp(popupAnnotation.creationDate)
+        : null;
+    if (own && popup) {
+        return Math.min(own, popup);
+    }
+    return own ?? popup;
+}
+
 function resolvePdfCommentIds(
     annotation: IPdfAnnotationRecord,
     pageNumber: number,
@@ -441,6 +455,7 @@ export function buildPdfAnnotationCommentSummary(
         kindLabel: deps.resolveKindLabel(subtype),
         subtype,
         author: resolvePdfCommentAuthor(annotation, popupAnnotation),
+        createdAt: pickEarliestAnnotationCreationTimestamp(annotation, popupAnnotation),
         modifiedAt: pickLatestAnnotationTimestamp(annotation, popupAnnotation),
         color: resolvePdfCommentColor(annotation, popupAnnotation),
         uid: null,

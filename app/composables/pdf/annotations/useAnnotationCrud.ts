@@ -214,6 +214,15 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         getInlineIndicators().debouncedSyncInlineCommentIndicators();
     }
 
+    function pulseAnnotationFocusTarget(target: HTMLElement) {
+        target.classList.add('annotation-focus-pulse');
+        const timer = setTimeout(() => {
+            target.classList.remove('annotation-focus-pulse');
+            focusPulseTimers.delete(timer);
+        }, FOCUS_PULSE_MS);
+        focusPulseTimers.add(timer);
+    }
+
     function hasMountedPageCanvas(pageNumber: number) {
         return Boolean(
             viewerContainer.value?.querySelector(
@@ -327,13 +336,10 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             const candidateIds = getCommentCandidateIds(comment);
             for (const id of candidateIds) {
                 const editor = getEditorByUidFromLayer(uiManager, pageIndex, id);
-                if (editor) {
-                    editor.toggleComment?.(true, true);
+                if (editor?.div instanceof HTMLElement) {
+                    pulseAnnotationFocusTarget(editor.div);
                     return;
                 }
-            }
-            for (const id of candidateIds) {
-                selectCommentByUid(uiManager, pageIndex, id);
             }
         }
 
@@ -349,12 +355,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             return;
         }
 
-        target.classList.add('annotation-focus-pulse');
-        const timer = setTimeout(() => {
-            target.classList.remove('annotation-focus-pulse');
-            focusPulseTimers.delete(timer);
-        }, FOCUS_PULSE_MS);
-        focusPulseTimers.add(timer);
+        pulseAnnotationFocusTarget(target);
     }
 
     function logMissingEditorForCommentUpdate(
@@ -441,12 +442,14 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         writeEditorCommentToAnnotationStorage(editor, nextRawLength > 0 ? text : '');
 
         if (nextTrimmed.length > 0) {
+            const modifiedAt = Date.now();
             commentSync.pendingCommentEditorKeys.add(pendingKey);
             identity.rememberSummaryText({
                 ...resolvedComment,
                 text,
                 hasNote: true,
-                modifiedAt: Date.now(),
+                createdAt: resolvedComment.createdAt ?? modifiedAt,
+                modifiedAt,
             });
         }
         else {

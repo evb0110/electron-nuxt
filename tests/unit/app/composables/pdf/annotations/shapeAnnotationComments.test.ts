@@ -56,6 +56,9 @@ describe('shapeAnnotationComments', () => {
             previewText: null,
             subtype: 'Square',
             color: '#336699',
+            fillColor: null,
+            opacity: 0.75,
+            strokeWidth: 2,
             annotationId: '12R0',
             source: 'shape',
             hasNote: false,
@@ -83,6 +86,22 @@ describe('shapeAnnotationComments', () => {
 
         expect(summary.subtype).toBe('Arrow');
         expect(summary.stableKey).toBe('shape:0:shape-arrow');
+    });
+
+    it('carries drawing timestamps into sidebar summaries', () => {
+        const summary = toShapeAnnotationCommentSummary(createShape({
+            createdAt: 100,
+            modifiedAt: 200,
+        }));
+
+        expect(summary.createdAt).toBe(100);
+        expect(summary.modifiedAt).toBe(200);
+    });
+
+    it('uses caller-provided sort index for sidebar ordering', () => {
+        const summary = toShapeAnnotationCommentSummary(createShape(), 4);
+
+        expect(summary.sortIndex).toBe(4);
     });
 
     it('uses point bounds for ink-like shapes', () => {

@@ -160,6 +160,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
 
     provide<IShapeContextProvide>('shapeContext', {
         selectedShapeId: shapeComposable.selectedShapeId,
+        focusedShapeId: shapeComposable.focusedShapeId,
         drawingShape: shapeComposable.drawingShape,
         isShapeToolActive,
         isAnyAnnotationToolActive,

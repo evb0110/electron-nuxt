@@ -21,13 +21,16 @@ function resolveShapeSubtype(shape: IShapeAnnotation) {
     return shape.type.charAt(0).toUpperCase() + shape.type.slice(1);
 }
 
-export function toShapeAnnotationCommentSummary(shape: IShapeAnnotation): IAnnotationCommentSummary {
+export function toShapeAnnotationCommentSummary(
+    shape: IShapeAnnotation,
+    sortIndex: number | null = null,
+): IAnnotationCommentSummary {
     const rect = getShapeRect(shape, { rectFallbackMinSize: 0.01 });
     const sourceKey = shape.stableKey ?? shape.annotationId ?? shape.id;
     return {
         id: shape.id,
         stableKey: `shape:${shape.pageIndex}:${sourceKey}`,
-        sortIndex: null,
+        sortIndex,
         pageIndex: shape.pageIndex,
         pageNumber: shape.pageIndex + 1,
         text: '',
@@ -35,8 +38,12 @@ export function toShapeAnnotationCommentSummary(shape: IShapeAnnotation): IAnnot
         kindLabel: null,
         subtype: resolveShapeSubtype(shape),
         author: null,
-        modifiedAt: null,
+        createdAt: shape.createdAt ?? shape.modifiedAt ?? null,
+        modifiedAt: shape.modifiedAt ?? null,
         color: shape.color,
+        fillColor: shape.fillColor ?? null,
+        opacity: shape.opacity,
+        strokeWidth: shape.strokeWidth,
         uid: null,
         annotationId: shape.annotationId ?? null,
         source: 'shape',
@@ -49,4 +56,3 @@ export function toShapeAnnotationCommentSummary(shape: IShapeAnnotation): IAnnot
         }),
     };
 }
-

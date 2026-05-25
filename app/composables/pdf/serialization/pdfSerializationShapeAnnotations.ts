@@ -6,6 +6,7 @@ import type {
 import {
     PDFArray,
     PDFName,
+    PDFString,
 } from 'pdf-lib';
 import type {
     IShapeAnnotation,
@@ -14,6 +15,7 @@ import type {
 import type { normalizePageRotation} from '@app/composables/pdf/annotationGeometry';
 import { toPdfRectFromMarkerRect} from '@app/composables/pdf/annotationGeometry';
 import { getPdfDictSubtype } from '@app/utils/pdfDict';
+import { toPdfDateString } from '@app/utils/pdfDate';
 import {
     collectAnnotationRefsToDelete,
     removeAnnotationRefsFromPages,
@@ -46,6 +48,20 @@ function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnn
     setRgbColor(annotDict, doc, 'C', shape.color);
     setOpacity(annotDict, shape.opacity);
     setBorderWidth(annotDict, doc, shape.strokeWidth);
+}
+
+function toShapePdfDate(timestamp: number | null | undefined, fallback: number) {
+    const safeTimestamp = typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0
+        ? timestamp
+        : fallback;
+    return PDFString.of(toPdfDateString(new Date(safeTimestamp)));
+}
+
+function updateShapeDates(annotDict: PDFDict, shape: IShapeAnnotation) {
+    const fallback = Date.now();
+    const createdAt = shape.createdAt ?? shape.modifiedAt ?? fallback;
+    annotDict.set(PDFName.of('CreationDate'), toShapePdfDate(createdAt, fallback));
+    annotDict.set(PDFName.of('M'), toShapePdfDate(shape.modifiedAt ?? createdAt, fallback));
 }
 
 function toPdfLineEndingName(style: TLineEndStyle | undefined) {
@@ -190,6 +206,7 @@ function createRectAnnotationDict(
         Rect: doc.context.obj(rect),
     });
     applyRectAnnotationStyle(annotDict, doc, shape);
+    updateShapeDates(annotDict, shape);
     return annotDict;
 }
 
@@ -207,6 +224,7 @@ function updateRectAnnotationDict(
 
     setPdfRect(annotDict, doc, rect);
     applyRectAnnotationStyle(annotDict, doc, shape);
+    updateShapeDates(annotDict, shape);
     return true;
 }
 
@@ -228,6 +246,7 @@ function createLineAnnotationDict(
         L: doc.context.obj(geometry.linePoints),
     });
     applyLineAnnotationStyle(annotDict, doc, shape);
+    updateShapeDates(annotDict, shape);
     return annotDict;
 }
 
@@ -245,6 +264,7 @@ function updateLineAnnotationDict(
 
     applyLineAnnotationGeometry(annotDict, doc, geometry);
     applyLineAnnotationStyle(annotDict, doc, shape);
+    updateShapeDates(annotDict, shape);
     return true;
 }
 
@@ -274,6 +294,7 @@ function createVertexAnnotationDict(
         Vertices: doc.context.obj(vertices),
     });
     applyVertexAnnotationStyle(annotDict, doc, shape, subtype);
+    updateShapeDates(annotDict, shape);
     return annotDict;
 }
 
@@ -300,6 +321,7 @@ function updateVertexAnnotationDict(
     annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
     annotDict.set(PDFName.of('Vertices'), doc.context.obj(vertices));
     applyVertexAnnotationStyle(annotDict, doc, shape, subtype);
+    updateShapeDates(annotDict, shape);
     return true;
 }
 
@@ -328,6 +350,7 @@ function createInkAnnotationDict(
     updateShapeStyle(annotDict, doc, shape);
     annotDict.delete(PDFName.of('LE'));
     annotDict.delete(PDFName.of('IC'));
+    updateShapeDates(annotDict, shape);
     return annotDict;
 }
 
@@ -353,6 +376,7 @@ function updateInkAnnotationDict(
     updateShapeStyle(annotDict, doc, shape);
     annotDict.delete(PDFName.of('LE'));
     annotDict.delete(PDFName.of('IC'));
+    updateShapeDates(annotDict, shape);
     return true;
 }
 

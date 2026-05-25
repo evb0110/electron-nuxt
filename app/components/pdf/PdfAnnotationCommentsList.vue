@@ -64,7 +64,24 @@
                         <UIcon name="i-ph-trash" />
                     </button>
                 </span>
-                <span class="note-item-text">
+                <span
+                    v-if="hasShapeStylePreview(comment)"
+                    class="note-item-shape-style"
+                    :aria-label="shapeStyleAriaLabel(comment)"
+                >
+                    <span
+                        class="note-item-shape-stroke"
+                        :style="shapeStrokeStyle(comment)"
+                        aria-hidden="true"
+                    />
+                    <span class="note-item-shape-style-text">
+                        <template v-for="(part, index) in highlightTextParts(shapeStyleLabel(comment))" :key="`style-${comment.stableKey}-${index}`">
+                            <span v-if="!part.match">{{ part.text }}</span>
+                            <mark v-else class="note-match">{{ part.text }}</mark>
+                        </template>
+                    </span>
+                </span>
+                <span v-else class="note-item-text">
                     <template v-for="(part, index) in highlightTextParts(annotationPreview(comment))" :key="`text-${comment.stableKey}-${index}`">
                         <span v-if="!part.match">{{ part.text }}</span>
                         <mark v-else class="note-match">{{ part.text }}</mark>
@@ -77,7 +94,7 @@
                             <mark v-else class="note-match">{{ part.text }}</mark>
                         </template>
                     </span>
-                    <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
+                    <span v-if="commentTimeLabel(comment)">{{ commentTimeLabel(comment) }}</span>
                 </span>
             </button>
 
@@ -108,6 +125,7 @@ import type {
 import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import {
     compareComments,
+    getAnnotationCommentDisplayTimestamp,
     getAnnotationCommentPreviewText,
     matchesCommentQuery,
     splitByQueryMatches,
@@ -159,6 +177,10 @@ const filteredComments = computed(() => {
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
 
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
 async function onSearchButtonClick() {
     if (!searchVisible.value) {
         searchVisible.value = true;
@@ -188,6 +210,67 @@ function annotationPreview(comment: IAnnotationCommentSummary) {
     return text;
 }
 
+function hasShapeFill(comment: IAnnotationCommentSummary) {
+    return Boolean(comment.fillColor && comment.fillColor !== 'transparent');
+}
+
+function hasShapeStylePreview(comment: IAnnotationCommentSummary) {
+    return comment.source === 'shape'
+        && !getAnnotationCommentPreviewText(comment)
+        && (Boolean(comment.color) || isFiniteNumber(comment.strokeWidth) || hasShapeFill(comment));
+}
+
+function formatShapeStrokeWidth(comment: IAnnotationCommentSummary) {
+    if (!isFiniteNumber(comment.strokeWidth)) {
+        return '';
+    }
+
+    return Number(comment.strokeWidth.toFixed(1)).toString();
+}
+
+function shapeStyleLabel(comment: IAnnotationCommentSummary) {
+    const strokeWidth = formatShapeStrokeWidth(comment);
+    if (strokeWidth) {
+        return `${t('annotations.stroke')} ${strokeWidth}`;
+    }
+
+    if (hasShapeFill(comment)) {
+        return t('annotationProperties.fill');
+    }
+
+    return t('annotations.stroke');
+}
+
+function shapeStyleAriaLabel(comment: IAnnotationCommentSummary) {
+    const parts = [
+        comment.color ? `${t('annotations.stroke')} ${comment.color}` : null,
+        hasShapeFill(comment) ? `${t('annotationProperties.fill')} ${comment.fillColor}` : null,
+        formatShapeStrokeWidth(comment) ? shapeStyleLabel(comment) : null,
+    ].filter((part): part is string => Boolean(part));
+
+    return parts.join(', ');
+}
+
+function shapeOpacity(comment: IAnnotationCommentSummary) {
+    if (!isFiniteNumber(comment.opacity)) {
+        return '1';
+    }
+
+    return Math.min(Math.max(comment.opacity, 0), 1).toString();
+}
+
+function shapePreviewColor(comment: IAnnotationCommentSummary) {
+    return comment.color ?? comment.fillColor ?? 'currentColor';
+}
+
+function shapeStrokeStyle(comment: IAnnotationCommentSummary) {
+    return {
+        '--note-item-shape-color': shapePreviewColor(comment),
+        '--note-item-shape-opacity': shapeOpacity(comment),
+        '--note-item-shape-stroke-width': `${formatShapeStrokeWidth(comment) || '1'}px`,
+    };
+}
+
 function authorLabel(comment: IAnnotationCommentSummary) {
     return comment.author || authorName.value || t('annotations.unknownAuthor');
 }
@@ -202,6 +285,11 @@ function highlightTextParts(text: string) {
 
 function formatTime(timestamp: number) {
     return timeFormatter.format(timestamp);
+}
+
+function commentTimeLabel(comment: IAnnotationCommentSummary) {
+    const timestamp = getAnnotationCommentDisplayTimestamp(comment);
+    return timestamp ? formatTime(timestamp) : '';
 }
 
 function focusComment(comment: IAnnotationCommentSummary) {
@@ -370,6 +458,32 @@ function placeNote() {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+}
+
+.note-item-shape-style {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 0.4rem;
+    color: var(--ui-text-highlighted);
+}
+
+.note-item-shape-stroke {
+    flex: 0 0 2rem;
+    height: clamp(0.12rem, var(--note-item-shape-stroke-width), 0.5rem);
+    border-radius: 0.25rem;
+    background: var(--note-item-shape-color);
+    opacity: var(--note-item-shape-opacity);
+}
+
+.note-item-shape-style-text {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ui-text-highlighted);
+    font-size: 0.8rem;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .note-item-meta {
