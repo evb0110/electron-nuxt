@@ -34,6 +34,26 @@
         @click="handleThumbnailClick($event, page)"
         @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
       >
+        <AppTooltip
+          :text="getThumbnailSelectionLabel(page)"
+          :delay-duration="400"
+        >
+          <button
+            type="button"
+            class="pdf-thumbnail-selection-toggle"
+            :class="{ 'is-selected': isSelected(page) }"
+            :aria-label="getThumbnailSelectionLabel(page)"
+            :aria-pressed="isSelected(page) ? 'true' : 'false'"
+            @mousedown.stop
+            @click.stop="toggleSinglePageSelection(page)"
+          >
+            <UIcon
+              v-if="isSelected(page)"
+              name="i-ph-check"
+              class="pdf-thumbnail-selection-icon"
+            />
+          </button>
+        </AppTooltip>
         <canvas
           :key="getThumbnailRenderKey(page)"
           class="pdf-thumbnail-canvas"
@@ -65,6 +85,7 @@ import { formatPageIndicator } from '@app/utils/pdfPageLabels';
 import {
     arePageNumberListsEqual,
     normalizeSelectedPageNumbers,
+    resolveThumbnailContextMenuPages,
     shouldSelectPageFromThumbnailClick,
 } from '@app/utils/pdfPageSelection';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
@@ -363,9 +384,16 @@ const {
         }),
 });
 
+const { t } = useTypedI18n();
 
 function isSelected(page: number) {
     return selectedPagesSet.value.has(page);
+}
+
+function getThumbnailSelectionLabel(page: number) {
+    return isSelected(page)
+        ? t('pageOps.deselectPage', { page: getPageIndicator(page) })
+        : t('pageOps.selectPage', { page: getPageIndicator(page) });
 }
 
 function getThumbnailSelectionFallbackAnchor() {
@@ -399,15 +427,26 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
     emit('update:selected-pages', normalized);
 }
 
-function handleThumbnailContextMenu(event: MouseEvent, page: number) {
-    if (!isSelected(page)) {
-        multiSelection.selected.value = new Set([page]);
-        multiSelection.anchor.value = page;
-        selectionFocusPage.value = page;
-        emit('update:selected-pages', [page]);
+function toggleSinglePageSelection(page: number) {
+    const nextSelection = new Set(selectedPages ?? []);
+    if (nextSelection.has(page)) {
+        nextSelection.delete(page);
+    } else {
+        nextSelection.add(page);
     }
-    const pages = normalizeSelectedPageNumbers(
-        Array.from(multiSelection.selected.value),
+    multiSelection.selected.value = nextSelection;
+    multiSelection.anchor.value = page;
+    selectionFocusPage.value = page;
+    emit('update:selected-pages', normalizeSelectedPageNumbers(
+        Array.from(nextSelection),
+        totalPages,
+    ));
+}
+
+function handleThumbnailContextMenu(event: MouseEvent, page: number) {
+    const pages = resolveThumbnailContextMenuPages(
+        page,
+        selectedPages ?? [],
         totalPages,
     );
     emit('page-context-menu', {
@@ -1877,6 +1916,52 @@ onBeforeUnmount(() => {
   transition:
     background-color 0.15s,
     border-color 0.15s;
+}
+
+.pdf-thumbnail-selection-toggle {
+  position: absolute;
+  z-index: 1;
+  top: 0.5rem;
+  left: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 0.25rem;
+  background: var(--ui-bg);
+  color: var(--ui-primary);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.pdf-thumbnail:hover .pdf-thumbnail-selection-toggle,
+.pdf-thumbnail-selection-toggle:focus-visible,
+.pdf-thumbnail-selection-toggle.is-selected {
+  opacity: 1;
+}
+
+.pdf-thumbnail-selection-toggle:hover,
+.pdf-thumbnail-selection-toggle:focus-visible {
+  border-color: var(--ui-primary);
+  background: var(--app-sidebar-control-hover-bg);
+}
+
+.pdf-thumbnail-selection-toggle.is-selected {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary);
+  color: var(--ui-bg);
+}
+
+.pdf-thumbnail-selection-icon {
+  width: 0.875rem;
+  height: 0.875rem;
 }
 
 .pdf-thumbnail--virtual {

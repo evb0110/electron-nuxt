@@ -93,6 +93,31 @@ describe('page crop operations', () => {
         });
     });
 
+    it('reports the PDF.js effective crop box when CropBox extends outside MediaBox', async () => {
+        await createPdf(pdfPath, { inheritedCropBox: [
+            -20,
+            10,
+            180,
+            120,
+        ] });
+
+        await expect(getPageGeometry(pdfPath, 1)).resolves.toEqual({
+            mediaBox: {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 100,
+            },
+            cropBox: {
+                x: 0,
+                y: 10,
+                width: 180,
+                height: 90,
+            },
+            rotation: 0,
+        });
+    });
+
     it('removes inherited crop boxes by restoring the media box', async () => {
         await createPdf(pdfPath, { inheritedCropBox: [
             20,

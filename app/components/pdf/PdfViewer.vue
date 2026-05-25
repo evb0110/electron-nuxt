@@ -149,6 +149,10 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
+import {
+    renderPdfDocumentPagesForBrowserPrint,
+    type IBrowserPrintDocument,
+} from '@app/utils/pdfPrint';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -2065,6 +2069,23 @@ async function saveViewerDocument() {
     });
 }
 
+async function renderLoadedPdfPagesForBrowserPrint(
+    targetDocument: IBrowserPrintDocument,
+    pageNumbers: number[],
+    options?: { signal?: AbortSignal },
+) {
+    if (!pdfDocument.value) {
+        throw new Error('Missing loaded PDF document');
+    }
+
+    await renderPdfDocumentPagesForBrowserPrint(
+        targetDocument,
+        pdfDocument.value,
+        pageNumbers,
+        options,
+    );
+}
+
 defineExpose({
     getViewerContainer: () => viewerContainer.value,
     getCurrentPage: () => viewerCurrentPage.value,
@@ -2084,6 +2105,7 @@ defineExpose({
     preparePersistedManagedShapesForSave,
     restorePreparedManagedShapesAfterFailedSave,
     saveDocument: saveViewerDocument,
+    renderLoadedPdfPagesForBrowserPrint,
     markSavedShapeState: shapeComposable.markSavedShapeState,
     highlightSelection: highlightComposable.highlightSelection,
     commentSelection: highlightComposable.commentSelection,

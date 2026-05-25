@@ -445,6 +445,47 @@ describe('createBrowserPageOps', () => {
         expect(browserDocumentStoreMock.read).toHaveBeenCalledTimes(1);
     });
 
+    it('returns PDF.js effective crop boxes when direct geometry inspection sees CropBox outside MediaBox', async () => {
+        const pdfDocument = await PDFDocument.create();
+        const page = pdfDocument.addPage([
+            300,
+            500,
+        ]);
+        page.setCropBox(-20, 30, 260, 520);
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documentsPageOps');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual({
+            mediaBox: {
+                x: 0,
+                y: 0,
+                width: 300,
+                height: 500,
+            },
+            cropBox: {
+                x: 0,
+                y: 30,
+                width: 240,
+                height: 470,
+            },
+            rotation: 0,
+        });
+        expect(browserDocumentStoreMock.read).toHaveBeenCalledTimes(1);
+    });
+
     it('locks in the browser save target before extracting pages and writes to that handle', async () => {
         const pdfDocument = await PDFDocument.create();
         pdfDocument.addPage();

@@ -13,6 +13,7 @@ import type {
     IPdfPageMetric,
     IScrollSnapshot,
 } from '@app/types/pdf';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -37,6 +38,11 @@ export interface IPdfViewerExpose {
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
     saveDocument: () => Promise<Uint8Array | null>;
+    renderLoadedPdfPagesForBrowserPrint?: (
+        targetDocument: IBrowserPrintDocument,
+        pageNumbers: number[],
+        options?: { signal?: AbortSignal },
+    ) => Promise<void>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
     commentAtPoint: (

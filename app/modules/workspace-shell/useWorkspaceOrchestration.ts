@@ -27,6 +27,7 @@ import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -264,6 +265,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || pendingEmbeddedAnnotationDeleteCount.value > 0
         || pageLabelsDirty.value
         || bookmarksDirty.value
+    ));
+    const hasPendingPrintSerializationChanges = computed(() => (
+        annotationDirty.value
+        || hasAnnotationChanges()
+        || pendingEmbeddedAnnotationDeleteCount.value > 0
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
 
@@ -573,6 +579,19 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         return sampledMetrics.length > 0 ? sampledMetrics : null;
     }
 
+    async function renderLoadedPdfPagesForBrowserPrint(
+        targetDocument: IBrowserPrintDocument,
+        pageNumbers: number[],
+        options?: { signal?: AbortSignal },
+    ) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer?.renderLoadedPdfPagesForBrowserPrint) {
+            throw new Error('Loaded PDF printing is unavailable');
+        }
+
+        await viewer.renderLoadedPdfPagesForBrowserPrint(targetDocument, pageNumbers, options);
+    }
+
     const workspacePrint = useWorkspacePrint({
         totalPages,
         currentPage,
@@ -581,8 +600,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         fileName,
         hasPendingUnsavedChanges,
+        hasPendingPrintSerializationChanges,
         getQuickPrintPageMetrics,
         getPrintableSourceData,
+        renderLoadedPdfPagesForBrowserPrint,
     });
 
     const interactionControls = useWorkspaceInteractionControls({
