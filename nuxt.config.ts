@@ -37,6 +37,11 @@ const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER ===
     : 'nuxt-output';
 
 const isDev = process.env.NODE_ENV !== 'production';
+const appShellCacheHeaders = {
+    'cache-control': 'no-store, max-age=0, must-revalidate',
+    'pragma': 'no-cache',
+    'expires': '0',
+} as const;
 const appDir = fileURLToPath(new URL('./app', import.meta.url));
 const knownSourcemapWarningPlugins = new Set([
     '@tailwindcss/vite:generate:build',
@@ -488,21 +493,45 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
         '/electron': {
             prerender: true,
             ssr: false,
-            headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+            headers: {
+                ...appShellCacheHeaders,
+                'X-Robots-Tag': 'noindex, nofollow',
+            },
         },
         '/electron/**': {
             prerender: true,
             ssr: false,
-            headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+            headers: {
+                ...appShellCacheHeaders,
+                'X-Robots-Tag': 'noindex, nofollow',
+            },
         },
-        '/': { prerender: true },
+        '/': {
+            prerender: true,
+            headers: appShellCacheHeaders,
+        },
+        '/_payload.json': {
+            headers: appShellCacheHeaders,
+        },
+        '/**/_payload.json': {
+            headers: appShellCacheHeaders,
+        },
+        '/_nuxt/builds/**': {
+            headers: appShellCacheHeaders,
+        },
         '/workspace': {
             // Compatibility entry only. Keep the browser workspace SSR/SSG surface
             // canonical at `/` so refresh does not hit a SPA-only shell.
             redirect: { to: '/', statusCode: 302 },
-            headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+            headers: {
+                ...appShellCacheHeaders,
+                'X-Robots-Tag': 'noindex, nofollow',
+            },
         },
-        '/mobile-reader-proof': { prerender: true },
+        '/mobile-reader-proof': {
+            prerender: true,
+            headers: appShellCacheHeaders,
+        },
         '/api/analytics/events': {
             prerender: false,
         },
