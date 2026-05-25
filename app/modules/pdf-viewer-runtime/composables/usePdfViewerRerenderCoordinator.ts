@@ -456,13 +456,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             if (fitMode.value === 'height' && pdfDocument.value) {
                 computeFitWidthScale(viewerContainer.value);
             }
-            // Only snap on the continuous → single-page transition. Going
-            // from single-page back to continuous keeps the user's existing
-            // scrollTop, which is the correct "free reading" position for
-            // continuous mode — snapping there would feel like a jump.
             if (
-                previous === true
-                && next === false
+                previous !== next
                 && document
                 && !isLoading.value
             ) {
