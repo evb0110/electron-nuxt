@@ -82,6 +82,14 @@ export interface IAnnotationMarkerRect {
     height: number;
 }
 
+export interface ITextMarkupAnnotationProperties {
+    id: string;
+    pageIndex: number;
+    subtype: TMarkupSubtype;
+    color: string;
+    markerRect: IAnnotationMarkerRect | null;
+}
+
 export interface ILinkAnnotation {
     id: string;
     pageNumber: number;
@@ -104,6 +112,7 @@ export interface IAnnotationCommentSummary {
     createdAt?: number | null | undefined;
     modifiedAt: number | null;
     color: string | null;
+    colorEdited?: boolean | undefined;
     fillColor?: string | null | undefined;
     opacity?: number | null | undefined;
     strokeWidth?: number | null | undefined;

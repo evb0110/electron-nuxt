@@ -1,6 +1,7 @@
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
+    ITextMarkupAnnotationProperties,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {
@@ -73,6 +74,9 @@ export interface IPdfViewerExpose {
     restoreAnnotationToInternalCache?: (comment: IAnnotationCommentSummary) => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[];
+    getSelectedTextMarkupAnnotationProperties?: () => ITextMarkupAnnotationProperties | null;
+    updateSelectedTextMarkupAnnotationColor?: (color: string) => boolean;
+    updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
     getAllShapes: () => IShapeAnnotation[];
     markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];

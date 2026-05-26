@@ -217,6 +217,23 @@ function getRectNumbers(dict: PDFDict) {
     return values;
 }
 
+function getColorNumbers(dict: PDFDict) {
+    const color = dict.lookupMaybe(PDFName.of('C'), PDFArray);
+    if (!(color instanceof PDFArray)) {
+        return null;
+    }
+
+    const values: number[] = [];
+    for (let index = 0; index < color.size(); index += 1) {
+        const value = color.get(index);
+        if (!(value instanceof PDFNumber)) {
+            return null;
+        }
+        values.push(value.asNumber());
+    }
+    return values;
+}
+
 function getRectSize(rect: number[] | null) {
     if (!rect || rect.length !== 4) {
         return null;
@@ -804,6 +821,93 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const dict = getAnnotDict(doc, targetRef);
 
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+    });
+
+    it('persists exact text markup hint colors to the annotation color', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]], {
+            opacitiesByPage: [[0.35]],
+            withAppearance: true,
+        });
+        const targetRef = refs[0]![0]!;
+        const overrideTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            annotationId: overrideTag,
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            color: '#336699',
+            consumed: false,
+            source: 'editor',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+        expect(getColorNumbers(dict!)).toEqual([
+            184 / 255,
+            201 / 255,
+            219 / 255,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber()).toBe(1);
+        expect(dict?.get(PDFName.of('AP'))).toBeUndefined();
+    });
+
+    it('persists geometry-matched text markup hint colors to the annotation color', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeHints = [{
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            color: '#22c55e',
+            consumed: false,
+            source: 'pdf',
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+        expect(getColorNumbers(dict!)).toEqual([
+            178 / 255,
+            235 / 255,
+            199 / 255,
+        ]);
     });
 
     it('lets a current exact Highlight hint neutralize a stale ref override', async () => {

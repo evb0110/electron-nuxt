@@ -131,6 +131,7 @@ import type {
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationTool,
+    TMarkupSubtype,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
@@ -145,11 +146,15 @@ import {
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationCommentMatching';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { logPdfNav } from '@app/utils/pdfNavLog';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
+import { applyAnnotationCommentTextMarkupColor } from '@app/composables/pdf/annotations/annotationDomRemoval';
+import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorMutation';
 import {
     renderPdfDocumentPagesForBrowserPrint,
     type IBrowserPrintDocument,
@@ -290,6 +295,21 @@ const emit = defineEmits<{
     (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
 }>();
 
+interface IAnnotationMutationOptions {
+    scheduleCommentSync?: boolean;
+}
+
+function emitAnnotationModified(payload?: IAnnotationModifiedPayload) {
+    emit('annotation-modified', payload);
+}
+
+function emitForcedAnnotationMutation(options: IAnnotationMutationOptions = {}) {
+    emitAnnotationModified({ forceDirty: true });
+    if (options.scheduleCommentSync) {
+        annotations.commentSync.scheduleAnnotationCommentsSync();
+    }
+}
+
 const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
 const fitWidthHorizontalScrollLocked = ref(false);
@@ -301,7 +321,7 @@ const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const appAnnotationHistory = usePdfAppAnnotationHistory({
     pdfjsAnnotationState: pdfjsAnnotationEditorState,
     emitAnnotationState: (state) => emit('annotation-state', state),
-    markModified: () => emit('annotation-modified'),
+    markModified: emitAnnotationModified,
 });
 const pendingMarkerMoves = new Map<string, IPendingMarkerMove>();
 const locallyDeletedAnnotationComments: IAnnotationCommentSummary[] = [];
@@ -548,7 +568,7 @@ const {
     updateShape: shapeComposable.updateShape,
     deleteShape: shapeComposable.deleteShapeByReference,
     selectShape: shapeComposable.selectShape,
-    markModified: () => emit('annotation-modified'),
+    markModified: emitAnnotationModified,
 });
 
 const selectedShapeCommands = usePdfSelectedShapeCommands({
@@ -564,7 +584,7 @@ const selectedShapeCommands = usePdfSelectedShapeCommands({
     applyShapeUpdateWithHistory,
     refreshDeletedEmbeddedShape,
     registerHistoryCommand: registerShapeHistoryCommand,
-    markModified: () => emit('annotation-modified'),
+    markModified: emitAnnotationModified,
 });
 
 usePdfShapeContext({
@@ -847,6 +867,69 @@ function getAnnotationDisplayText(comment: IAnnotationCommentSummary) {
 
 function isTextMarkupComment(comment: IAnnotationCommentSummary) {
     return isTextMarkupSubtype(comment.subtype);
+}
+
+function toTextMarkupSubtype(comment: IAnnotationCommentSummary): TMarkupSubtype | null {
+    const subtype = (comment.subtype ?? '').trim().toLowerCase();
+    if (subtype === 'highlight') {
+        return 'Highlight';
+    }
+    if (subtype === 'underline') {
+        return 'Underline';
+    }
+    if (subtype === 'strikeout' || subtype === 'strikethrough') {
+        return 'StrikeOut';
+    }
+    if (subtype === 'squiggly') {
+        return 'Squiggly';
+    }
+    return null;
+}
+
+function updateCachedAnnotationCommentColor(comment: IAnnotationCommentSummary, color: string) {
+    const next = annotationCommentsCache.value.map((candidate) => {
+        const sameStableKey = candidate.stableKey === comment.stableKey;
+        const sameAnnotationId = Boolean(
+            comment.annotationId
+            && candidate.annotationId
+            && candidate.annotationId === comment.annotationId,
+        );
+        if (!sameStableKey && !sameAnnotationId) {
+            return candidate;
+        }
+        return {
+            ...candidate,
+            color,
+            colorEdited: true,
+            modifiedAt: Date.now(),
+        };
+    });
+    annotationCommentsCache.value = next;
+    emitAnnotationCommentsForSidebar(next);
+}
+
+function applyEmbeddedMarkupDomColor(comment: IAnnotationCommentSummary, color: string) {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+    const displayColor = toTextMarkupSubtype(comment) === 'Highlight'
+        ? toOpaqueHighlightDisplayColor(
+            color,
+            annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
+        )
+        : color;
+    return applyAnnotationCommentTextMarkupColor(container, comment, displayColor);
+}
+
+function findTextMarkupEditorForComment(comment: IAnnotationCommentSummary) {
+    return annotations.crud.findEditorForComment(comment)
+        ?? (comment.annotationId
+            ? annotations.crud.findEditorByAnnotationElementId(comment.pageIndex, comment.annotationId)
+            : null)
+        ?? (comment.annotationId
+            ? getStoredAnnotationEditor(pdfDocument.value, comment.annotationId)
+            : null);
 }
 
 function markerRectAxisOverlap(
@@ -1343,7 +1426,7 @@ async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
 
     if (isGracePreservedEditorOnlyComment(comment)) {
         markAnnotationCommentLocallyDeleted(comment);
-        emit('annotation-modified', { forceDirty: true });
+        emitForcedAnnotationMutation();
         return true;
     }
 
@@ -1384,7 +1467,7 @@ const annotations = useAnnotationOrchestrator({
     renderVisiblePages,
     renderAnnotationEditorLayerForPage,
     updateVisibleRange,
-    emitAnnotationModified: () => emit('annotation-modified'),
+    emitAnnotationModified,
     emitAnnotationState: (state) => {
         pdfjsAnnotationEditorState.value = state;
         appAnnotationHistory.emitCombinedState();
@@ -1466,7 +1549,7 @@ function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnot
     next[index] = updated;
     annotationCommentsCache.value = next;
     emitAnnotationCommentsForSidebar(next);
-    emit('annotation-modified', { forceDirty: true });
+    emitForcedAnnotationMutation();
 }
 
 function cloneAnnotationCommentSnapshot(comment: IAnnotationCommentSummary): IAnnotationCommentSummary {
@@ -2242,6 +2325,39 @@ defineExpose({
     getAnnotationCommentsSnapshot,
     getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
     getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
+    getSelectedTextMarkupAnnotationProperties: annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties,
+    updateSelectedTextMarkupAnnotationColor: (color: string) => {
+        const didUpdate = annotations.editor.markupSubtype.updateSelectedTextMarkupAnnotationColor(color);
+        if (didUpdate) {
+            emitForcedAnnotationMutation({ scheduleCommentSync: true });
+        }
+        return didUpdate;
+    },
+    updateTextMarkupAnnotationColor: (comment: IAnnotationCommentSummary, color: string) => {
+        const subtype = toTextMarkupSubtype(comment);
+        const editor = findTextMarkupEditorForComment(comment);
+        if (!subtype) {
+            return false;
+        }
+        if (!editor) {
+            applyEmbeddedMarkupDomColor(comment, color);
+            updateCachedAnnotationCommentColor(comment, color);
+            emitForcedAnnotationMutation();
+            return true;
+        }
+        const didUpdate = annotations.editor.markupSubtype.updateTextMarkupAnnotationColor(
+            editor,
+            comment.pageIndex,
+            subtype,
+            color,
+        );
+        if (didUpdate) {
+            applyEmbeddedMarkupDomColor(comment, color);
+            updateCachedAnnotationCommentColor(comment, color);
+            emitForcedAnnotationMutation({ scheduleCommentSync: true });
+        }
+        return didUpdate;
+    },
     getAllShapes: shapeComposable.getAllShapes,
     getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
     getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,

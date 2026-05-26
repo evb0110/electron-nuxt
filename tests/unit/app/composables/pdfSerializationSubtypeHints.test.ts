@@ -33,6 +33,7 @@ describe('pdfSerializationSubtypeHints', () => {
                 subtype: 'Underline',
                 pageIndex: 0,
                 color: '#22c55e',
+                colorEdited: true,
                 markerRect: {
                     left: 10,
                     top: 20,
@@ -56,6 +57,7 @@ describe('pdfSerializationSubtypeHints', () => {
                 source: 'pdf',
                 annotationId: '12R',
                 color: '#facc15',
+                colorEdited: true,
                 markerRect: {
                     left: 1,
                     top: 2,
@@ -108,6 +110,29 @@ describe('pdfSerializationSubtypeHints', () => {
         });
     });
 
+    it('does not persist passive colors sampled from existing PDF markup', () => {
+        const hints = collectMarkupSubtypeHints([createComment({
+            subtype: 'Highlight',
+            pageIndex: 0,
+            source: 'pdf',
+            annotationId: '12R',
+            color: '#facc15',
+            markerRect: {
+                left: 1,
+                top: 2,
+                width: 3,
+                height: 4,
+            },
+        })]);
+
+        expect(hints).toHaveLength(1);
+        expect(hints[0]).toMatchObject({
+            annotationId: '12R',
+            subtype: 'Highlight',
+            color: null,
+        });
+    });
+
     it('keeps highlight comments in the page markup order when collecting preservation hints', () => {
         const hints = collectMarkupSubtypeHints([
             createComment({
@@ -145,6 +170,34 @@ describe('pdfSerializationSubtypeHints', () => {
             pageMarkupIndex: 1,
             subtype: 'Underline',
         });
+    });
+
+    it('normalizes lowercase text markup subtypes from comment summaries', () => {
+        const hints = collectMarkupSubtypeHints([
+            createComment({
+                subtype: 'highlight',
+                markerRect: {
+                    left: 1,
+                    top: 2,
+                    width: 3,
+                    height: 4,
+                },
+            }),
+            createComment({
+                subtype: 'strikethrough',
+                markerRect: {
+                    left: 5,
+                    top: 6,
+                    width: 7,
+                    height: 8,
+                },
+            }),
+        ]);
+
+        expect(hints.map(hint => hint.subtype)).toEqual([
+            'Highlight',
+            'StrikeOut',
+        ]);
     });
 
     it('ignores malformed marker rectangles', () => {

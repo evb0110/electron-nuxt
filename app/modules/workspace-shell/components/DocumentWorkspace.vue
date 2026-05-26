@@ -423,6 +423,9 @@
             :selected-shape-for-properties="selectedShapeForProperties"
             :shape-properties-x="shapePropertiesPopover.x"
             :shape-properties-y="shapePropertiesPopover.y"
+            :selected-text-markup-for-properties="selectedTextMarkupForProperties"
+            :text-markup-properties-x="textMarkupPropertiesPopover.x"
+            :text-markup-properties-y="textMarkupPropertiesPopover.y"
             @update-note-text="updateAnnotationNoteText"
             @update-note-position="updateAnnotationNotePosition"
             @minimize-note="minimizeAnnotationNote"
@@ -433,6 +436,7 @@
             @context-copy-text="copyContextMenuNoteText"
             @context-copy-selection-text="copyContextMenuSelectionText"
             @context-delete="deleteContextMenuComment"
+            @context-update-color="handleContextTextMarkupColorUpdate"
             @context-markup="createContextMenuMarkup"
             @context-create-free-note="createContextMenuFreeNote"
             @context-create-selection-note="createContextMenuSelectionNote"
@@ -450,6 +454,8 @@
             @shape-update="handleShapePropertyUpdate"
             @shape-delete="handleDeleteSelectedShape"
             @shape-close="closeShapeProperties"
+            @text-markup-color-update="handleTextMarkupColorUpdate"
+            @text-markup-close="closeTextMarkupProperties"
         />
 
         <DjvuConversionOverlay
@@ -815,6 +821,8 @@ const {
     bringAnnotationNoteToFront,
     shapePropertiesPopover,
     selectedShapeForProperties,
+    textMarkupPropertiesPopover,
+    selectedTextMarkupForProperties,
     handleQuickNoteAction,
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
@@ -823,14 +831,17 @@ const {
     handleAnnotationCommentClick,
     handleOpenAnnotationNote,
     closeShapeProperties,
+    closeTextMarkupProperties,
     handleDeleteSelectedShape,
     handleShapePropertyUpdate,
+    handleTextMarkupColorUpdate,
     handleShapeContextMenu,
     handleViewerAnnotationContextMenu,
     openContextMenuNote,
     copyContextMenuNoteText,
     copyContextMenuSelectionText,
     deleteContextMenuComment,
+    handleContextTextMarkupColorUpdate,
     createContextMenuFreeNote,
     createContextMenuSelectionNote,
     insertContextMenuImageFromFile,

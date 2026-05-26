@@ -32,6 +32,25 @@
             >
                 {{ t('contextMenu.copyTextToClipboard') }}
             </button>
+            <div
+                v-if="canEditColor"
+                class="annotation-context-menu-color-row"
+            >
+                <span class="annotation-context-menu-color-label">{{ t('annotationProperties.color') }}</span>
+                <div class="annotation-context-menu-color-swatches">
+                    <button
+                        v-for="swatch in displayColorSwatches"
+                        :key="swatch"
+                        type="button"
+                        class="annotation-context-menu-color-button"
+                        :class="{ 'is-active': normalizeColorValue(swatch) === normalizeColorValue(editableColor) }"
+                        :style="{ backgroundColor: swatch }"
+                        :aria-label="swatch"
+                        :aria-pressed="normalizeColorValue(swatch) === normalizeColorValue(editableColor)"
+                        @click="updateColor(swatch)"
+                    />
+                </div>
+            </div>
             <button
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
@@ -123,6 +142,7 @@
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/components/pdf/PdfContextMenuBase.vue';
 import type { TAnnotationTool } from '@app/types/annotations';
+import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 
 interface IContextMenuState {
     visible: boolean;
@@ -130,7 +150,8 @@ interface IContextMenuState {
         stableKey: string;
         text: string;
         color?: string | null;
-        source?: string;
+        source?: string | undefined;
+        subtype?: string | null | undefined;
     } | null;
     hasSelection: boolean;
     selectionText: string;
@@ -139,7 +160,7 @@ interface IContextMenuState {
     pageY: number | null;
 }
 
-defineProps<{
+const props = defineProps<{
     menu: IContextMenuState;
     style: Record<string, string>;
     canCopy: boolean;
@@ -156,6 +177,7 @@ const emit = defineEmits<{
     'copy-text': [];
     'copy-selection-text': [];
     'delete': [];
+    'update-color': [color: string];
     'markup': [tool: TAnnotationTool];
     'create-free-note': [];
     'create-selection-note': [];
@@ -164,6 +186,46 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+
+const EDITABLE_COLOR_SUBTYPES = new Set([
+    'highlight',
+    'underline',
+    'strikeout',
+    'strikethrough',
+]);
+
+function normalizeColorInputValue(color: string | null | undefined) {
+    const match = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color?.trim() ?? '');
+    const hex = match?.groups?.hex;
+    if (!hex) {
+        return '#ffd400';
+    }
+    return hex.length === 3
+        ? `#${hex.split('').map(channel => channel + channel).join('')}`
+        : `#${hex}`;
+}
+
+const canEditColor = computed(() => {
+    const subtype = props.menu.comment?.subtype?.trim().toLowerCase() ?? '';
+    return EDITABLE_COLOR_SUBTYPES.has(subtype);
+});
+
+const editableColor = computed(() => normalizeColorInputValue(props.menu.comment?.color));
+
+function normalizeColorValue(color: string | null | undefined) {
+    return color?.trim().toLowerCase() ?? '';
+}
+
+const displayColorSwatches = computed(() => {
+    const active = editableColor.value;
+    const hasMatchingPreset = ANNOTATION_COLOR_SWATCHES.some(swatch => normalizeColorValue(swatch) === normalizeColorValue(active));
+    return hasMatchingPreset
+        ? ANNOTATION_COLOR_SWATCHES
+        : [
+            active,
+            ...ANNOTATION_COLOR_SWATCHES,
+        ];
+});
 
 function openNote() {
     emit('open-note');
@@ -179,6 +241,10 @@ function copySelectionText() {
 
 function deleteAnnotation() {
     emit('delete');
+}
+
+function updateColor(color: string) {
+    emit('update-color', color);
 }
 
 function markupHighlight() {
@@ -218,5 +284,39 @@ function pasteImageFromClipboard() {
     border-radius: 2px;
     flex-shrink: 0;
     border: 1px solid var(--app-pdf-context-menu-swatch-border);
+}
+
+.annotation-context-menu-color-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.45rem;
+    padding: 0.55rem 0.75rem 0.65rem;
+    border-top: 1px solid var(--ui-border);
+}
+
+.annotation-context-menu-color-label {
+    color: var(--ui-text);
+}
+
+.annotation-context-menu-color-swatches {
+    display: grid;
+    grid-template-columns: repeat(9, 1.35rem);
+    gap: 0.3rem;
+}
+
+.annotation-context-menu-color-button {
+    width: 1.35rem;
+    height: 1.35rem;
+    padding: 0;
+    border: 1px solid color-mix(in oklab, var(--app-pdf-color-swatch-border) 45%, transparent);
+    border-radius: 0.3rem;
+    cursor: pointer;
+}
+
+.annotation-context-menu-color-button.is-active {
+    border-color: var(--app-sidebar-bg);
+    box-shadow:
+        0 0 0 1px var(--app-sidebar-bg),
+        0 0 0 3px var(--ui-text);
 }
 </style>

@@ -115,6 +115,10 @@ class FakeClassList {
         names.forEach(name => this.values.delete(name));
     }
 
+    contains(name: string) {
+        return this.values.has(name);
+    }
+
     [Symbol.iterator]() {
         return this.values[Symbol.iterator]();
     }
@@ -356,6 +360,51 @@ describe('useAnnotationToolState', () => {
 
         expect(firstEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#f59e0b');
         expect(secondEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#22c55e');
+    });
+
+    it('updates selected highlights with an opaque display color and raw persisted color', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const highlightEditor = {
+            id: 'highlight-1',
+            color: '#ffff66',
+            opacity: 1,
+            isSelected: true,
+            parentPageIndex: 0,
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.04,
+            onUpdatedColor: vi.fn(),
+            addToAnnotationStorage: vi.fn(),
+        };
+        highlightEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({ getEditors: vi.fn(() => [highlightEditor]) });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'highlight',
+        }) as never);
+
+        manager.setEditorMarkupSubtypeOverride(highlightEditor as never, 0, 'Highlight');
+
+        expect(manager.updateSelectedTextMarkupAnnotationColor('#336699')).toBe(true);
+        expect(highlightEditor.color).toBe('#85a3c2');
+        expect(highlightEditor.opacity).toBe(1);
+        expect(highlightEditor.onUpdatedColor).toHaveBeenCalledTimes(1);
+        expect(highlightEditor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
+        expect(manager.getSelectedTextMarkupAnnotationProperties()).toMatchObject({
+            id: 'highlight-1',
+            color: '#336699',
+            subtype: 'Highlight',
+        });
+        expect(manager.getMarkupSubtypeHints()[0]).toMatchObject({
+            id: 'highlight-1',
+            color: '#336699',
+            subtype: 'Highlight',
+            pageIndex: 0,
+            source: 'editor-live',
+        });
     });
 
     it('records the per-page text markup order for subtype geometry hints', async () => {
