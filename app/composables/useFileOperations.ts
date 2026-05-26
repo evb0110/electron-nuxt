@@ -319,7 +319,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markBookmarksSaved();
         if (opts?.markShapeStateSaved !== false) {
             markShapeStateSaved?.();
-            clearPendingPersistedShapeStateForNextReload?.();
+            if (opts?.preserveLivePdfjsSession !== true) {
+                clearPendingPersistedShapeStateForNextReload?.();
+            }
         }
     }
 

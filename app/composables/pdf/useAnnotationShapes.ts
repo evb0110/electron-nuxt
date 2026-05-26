@@ -413,6 +413,18 @@ export const useAnnotationShapes = () => {
         };
     }
 
+    function mergeImportedShapeMetadata(currentShape: IShapeAnnotation, importedShape: IShapeAnnotation): IShapeAnnotation {
+        return {
+            ...cloneShape(currentShape),
+            source: importedShape.source ?? 'embedded',
+            annotationId: importedShape.annotationId ?? currentShape.annotationId ?? null,
+            stableKey: importedShape.stableKey ?? currentShape.stableKey ?? null,
+            pdfSubtype: importedShape.pdfSubtype ?? currentShape.pdfSubtype ?? null,
+            lineStartStyle: importedShape.lineStartStyle ?? currentShape.lineStartStyle,
+            lineEndStyle: importedShape.lineEndStyle ?? currentShape.lineEndStyle,
+        };
+    }
+
     function matchesDeletedImportedShape(
         shape: IShapeAnnotation,
         deletedAnnotationIds: Set<string>,
@@ -700,6 +712,34 @@ export const useAnnotationShapes = () => {
         );
     }
 
+    function findImportedShapeIndexForCurrentShape(
+        currentShape: IShapeAnnotation,
+        remainingImportedShapes: IShapeAnnotation[],
+    ) {
+        const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
+        const importedIndexByStableKey = currentStableKey
+            ? remainingImportedShapes.findIndex(shape => normalizeManagedShapeStableKey(shape.stableKey) === currentStableKey)
+            : -1;
+
+        if (importedIndexByStableKey !== -1) {
+            return importedIndexByStableKey;
+        }
+
+        const currentAnnotationId = normalizePdfJsAnnotationId(currentShape.annotationId);
+        const importedIndexByAnnotationId = currentAnnotationId
+            ? remainingImportedShapes.findIndex(shape => normalizePdfJsAnnotationId(shape.annotationId) === currentAnnotationId)
+            : -1;
+
+        if (importedIndexByAnnotationId !== -1) {
+            return importedIndexByAnnotationId;
+        }
+
+        const currentShapeKey = toReconciliationKey(currentShape);
+        return remainingImportedShapes.findIndex(
+            shape => toReconciliationKey(shape) === currentShapeKey,
+        );
+    }
+
     function buildMergedPersistedShapes(
         currentShapes: IShapeAnnotation[],
         loaded: IShapeAnnotation[],
@@ -710,35 +750,43 @@ export const useAnnotationShapes = () => {
         const nextShapes: IShapeAnnotation[] = [];
 
         for (const currentShape of currentShapes) {
-            const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
-            const importedIndexByStableKey = currentStableKey
-                ? remainingImportedShapes.findIndex(shape => normalizeManagedShapeStableKey(shape.stableKey) === currentStableKey)
-                : -1;
-
-            if (importedIndexByStableKey !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndexByStableKey, 1)[0]!;
+            const importedIndex = findImportedShapeIndexForCurrentShape(currentShape, remainingImportedShapes);
+            if (importedIndex !== -1) {
+                const importedShape = remainingImportedShapes.splice(importedIndex, 1)[0]!;
                 nextShapes.push(mergeImportedShape(currentShape, importedShape));
                 continue;
             }
 
-            const currentAnnotationId = normalizePdfJsAnnotationId(currentShape.annotationId);
-            const importedIndexByAnnotationId = currentAnnotationId
-                ? remainingImportedShapes.findIndex(shape => normalizePdfJsAnnotationId(shape.annotationId) === currentAnnotationId)
-                : -1;
-
-            if (importedIndexByAnnotationId !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndexByAnnotationId, 1)[0]!;
-                nextShapes.push(mergeImportedShape(currentShape, importedShape));
-                continue;
+            if (currentShape.source !== 'embedded') {
+                nextShapes.push(currentShape);
             }
+        }
 
-            const currentShapeKey = toReconciliationKey(currentShape);
-            const importedIndexByShapeKey = remainingImportedShapes.findIndex(
-                shape => toReconciliationKey(shape) === currentShapeKey,
-            );
-            if (importedIndexByShapeKey !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndexByShapeKey, 1)[0]!;
-                nextShapes.push(mergeImportedShape(currentShape, importedShape));
+        nextShapes.push(
+            ...remainingImportedShapes.filter(shape => !matchesDeletedImportedShape(
+                shape,
+                currentDeletedIds,
+                currentDeletedStableKeys,
+            )),
+        );
+
+        return nextShapes;
+    }
+
+    function buildMetadataPrimedPersistedShapes(
+        currentShapes: IShapeAnnotation[],
+        loaded: IShapeAnnotation[],
+        currentDeletedIds: Set<string>,
+        currentDeletedStableKeys: Set<string>,
+    ) {
+        const remainingImportedShapes = loaded.map(shape => cloneShape(shape));
+        const nextShapes: IShapeAnnotation[] = [];
+
+        for (const currentShape of currentShapes) {
+            const importedIndex = findImportedShapeIndexForCurrentShape(currentShape, remainingImportedShapes);
+            if (importedIndex !== -1) {
+                const importedShape = remainingImportedShapes.splice(importedIndex, 1)[0]!;
+                nextShapes.push(mergeImportedShapeMetadata(currentShape, importedShape));
                 continue;
             }
 
@@ -848,12 +896,15 @@ export const useAnnotationShapes = () => {
 
     function primePersistedShapes(loaded: IShapeAnnotation[]) {
         const preservedBaselineSignature = baselineSignature.value;
-        const {
+        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
+        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
+        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
+        const nextShapes = buildMetadataPrimedPersistedShapes(
             currentShapes,
+            loaded,
             currentDeletedIds,
             currentDeletedStableKeys,
-            nextShapes,
-        } = preparePersistedShapeMerge(loaded);
+        );
 
         BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => createPersistedShapeLoadDebugPayload(
             currentShapes,
@@ -875,6 +926,39 @@ export const useAnnotationShapes = () => {
             preservedDirtyState: true,
             deletedIds: [...currentDeletedIds],
             deletedStableKeys: [...currentDeletedStableKeys],
+        }));
+    }
+
+    function adoptPersistedShapeMetadata(loaded: IShapeAnnotation[]) {
+        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
+        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
+        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
+        const nextShapes = buildMetadataPrimedPersistedShapes(
+            currentShapes,
+            loaded,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+        );
+
+        BrowserLogger.debug('pdf-shapes', 'Adopting persisted shape metadata after save', () => createPersistedShapeLoadDebugPayload(
+            currentShapes,
+            loaded,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+        ));
+
+        replaceShapeState(nextShapes, {
+            deletedIds: new Set(),
+            deletedStableKeys: new Set(),
+            baselineShapes: nextShapes,
+        });
+
+        BrowserLogger.debug('pdf-shapes', 'Adopted persisted shape metadata after save', () => ({
+            nextShapeCount: nextShapes.length,
+            nextEmbeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
+            nextLocalCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
+            clearedDeletedIds: [...currentDeletedIds],
+            clearedDeletedStableKeys: [...currentDeletedStableKeys],
         }));
     }
 
@@ -1043,6 +1127,7 @@ export const useAnnotationShapes = () => {
         replaceShapes,
         reconcilePersistedShapes,
         primePersistedShapes,
+        adoptPersistedShapeMetadata,
         markSavedShapeState,
         captureShapeStateSnapshot,
         restoreShapeStateSnapshot,

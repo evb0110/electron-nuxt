@@ -236,6 +236,9 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
     await waitForViewerInteractive(page, timeoutMs);
 
     const toolId = resolveToolId(label);
+    if (await getActiveToolLabel(page) === toolId) {
+        return;
+    }
 
     const selector = `.notes-panel .tool-button[data-tool="${toolId}"]`;
     const point = await findVisiblePointInActiveHost(page, selector);
