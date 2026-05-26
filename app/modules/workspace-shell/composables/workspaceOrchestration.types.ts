@@ -27,6 +27,10 @@ export interface IPdfViewerExpose {
         snapshot: IScrollSnapshot | null,
         options?: { fallbackPage?: number | null; },
     ) => void;
+    preserveNextSourceReloadVisibleContent?: (request?: {
+        scrollSnapshot?: IScrollSnapshot | null;
+        pageToRestore?: number | null;
+    }) => void;
     applyFitWidthToCurrentPage?: () => Promise<boolean>;
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
@@ -36,6 +40,8 @@ export interface IPdfViewerExpose {
     startCropSelection: () => Promise<ICropSelectionResult | null>;
     cancelCropSelection: () => void;
     isCropSelecting: boolean;
+    adoptPersistedManagedShapesOnNextImport?: () => void;
+    clearPendingManagedShapeImportAdoption?: () => void;
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
     saveDocument: () => Promise<Uint8Array | null>;
@@ -72,6 +78,7 @@ export interface IPdfViewerExpose {
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     restoreAnnotationToInternalCache?: (comment: IAnnotationCommentSummary) => void;
+    clearPendingMarkerMoves?: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[];
     getSelectedTextMarkupAnnotationProperties?: () => ITextMarkupAnnotationProperties | null;
