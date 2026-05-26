@@ -37,6 +37,11 @@ interface IRendererErrorTracker {
     detach: () => void;
 }
 
+interface IPdfRenderTraceEntry {
+    event: string;
+    payload: Record<string, unknown>;
+}
+
 async function enableDebugBrowserLogging(page: Page) {
     await page.evaluate(() => {
         window.localStorage.setItem('evb-viewer:log-level', 'debug');
@@ -49,6 +54,49 @@ async function enableDebugBrowserLogging(page: Page) {
         const hasElectronApi = typeof (window as Window & { electronAPI?: unknown }).electronAPI === 'object';
         return hasNuxt && hasOpenFile && hasElectronApi;
     }, { timeout: 30_000 });
+}
+
+async function enableBufferedPdfRenderTrace(page: Page) {
+    await page.evaluate(() => {
+        localStorage.setItem('evb-viewer:pdf-render-trace', '1');
+        localStorage.removeItem('evb-viewer:pdf-render-trace-console');
+        const traceWindow = window as Window & {
+            __pdfRenderTrace?: boolean;
+            __pdfRenderTraceConsole?: boolean;
+            __pdfRenderTraceBuffer?: IPdfRenderTraceEntry[];
+            __getPdfRenderTrace?: () => IPdfRenderTraceEntry[];
+            __clearPdfRenderTrace?: () => void;
+        };
+        traceWindow.__pdfRenderTrace = true;
+        traceWindow.__pdfRenderTraceConsole = false;
+        traceWindow.__pdfRenderTraceBuffer = [];
+        traceWindow.__getPdfRenderTrace = () => [...(traceWindow.__pdfRenderTraceBuffer ?? [])];
+        traceWindow.__clearPdfRenderTrace = () => {
+            traceWindow.__pdfRenderTraceBuffer = [];
+        };
+    });
+}
+
+async function getBufferedPdfRenderTrace(page: Page) {
+    return page.evaluate(() => {
+        const traceWindow = window as Window & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
+        return traceWindow.__getPdfRenderTrace?.() ?? [];
+    });
+}
+
+async function waitForManagedShapeSelfSaveImportWithoutRerender(page: Page) {
+    await waitForFunctionInPage(page, () => {
+        const traceWindow = window as Window & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
+        const trace = traceWindow.__getPdfRenderTrace?.() ?? [];
+        return trace.some(entry => (
+            entry.event === 'managed-shapes-import-end'
+            && entry.payload.skippedRerender === true
+        ));
+    }, { timeout: 20_000 });
+
+    const trace = await getBufferedPdfRenderTrace(page);
+    const embeddedShapeRerenderEvents = trace.filter(entry => entry.event === 'embedded-shape-rerender-invalidate');
+    expect(embeddedShapeRerenderEvents).toEqual([]);
 }
 
 function createRendererErrorTracker(page: Page): IRendererErrorTracker {
@@ -1327,7 +1375,9 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
 
+        await enableBufferedPdfRenderTrace(page);
         await saveViaWindowHandle(page);
+        await waitForManagedShapeSelfSaveImportWithoutRerender(page);
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
         const annotationSummary = await waitForLineCountOnDisk(fixturePath, 1);

@@ -32,6 +32,14 @@ interface IManagedEmbeddedPdfShapesRenderOptions {
     bufferOverride?: number;
 }
 
+type TEmbeddedShapeImportApplyMode = 'replace' | 'reconcile' | 'self-save-metadata';
+
+interface IEmbeddedShapeImportApplyPlan {
+    mode: TEmbeddedShapeImportApplyMode;
+    skipRerender: boolean;
+    reason: string;
+}
+
 interface IUseManagedEmbeddedPdfShapesOptions {
     viewerContainer: Ref<HTMLElement | null>;
     workingCopyPath: Ref<string | null>;
@@ -82,16 +90,16 @@ export function useManagedEmbeddedPdfShapes({
     let embeddedShapeImportPromise: Promise<void> = Promise.resolve();
     let lastEmbeddedShapeImportPath: string | null = null;
     let hasEmbeddedShapeImportBaseline = false;
-    let shouldReplaceManagedShapesOnNextImport = false;
+    let shouldAdoptSelfSaveMetadataOnNextImport = false;
     const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
     let isDeletedEmbeddedShapeRefreshScheduled = false;
 
     function adoptPersistedManagedShapesOnNextImport() {
-        shouldReplaceManagedShapesOnNextImport = true;
+        shouldAdoptSelfSaveMetadataOnNextImport = true;
     }
 
     function clearPendingManagedShapeImportAdoption() {
-        shouldReplaceManagedShapesOnNextImport = false;
+        shouldAdoptSelfSaveMetadataOnNextImport = false;
     }
 
     const managedEmbeddedAnnotationIds = computed(() =>
@@ -189,6 +197,7 @@ export function useManagedEmbeddedPdfShapes({
     }
 
     async function resetEmbeddedShapeImportBaseline(token?: number, path?: string | null) {
+        shouldAdoptSelfSaveMetadataOnNextImport = false;
         lastEmbeddedShapeImportPath = null;
         hasEmbeddedShapeImportBaseline = false;
         shapeComposable.replaceShapes([]);
@@ -273,34 +282,76 @@ export function useManagedEmbeddedPdfShapes({
         }));
     }
 
-    function shouldReconcileEmbeddedShapeImport(path: string | null) {
+    function hasShapeStateForSelfSaveImport() {
         return (
-            !shouldReplaceManagedShapesOnNextImport
-            && hasEmbeddedShapeImportBaseline
-            && path === lastEmbeddedShapeImportPath
-            && shapeComposable.hasShapes.value
+            shapeComposable.getAllShapes().length > 0
+            || shapeComposable.getDeletedEmbeddedAnnotationIds().length > 0
+            || shapeComposable.getDeletedEmbeddedShapeStableKeys().length > 0
         );
     }
 
-    async function applyImportedEmbeddedShapes(importedShapes: IShapeAnnotation[], path: string | null, token: number) {
-        const shouldReconcileWithExistingShapes = shouldReconcileEmbeddedShapeImport(path);
+    function planEmbeddedShapeImportApply(path: string | null): IEmbeddedShapeImportApplyPlan {
+        const isSameSource = path === lastEmbeddedShapeImportPath;
+        if (
+            shouldAdoptSelfSaveMetadataOnNextImport
+            && isSameSource
+            && (hasEmbeddedShapeImportBaseline || hasShapeStateForSelfSaveImport())
+        ) {
+            return {
+                mode: 'self-save-metadata',
+                skipRerender: true,
+                reason: 'preserved-live-session-save',
+            };
+        }
+
+        if (hasEmbeddedShapeImportBaseline && isSameSource) {
+            return {
+                mode: 'reconcile',
+                skipRerender: false,
+                reason: shapeComposable.hasShapes.value
+                    ? 'same-source-dirty-shape-reconcile'
+                    : 'same-source-clean-shape-reconcile',
+            };
+        }
+
+        return {
+            mode: 'replace',
+            skipRerender: false,
+            reason: 'new-source-import',
+        };
+    }
+
+    async function applyImportedEmbeddedShapes(
+        importedShapes: IShapeAnnotation[],
+        path: string | null,
+        token: number,
+    ) {
+        const applyPlan = planEmbeddedShapeImportApply(path);
 
         logger.debug('pdf-shapes', 'Embedded shape import finished', () => ({
             path,
             token,
             importedShapeCount: importedShapes.length,
-            importMode: shouldReconcileWithExistingShapes ? 'reconcile' : 'replace',
-            shouldReconcileWithExistingShapes,
+            importMode: applyPlan.mode,
+            importReason: applyPlan.reason,
+            skipRerender: applyPlan.skipRerender,
+            shouldAdoptSelfSaveMetadataOnNextImport,
             currentShapeCountBeforeApply: shapeComposable.getAllShapes().length,
         }));
 
-        if (shouldReconcileWithExistingShapes) {
-            shapeComposable.reconcilePersistedShapes(importedShapes);
-        } else {
-            shapeComposable.replaceShapes(importedShapes);
+        switch (applyPlan.mode) {
+            case 'self-save-metadata':
+                shapeComposable.adoptPersistedShapeMetadata(importedShapes);
+                break;
+            case 'reconcile':
+                shapeComposable.reconcilePersistedShapes(importedShapes);
+                break;
+            case 'replace':
+                shapeComposable.replaceShapes(importedShapes);
+                break;
         }
 
-        shouldReplaceManagedShapesOnNextImport = false;
+        shouldAdoptSelfSaveMetadataOnNextImport = false;
         hasEmbeddedShapeImportBaseline = true;
         lastEmbeddedShapeImportPath = path ?? null;
 
@@ -310,6 +361,8 @@ export function useManagedEmbeddedPdfShapes({
             return;
         }
         syncHiddenEmbeddedAnnotationDom();
+
+        return applyPlan;
     }
 
     async function rerenderManagedEmbeddedShapesIfNeeded() {
@@ -375,6 +428,7 @@ export function useManagedEmbeddedPdfShapes({
                 return;
             }
             if (result.status === 'failed') {
+                shouldAdoptSelfSaveMetadataOnNextImport = false;
                 return;
             }
             if (result.status === 'stale') {
@@ -385,18 +439,21 @@ export function useManagedEmbeddedPdfShapes({
                 return;
             }
 
-            await applyImportedEmbeddedShapes(result.shapes, path, localToken);
+            const applyPlan = await applyImportedEmbeddedShapes(result.shapes, path, localToken);
             if (isStaleEmbeddedShapeImport(localToken, path)) {
                 logStaleEmbeddedShapeImport(localToken, path);
                 return;
             }
-            await rerenderManagedEmbeddedShapesIfNeeded();
+            if (!applyPlan?.skipRerender) {
+                await rerenderManagedEmbeddedShapesIfNeeded();
+            }
             logPdfRenderTrace('managed-shapes-import-end', {
                 path,
                 token: localToken,
                 currentPage: currentPage.value,
                 visibleRange: visibleRange.value,
                 shapeCount: shapeComposable.getAllShapes().length,
+                skippedRerender: applyPlan?.skipRerender === true,
             });
         })();
 
@@ -415,7 +472,7 @@ export function useManagedEmbeddedPdfShapes({
     async function clearManagedShapesForDeferredImport() {
         const localToken = ++embeddedShapeImportToken;
         const path = workingCopyPath.value;
-        shouldReplaceManagedShapesOnNextImport = false;
+        shouldAdoptSelfSaveMetadataOnNextImport = false;
         lastEmbeddedShapeImportPath = null;
         hasEmbeddedShapeImportBaseline = false;
         shapeComposable.replaceShapes([]);
