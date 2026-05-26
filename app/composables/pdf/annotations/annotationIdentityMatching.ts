@@ -672,6 +672,7 @@ export function mergeCommentSummaries(
         uid: existing.uid ?? incoming.uid,
         subtype,
         color: mergeColorField(existing, incoming),
+        colorEdited: Boolean(existing.colorEdited || incoming.colorEdited),
         source,
         hasNote,
         markerRect: pickPreferredMarkerRect(existing, incoming),

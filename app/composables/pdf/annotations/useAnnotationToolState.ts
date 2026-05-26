@@ -10,6 +10,7 @@ import type {
 import type {
     IAnnotationMarkerRect,
     IAnnotationSettings,
+    ITextMarkupAnnotationProperties,
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
@@ -28,9 +29,9 @@ import {
     errorToLogText,
     toCssColor,
 } from '@app/composables/pdf/annotationCssUtils';
-import { clamp } from 'es-toolkit/math';
 import {
     clearSelectedEditorState,
+    getActiveEditor,
     getEditorsOnPage,
     updateEditorDefaultParams,
 } from '@app/services/pdfjs/annotationEditorAdapter';
@@ -48,6 +49,7 @@ import {
     createAnnotationEditorPresentation,
     normalizeMarkupSubtypeFragmentBoxes,
 } from '@app/composables/pdf/annotations/annotationEditorPresentation';
+import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS = 500;
@@ -109,6 +111,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     const markupSubtypeDrawLayer = createAnnotationMarkupSubtypeDrawLayer();
     const {
         resolveEditorDrawLayerHighlight,
+        recolorEditorHighlightDrawLayer,
         clearMarkupSubtypeDrawLayerClass,
         applyMarkupSubtypeDrawLayerClass,
     } = markupSubtypeDrawLayer;
@@ -129,6 +132,11 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         pageIndex = currentPage.value - 1,
     ) {
         applyEditorMarkupSubtypePresentationForPage(editor, subtype, pageIndex);
+    }
+
+    function refreshEditorTextMarkupColor(editor: IPdfjsEditor, color: string) {
+        editor.onUpdatedColor?.();
+        recolorEditorHighlightDrawLayer(editor, color);
     }
 
     function isFinitePositiveRect(rect: IAnnotationMarkerRect | null | undefined): rect is IAnnotationMarkerRect {
@@ -305,6 +313,21 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
     }
 
+    function updateMarkupSubtypeGeometryHintColor(editor: IPdfjsEditor, pageIndex: number, color: string) {
+        const identity = getEditorIdentity(editor, pageIndex);
+        const entry = markupSubtypeGeometryHints.get(identity);
+        if (!entry) {
+            return;
+        }
+        markupSubtypeGeometryHints.set(identity, {
+            ...entry,
+            hint: {
+                ...entry.hint,
+                color,
+            },
+        });
+    }
+
     function resolveEditorMarkupSubtypeColor(
         editor: IPdfjsEditor,
         subtype: TMarkupSubtype,
@@ -353,28 +376,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             default:
                 return settings.highlightColor;
         }
-    }
-
-    function toOpaqueHighlightDisplayColor(color: string, opacity: number) {
-        const normalizedOpacity = clamp(opacity, 0, 1);
-        const hexMatch = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
-        if (!hexMatch?.groups?.hex || normalizedOpacity >= 1) {
-            return color;
-        }
-
-        const hex = hexMatch.groups.hex.length === 3
-            ? hexMatch.groups.hex.split('').map(channel => channel + channel).join('')
-            : hexMatch.groups.hex;
-        const channels = [
-            Number.parseInt(hex.slice(0, 2), 16),
-            Number.parseInt(hex.slice(2, 4), 16),
-            Number.parseInt(hex.slice(4, 6), 16),
-        ];
-        const blended = channels.map((channel) => {
-            const value = Math.round(255 * (1 - normalizedOpacity) + channel * normalizedOpacity);
-            return value.toString(16).padStart(2, '0');
-        });
-        return `#${blended.join('')}`;
     }
 
     function resolveHighlightDisplayColorForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
@@ -645,6 +646,115 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyEditorMarkupSubtypePresentation(editor, subtype, pageIndex);
     }
 
+    function findSelectedMarkupEditor(): {
+        editor: IPdfjsEditor;
+        pageIndex: number;
+        subtype: TMarkupSubtype;
+    } | null {
+        const uiManager = annotationUiManager.value;
+        if (!uiManager) {
+            return null;
+        }
+
+        const activeEditor = getActiveEditor(uiManager);
+        const candidates = activeEditor
+            ? [activeEditor]
+            : Array.from({ length: numPages.value }, (_, pageIndex) => getEditorsOnPage(uiManager, pageIndex)).flat();
+
+        for (const editor of candidates) {
+            const pageIndex = Number.isFinite(editor.parentPageIndex)
+                ? Math.max(0, editor.parentPageIndex as number)
+                : Math.max(0, currentPage.value - 1);
+            const isSelected = activeEditor === editor
+                || editor.isSelected === true
+                || editor.div?.classList.contains('selectedEditor') === true
+                || editor.div?.classList.contains('selected') === true;
+            if (!isSelected) {
+                continue;
+            }
+
+            const subtype = resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+                ?? resolveEditorSubtypeFromPresentation(editor)
+                ?? (elementHasClass(editor.div, 'highlightEditor') ? 'Highlight' : null);
+            if (subtype) {
+                return {
+                    editor,
+                    pageIndex,
+                    subtype,
+                };
+            }
+        }
+
+        return null;
+    }
+
+    function getSelectedTextMarkupAnnotationProperties(): ITextMarkupAnnotationProperties | null {
+        const selected = findSelectedMarkupEditor();
+        if (!selected) {
+            return null;
+        }
+        const color = resolveEditorMarkupSubtypeColor(selected.editor, selected.subtype, selected.pageIndex);
+        return {
+            id: getEditorIdentity(selected.editor, selected.pageIndex),
+            pageIndex: selected.pageIndex,
+            subtype: selected.subtype,
+            color,
+            markerRect: resolveEditorMarkupSubtypeHintRect(selected.editor),
+        };
+    }
+
+    function resolveTextMarkupVisualColor(subtype: TMarkupSubtype, color: string) {
+        if (subtype !== 'Highlight') {
+            return color;
+        }
+        const opacity = annotationSettings.value?.highlightOpacity ?? 1;
+        return toOpaqueHighlightDisplayColor(color, opacity);
+    }
+
+    function applyTextMarkupEditorColor(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        subtype: TMarkupSubtype,
+        color: string,
+    ) {
+        const visualColor = resolveTextMarkupVisualColor(subtype, color);
+        editor.color = visualColor;
+        if (subtype === 'Highlight') {
+            editor.opacity = OPAQUE_HIGHLIGHT_OPACITY;
+        }
+        storeEditorMarkupSubtypeColor(editor, pageIndex, color);
+        updateMarkupSubtypeGeometryHintColor(editor, pageIndex, color);
+        applyEditorMarkupSubtypePresentation(editor, subtype, pageIndex);
+        refreshEditorTextMarkupColor(editor, visualColor);
+        editor.addToAnnotationStorage?.();
+    }
+
+    function updateSelectedTextMarkupAnnotationColor(color: string) {
+        const selected = findSelectedMarkupEditor();
+        const normalizedColor = color.trim();
+        if (!selected || !normalizedColor) {
+            return false;
+        }
+
+        applyTextMarkupEditorColor(selected.editor, selected.pageIndex, selected.subtype, normalizedColor);
+        return true;
+    }
+
+    function updateTextMarkupAnnotationColor(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        subtype: TMarkupSubtype,
+        color: string,
+    ) {
+        const normalizedColor = color.trim();
+        if (!normalizedColor) {
+            return false;
+        }
+
+        applyTextMarkupEditorColor(editor, pageIndex, subtype, normalizedColor);
+        return true;
+    }
+
     function isMaterializedPdfAnnotationId(annotationId: string | null | undefined) {
         return Boolean(parsePdfJsAnnotationRef(annotationId));
     }
@@ -764,6 +874,9 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         syncMarkupSubtypePresentationForEditors,
         setEditorMarkupSubtypeOverride,
         resolveEditorMarkupSubtypeOverride,
+        getSelectedTextMarkupAnnotationProperties,
+        updateSelectedTextMarkupAnnotationColor,
+        updateTextMarkupAnnotationColor,
         getMarkupSubtypeOverrides,
         getMarkupSubtypeHints,
         forgetMarkupSubtypeOverride,

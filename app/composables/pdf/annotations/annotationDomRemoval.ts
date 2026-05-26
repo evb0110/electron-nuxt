@@ -20,6 +20,12 @@ interface IHighlightVisualCandidate {
     svg: SVGElement;
 }
 
+interface ITextMarkupElementCandidate {
+    distance: number;
+    element: HTMLElement;
+    iou: number;
+}
+
 function getAnnotationId(element: HTMLElement) {
     return element.dataset.annotationId ?? element.getAttribute('data-annotation-id');
 }
@@ -32,6 +38,12 @@ function collectMatchingAnnotationElements(container: HTMLElement, annotationId:
 
     return Array.from(container.querySelectorAll<HTMLElement>('[data-annotation-id]'))
         .filter((element) => normalizePdfJsAnnotationId(getAnnotationId(element)) === normalizedTarget);
+}
+
+function appendUniqueElement(elements: HTMLElement[], element: HTMLElement) {
+    if (!elements.includes(element)) {
+        elements.push(element);
+    }
 }
 
 function collectRelatedPopupElements(container: HTMLElement, annotationId: string) {
@@ -201,6 +213,25 @@ function pickBetterHighlightVisualCandidate(
     return candidate.distance < current.distance ? candidate : current;
 }
 
+function collectMatchingHighlightVisuals(
+    pageContainer: HTMLElement,
+    targetRects: IAnnotationMarkerRect[],
+) {
+    const candidates: IHighlightVisualCandidate[] = [];
+    if (targetRects.length === 0) {
+        return candidates;
+    }
+
+    for (const svg of getDrawLayerHighlightSvgs(pageContainer)) {
+        const candidate = toHighlightVisualCandidate(pageContainer, svg, targetRects);
+        if (!candidate || !isMatchedHighlightVisual(candidate)) {
+            continue;
+        }
+        candidates.push(candidate);
+    }
+    return candidates.sort((left, right) => right.iou - left.iou || left.distance - right.distance);
+}
+
 function removeBestMatchingHighlightVisual(
     pageContainer: HTMLElement,
     targetRects: IAnnotationMarkerRect[],
@@ -226,6 +257,147 @@ function removeBestMatchingHighlightVisual(
     svgToRemove.remove();
     refreshHighlightCompositeOverlay(pageContainer);
     return true;
+}
+
+function setSvgPaintColor(svg: SVGElement, color: string) {
+    svg.setAttribute('fill', color);
+    svg.style.setProperty('fill', color);
+    svg.querySelectorAll<SVGElement>('path, rect, line, polyline, polygon').forEach((node) => {
+        const fill = node.getAttribute('fill');
+        if (!fill || fill !== 'none') {
+            node.setAttribute('fill', color);
+            node.style.setProperty('fill', color);
+        }
+        const stroke = node.getAttribute('stroke');
+        if (stroke && stroke !== 'none') {
+            node.setAttribute('stroke', color);
+            node.style.setProperty('stroke', color);
+        }
+    });
+}
+
+function recolorMatchingHighlightVisuals(
+    pageContainer: HTMLElement,
+    targetRects: IAnnotationMarkerRect[],
+    color: string,
+) {
+    const candidates = collectMatchingHighlightVisuals(pageContainer, targetRects);
+    if (candidates.length === 0) {
+        return false;
+    }
+
+    candidates.forEach(candidate => setSvgPaintColor(candidate.svg, color));
+    refreshHighlightCompositeOverlay(pageContainer);
+    return true;
+}
+
+function normalizeTextMarkupSubtype(subtype: string | null | undefined) {
+    return (subtype ?? '').trim().toLowerCase();
+}
+
+function collectGeometryMatchedTextMarkupElements(
+    container: HTMLElement,
+    comment: IAnnotationCommentSummary,
+): HTMLElement[] {
+    const commentRect = normalizeMarkerRect(comment.markerRect);
+    if (!commentRect) {
+        return [];
+    }
+
+    const matchedCandidates: ITextMarkupElementCandidate[] = [];
+
+    findPageContainers(container, comment, []).forEach((pageContainer) => {
+        const candidates = Array.from(pageContainer.querySelectorAll<HTMLElement>('[data-annotation-id]'))
+            .filter(isTextMarkupElement);
+        candidates.forEach((element) => {
+            const elementRect = rectFromElement(pageContainer, element);
+            if (!elementRect) {
+                return;
+            }
+            const candidate = {
+                distance: markerRectCenterDistance(elementRect, commentRect),
+                element,
+                iou: markerRectIoU(elementRect, commentRect),
+            };
+            if (
+                candidate.iou >= MIN_HIGHLIGHT_VISUAL_IOU
+                || candidate.distance <= MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE
+            ) {
+                matchedCandidates.push(candidate);
+            }
+        });
+    });
+
+    return matchedCandidates
+        .sort((left, right) => right.iou - left.iou || left.distance - right.distance)
+        .map(candidate => candidate.element);
+}
+
+function applyAnnotationLayerTextMarkupColor(
+    element: HTMLElement,
+    subtype: string,
+    color: string,
+) {
+    element.style.setProperty('--pdf-markup-subtype-color', color);
+    if (subtype === 'highlight') {
+        element.style.removeProperty('background');
+        element.style.removeProperty('background-color');
+    } else {
+        element.style.color = color;
+        element.style.borderColor = color;
+        element.style.textDecorationColor = color;
+    }
+    element.querySelectorAll<HTMLElement>('.overlaidText, mark, u, s').forEach((node) => {
+        node.style.color = color;
+        node.style.textDecorationColor = color;
+        if (subtype === 'highlight') {
+            node.style.removeProperty('background');
+            node.style.removeProperty('background-color');
+        }
+    });
+    element.querySelectorAll<SVGElement>('svg, path, line, rect, polyline, polygon').forEach((node) => {
+        node.style.setProperty('stroke', color);
+        if (subtype === 'highlight') {
+            node.style.setProperty('fill', color);
+        }
+    });
+}
+
+export function applyAnnotationCommentTextMarkupColor(
+    container: HTMLElement,
+    comment: IAnnotationCommentSummary,
+    color: string,
+) {
+    const normalizedColor = color.trim();
+    if (!normalizedColor || !isTextMarkupSubtype(comment.subtype)) {
+        return false;
+    }
+
+    const annotationId = comment.annotationId;
+    const annotationElements = annotationId ? collectMatchingAnnotationElements(container, annotationId) : [];
+    collectGeometryMatchedTextMarkupElements(container, comment)
+        .forEach(element => appendUniqueElement(annotationElements, element));
+    const subtype = normalizeTextMarkupSubtype(comment.subtype);
+    let updated = false;
+
+    annotationElements.forEach((element) => {
+        applyAnnotationLayerTextMarkupColor(element, subtype, normalizedColor);
+        updated = true;
+    });
+
+    findPageContainers(container, comment, annotationElements).forEach((pageContainer) => {
+        if (
+            recolorMatchingHighlightVisuals(
+                pageContainer,
+                getTargetRects(pageContainer, comment, annotationElements),
+                normalizedColor,
+            )
+        ) {
+            updated = true;
+        }
+    });
+
+    return updated;
 }
 
 function removeTextMarkupVisuals(

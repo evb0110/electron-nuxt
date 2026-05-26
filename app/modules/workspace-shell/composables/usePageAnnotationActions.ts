@@ -14,6 +14,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
     IShapeAnnotation,
+    ITextMarkupAnnotationProperties,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
@@ -51,6 +52,7 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     | 'deleteSelectedShape'
     | 'focusAnnotationComment'
     | 'getSelectedShape'
+    | 'getSelectedTextMarkupAnnotationProperties'
     | 'getViewerContainer'
     | 'highlightSelection'
     | 'invalidatePages'
@@ -63,6 +65,8 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     | 'suppressAnnotationId'
     | 'suppressAnnotationStableKey'
     | 'updateAnnotationComment'
+    | 'updateSelectedTextMarkupAnnotationColor'
+    | 'updateTextMarkupAnnotationColor'
     | 'updateShape'
 > & Partial<Pick<IPdfViewerExpose,
     'registerAnnotationHistoryCommand'
@@ -193,6 +197,16 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             ? selectedShape.value
             : null,
     );
+    const selectedTextMarkupForProperties = ref<ITextMarkupAnnotationProperties | null>(null);
+    const textMarkupPropertiesPopover = ref<{
+        visible: boolean;
+        x: number;
+        y: number;
+    }>({
+        visible: false,
+        x: 0,
+        y: 0,
+    });
     const viewerContainer = computed(() => pdfViewerRef.value?.getViewerContainer() ?? null);
     const windowTarget = computed(() => (
         typeof window !== 'undefined' && typeof window.addEventListener === 'function'
@@ -607,6 +621,121 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         };
     }
 
+    function closeTextMarkupProperties() {
+        selectedTextMarkupForProperties.value = null;
+        textMarkupPropertiesPopover.value = {
+            visible: false,
+            x: 0,
+            y: 0,
+        };
+    }
+
+    function updateTextMarkupPropertiesPopoverPosition(markup: ITextMarkupAnnotationProperties) {
+        const markerRect = markup.markerRect;
+        const viewerContainer = pdfViewerRef.value?.getViewerContainer();
+        if (!markerRect || !viewerContainer) {
+            return false;
+        }
+
+        const pageContainer = viewerContainer.querySelector<HTMLElement>(
+            `.page_container[data-page="${markup.pageIndex + 1}"]`,
+        );
+        if (!pageContainer) {
+            return false;
+        }
+
+        const pageRect = pageContainer.getBoundingClientRect();
+        if (pageRect.width <= 0 || pageRect.height <= 0) {
+            return false;
+        }
+
+        const desiredX = pageRect.left + ((markerRect.left + markerRect.width) * pageRect.width) + 12;
+        const desiredY = pageRect.top + (markerRect.top * pageRect.height) - 8;
+        const clampedPosition = clampToViewport(
+            desiredX,
+            desiredY,
+            260,
+            90,
+            8,
+        );
+
+        textMarkupPropertiesPopover.value = {
+            visible: true,
+            x: clampedPosition.x,
+            y: clampedPosition.y,
+        };
+        return true;
+    }
+
+    function refreshSelectedTextMarkupProperties() {
+        const markup = pdfViewerRef.value?.getSelectedTextMarkupAnnotationProperties?.() ?? null;
+        selectedTextMarkupForProperties.value = markup;
+        if (!markup) {
+            textMarkupPropertiesPopover.value = {
+                visible: false,
+                x: 0,
+                y: 0,
+            };
+            return;
+        }
+        updateTextMarkupPropertiesPopoverPosition(markup);
+    }
+
+    function handleTextMarkupColorUpdate(color: string) {
+        const selectedMarkup = selectedTextMarkupForProperties.value;
+        const didUpdate = pdfViewerRef.value?.updateSelectedTextMarkupAnnotationColor?.(color) === true;
+        if (!didUpdate) {
+            return;
+        }
+        if (selectedMarkup) {
+            const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
+            if (selectedMarkup.subtype === 'Underline') {
+                nextSettings.underlineColor = color;
+            } else if (selectedMarkup.subtype === 'StrikeOut') {
+                nextSettings.strikethroughColor = color;
+            } else if (selectedMarkup.subtype === 'Highlight') {
+                nextSettings.highlightColor = color;
+            }
+            annotationSettings.value = nextSettings;
+        }
+        selectedTextMarkupForProperties.value = pdfViewerRef.value?.getSelectedTextMarkupAnnotationProperties?.() ?? selectedTextMarkupForProperties.value;
+    }
+
+    function updateTextMarkupDefaultSettings(comment: IAnnotationCommentSummary, color: string) {
+        const subtype = (comment.subtype ?? '').trim().toLowerCase();
+        const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
+        if (subtype === 'underline') {
+            nextSettings.underlineColor = color;
+        } else if (subtype === 'strikeout' || subtype === 'strikethrough') {
+            nextSettings.strikethroughColor = color;
+        } else if (subtype === 'highlight') {
+            nextSettings.highlightColor = color;
+        } else {
+            return;
+        }
+        annotationSettings.value = nextSettings;
+    }
+
+    function handleContextTextMarkupColorUpdate(color: string) {
+        const comment = annotationContextMenu.value.comment;
+        if (!comment) {
+            return;
+        }
+        const didUpdate = pdfViewerRef.value?.updateTextMarkupAnnotationColor?.(comment, color) === true;
+        if (!didUpdate) {
+            return;
+        }
+        updateTextMarkupDefaultSettings(comment, color);
+        annotationContextMenu.value = {
+            ...annotationContextMenu.value,
+            comment: {
+                ...comment,
+                color,
+                colorEdited: true,
+            },
+        };
+    }
+
     function updateShapeColorDefault(
         settings: IAnnotationSettings,
         isInkShape: boolean,
@@ -779,10 +908,15 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (selectedShape.value && shapePropertiesPopover.value.visible) {
             updateShapePropertiesPopoverPosition(selectedShape.value);
         }
+        if (selectedTextMarkupForProperties.value && textMarkupPropertiesPopover.value.visible) {
+            updateTextMarkupPropertiesPopoverPosition(selectedTextMarkupForProperties.value);
+        }
     }
 
     useEventListener(viewerContainer, 'scroll', handleViewportChange, { passive: true });
     useEventListener(windowTarget, 'resize', handleViewportChange);
+    useEventListener(viewerContainer, 'pointerup', () => setTimeout(refreshSelectedTextMarkupProperties, 0));
+    useEventListener(viewerContainer, 'keyup', refreshSelectedTextMarkupProperties);
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;
@@ -1191,6 +1325,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     return {
         shapePropertiesPopover,
         selectedShapeForProperties,
+        textMarkupPropertiesPopover,
+        selectedTextMarkupForProperties,
         handleCommentSelection,
         handleQuickNoteAction,
         handleStartPlaceNote,
@@ -1198,8 +1334,11 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         handleAnnotationCommentClick,
         handleOpenAnnotationNote,
         closeShapeProperties,
+        closeTextMarkupProperties,
         handleDeleteSelectedShape,
         handleShapePropertyUpdate,
+        handleTextMarkupColorUpdate,
+        handleContextTextMarkupColorUpdate,
         handleShapeContextMenu,
         handleViewerAnnotationContextMenu,
         openContextMenuNote,

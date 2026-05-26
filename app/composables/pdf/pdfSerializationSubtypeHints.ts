@@ -25,11 +25,24 @@ const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>([
     'Squiggly',
 ]);
 
-function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
-    return value === 'Highlight'
-        || value === 'Underline'
-        || value === 'StrikeOut'
-        || value === 'Squiggly';
+function toMarkupSubtype(value: unknown): TMarkupSubtype | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'highlight') {
+        return 'Highlight';
+    }
+    if (normalized === 'underline') {
+        return 'Underline';
+    }
+    if (normalized === 'strikeout' || normalized === 'strikethrough') {
+        return 'StrikeOut';
+    }
+    if (normalized === 'squiggly') {
+        return 'Squiggly';
+    }
+    return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,11 +80,16 @@ function shouldCollectMarkupSubtypeHint(comment: IAnnotationCommentSummary, subt
     return REWRITABLE_SUBTYPE_HINTS.has(subtype);
 }
 
+function shouldCollectMarkupSubtypeHintColor(comment: IAnnotationCommentSummary) {
+    return comment.colorEdited === true;
+}
+
 export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[]): IMarkupSubtypeHint[] {
     const hints: IMarkupSubtypeHint[] = [];
     const pageMarkupIndexes = new Map<number, number>();
     for (const comment of comments) {
-        if (!isMarkupSubtype(comment.subtype)) {
+        const subtype = toMarkupSubtype(comment.subtype);
+        if (!subtype) {
             continue;
         }
         if (!isValidMarkerRect(comment.markerRect)) {
@@ -79,14 +97,14 @@ export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[])
         }
         const pageMarkupIndex = pageMarkupIndexes.get(comment.pageIndex) ?? 0;
         pageMarkupIndexes.set(comment.pageIndex, pageMarkupIndex + 1);
-        if (!shouldCollectMarkupSubtypeHint(comment, comment.subtype)) {
+        if (!shouldCollectMarkupSubtypeHint(comment, subtype)) {
             continue;
         }
         hints.push({
             annotationId: comment.annotationId,
-            color: comment.color,
+            color: shouldCollectMarkupSubtypeHintColor(comment) ? comment.color : null,
             id: comment.id,
-            subtype: comment.subtype,
+            subtype,
             pageIndex: comment.pageIndex,
             markerRect: comment.markerRect,
             consumed: false,

@@ -55,6 +55,7 @@ export interface IPdfjsEditor {
     _onResizing?: () => void;
     isInEditMode?: () => boolean;
     updateParams?: (type: number, value: unknown) => void;
+    onUpdatedColor?: () => void;
     setDims?: () => void;
     fixAndSetPosition?: () => void;
     parent?: IPdfjsEditorParent;

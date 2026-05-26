@@ -149,8 +149,9 @@ function shouldCompositeHighlightSvg(svg: SVGElement) {
 
 function isVisibleHighlightSvg(svg: SVGElement) {
     const style = window.getComputedStyle(svg);
+    const hiddenByCompositeOverlay = svg.classList.contains(ORIGINAL_HIDDEN_CLASS);
     return style.display !== 'none'
-        && style.visibility !== 'hidden'
+        && (hiddenByCompositeOverlay || style.visibility !== 'hidden')
         && Number(style.opacity || '1') > 0;
 }
 

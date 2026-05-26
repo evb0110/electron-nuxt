@@ -8,6 +8,7 @@ import {
     PDFName,
     PDFNumber,
 } from 'pdf-lib';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type {
     IAnnotationMarkerRect,
     TMarkupSubtype,
@@ -31,6 +32,12 @@ import {
     iterateAnnotationRefDicts,
     resolvePageAnnotationContext,
 } from '@app/composables/pdf/pdfPageAnnotationIteration';
+import {
+    clampRgbChannel,
+    parseCssRgbColor,
+    toOpaqueHighlightDisplayRgbColor,
+    type IRgbColor,
+} from '@app/composables/pdf/textMarkupColor';
 
 const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
     Highlight: 'Highlight',
@@ -46,12 +53,6 @@ const COLOR_MATCH_WEIGHT = 1.5;
 const PAGE_MARKUP_INDEX_MATCH_BONUS = 0.25;
 const PAGE_MARKUP_INDEX_MISMATCH_PENALTY = 0.08;
 const MAX_RGB_DISTANCE = Math.sqrt((255 ** 2) * 3);
-
-interface IRgbColor {
-    b: number;
-    g: number;
-    r: number;
-}
 
 interface IMarkupRewriteInputs {
     overridesMap: Map<string, TMarkupSubtype>;
@@ -153,10 +154,6 @@ function toHintPageMarkupIndex(hint: IMarkupSubtypeHint) {
         : null;
 }
 
-function clampRgbChannel(value: number) {
-    return Math.max(0, Math.min(255, Math.round(value)));
-}
-
 function toPdfColorChannel(value: number, allChannelsAreUnitRange: boolean) {
     return clampRgbChannel(allChannelsAreUnitRange ? value * 255 : value);
 }
@@ -188,57 +185,33 @@ function readPdfMarkupColor(dict: PDFDict): IRgbColor | null {
     };
 }
 
-function parseHexColor(value: string): IRgbColor | null {
-    const match = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
-    const hex = match?.groups?.hex;
-    if (!hex) {
-        return null;
-    }
-
-    const expanded = hex.length === 3
-        ? hex.split('').map(channel => channel + channel).join('')
-        : hex;
-    return {
-        r: Number.parseInt(expanded.slice(0, 2), 16),
-        g: Number.parseInt(expanded.slice(2, 4), 16),
-        b: Number.parseInt(expanded.slice(4, 6), 16),
-    };
-}
-
-function parseRgbColorFunction(value: string): IRgbColor | null {
-    const match = /^rgba?\((?<channels>.+)\)$/i.exec(value.trim());
-    const rawChannels = match?.groups?.channels;
-    if (!rawChannels) {
-        return null;
-    }
-
-    const channelMatches = rawChannels.match(/-?\d*\.?\d+%?/g) ?? [];
-    if (channelMatches.length < 3) {
-        return null;
-    }
-
-    const channels = channelMatches.slice(0, 3).map((channel) => {
-        const isPercent = channel.endsWith('%');
-        const parsed = Number.parseFloat(isPercent ? channel.slice(0, -1) : channel);
-        return Number.isFinite(parsed)
-            ? clampRgbChannel(isPercent ? (parsed / 100) * 255 : parsed)
-            : Number.NaN;
-    });
-    if (channels.some(channel => !Number.isFinite(channel))) {
-        return null;
-    }
-    return {
-        r: channels[0]!,
-        g: channels[1]!,
-        b: channels[2]!,
-    };
-}
-
 function parseHintColor(value: string | null | undefined): IRgbColor | null {
-    if (!value) {
+    return parseCssRgbColor(value);
+}
+
+function resolveHintTargetColor(targetSubtype: TMarkupSubtype, color: string | null | undefined) {
+    const parsed = parseHintColor(color);
+    if (!parsed) {
         return null;
     }
-    return parseHexColor(value) ?? parseRgbColorFunction(value);
+    if (targetSubtype !== 'Highlight') {
+        return parsed;
+    }
+    return toOpaqueHighlightDisplayRgbColor(
+        color,
+        DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
+    ) ?? parsed;
+}
+
+function writePdfMarkupColor(doc: PDFDocument, dict: PDFDict, color: IRgbColor) {
+    dict.set(
+        PDFName.of('C'),
+        doc.context.obj([
+            color.r / 255,
+            color.g / 255,
+            color.b / 255,
+        ]),
+    );
 }
 
 function colorSimilarity(left: IRgbColor | null, right: IRgbColor | null) {
@@ -340,7 +313,7 @@ function assignSubtypeHintsToCandidates(
 
     const assignedCandidates = new Set<IMarkupAnnotationCandidate>();
     const assignedHints = new Set<IMarkupSubtypeHint>();
-    const assignments = new Map<IMarkupAnnotationCandidate, TMarkupSubtype>();
+    const assignments = new Map<IMarkupAnnotationCandidate, IMarkupSubtypeHint>();
     matches.forEach((match) => {
         if (assignedCandidates.has(match.candidate) || assignedHints.has(match.hint)) {
             return;
@@ -348,7 +321,7 @@ function assignSubtypeHintsToCandidates(
         assignedCandidates.add(match.candidate);
         assignedHints.add(match.hint);
         match.hint.consumed = true;
-        assignments.set(match.candidate, match.hint.subtype);
+        assignments.set(match.candidate, match.hint);
     });
     return assignments;
 }
@@ -519,22 +492,31 @@ function toMarkupSubtypeName(name: PDFName): TMarkupSubtype | null {
     }
 }
 
-function normalizeNativeMarkupSubtypeAppearance(doc: PDFDocument, dict: PDFDict, subtype: TMarkupSubtype) {
-    if (subtype === 'Highlight') {
-        return false;
-    }
-    return ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
-}
-
 function applySubtypeRewriteToDict(
     doc: PDFDocument,
     dict: PDFDict,
     subtypeName: PDFName,
     targetSubtype: TMarkupSubtype,
+    color?: string | null,
 ): boolean {
+    let modified = false;
+    const targetColor = resolveHintTargetColor(targetSubtype, color);
+    if (targetColor) {
+        writePdfMarkupColor(doc, dict, targetColor);
+        if (targetSubtype === 'Highlight') {
+            dict.set(PDFName.of('CA'), PDFNumber.of(1));
+        }
+        dict.delete(PDFName.of('AP'));
+        modified = true;
+    }
+
     const pdfSubtypeName = MARKUP_SUBTYPE_TO_PDF_NAME[targetSubtype];
     if (!pdfSubtypeName || pdfSubtypeName === 'Highlight') {
-        return false;
+        return modified;
+    }
+    const currentSubtype = dict.get(subtypeName);
+    if (currentSubtype instanceof PDFName && currentSubtype.toString() === `/${pdfSubtypeName}`) {
+        return ensureMarkupQuadPointsForSubtypeRewrite(doc, dict) || modified;
     }
     ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
     dict.set(subtypeName, PDFName.of(pdfSubtypeName));
@@ -597,13 +579,16 @@ function rewritePageMarkupSubtypes(
         const exactRefHighlightHint = findExactRefHighlightPreservationHint(pageHints, candidate);
         if (exactRefHighlightHint) {
             consumeExactRefHints(pageHints, candidate);
+            if (applySubtypeRewriteToDict(doc, candidate.dict, subtypeName, exactRefHighlightHint.subtype, exactRefHighlightHint.color)) {
+                rewritten = true;
+            }
             return;
         }
 
         const exactRefHint = findBestExactRefHintForCandidate(pageHints, candidate);
         if (exactRefHint) {
             exactRefHint.consumed = true;
-            if (applySubtypeRewriteToDict(doc, candidate.dict, subtypeName, exactRefHint.subtype)) {
+            if (applySubtypeRewriteToDict(doc, candidate.dict, subtypeName, exactRefHint.subtype, exactRefHint.color)) {
                 rewritten = true;
             }
             return;
@@ -629,8 +614,8 @@ function rewritePageMarkupSubtypes(
     }
 
     const assignments = assignSubtypeHintsToCandidates(pageHints, unmatchedCandidates);
-    assignments.forEach((targetSubtype, candidate) => {
-        if (applySubtypeRewriteToDict(doc, candidate.dict, subtypeName, targetSubtype)) {
+    assignments.forEach((hint, candidate) => {
+        if (applySubtypeRewriteToDict(doc, candidate.dict, subtypeName, hint.subtype, hint.color)) {
             rewritten = true;
         }
     });
@@ -668,12 +653,6 @@ export function applyMarkupSubtypeRewrites(
             if (!currentMarkupSubtype) {
                 continue;
             }
-            if (currentMarkupSubtype !== 'Highlight') {
-                rewritten = normalizeNativeMarkupSubtypeAppearance(doc, dict, currentMarkupSubtype) || rewritten;
-                pageMarkupIndex += 1;
-                continue;
-            }
-
             candidates.push(createMarkupAnnotationCandidate(
                 dict,
                 ref,

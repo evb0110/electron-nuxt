@@ -99,6 +99,7 @@
         @copy-text="handleContextCopyText"
         @copy-selection-text="handleContextCopySelectionText"
         @delete="handleContextDelete"
+        @update-color="handleContextUpdateColor"
         @markup="handleContextMarkup"
         @create-free-note="handleContextCreateFreeNote"
         @create-selection-note="handleContextCreateSelectionNote"
@@ -128,17 +129,26 @@
         @close="handleShapeClose"
         @delete="handleShapeDelete"
     />
+    <PdfTextMarkupAnnotationProperties
+        :markup="selectedTextMarkupForProperties"
+        :x="textMarkupPropertiesX"
+        :y="textMarkupPropertiesY"
+        @update-color="handleTextMarkupColorUpdate"
+        @close="handleTextMarkupClose"
+    />
 </template>
 
 <script setup lang="ts">
 
 import PdfAnnotationProperties from '@app/components/pdf/PdfAnnotationProperties.vue';
+import PdfTextMarkupAnnotationProperties from '@app/components/pdf/PdfTextMarkupAnnotationProperties.vue';
 import PdfAnnotationContextMenu from '@app/components/pdf/annotations/PdfAnnotationContextMenu.vue';
 import PdfAnnotationNoteWindow from '@app/components/pdf/annotations/PdfAnnotationNoteWindow.vue';
 import PdfPageContextMenu from '@app/components/pdf/PdfPageContextMenu.vue';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
+    ITextMarkupAnnotationProperties,
     TAnnotationTool,
 } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
@@ -219,6 +229,9 @@ const {
     selectedShapeForProperties: IShapeAnnotation | null;
     shapePropertiesX: number;
     shapePropertiesY: number;
+    selectedTextMarkupForProperties: ITextMarkupAnnotationProperties | null;
+    textMarkupPropertiesX: number;
+    textMarkupPropertiesY: number;
 }>();
 
 const { t } = useTypedI18n();
@@ -886,6 +899,10 @@ function handleContextDelete() {
     emit('context-delete');
 }
 
+function handleContextUpdateColor(color: string) {
+    emit('context-update-color', color);
+}
+
 function handleContextMarkup(tool: TAnnotationTool) {
     emit('context-markup', tool);
 }
@@ -952,6 +969,14 @@ function handleShapeClose() {
 
 function handleShapeDelete() {
     emit('shape-delete');
+}
+
+function handleTextMarkupColorUpdate(color: string) {
+    emit('text-markup-color-update', color);
+}
+
+function handleTextMarkupClose() {
+    emit('text-markup-close');
 }
 
 const indicatorDomRefreshScheduler = createRafBurstScheduler(() => {
@@ -1102,6 +1127,7 @@ const emit = defineEmits<{
     'context-copy-text': [];
     'context-copy-selection-text': [];
     'context-delete': [];
+    'context-update-color': [color: string];
     'context-markup': [tool: TAnnotationTool];
     'context-create-free-note': [];
     'context-create-selection-note': [];
@@ -1119,6 +1145,8 @@ const emit = defineEmits<{
     'shape-update': [updates: Partial<IShapeAnnotation>];
     'shape-close': [];
     'shape-delete': [];
+    'text-markup-color-update': [color: string];
+    'text-markup-close': [];
 }>();
 </script>
 

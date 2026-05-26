@@ -5,7 +5,10 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { removeAnnotationCommentDom } from '@app/composables/pdf/annotations/annotationDomRemoval';
+import {
+    applyAnnotationCommentTextMarkupColor,
+    removeAnnotationCommentDom,
+} from '@app/composables/pdf/annotations/annotationDomRemoval';
 import { refreshHighlightCompositeOverlay } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
 
 vi.mock('@app/composables/pdf/pdfHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
@@ -29,6 +32,47 @@ class FakeClassList {
     }
 }
 
+class FakeStyle {
+    background = '';
+    backgroundColor = '';
+    borderColor = '';
+    color = '';
+    textDecorationColor = '';
+    private readonly properties = new Map<string, string>();
+
+    setProperty(name: string, value: string) {
+        this.properties.set(name, value);
+        this.setNamedProperty(name, value);
+    }
+
+    removeProperty(name: string) {
+        this.properties.delete(name);
+        this.setNamedProperty(name, '');
+    }
+
+    getPropertyValue(name: string) {
+        return this.properties.get(name) ?? this.getNamedProperty(name);
+    }
+
+    private setNamedProperty(name: string, value: string) {
+        if (name === 'background') {
+            this.background = value;
+        } else if (name === 'background-color') {
+            this.backgroundColor = value;
+        }
+    }
+
+    private getNamedProperty(name: string) {
+        if (name === 'background') {
+            return this.background;
+        }
+        if (name === 'background-color') {
+            return this.backgroundColor;
+        }
+        return '';
+    }
+}
+
 class FakeElement {
     dataset: { annotationId?: string; } = {};
     classList: FakeClassList;
@@ -37,6 +81,8 @@ class FakeElement {
     ariaControls: string | null = null;
     pageContainer: FakePage | null = null;
     parentAnnotation: FakeElement | null = null;
+    style = new FakeStyle();
+    private readonly attributes = new Map<string, string>();
 
     constructor(className: string, private readonly rect: IFakeRect) {
         this.className = className;
@@ -50,7 +96,11 @@ class FakeElement {
         if (name === 'aria-controls') {
             return this.ariaControls;
         }
-        return null;
+        return this.attributes.get(name) ?? null;
+    }
+
+    setAttribute(name: string, value: string) {
+        this.attributes.set(name, value);
     }
 
     getBoundingClientRect() {
@@ -70,15 +120,24 @@ class FakeElement {
     remove() {
         this.removed = true;
     }
+
+    querySelectorAll(_selector: string) {
+        return [] as FakeElement[];
+    }
 }
 
 class FakePage extends FakeElement {
+    annotations: FakeElement[] = [];
     svgs: FakeElement[] = [];
 
-    querySelectorAll(selector: string) {
-        return selector === '.page_canvas svg.highlight:not(.free), .canvasWrapper svg.highlight:not(.free)'
-            ? this.svgs
-            : [];
+    override querySelectorAll(selector: string) {
+        if (selector === '.page_canvas svg.highlight:not(.free), .canvasWrapper svg.highlight:not(.free)') {
+            return this.svgs;
+        }
+        if (selector === '[data-annotation-id]') {
+            return this.annotations;
+        }
+        return [];
     }
 }
 
@@ -87,7 +146,7 @@ class FakeContainer extends FakeElement {
     pages: FakePage[] = [];
     popups: FakeElement[] = [];
 
-    querySelectorAll(selector: string) {
+    override querySelectorAll(selector: string) {
         if (selector === '[data-annotation-id]') {
             return this.annotations;
         }
@@ -257,6 +316,68 @@ describe('removeAnnotationCommentDom', () => {
 
         expect(matchingHighlight.removed).toBe(true);
         expect(distantHighlight.removed).toBe(false);
+        expect(refresh).toHaveBeenCalledWith(page);
+    });
+});
+
+describe('applyAnnotationCommentTextMarkupColor', () => {
+    it('recolors the matching draw-layer highlight instead of stacking annotation-layer background', () => {
+        const refresh = vi.mocked(refreshHighlightCompositeOverlay);
+        refresh.mockClear();
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const annotation = new FakeElement('highlightAnnotation', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        annotation.dataset.annotationId = 'unmatched-id';
+        annotation.pageContainer = page;
+        annotation.style.backgroundColor = 'rgb(255, 255, 0)';
+
+        const matchingHighlight = new FakeElement('highlight', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        const distantHighlight = new FakeElement('highlight', {
+            left: 600,
+            top: 600,
+            width: 150,
+            height: 40,
+        });
+        matchingHighlight.setAttribute('fill', '#fff066');
+        distantHighlight.setAttribute('fill', '#fff066');
+        page.svgs = [
+            matchingHighlight,
+            distantHighlight,
+        ];
+        page.annotations = [annotation];
+        container.pages = [page];
+
+        const didUpdate = applyAnnotationCommentTextMarkupColor(
+            toHTMLElement(container),
+            createComment(),
+            '#22c55e',
+        );
+
+        expect(didUpdate).toBe(true);
+        expect(annotation.style.backgroundColor).toBe('');
+        expect(matchingHighlight.getAttribute('fill')).toBe('#22c55e');
+        expect(matchingHighlight.style.getPropertyValue('fill')).toBe('#22c55e');
+        expect(distantHighlight.getAttribute('fill')).toBe('#fff066');
         expect(refresh).toHaveBeenCalledWith(page);
     });
 });

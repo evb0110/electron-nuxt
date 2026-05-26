@@ -12,6 +12,7 @@ import {
     createTextMarkupDrawLayerVisualPlan,
     type ITextMarkupRect,
 } from '@app/composables/pdf/textMarkupVisualModel';
+import { refreshHighlightCompositeOverlay } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
 
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 const MARKUP_DRAW_LAYER_VISUAL_CLASS = 'pdf-markup-subtype-draw-visual';
@@ -181,6 +182,23 @@ export function findClosestHighlightDrawLayerSvg(pageContainer: HTMLElement, edi
     return null;
 }
 
+function setHighlightSvgPaintColor(svg: SVGElement, color: string) {
+    svg.setAttribute('fill', color);
+    svg.style.setProperty('fill', color);
+    svg.querySelectorAll<SVGElement>('path, rect, line, polyline, polygon, use').forEach((node) => {
+        const fill = node.getAttribute('fill');
+        if (!fill || fill !== 'none') {
+            node.setAttribute('fill', color);
+            node.style.setProperty('fill', color);
+        }
+        const stroke = node.getAttribute('stroke');
+        if (stroke && stroke !== 'none') {
+            node.setAttribute('stroke', color);
+            node.style.setProperty('stroke', color);
+        }
+    });
+}
+
 export function createAnnotationMarkupSubtypeDrawLayer() {
     let editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
     let editorSubtypeDrawLayerRefs = new WeakMap<IPdfjsEditor, {
@@ -229,12 +247,12 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
             return null;
         }
         const clipPathId = resolveEditorHighlightClipPathId(editor);
-        if (!clipPathId) {
-            return null;
+        let highlightSvg: SVGElement | null = null;
+        if (clipPathId) {
+            const escapedClipPathId = toAttributeSelectorValue(clipPathId);
+            const clipPathNode = pageContainer.querySelector<SVGElement>(`svg.highlight clipPath[id="${escapedClipPathId}"]`);
+            highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
         }
-        const escapedClipPathId = toAttributeSelectorValue(clipPathId);
-        const clipPathNode = pageContainer.querySelector<SVGElement>(`svg.highlight clipPath[id="${escapedClipPathId}"]`);
-        let highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
         if (!highlightSvg && editor.div) {
             highlightSvg = findClosestHighlightDrawLayerSvg(pageContainer, editor.div);
         }
@@ -247,6 +265,19 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
 
     function resolveEditorDrawLayer(editor: IPdfjsEditor) {
         return editor.parent?.drawLayer ?? null;
+    }
+
+    function recolorEditorHighlightDrawLayer(editor: IPdfjsEditor, color: string) {
+        const highlightSvg = resolveEditorDrawLayerHighlight(editor);
+        if (!highlightSvg) {
+            return false;
+        }
+        setHighlightSvgPaintColor(highlightSvg, color);
+        const pageContainer = highlightSvg.closest<HTMLElement>('.page_container');
+        if (pageContainer) {
+            refreshHighlightCompositeOverlay(pageContainer);
+        }
+        return true;
     }
 
     function removeSubtypeDrawLayerVisual(drawLayer: IPdfjsDrawLayer, id: number) {
@@ -423,6 +454,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
 
     return {
         resolveEditorDrawLayerHighlight,
+        recolorEditorHighlightDrawLayer,
         clearMarkupSubtypeDrawLayerClass,
         applyMarkupSubtypeDrawLayerClass,
         clearDrawLayerState,
