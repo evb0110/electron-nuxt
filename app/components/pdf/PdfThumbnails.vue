@@ -88,11 +88,13 @@ import {
     resolveThumbnailContextMenuPages,
     shouldSelectPageFromThumbnailClick,
 } from '@app/utils/pdfPageSelection';
+import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRenderQueue';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { createHiddenAnnotationOperationsFilter } from '@app/composables/pdf/pdfHiddenAnnotationOperations';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -104,6 +106,7 @@ interface IProps {
         id: number;
         pages: number[];
     } | null | undefined;
+    hiddenAnnotationIds?: string[] | undefined;
     isActive?: boolean | undefined;
 }
 
@@ -128,6 +131,7 @@ const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 
 const {
     currentPage,
+    hiddenAnnotationIds = undefined,
     invalidationRequest = undefined,
     isActive = true,
     pageLabels = undefined,
@@ -188,6 +192,10 @@ const selectionFocusPage = ref<number | null>(null);
 
 const multiSelection = useMultiSelection<number>();
 const selectedPagesSet = computed(() => new Set(selectedPages ?? []));
+const hiddenAnnotationIdSet = computed(() => new Set(hiddenAnnotationIds ?? []));
+const hiddenAnnotationIdsSignature = computed(() => (
+    [...hiddenAnnotationIdSet.value].sort((left, right) => left.localeCompare(right)).join('\u0000')
+));
 
 function isValidAspectRatio(value: number | null | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
@@ -353,6 +361,7 @@ function getThumbnailRenderKey(page: number) {
         Math.round(thumbnailRenderWidth.value),
         outputScale,
         pageEpoch,
+        hiddenAnnotationIdsSignature.value,
     ].join(':');
 }
 
@@ -1439,11 +1448,23 @@ async function renderPreparedThumbnail(
             return;
         }
 
+        const annotationMode = AnnotationMode?.ENABLE_STORAGE
+            ?? AnnotationMode?.ENABLE_FORMS
+            ?? AnnotationMode?.ENABLE
+            ?? 1;
+        const operationsFilter = await createHiddenAnnotationOperationsFilter(
+            page,
+            annotationMode,
+            hiddenAnnotationIdSet.value,
+        );
+
         const task = page.render({
             canvasContext: context,
             viewport: metrics.scaledViewport,
             canvas,
             transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
+            annotationMode,
+            operationsFilter,
         });
         renderTasks.set(pageNum, task);
         try {
@@ -1840,6 +1861,19 @@ function invalidatePages(pages: number[]) {
 
     void scheduleVisibleThumbnailRender();
 }
+
+watch(
+    hiddenAnnotationIdsSignature,
+    (nextSignature, previousSignature) => {
+        if (nextSignature === previousSignature) {
+            return;
+        }
+        const pages = virtualPages.value.length > 0
+            ? virtualPages.value
+            : [currentPage];
+        invalidatePages([...new Set(pages)]);
+    },
+);
 
 watch(
     () => invalidationRequest?.id,

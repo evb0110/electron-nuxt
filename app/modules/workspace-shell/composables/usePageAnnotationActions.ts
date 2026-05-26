@@ -23,6 +23,10 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
+import {
+    isNoteEligibleComment,
+    markerRectCenterDistance,
+} from '@app/composables/pdf/annotations/annotationRules';
 
 const SUPPORTED_IMAGE_MIME_TYPES = [
     'image/apng',
@@ -36,6 +40,8 @@ const SUPPORTED_IMAGE_MIME_TYPES = [
     'image/x-icon',
 ] as const;
 const PREFERRED_CLIPBOARD_IMAGE_TYPES = SUPPORTED_IMAGE_MIME_TYPES.filter(type => type !== 'image/svg+xml');
+const FRESH_NOTE_CREATION_UNDO_WINDOW_MS = 5_000;
+const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     'cancelCommentPlacement'
@@ -104,12 +110,17 @@ interface IPageAnnotationActionsDeps {
     removeAnnotationNoteWindow: (stableKey: string) => void;
     setAnnotationNoteWindowError: (stableKey: string, error: string | null) => void;
     isSameAnnotationComment: (a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => boolean;
-    annotationNoteWindows: Ref<Array<{ comment: IAnnotationCommentSummary }>>;
+    annotationNoteWindows: Ref<Array<{
+        comment: IAnnotationCommentSummary;
+        text?: string | undefined;
+        createdAtMs?: number | undefined;
+    }>>;
     loadPdfFromData: (data: Uint8Array, opts?: {
         pushHistory?: boolean;
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
+    invalidateThumbnailPages?: (pages: number[]) => void;
     removeAnnotationFromCache: (stableKey: string) => void;
     restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => void;
     queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
@@ -150,6 +161,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         annotationNoteWindows,
         loadPdfFromData,
         waitForPdfReload,
+        invalidateThumbnailPages,
+        removeAnnotationFromCache,
+        restoreAnnotationToCache,
         getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     } = deps;
@@ -404,10 +418,183 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         dragMode.value = false;
     }
 
+    function withOpenedAnnotationNoteCreationTimestamp(comment: IAnnotationCommentSummary) {
+        if (comment.source !== 'editor' || comment.createdAt || comment.modifiedAt) {
+            return comment;
+        }
+        return {
+            ...comment,
+            createdAt: Date.now(),
+        };
+    }
+
+    function getAnnotationPageNumber(comment: IAnnotationCommentSummary) {
+        const pageNumber = Number.isFinite(comment.pageNumber)
+            ? comment.pageNumber
+            : comment.pageIndex + 1;
+        return Math.max(1, Math.round(pageNumber));
+    }
+
+    function invalidateAnnotationPage(comment: IAnnotationCommentSummary) {
+        const page = getAnnotationPageNumber(comment);
+        pdfViewerRef.value?.invalidatePages([page]);
+        invalidateThumbnailPages?.([page]);
+    }
+
+    function hasOpenAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
+        return annotationNoteWindows.value.some(note => commentsShareDeleteTarget(note.comment, comment));
+    }
+
+    function isFreshEditorNoteCreationForUndo(
+        originalComment: IAnnotationCommentSummary,
+        noteComment: IAnnotationCommentSummary,
+        wasAlreadyOpen: boolean,
+    ) {
+        if (
+            wasAlreadyOpen
+            || originalComment.source !== 'editor'
+            || noteComment.source !== 'editor'
+            || !isNoteEligibleComment(noteComment)
+            || noteComment.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length > 0
+        ) {
+            return false;
+        }
+
+        const timestamp = noteComment.createdAt ?? noteComment.modifiedAt;
+        return typeof timestamp === 'number'
+            && Number.isFinite(timestamp)
+            && Math.abs(Date.now() - timestamp) <= FRESH_NOTE_CREATION_UNDO_WINDOW_MS;
+    }
+
+    function isUndoableFreshEmptyEditorNote(note: {
+        comment: IAnnotationCommentSummary;
+        text?: string | undefined;
+        createdAtMs?: number | undefined;
+    }) {
+        const { comment } = note;
+        const noteText = typeof note.text === 'string' ? note.text : comment.text;
+        if (
+            comment.source !== 'editor'
+            || !isNoteEligibleComment(comment)
+            || noteText.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length > 0
+        ) {
+            return false;
+        }
+
+        const timestamp = comment.createdAt ?? comment.modifiedAt ?? note.createdAtMs;
+        return (
+            typeof timestamp !== 'number'
+            || !Number.isFinite(timestamp)
+            || Math.abs(Date.now() - timestamp) <= FRESH_NOTE_CREATION_UNDO_WINDOW_MS
+        );
+    }
+
+    function commentsShareDeleteTarget(
+        left: IAnnotationCommentSummary,
+        right: IAnnotationCommentSummary,
+    ) {
+        if (left.stableKey && left.stableKey === right.stableKey) {
+            return true;
+        }
+        if (isSameAnnotationComment(left, right)) {
+            return true;
+        }
+        if (left.pageIndex !== right.pageIndex) {
+            return false;
+        }
+        if (left.annotationId && left.annotationId === right.annotationId) {
+            return true;
+        }
+        if (left.uid && left.uid === right.uid) {
+            return true;
+        }
+        if (left.id && left.id === right.id && left.source === right.source) {
+            return true;
+        }
+        if (!isNoteEligibleComment(left) || !isNoteEligibleComment(right)) {
+            return false;
+        }
+
+        const leftText = left.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim();
+        const rightText = right.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim();
+        const sameText = leftText.length > 0 && leftText === rightText;
+        const closePlacement = markerRectCenterDistance(left.markerRect, right.markerRect) < 0.035;
+        const oneHasStableEditorRef = Boolean(left.annotationId || left.uid) !== Boolean(right.annotationId || right.uid);
+        return (
+            sameText && (closePlacement || oneHasStableEditorRef)
+        ) || (
+            closePlacement && oneHasStableEditorRef
+        );
+    }
+
+    function removeDeletedAnnotationState(comment: IAnnotationCommentSummary) {
+        const stableKeys = new Set<string>([comment.stableKey]);
+        annotationNoteWindows.value
+            .filter(note => commentsShareDeleteTarget(note.comment, comment))
+            .forEach((note) => {
+                stableKeys.add(note.comment.stableKey);
+                removeAnnotationNoteWindow(note.comment.stableKey);
+            });
+
+        stableKeys.forEach(stableKey => removeAnnotationFromCache(stableKey));
+        if (
+            annotationActiveCommentStableKey.value
+            && stableKeys.has(annotationActiveCommentStableKey.value)
+        ) {
+            annotationActiveCommentStableKey.value = null;
+        }
+    }
+
+    function registerFreshNoteCreationUndo(noteComment: IAnnotationCommentSummary) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer?.registerAnnotationHistoryCommand) {
+            return;
+        }
+
+        const undoCreate = () => {
+            viewer.removeAnnotationFromDom(noteComment);
+            viewer.removeAnnotationFromInternalCache(noteComment.stableKey);
+            removeDeletedAnnotationState(noteComment);
+            invalidateAnnotationPage(noteComment);
+        };
+        const redoCreate = () => {
+            restoreAnnotationToCache(noteComment);
+            viewer.restoreAnnotationToInternalCache?.(noteComment);
+            openAnnotationNoteWindow(noteComment);
+            annotationActiveCommentStableKey.value = noteComment.stableKey;
+            invalidateAnnotationPage(noteComment);
+        };
+
+        viewer.registerAnnotationHistoryCommand({
+            cmd: redoCreate,
+            undo: undoCreate,
+        });
+    }
+
+    function queueFreshNoteCreationUndoRegistration(noteComment: IAnnotationCommentSummary) {
+        const schedule = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+            ? window.setTimeout.bind(window)
+            : setTimeout;
+        schedule(() => {
+            if (!hasOpenAnnotationNoteWindow(noteComment)) {
+                return;
+            }
+            registerFreshNoteCreationUndo(noteComment);
+        }, 0);
+    }
+
     function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
-        annotationActiveCommentStableKey.value = comment.stableKey;
-        openAnnotationNoteWindow(comment);
+        const noteComment = withOpenedAnnotationNoteCreationTimestamp(comment);
+        const wasAlreadyOpen = hasOpenAnnotationNoteWindow(noteComment);
+        annotationActiveCommentStableKey.value = noteComment.stableKey;
+        restoreAnnotationToCache(noteComment);
+        pdfViewerRef.value?.restoreAnnotationToInternalCache?.(noteComment);
+        openAnnotationNoteWindow(noteComment);
+        if (isFreshEditorNoteCreationForUndo(comment, noteComment, wasAlreadyOpen)) {
+            queueFreshNoteCreationUndoRegistration(noteComment);
+        }
+        invalidateAnnotationPage(noteComment);
         dragMode.value = false;
     }
 
@@ -854,12 +1041,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     let annotationDeleteQueue: Promise<void> = Promise.resolve();
 
-    function removeMatchingAnnotationNoteWindows(comment: IAnnotationCommentSummary) {
-        annotationNoteWindows.value
-            .filter(note => isSameAnnotationComment(note.comment, comment))
-            .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
-    }
-
     function resolveEmbeddedPdfAnnotationId(comment: IAnnotationCommentSummary) {
         const annotationId = normalizePdfJsAnnotationId(comment.annotationId);
         if (parsePdfJsAnnotationRef(annotationId)) {
@@ -906,6 +1087,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             viewer.removeAnnotationFromDom(deletionComment);
             viewer.removeAnnotationFromInternalCache(comment.stableKey);
             deps.removeAnnotationFromCache(comment.stableKey);
+            invalidateAnnotationPage(comment);
         };
         const undoDelete = () => {
             deps.unqueuePendingEmbeddedAnnotationDelete(comment.stableKey);
@@ -916,7 +1098,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             viewer.restoreAnnotationToInternalCache?.(comment);
             deps.restoreAnnotationToCache(comment);
             deps.markPreservedAnnotationSourceDirty?.();
-            viewer.invalidatePages([comment.pageNumber]);
+            invalidateAnnotationPage(comment);
         };
 
         // Keep embedded annotation deletes local until the user saves.
@@ -967,7 +1149,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 handleAnnotationDeleteFailure(comment);
                 return;
             }
-            removeMatchingAnnotationNoteWindows(comment);
+            removeDeletedAnnotationState(comment);
             return;
         }
 
@@ -982,7 +1164,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             handleAnnotationDeleteFailure(comment);
             return;
         }
-        removeMatchingAnnotationNoteWindows(comment);
+        removeDeletedAnnotationState(comment);
+        invalidateAnnotationPage(comment);
     }
 
     async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
@@ -992,6 +1175,17 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 await performDeleteAnnotationComment(comment);
             });
         await annotationDeleteQueue;
+    }
+
+    async function undoLatestFreshAnnotationNoteCreation() {
+        const note = [...annotationNoteWindows.value]
+            .reverse()
+            .find(candidate => isUndoableFreshEmptyEditorNote(candidate));
+        if (!note) {
+            return false;
+        }
+        await handleDeleteAnnotationComment(note.comment);
+        return true;
     }
 
     return {
@@ -1020,6 +1214,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         serializeCurrentPdfForEmbeddedFallback,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
+        undoLatestFreshAnnotationNoteCreation,
         handleFinalizePlacedImage,
         insertImageFromFileAt,
         pasteImageFromClipboardAt,

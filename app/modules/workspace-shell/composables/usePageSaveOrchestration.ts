@@ -54,6 +54,7 @@ interface IPdfViewerForSave {
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     hasShapes?: boolean | Ref<boolean>;
+    clearAnnotationHistory?: () => void;
 }
 
 interface IOcrCompletePayload {
@@ -248,6 +249,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         ),
         adoptPersistedShapeStateForNextReload: () => pdfViewerRef.value?.adoptPersistedManagedShapesOnNextImport?.(),
         clearPendingPersistedShapeStateForNextReload: () => pdfViewerRef.value?.clearPendingManagedShapeImportAdoption?.(),
+        clearAnnotationHistoryAfterSave: () => pdfViewerRef.value?.clearAnnotationHistory?.(),
     });
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);

@@ -97,6 +97,7 @@ export interface IFileOperationsDeps {
     restorePreparedPersistedShapeState?: (snapshot: unknown) => Promise<void> | void;
     adoptPersistedShapeStateForNextReload?: () => void;
     clearPendingPersistedShapeStateForNextReload?: () => void;
+    clearAnnotationHistoryAfterSave?: () => void;
 }
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
@@ -142,6 +143,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         restorePreparedPersistedShapeState,
         adoptPersistedShapeStateForNextReload,
         clearPendingPersistedShapeStateForNextReload,
+        clearAnnotationHistoryAfterSave,
     } = deps;
 
     let saveOperationInProgress = false;
@@ -317,6 +319,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
         markPageLabelsSaved();
         markBookmarksSaved();
+        clearAnnotationHistoryAfterSave?.();
         if (opts?.markShapeStateSaved !== false) {
             markShapeStateSaved?.();
             if (opts?.preserveLivePdfjsSession !== true) {
@@ -988,14 +991,16 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         hasLivePdfJsAnnotationChanges: boolean;
         hasPreservedAnnotationSourceChanges: boolean;
     }) {
+        // Embedded deletes need the saved PDF bytes to become the live source;
+        // otherwise old PDF.js annotations can outlive their persisted removal.
         return options.mode === 'save'
             && options.shouldSerialize
+            && !options.hasPendingDeletes
             && !pageLabelsDirty.value
             && !bookmarksDirty.value
             && (
                 options.shapeStateDirty
                 || options.hasPendingTexts
-                || options.hasPendingDeletes
                 || options.hasLivePdfJsAnnotationChanges
                 || options.hasPreservedAnnotationSourceChanges
                 || hasAnnotationChanges()

@@ -197,7 +197,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(renderContext.operationsFilter(5)).toBe(true);
     });
 
-    it('reuses the hidden annotation operations filter for repeated renders of the same page state', async () => {
+    it('recomputes the hidden annotation operations filter for changed page state', async () => {
         const canvas = {
             width: 0,
             height: 0,
@@ -211,6 +211,39 @@ describe('usePdfCanvasRenderer', () => {
             cancel: vi.fn(),
             promise: Promise.resolve(),
         };
+        const render = vi.fn((_context: { operationsFilter?: (index: number) => boolean; }) => renderTask);
+        const operatorLists = [
+            {
+                fnArray: [
+                    80,
+                    999,
+                    81,
+                    80,
+                    999,
+                    81,
+                ],
+                argsArray: [
+                    ['keep-me'],
+                    [],
+                    [],
+                    ['12R'],
+                    [],
+                    [],
+                ],
+            },
+            {
+                fnArray: [
+                    80,
+                    999,
+                    81,
+                ],
+                argsArray: [
+                    ['12R'],
+                    [],
+                    [],
+                ],
+            },
+        ];
         const pdfPage = {
             pageNumber: 2,
             getViewport: vi.fn(() => ({
@@ -222,19 +255,8 @@ describe('usePdfCanvasRenderer', () => {
                     pageHeight: 100,
                 },
             })),
-            getOperatorList: vi.fn(async () => ({
-                fnArray: [
-                    80,
-                    999,
-                    81,
-                ],
-                argsArray: [
-                    ['12R'],
-                    [],
-                    [],
-                ],
-            })),
-            render: vi.fn(() => renderTask),
+            getOperatorList: vi.fn(async () => operatorLists.shift()!),
+            render,
         } as const;
 
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
@@ -242,7 +264,15 @@ describe('usePdfCanvasRenderer', () => {
         await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R0']) });
         await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R']) });
 
-        expect(pdfPage.getOperatorList).toHaveBeenCalledTimes(1);
-        expect(pdfPage.render).toHaveBeenCalledTimes(2);
+        expect(pdfPage.getOperatorList).toHaveBeenCalledTimes(2);
+        expect(render).toHaveBeenCalledTimes(2);
+        const firstRenderFilter = render.mock.calls[0]?.[0].operationsFilter;
+        const secondRenderFilter = render.mock.calls[1]?.[0].operationsFilter;
+        if (!firstRenderFilter || !secondRenderFilter) {
+            throw new Error('Expected hidden annotation filters to be defined');
+        }
+        expect(firstRenderFilter(0)).toBe(true);
+        expect(firstRenderFilter(3)).toBe(false);
+        expect(secondRenderFilter(0)).toBe(false);
     });
 });

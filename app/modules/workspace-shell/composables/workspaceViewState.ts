@@ -22,6 +22,7 @@ interface IWorkspaceViewStateDeps {
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
     annotationEditorState: Ref<IAnnotationEditorState>;
+    hasLivePdfJsAnnotationChanges: Ref<boolean>;
     appAnnotationUndoDepth: Ref<number>;
     hasOpenAnnotationNotes: Ref<boolean>;
     canUndoHistory: Ref<boolean>;
@@ -43,10 +44,16 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const isFitHeightActive = computed(
         () => deps.zoomMode.value === 'fit-height',
     );
+    const hasLivePdfJsAnnotationUndoState = computed(() => (
+        deps.hasLivePdfJsAnnotationChanges.value
+        && (
+            deps.annotationEditorState.value.hasSomethingToUndo
+            || deps.annotationEditorState.value.hasSomethingToRedo
+        )
+    ));
     const isAnnotationUndoContext = computed(
         () => isAuthoringAnnotationTool(deps.annotationTool.value)
-            || deps.annotationEditorState.value.hasSomethingToUndo
-            || deps.annotationEditorState.value.hasSomethingToRedo
+            || hasLivePdfJsAnnotationUndoState.value
             || deps.appAnnotationUndoDepth.value > 0,
     );
     const annotationCursorMode = computed(() => {
@@ -61,13 +68,21 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     });
     const canUndo = computed(() => (
         isAnnotationUndoContext.value
-            ? deps.annotationEditorState.value.hasSomethingToUndo
+            ? (
+                (
+                    deps.annotationEditorState.value.hasSomethingToUndo
+                    && deps.hasLivePdfJsAnnotationChanges.value
+                )
                 || deps.appAnnotationUndoDepth.value > 0
+            )
             : deps.canUndoHistory.value
     ));
     const canRedo = computed(() => (
         isAnnotationUndoContext.value
-            ? deps.annotationEditorState.value.hasSomethingToRedo
+            ? (
+                deps.annotationEditorState.value.hasSomethingToRedo
+                && deps.hasLivePdfJsAnnotationChanges.value
+            )
             : deps.canRedoHistory.value
     ));
 

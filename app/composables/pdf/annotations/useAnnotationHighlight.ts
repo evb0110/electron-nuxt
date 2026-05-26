@@ -624,6 +624,38 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
     }
 
+    function getLayerOffsetPoint(layerDiv: HTMLElement, clientX: number, clientY: number) {
+        const rect = layerDiv.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return null;
+        }
+
+        return {
+            offsetX: Math.min(Math.max(clientX - rect.left, 0), rect.width),
+            offsetY: Math.min(Math.max(clientY - rect.top, 0), rect.height),
+        };
+    }
+
+    function createFreeTextEditorAtPoint(
+        uiManager: AnnotationEditorUIManager,
+        pageIndex: number,
+        layerDiv: HTMLElement,
+        clientX: number,
+        clientY: number,
+    ) {
+        const layer = getAnnotationEditorLayer(uiManager, pageIndex);
+        const offsetPoint = getLayerOffsetPoint(layerDiv, clientX, clientY);
+        if (!layer || !offsetPoint) {
+            return null;
+        }
+
+        const editor = layer.createAndAddNewEditor(
+            offsetPoint as PointerEvent,
+            false,
+        );
+        return asPdfjsEditor(editor);
+    }
+
     function keepFreeTextEditorAlive(editor: IPdfjsEditor) {
         const editorDiv = editor.div?.querySelector<HTMLElement>('[contenteditable]')
             ?? (editor as { editorDiv?: HTMLElement }).editorDiv;
@@ -972,9 +1004,18 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return false;
             }
 
-            dispatchFreeTextPointer(layerDiv, pageClientPoint.x, pageClientPoint.y);
+            const directlyCreatedEditor = createFreeTextEditorAtPoint(
+                uiManager,
+                pageIndex,
+                layerDiv,
+                pageClientPoint.x,
+                pageClientPoint.y,
+            );
+            if (!directlyCreatedEditor) {
+                dispatchFreeTextPointer(layerDiv, pageClientPoint.x, pageClientPoint.y);
+            }
 
-            const resolvedEditor = await resolveCreatedEditor(null);
+            const resolvedEditor = await resolveCreatedEditor(directlyCreatedEditor);
             if (!resolvedEditor) {
                 return false;
             }

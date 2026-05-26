@@ -251,7 +251,7 @@ export const useAnnotationIdentity = (
             displayText: summary.displayText?.trim() || null,
             previewText: summary.previewText?.trim() || null,
             pageIndex: summary.pageIndex,
-            createdAt: summary.createdAt ?? summary.modifiedAt ?? null,
+            createdAt: summary.createdAt ?? null,
             modifiedAt: summary.modifiedAt ?? null,
             author: summary.author ?? null,
             kindLabel: summary.kindLabel ?? null,

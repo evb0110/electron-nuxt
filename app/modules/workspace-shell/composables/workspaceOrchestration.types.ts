@@ -38,6 +38,7 @@ export interface IPdfViewerExpose {
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
     saveDocument: () => Promise<Uint8Array | null>;
+    clearAnnotationHistory?: () => void;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
         pageNumbers: number[],

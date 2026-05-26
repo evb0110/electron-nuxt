@@ -25,6 +25,7 @@ function createState(options?: { dragMode?: boolean; }) {
             hasSomethingToRedo: false,
             hasSelectedEditor: false,
         }),
+        hasLivePdfJsAnnotationChanges: ref(false),
         appAnnotationUndoDepth: ref(0),
         hasOpenAnnotationNotes: ref(false),
         canUndoHistory: ref(false),
@@ -81,6 +82,7 @@ describe('useWorkspaceViewState', () => {
                 hasSomethingToRedo: false,
                 hasSelectedEditor: false,
             }),
+            hasLivePdfJsAnnotationChanges: ref(false),
             appAnnotationUndoDepth,
             hasOpenAnnotationNotes: ref(false),
             canUndoHistory: ref(false),
@@ -98,5 +100,39 @@ describe('useWorkspaceViewState', () => {
 
         appAnnotationUndoDepth.value = 0;
         expect(state.canUndo.value).toBe(false);
+    });
+
+    it('ignores stale PDF.js annotation undo state when file history can undo', () => {
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('annotations'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: false,
+                hasSomethingToUndo: true,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(true),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            pdfViewerRef: ref({
+                scrollToPage: () => {},
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        expect(state.isAnnotationUndoContext.value).toBe(false);
+        expect(state.canUndo.value).toBe(true);
     });
 });

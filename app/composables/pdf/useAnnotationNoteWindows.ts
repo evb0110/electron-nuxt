@@ -459,7 +459,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const localUpdated: IAnnotationCommentSummary = {
             ...targetComment,
             text: nextText,
-            createdAt: targetComment.createdAt ?? modifiedAt,
+            createdAt: targetComment.createdAt ?? note.comment.createdAt ?? null,
             modifiedAt,
         };
         note.comment = localUpdated;
@@ -494,7 +494,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             ...preferred,
             text: comment.text,
             hasNote: true,
-            createdAt: preferred.createdAt ?? comment.createdAt ?? comment.modifiedAt,
+            createdAt: preferred.createdAt ?? comment.createdAt ?? existing.createdAt ?? null,
             modifiedAt: comment.modifiedAt,
             markerRect: comment.markerRect ?? existing.markerRect ?? preferred.markerRect,
         };
@@ -618,7 +618,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                         ...latestComment,
                         text: note.text,
                         hasNote: true,
-                        createdAt: latestComment.createdAt ?? modifiedAt,
+                        createdAt: latestComment.createdAt ?? note.comment.createdAt ?? null,
                         modifiedAt,
                     };
                     note.comment = commentForSave;

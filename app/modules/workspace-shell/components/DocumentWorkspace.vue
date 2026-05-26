@@ -257,6 +257,7 @@
                     :is-djvu-mode="isDjvuMode"
                     :selected-thumbnail-pages="selectedThumbnailPages"
                     :thumbnail-invalidation-request="thumbnailInvalidationRequest"
+                    :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
@@ -734,6 +735,7 @@ const {
     annotationComments,
     annotationCommentsStatus,
     annotationActiveCommentStableKey,
+    thumbnailHiddenAnnotationIds,
     applyAnnotationComments,
     markAnnotationCommentsLoading,
     handleAnnotationToolChange,

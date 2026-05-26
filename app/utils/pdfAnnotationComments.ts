@@ -34,8 +34,7 @@ function normalizeTimestamp(value: number | null | undefined) {
 }
 
 export function getAnnotationCommentCreatedAt(comment: IAnnotationCommentSummary) {
-    return normalizeTimestamp(comment.createdAt)
-        ?? normalizeTimestamp(comment.modifiedAt);
+    return normalizeTimestamp(comment.createdAt);
 }
 
 export function getAnnotationCommentDisplayTimestamp(comment: IAnnotationCommentSummary) {

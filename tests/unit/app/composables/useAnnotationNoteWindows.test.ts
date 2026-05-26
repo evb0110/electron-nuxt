@@ -81,6 +81,37 @@ describe('useAnnotationNoteWindows', () => {
         expect(deps.annotationComments.value.find(comment => comment.stableKey === 'note-1:0')?.text).toBe('Updated text');
     });
 
+    it('preserves a note creation timestamp when saving through a synchronized summary without one', () => {
+        const opened = createComment({
+            createdAt: 111,
+            modifiedAt: null,
+        });
+        const syncedWithoutCreatedAt = createComment({
+            createdAt: null,
+            modifiedAt: 222,
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(opened);
+
+        windows.handleOpenAnnotationNote(opened);
+        deps.annotationComments.value = [syncedWithoutCreatedAt];
+
+        const note = windows.findAnnotationNoteWindow('note-1:0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'Updated through sync';
+        const saved = windows.persistAnnotationNote('note-1:0');
+
+        expect(saved).toBe(true);
+        expect(note.comment.createdAt).toBe(111);
+        expect(deps.annotationComments.value[0]?.createdAt).toBe(111);
+    });
+
     it('mirrors existing PDF note saves into the embedded serialization pipeline', () => {
         const comment = createComment({
             id: '3856R',
