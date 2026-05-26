@@ -4,6 +4,11 @@ import {
     cloneShapeStrokes,
 } from '@app/composables/pdf/pdfShapeStrokes';
 
+export interface IPdfAppAnnotationHistoryCommand {
+    cmd: () => void;
+    undo: () => void;
+}
+
 export function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
     return {
         ...shape,
@@ -22,13 +27,10 @@ function cloneShapeForHistoryComparison(shape: IShapeAnnotation) {
 }
 
 export function usePdfShapeHistory(options: {
-    registerCommand: (command: {
-        cmd: () => void;
-        undo: () => void;
-    }) => void;
+    registerCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
     addShape: (shape: IShapeAnnotation) => void;
     updateShape: (shapeId: string, shape: IShapeAnnotation) => void;
-    deleteShape: (shapeId: string) => void;
+    deleteShape: (shape: IShapeAnnotation) => void;
     selectShape: (shapeId: string) => void;
     markModified: () => void;
 }) {
@@ -64,7 +66,7 @@ export function usePdfShapeHistory(options: {
                 options.markModified();
             },
             undo: () => {
-                options.deleteShape(shape.id);
+                options.deleteShape(shape);
                 options.markModified();
             },
         });

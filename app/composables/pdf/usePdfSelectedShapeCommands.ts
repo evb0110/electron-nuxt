@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { cloneShape } from '@app/composables/pdf/usePdfShapeHistory';
+import {
+    cloneShape,
+    type IPdfAppAnnotationHistoryCommand,
+} from '@app/composables/pdf/usePdfShapeHistory';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 export function usePdfSelectedShapeCommands(options: {
@@ -11,13 +14,11 @@ export function usePdfSelectedShapeCommands(options: {
     selectShape: (id: string | null) => void;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     deleteShape: (id: string) => void;
+    deleteShapeByReference: (shape: IShapeAnnotation) => void;
     addShape: (shape: IShapeAnnotation) => void;
     applyShapeUpdateWithHistory: (previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) => void;
     refreshDeletedEmbeddedShape: (shape: IShapeAnnotation) => void;
-    registerHistoryCommand: (command: {
-        cmd: () => void;
-        undo: () => void;
-    }) => void;
+    registerHistoryCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
     markModified: () => void;
 }) {
     function getSelectedShape(): IShapeAnnotation | null {
@@ -83,7 +84,7 @@ export function usePdfSelectedShapeCommands(options: {
 
         options.registerHistoryCommand({
             cmd: () => {
-                options.deleteShape(id);
+                options.deleteShapeByReference(deletedShape);
                 options.refreshDeletedEmbeddedShape(deletedShape);
                 options.markModified();
             },

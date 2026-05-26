@@ -183,6 +183,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeAnnotationContextMenu,
         showAnnotationContextMenu,
         hasAnnotationChanges,
+        hasLivePdfJsAnnotationChanges,
+        hasSavedPdfJsAnnotationBaselineChanges,
         annotationTool,
         annotationKeepActive,
         annotationPlacingPageNote,
@@ -211,6 +213,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const pendingEmbeddedAnnotationDeletes = shallowRef(new Map<string, IAnnotationCommentSummary>());
     const pendingEmbeddedAnnotationDeleteCount = computed(() => pendingEmbeddedAnnotationDeletes.value.size);
+    const preservedAnnotationSourceDirty = ref(false);
 
     function queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary) {
         pendingEmbeddedAnnotationDeletes.value = new Map([
@@ -254,8 +257,27 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ]);
     }
 
+    function markPreservedAnnotationSourceDirty() {
+        preservedAnnotationSourceDirty.value = true;
+    }
+
+    function hasPreservedAnnotationSourceChanges() {
+        return preservedAnnotationSourceDirty.value;
+    }
+
+    function markAnnotationSavedAndClearPreservedSource(opts?: { preserveLivePdfjsSession?: boolean }) {
+        markAnnotationSaved(opts);
+        preservedAnnotationSourceDirty.value = false;
+    }
+
+    function resetAnnotationTrackingAndPreservedSource() {
+        preservedAnnotationSourceDirty.value = false;
+        resetAnnotationTracking();
+    }
+
     watch(workingCopyPath, () => {
         pendingEmbeddedAnnotationDeletes.value = new Map();
+        preservedAnnotationSourceDirty.value = false;
     });
 
     const hasPendingUnsavedChanges = computed(() => (
@@ -263,6 +285,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || isDirty.value
         || hasAnnotationChanges()
         || pendingEmbeddedAnnotationDeleteCount.value > 0
+        || preservedAnnotationSourceDirty.value
         || pageLabelsDirty.value
         || bookmarksDirty.value
     ));
@@ -270,6 +293,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationDirty.value
         || hasAnnotationChanges()
         || pendingEmbeddedAnnotationDeleteCount.value > 0
+        || preservedAnnotationSourceDirty.value
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
 
@@ -296,7 +320,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationDirty,
         annotationNoteWindowsCount: computed(() => annotationNoteWindows.value.length),
         hasAnnotationChanges,
-        markAnnotationSaved,
+        hasLivePdfJsAnnotationChanges,
+        hasSavedPdfJsAnnotationBaselineChanges,
+        hasPreservedAnnotationSourceChanges,
+        markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
         markPageLabelsSaved,
         markBookmarksSaved,
         isDirty,
@@ -467,6 +494,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         queuePendingEmbeddedAnnotationDelete,
         unqueuePendingEmbeddedAnnotationDelete,
+        markPreservedAnnotationSourceDirty,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     });
@@ -693,7 +721,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        resetAnnotationTracking,
+        resetAnnotationTracking: resetAnnotationTrackingAndPreservedSource,
         resetSearchCache,
         closeSearch,
         closeAnnotationContextMenu,

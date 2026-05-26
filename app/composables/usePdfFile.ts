@@ -800,6 +800,7 @@ export const usePdfFile = () => {
     async function commitPersistedPdfState(
         snapshotHint?: Uint8Array | null,
         expectedWorkingPath?: TDocumentRef,
+        opts?: { preserveLoadedSource?: boolean },
     ) {
         const path = expectedWorkingPath ?? workingCopyPath.value;
         if (!path) {
@@ -819,7 +820,23 @@ export const usePdfFile = () => {
             historyCleanIndex: historyCleanIndex.value,
         }));
 
-        if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
+        if (opts?.preserveLoadedSource) {
+            if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
+                const snapshot = snapshotHint.slice();
+                if (!isActiveWorkingCopy(path)) {
+                    return false;
+                }
+                pdfData.value = snapshot;
+                markCurrentHistoryEntryClean(snapshot);
+            } else {
+                const nextState = await readPdfStateFromPath(path);
+                if (!isActiveWorkingCopy(path)) {
+                    return false;
+                }
+                pdfData.value = nextState.pdfData;
+                markCurrentHistoryEntryClean(nextState.pdfData);
+            }
+        } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
             if (!isActiveWorkingCopy(path)) {
                 return false;
@@ -1157,7 +1174,10 @@ export const usePdfFile = () => {
 
     async function saveFile(
         data: Uint8Array,
-        opts?: { saveMode?: TPdfSaveMode },
+        opts?: {
+            saveMode?: TPdfSaveMode;
+            preserveLoadedSource?: boolean;
+        },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
@@ -1178,7 +1198,10 @@ export const usePdfFile = () => {
                 error.value = validation.errors.join('\n') || t('errors.file.save');
                 return createFailedPersistResult(requestedSaveMode, false);
             }
-            if (!await commitPersistedPdfState(data, workingPath)) {
+            const commitOptions = opts?.preserveLoadedSource
+                ? { preserveLoadedSource: true }
+                : undefined;
+            if (!await commitPersistedPdfState(data, workingPath, commitOptions)) {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             lastSaveMode.value = requestedSaveMode;

@@ -87,6 +87,7 @@ import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { toShapeAnnotationCommentSummary } from '@app/composables/pdf/annotations/shapeAnnotationComments';
 import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
 import { usePdfShapeHistory } from '@app/composables/pdf/usePdfShapeHistory';
+import { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
 import { usePdfSelectedShapeCommands } from '@app/composables/pdf/usePdfSelectedShapeCommands';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
@@ -237,6 +238,14 @@ const annotationTool = computed<TAnnotationTool>(() => annotationToolProp ?? 'no
 const annotationCursorMode = computed(() => annotationCursorModeProp ?? false);
 const annotationKeepActive = computed(() => annotationKeepActiveProp ?? true);
 const annotationSettings = computed<IAnnotationSettings | null>(() => annotationSettingsProp ?? null);
+const emptyAnnotationEditorState: IAnnotationEditorState = {
+    isEditing: false,
+    isEmpty: true,
+    hasSomethingToUndo: false,
+    hasSomethingToRedo: false,
+    hasSelectedEditor: false,
+};
+const pdfjsAnnotationEditorState = ref<IAnnotationEditorState>({ ...emptyAnnotationEditorState });
 const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
 const searchPageMatches = computed(() => searchPageMatchesProp ?? emptySearchPageMatches);
 const currentSearchMatch = computed(() => currentSearchMatchProp ?? null);
@@ -289,6 +298,11 @@ const resizeTransitionAnchorPage = ref<number | null>(null);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
+const appAnnotationHistory = usePdfAppAnnotationHistory({
+    pdfjsAnnotationState: pdfjsAnnotationEditorState,
+    emitAnnotationState: (state) => emit('annotation-state', state),
+    markModified: () => emit('annotation-modified'),
+});
 const pendingMarkerMoves = new Map<string, IPendingMarkerMove>();
 const locallyDeletedAnnotationComments: IAnnotationCommentSummary[] = [];
 const activeCommentStableKey = ref<string | null>(null);
@@ -522,10 +536,7 @@ function registerShapeHistoryCommand(command: {
     cmd: () => void;
     undo: () => void;
 }) {
-    annotationUiManager.value?.addCommands({
-        ...command,
-        mustExec: false,
-    });
+    appAnnotationHistory.registerCommand(command);
 }
 
 const {
@@ -535,7 +546,7 @@ const {
     registerCommand: registerShapeHistoryCommand,
     addShape: shapeComposable.addShape,
     updateShape: shapeComposable.updateShape,
-    deleteShape: shapeComposable.deleteShape,
+    deleteShape: shapeComposable.deleteShapeByReference,
     selectShape: shapeComposable.selectShape,
     markModified: () => emit('annotation-modified'),
 });
@@ -548,6 +559,7 @@ const selectedShapeCommands = usePdfSelectedShapeCommands({
     selectShape: shapeComposable.selectShape,
     updateShape: shapeComposable.updateShape,
     deleteShape: shapeComposable.deleteShape,
+    deleteShapeByReference: shapeComposable.deleteShapeByReference,
     addShape: shapeComposable.addShape,
     applyShapeUpdateWithHistory,
     refreshDeletedEmbeddedShape,
@@ -770,6 +782,9 @@ watch(
             return;
         }
         emitAnnotationCommentsForSidebar(annotationCommentsCache.value);
+        if (appAnnotationHistory.canUndo.value || appAnnotationHistory.canRedo.value) {
+            appAnnotationHistory.emitCombinedState();
+        }
     },
 );
 
@@ -1032,6 +1047,26 @@ function clearLocalDeletionForNewTransientComment(comment: IAnnotationCommentSum
     }
 }
 
+function localDeletionMatchesComment(
+    deleted: IAnnotationCommentSummary,
+    comment: IAnnotationCommentSummary,
+) {
+    if (isTransientEditorOnlyComment(deleted) || isTransientEditorOnlyComment(comment)) {
+        return commentsShareTransientPlacement(deleted, comment)
+            || commentsShareActiveTransientTransitionIdentity(deleted, comment);
+    }
+    return annotationCommentsMatch(deleted, comment) || commentsShareTransientPlacement(deleted, comment);
+}
+
+function clearLocalDeletionForAnnotationComment(comment: IAnnotationCommentSummary) {
+    for (let index = locallyDeletedAnnotationComments.length - 1; index >= 0; index -= 1) {
+        const deleted = locallyDeletedAnnotationComments[index];
+        if (deleted && localDeletionMatchesComment(deleted, comment)) {
+            locallyDeletedAnnotationComments.splice(index, 1);
+        }
+    }
+}
+
 function commentsRepresentSameVisibleNote(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -1063,13 +1098,7 @@ function selectPreferredVisibleComment(
 }
 
 function isLocallyDeletedAnnotationComment(comment: IAnnotationCommentSummary) {
-    return locallyDeletedAnnotationComments.some((deleted) => {
-        if (isTransientEditorOnlyComment(deleted) || isTransientEditorOnlyComment(comment)) {
-            return commentsShareTransientPlacement(deleted, comment)
-                || commentsShareActiveTransientTransitionIdentity(deleted, comment);
-        }
-        return annotationCommentsMatch(deleted, comment) || commentsShareTransientPlacement(deleted, comment);
-    });
+    return locallyDeletedAnnotationComments.some(deleted => localDeletionMatchesComment(deleted, comment));
 }
 
 function shouldSuppressEmptyPdfNoteDuringTransientEdit(
@@ -1133,6 +1162,16 @@ function markAnnotationCommentLocallyDeleted(comment: IAnnotationCommentSummary)
     const next = annotationCommentsCache.value.filter(candidate => !isLocallyDeletedAnnotationComment(candidate));
     annotationCommentsCache.value = next;
     emitAnnotationCommentsForSidebar(next);
+}
+
+function restoreAnnotationCommentLocally(comment: IAnnotationCommentSummary) {
+    clearLocalDeletionForAnnotationComment(comment);
+    annotations.commentSync.unsuppressAnnotationStableKey(comment.stableKey);
+    if (comment.annotationId) {
+        annotations.commentSync.unsuppressAnnotationId(comment.annotationId);
+    }
+    pendingMarkerMoves.delete(comment.stableKey);
+    upsertAnnotationComment(comment);
 }
 
 function mergeAnnotationCommentsThroughReload(
@@ -1281,6 +1320,9 @@ function applyAnnotationCommentsFromSync(comments: IAnnotationCommentSummary[]) 
     return merged;
 }
 
+let undoPdfjsAnnotationHandler: (() => void) | null = null;
+let redoPdfjsAnnotationHandler: (() => void) | null = null;
+
 const annotations = useAnnotationOrchestrator({
     viewerContainer,
     pdfDocument,
@@ -1302,7 +1344,18 @@ const annotations = useAnnotationOrchestrator({
     renderAnnotationEditorLayerForPage,
     updateVisibleRange,
     emitAnnotationModified: () => emit('annotation-modified'),
-    emitAnnotationState: (state) => emit('annotation-state', state),
+    emitAnnotationState: (state) => {
+        pdfjsAnnotationEditorState.value = state;
+        appAnnotationHistory.emitCombinedState();
+    },
+    recordPdfjsHistoryCommand: params => appAnnotationHistory.registerPdfjsCommand(params),
+    recordPdfjsHistoryClean: type => appAnnotationHistory.cleanPdfjsCommands(type),
+    recordPdfjsHistoryUndo: () => appAnnotationHistory.notifyPdfjsUndo(),
+    recordPdfjsHistoryRedo: () => appAnnotationHistory.notifyPdfjsRedo(),
+    discardPdfjsHistory: () => appAnnotationHistory.discardPdfjsCommands(),
+    isPdfjsHistoryRouted: () => appAnnotationHistory.isRoutingPdfjsHistory(),
+    routeAnnotationHistoryUndo: () => appAnnotationHistory.undo({ undoPdfjs: () => undoPdfjsAnnotationHandler?.() }),
+    routeAnnotationHistoryRedo: () => appAnnotationHistory.redo({ redoPdfjs: () => redoPdfjsAnnotationHandler?.() }),
     emitAnnotationComments: applyAnnotationCommentsFromSync,
     emitAnnotationOpenNote: (comment) => {
         upsertAnnotationComment(comment);
@@ -1445,6 +1498,9 @@ const {
 
 watch(() => src.value, (next, previous) => {
     if (next !== previous) {
+        if (!isAnySaving.value) {
+            appAnnotationHistory.clear();
+        }
         clearPendingImagePlacement();
         activeCommentStableKey.value = null;
         if (!next) {
@@ -1474,8 +1530,8 @@ const {
     shouldShowSkeleton,
     handleDragStart,
     handleDragMove,
-    undoAnnotation,
-    redoAnnotation,
+    undoAnnotation: undoPdfjsAnnotation,
+    redoAnnotation: redoPdfjsAnnotation,
     invalidatePages,
     handlePageRenderStall: handlePageRenderStallFromCore,
     preserveNextSourceReloadVisibleContent,
@@ -1549,6 +1605,24 @@ const {
     },
     emit,
 });
+undoPdfjsAnnotationHandler = undoPdfjsAnnotation;
+redoPdfjsAnnotationHandler = redoPdfjsAnnotation;
+
+function undoAnnotation() {
+    if (appAnnotationHistory.canUndo.value) {
+        appAnnotationHistory.undo({ undoPdfjs: undoPdfjsAnnotation });
+        return;
+    }
+    undoPdfjsAnnotation();
+}
+
+function redoAnnotation() {
+    if (appAnnotationHistory.canRedo.value) {
+        appAnnotationHistory.redo({ redoPdfjs: redoPdfjsAnnotation });
+        return;
+    }
+    redoPdfjsAnnotation();
+}
 pageRenderStallRecoveryHandler = handlePageRenderStallFromCore;
 
 async function applyFitWidthToCurrentPage() {
@@ -2156,6 +2230,7 @@ defineExpose({
         pendingMarkerMoves.delete(stableKey);
         annotationCommentsCache.value = annotationCommentsCache.value.filter(c => c.stableKey !== stableKey);
     },
+    restoreAnnotationToInternalCache: restoreAnnotationCommentLocally,
     clearPendingMarkerMoves: () => pendingMarkerMoves.clear(),
     captureRegionToClipboard: regionSnip.startCaptureSession,
     isCapturingRegion: regionSnip.isActive,

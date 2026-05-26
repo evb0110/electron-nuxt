@@ -30,6 +30,7 @@ interface ISerializeEmbeddedFallbackDeps {
 interface IHasAnnotationChangesDeps {
     pdfViewerRef: Ref<IWorkspacePdfViewerForAnnotationUtils | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    savedAnnotationStorageFingerprint?: Ref<string | null>;
 }
 
 export function hasViewerShapeChanges(
@@ -65,10 +66,20 @@ export function hasAnnotationChanges(deps: IHasAnnotationChangesDeps) {
         return true;
     }
 
+    return hasLivePdfJsAnnotationChanges(deps);
+}
+
+export function hasLivePdfJsAnnotationChanges(deps: Omit<IHasAnnotationChangesDeps, 'pdfViewerRef'>) {
     const document = deps.pdfDocument.value;
     if (!document) {
         return false;
     }
 
-    return collectLivePdfJsAnnotationChangeIds(document).hasChanges;
+    const summary = collectLivePdfJsAnnotationChangeIds(document);
+    const savedFingerprint = deps.savedAnnotationStorageFingerprint?.value;
+    if (savedFingerprint !== null && savedFingerprint !== undefined) {
+        return summary.fingerprint !== savedFingerprint;
+    }
+
+    return summary.hasChanges;
 }
