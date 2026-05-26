@@ -101,6 +101,13 @@ import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer-runtime/c
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerReloadTransition';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom';
 import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerDelayedSkeleton';
+import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer-runtime/contracts/createPdfViewerEventAdapter';
+import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer-runtime/contracts/createPdfViewerPublicApi';
+import type {
+    IPdfViewerProps,
+    TPdfViewerEmit,
+} from '@app/modules/pdf-viewer-runtime/contracts/pdfViewerComponent.types';
+import { usePdfViewerPropModel } from '@app/modules/pdf-viewer-runtime/contracts/usePdfViewerPropModel';
 import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
@@ -114,27 +121,14 @@ import {
 } from '@app/composables/pdf/pdfHorizontalScrollClamp';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-    PDFDocumentProxy,
-    TPdfSource,
-    TFitMode,
-    TZoomMode,
-    TPdfViewMode,
-} from '@app/types/pdf';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationMarkerRect,
     IAnnotationModifiedPayload,
-    IAnnotationSettings,
-    TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
 import {
     isSelectionInteractionTool,
     isNoteEligibleComment,
@@ -162,87 +156,40 @@ import {
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
-interface IProps {
-    src: TPdfSource | null;
-    sourcePdfData?: Uint8Array | null | undefined;
-    suppressLoadingOverlay?: boolean | undefined;
-    bufferPages?: number | undefined;
-    isAnySaving?: boolean | undefined;
-    zoom?: number | undefined;
-    zoomMode?: TZoomMode | undefined;
-    dragMode?: boolean | undefined;
-    fitMode?: TFitMode | undefined;
-    viewMode?: TPdfViewMode | undefined;
-    continuousScroll?: boolean | undefined;
-    isActive?: boolean | undefined;
-    isResizing?: boolean | undefined;
-    invertColors?: boolean | undefined;
-    showAnnotations?: boolean | undefined;
-    annotationTool?: TAnnotationTool | undefined;
-    annotationCursorMode?: boolean | undefined;
-    annotationKeepActive?: boolean | undefined;
-    annotationSettings?: IAnnotationSettings | null | undefined;
-    searchPageMatches?: Map<number, IPdfPageMatches> | undefined;
-    currentSearchMatch?: IPdfSearchMatch | null | undefined;
-    currentSearchMatchNavigationId?: number | undefined;
-    currentPage?: number | undefined;
-    workingCopyPath?: string | null | undefined;
-    authorName?: string | null | undefined;
-}
-
 interface IPendingMarkerMove {
     markerRect: IAnnotationMarkerRect;
     previousMarkerRect: IAnnotationMarkerRect | null;
     movedAt: number;
 }
 
+const props = defineProps<IPdfViewerProps>();
 const {
-    annotationCursorMode: annotationCursorModeProp = false,
-    annotationKeepActive: annotationKeepActiveProp = true,
-    annotationSettings: annotationSettingsProp = undefined,
-    annotationTool: annotationToolProp = undefined,
-    authorName: authorNameProp = undefined,
-    bufferPages: bufferPagesProp = undefined,
-    continuousScroll: continuousScrollProp = true,
-    currentPage: requestedCurrentPageProp = undefined,
-    currentSearchMatch: currentSearchMatchProp = undefined,
-    currentSearchMatchNavigationId: currentSearchMatchNavigationIdProp = undefined,
-    dragMode: dragModeProp = false,
-    fitMode: fitModeProp = undefined,
-    invertColors: invertColorsProp = false,
-    isActive: isActiveProp = true,
-    isAnySaving: isAnySavingProp = false,
-    isResizing: isResizingProp = false,
-    searchPageMatches: searchPageMatchesProp = undefined,
-    showAnnotations: showAnnotationsProp = true,
-    sourcePdfData: sourcePdfDataProp = undefined,
-    src: srcProp,
-    suppressLoadingOverlay: suppressLoadingOverlayProp = false,
-    viewMode: viewModeProp = undefined,
-    workingCopyPath: workingCopyPathProp = undefined,
-    zoom: zoomProp = undefined,
-    zoomMode: zoomModeProp = undefined,
-} = defineProps<IProps>();
-
-const src = computed(() => srcProp);
-const sourcePdfData = computed(() => sourcePdfDataProp ?? null);
-const suppressLoadingOverlay = computed(() => suppressLoadingOverlayProp === true);
-const bufferPages = computed(() => bufferPagesProp ?? 2);
-const isAnySaving = computed(() => isAnySavingProp ?? false);
-const zoom = computed(() => zoomProp ?? 1);
-const dragMode = computed(() => dragModeProp ?? false);
-const fitMode = computed<TFitMode>(() => fitModeProp ?? 'width');
-const zoomMode = computed<TZoomMode>(() => zoomModeProp ?? (
-    fitMode.value === 'height' ? 'fit-height' : 'fit-width'
-));
-const viewMode = computed<TPdfViewMode>(() => viewModeProp ?? 'single');
-const isResizing = computed(() => isResizingProp ?? false);
-const invertColors = computed(() => invertColorsProp ?? false);
-const showAnnotations = computed(() => showAnnotationsProp ?? true);
-const annotationTool = computed<TAnnotationTool>(() => annotationToolProp ?? 'none');
-const annotationCursorMode = computed(() => annotationCursorModeProp ?? false);
-const annotationKeepActive = computed(() => annotationKeepActiveProp ?? true);
-const annotationSettings = computed<IAnnotationSettings | null>(() => annotationSettingsProp ?? null);
+    src,
+    sourcePdfData,
+    suppressLoadingOverlay,
+    bufferPages,
+    isAnySaving,
+    zoom,
+    dragMode,
+    fitMode,
+    zoomMode,
+    viewMode,
+    isResizing,
+    invertColors,
+    showAnnotations,
+    annotationTool,
+    annotationCursorMode,
+    annotationKeepActive,
+    annotationSettings,
+    searchPageMatches,
+    currentSearchMatch,
+    currentSearchMatchNavigationId,
+    requestedCurrentPage,
+    workingCopyPath,
+    continuousScroll,
+    isActive,
+    authorName,
+} = usePdfViewerPropModel(props);
 const emptyAnnotationEditorState: IAnnotationEditorState = {
     isEditing: false,
     isEmpty: true,
@@ -251,56 +198,15 @@ const emptyAnnotationEditorState: IAnnotationEditorState = {
     hasSelectedEditor: false,
 };
 const pdfjsAnnotationEditorState = ref<IAnnotationEditorState>({ ...emptyAnnotationEditorState });
-const emptySearchPageMatches = new Map<number, IPdfPageMatches>();
-const searchPageMatches = computed(() => searchPageMatchesProp ?? emptySearchPageMatches);
-const currentSearchMatch = computed(() => currentSearchMatchProp ?? null);
-const currentSearchMatchNavigationId = computed(() => currentSearchMatchNavigationIdProp ?? 0);
-const requestedCurrentPage = computed(() => requestedCurrentPageProp);
-const workingCopyPath = computed(() => workingCopyPathProp ?? null);
-const continuousScroll = computed(() => continuousScrollProp ?? true);
-const isActive = computed(() => isActiveProp ?? true);
-const authorName = computed(() => authorNameProp);
 const { t } = useTypedI18n();
 
-const emit = defineEmits<{
-    (e: 'update:zoom', value: number): void;
-    (e: 'update:zoomMode', mode: TZoomMode): void;
-    (e: 'update:fitMode', mode: TFitMode): void;
-    (e: 'update:effectiveZoom', value: number): void;
-    (e: 'update:currentPage', page: number): void;
-    (e: 'update:totalPages', total: number): void;
-    (e: 'update:loading', loading: boolean): void;
-    (e: 'update:document', document: PDFDocumentProxy | null): void;
-    (e: 'loading', loading: boolean): void;
-    (e: 'annotation-state', state: IAnnotationEditorState): void;
-    (e: 'annotation-modified', payload?: IAnnotationModifiedPayload): void;
-    (e: 'annotation-comments', comments: IAnnotationCommentSummary[]): void;
-    (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-context-menu', payload: IAnnotationContextMenuPayload): void;
-    (e: 'annotation-tool-auto-reset'): void;
-    (e: 'annotation-setting', payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings]
-    }): void;
-    (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-tool-cancel'): void;
-    (e: 'annotation-note-placement-change', active: boolean): void;
-    (e: 'shape-context-menu', payload: {
-        shapeId: string;
-        clientX: number;
-        clientY: number;
-    }): void;
-    (e: 'image-placement-finalize', payload: IPdfPlacedImageFinalizePayload): void;
-    (e: 'initial-visual-pending'): void;
-    (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
-}>();
+const emit = defineEmits<TPdfViewerEmit>();
+const viewerEvents = createPdfViewerEventAdapter(emit);
 
-interface IAnnotationMutationOptions {
-    scheduleCommentSync?: boolean;
-}
+interface IAnnotationMutationOptions {scheduleCommentSync?: boolean;}
 
 function emitAnnotationModified(payload?: IAnnotationModifiedPayload) {
-    emit('annotation-modified', payload);
+    viewerEvents.annotationModified(payload);
 }
 
 function emitForcedAnnotationMutation(options: IAnnotationMutationOptions = {}) {
@@ -320,7 +226,7 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const appAnnotationHistory = usePdfAppAnnotationHistory({
     pdfjsAnnotationState: pdfjsAnnotationEditorState,
-    emitAnnotationState: (state) => emit('annotation-state', state),
+    emitAnnotationState: viewerEvents.annotationState,
     markModified: emitAnnotationModified,
 });
 const pendingMarkerMoves = new Map<string, IPendingMarkerMove>();
@@ -355,7 +261,7 @@ function markInitialVisualReady(pageNumber: number, source: 'canvas' | 'page-ren
 
     const token = pendingInitialVisualReadyToken;
     pendingInitialVisualReadyToken = null;
-    emit('initial-visual-ready', { pageNumber });
+    viewerEvents.initialVisualReady({ pageNumber });
     BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
         token,
         pageNumber,
@@ -494,7 +400,7 @@ const {
     endVisualReloadTransition,
     emitEffectiveZoom: emitEffectiveZoomThroughReloadTransition,
 } = usePdfViewerReloadTransition({
-    emitEffectiveZoom: (value) => emit('update:effectiveZoom', value),
+    emitEffectiveZoom: viewerEvents.updateEffectiveZoom,
     summarizeViewerStateForLog,
 });
 
@@ -594,7 +500,7 @@ usePdfShapeContext({
     onShapeCreated: handleShapeCreated,
     onShapeUpdated: applyShapeUpdateWithHistory,
     onShapeContextMenu: (payload) => {
-        emit('shape-context-menu', payload);
+        viewerEvents.shapeContextMenu(payload);
     },
 });
 
@@ -664,7 +570,7 @@ const singlePageScroll = usePdfSinglePageScroll({
     updateCurrentPage,
     renderVisiblePages,
     visibleRange,
-    emitCurrentPage: (page) => emit('update:currentPage', page),
+    emitCurrentPage: viewerEvents.updateCurrentPage,
 });
 
 const navigationAnchorPage = computed(() =>
@@ -732,7 +638,7 @@ const {
     currentPage: viewerCurrentPage,
     numPages,
     effectiveScale,
-    emitFinalize: (payload) => emit('image-placement-finalize', payload),
+    emitFinalize: viewerEvents.imagePlacementFinalize,
 });
 
 const isImagePlacementActive = computed(() => pendingImagePlacement.value !== null);
@@ -778,7 +684,7 @@ function emitAnnotationCommentsForSidebar(
             ...getShapeAnnotationCommentSummaries(),
         ]
         : comments;
-    emit('annotation-comments', visibleComments.slice().sort(compareAnnotationCommentSummaries));
+    viewerEvents.annotationComments(visibleComments.slice().sort(compareAnnotationCommentSummaries));
 }
 
 function findShapeForAnnotationComment(comment: IAnnotationCommentSummary) {
@@ -1484,14 +1390,14 @@ const annotations = useAnnotationOrchestrator({
     emitAnnotationOpenNote: (comment) => {
         const noteComment = withTransientNoteCreationTimestamp(comment);
         upsertAnnotationComment(noteComment);
-        emit('annotation-open-note', noteComment);
+        viewerEvents.annotationOpenNote(noteComment);
     },
-    emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
-    emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
-    emitAnnotationSetting: (payload) => emit('annotation-setting', payload),
-    emitAnnotationCommentClick: (comment) => emit('annotation-comment-click', comment),
-    emitAnnotationToolCancel: () => emit('annotation-tool-cancel'),
-    emitAnnotationNotePlacementChange: (active) => emit('annotation-note-placement-change', active),
+    emitAnnotationContextMenu: viewerEvents.annotationContextMenu,
+    emitAnnotationToolAutoReset: viewerEvents.annotationToolAutoReset,
+    emitAnnotationSetting: viewerEvents.annotationSetting,
+    emitAnnotationCommentClick: viewerEvents.annotationCommentClick,
+    emitAnnotationToolCancel: viewerEvents.annotationToolCancel,
+    emitAnnotationNotePlacementChange: viewerEvents.annotationNotePlacementChange,
 });
 
 const highlightComposable = annotations.highlight;
@@ -1509,15 +1415,16 @@ function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
 
 function handleMarkerOpenNote(comment: IAnnotationCommentSummary) {
     activeCommentStableKey.value = comment.stableKey;
-    emit('annotation-open-note', comment);
+    viewerEvents.annotationOpenNote(comment);
 }
 
 function handleMarkerContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent) {
     activeCommentStableKey.value = comment.stableKey;
-    emit(
-        'annotation-context-menu',
-        highlightComposable.buildAnnotationContextMenuPayload(comment, event.clientX, event.clientY),
-    );
+    viewerEvents.annotationContextMenu(highlightComposable.buildAnnotationContextMenuPayload(
+        comment,
+        event.clientX,
+        event.clientY,
+    ));
 }
 
 function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
@@ -1722,7 +1629,7 @@ const {
     onDocumentLoadStateChange: (payload) => {
         if (payload.phase === 'started') {
             pendingInitialVisualReadyToken = payload.token;
-            emit('initial-visual-pending');
+            viewerEvents.initialVisualPending();
             beginViewerLoadSettle(payload.token);
             return;
         }
@@ -1796,12 +1703,12 @@ function syncFitWidthZoomModeForCurrentPage() {
         && isFitWidthScaleCurrent(viewerContainer.value);
 
     if (isCurrentPageFitWidth && zoomMode.value === 'custom') {
-        emit('update:zoomMode', 'fit-width');
+        viewerEvents.updateZoomMode('fit-width');
         return;
     }
 
     if (!isCurrentPageFitWidth && zoomMode.value === 'fit-width') {
-        emit('update:zoomMode', 'custom');
+        viewerEvents.updateZoomMode('custom');
     }
 }
 
@@ -2289,7 +2196,7 @@ async function renderLoadedPdfPagesForBrowserPrint(
     );
 }
 
-defineExpose({
+const pdfViewerPublicApi = createPdfViewerPublicApi({
     getViewerContainer: () => viewerContainer.value,
     getCurrentPage: () => viewerCurrentPage.value,
     scrollToPage: (pageNumber: number) => {
@@ -2398,6 +2305,8 @@ defineExpose({
     isCropSelecting: cropSelection.isSelecting,
     requestScrollToCurrentResult,
 });
+
+defineExpose(pdfViewerPublicApi);
 </script>
 
 <style lang="scss">
