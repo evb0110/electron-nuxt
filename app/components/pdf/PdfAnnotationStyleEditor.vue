@@ -322,7 +322,7 @@ function applyDrawStyle(style: TDrawStyle) {
 
 <style scoped>
 .annotation-style-editor {
-    min-height: 9rem;
+    min-height: 0;
 }
 
 .annotation-style-editor.is-idle {
@@ -361,7 +361,7 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .swatch {
-    border: 1px solid var(--app-pdf-color-swatch-border);
+    border: 1px solid color-mix(in oklab, var(--app-pdf-color-swatch-border) 45%, transparent);
     border-radius: 0.3rem;
     flex: 0 0 1.5rem;
     width: 1.5rem;

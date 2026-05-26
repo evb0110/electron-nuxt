@@ -319,6 +319,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
                         'fill-opacity': '0',
                     },
                     rootClass: {
+                        draw: true,
                         [MARKUP_DRAW_LAYER_VISUAL_CLASS]: true,
                         [`${MARKUP_DRAW_LAYER_VISUAL_CLASS}--${subtype.toLowerCase()}`]: true,
                         [`${MARKUP_DRAW_LAYER_CLASS_PREFIX}${subtype.toLowerCase()}`]: true,

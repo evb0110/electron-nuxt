@@ -8,11 +8,14 @@
                 :delay-duration="400"
             >
                 <button
+                    :ref="(element) => setToolButtonRef(toolItem.id, element)"
                     type="button"
                     class="tool-button"
                     :class="{ 'is-active': tool === toolItem.id }"
                     :data-tool="toolItem.id"
                     :aria-pressed="tool === toolItem.id"
+                    :aria-haspopup="toolItem.hasStyleControls ? 'dialog' : undefined"
+                    :aria-expanded="toolItem.hasStyleControls && tool === toolItem.id ? stylePopoverOpen : undefined"
                     @click="setTool(toolItem.id)"
                 >
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
@@ -23,19 +26,27 @@
 </template>
 
 <script setup lang="ts">
+import type { ComponentPublicInstance } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 
 interface IToolItem {
     id: TAnnotationTool;
     label: string;
     icon: string;
+    hasStyleControls: boolean;
 }
 
-interface IProps { tool: TAnnotationTool }
+interface IProps {
+    tool: TAnnotationTool;
+    stylePopoverOpen?: boolean;
+}
 
 const { t } = useTypedI18n();
 
-const { tool: toolProp } = defineProps<IProps>();
+const {
+    stylePopoverOpen = false,
+    tool: toolProp,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{ (e: 'set-tool', tool: TAnnotationTool): void }>();
 
@@ -46,57 +57,84 @@ const toolItems = computed<IToolItem[]>(() => [
         id: 'select',
         label: t('annotations.select'),
         icon: 'i-ph-scan',
+        hasStyleControls: false,
     },
     {
         id: 'draw',
         label: t('annotations.draw'),
         icon: 'i-ph-pen-nib',
+        hasStyleControls: true,
     },
     {
         id: 'text',
         label: t('annotations.text'),
         icon: 'i-ph-text-t',
+        hasStyleControls: true,
     },
     {
         id: 'highlight',
         label: t('annotations.highlight'),
         icon: 'i-ph-highlighter',
+        hasStyleControls: true,
     },
     {
         id: 'underline',
         label: t('annotations.underline'),
         icon: 'i-ph-text-underline',
+        hasStyleControls: true,
     },
     {
         id: 'strikethrough',
         label: t('annotations.strikethrough'),
         icon: 'i-ph-text-strikethrough',
+        hasStyleControls: true,
     },
     {
         id: 'rectangle',
         label: t('annotations.rectangle'),
         icon: 'i-ph-square',
+        hasStyleControls: true,
     },
     {
         id: 'circle',
         label: t('annotations.circle'),
         icon: 'i-ph-circle',
+        hasStyleControls: true,
     },
     {
         id: 'line',
         label: t('annotations.line'),
         icon: 'i-ph-minus',
+        hasStyleControls: true,
     },
     {
         id: 'arrow',
         label: t('annotations.arrow'),
         icon: 'i-ph-arrow-up-right',
+        hasStyleControls: true,
     },
 ]);
 
 function setTool(toolId: TAnnotationTool) {
-    emit('set-tool', tool.value === toolId ? 'none' : toolId);
+    emit('set-tool', toolId);
 }
+
+const toolButtonRefs = new Map<TAnnotationTool, HTMLElement>();
+
+function setToolButtonRef(toolId: TAnnotationTool, element: Element | ComponentPublicInstance | null) {
+    if (element instanceof HTMLElement) {
+        toolButtonRefs.set(toolId, element);
+        return;
+    }
+
+    toolButtonRefs.delete(toolId);
+}
+
+function getButtonEl(toolId: TAnnotationTool) {
+    return toolButtonRefs.get(toolId) ?? null;
+}
+
+defineExpose({ getButtonEl });
 
 </script>
 
