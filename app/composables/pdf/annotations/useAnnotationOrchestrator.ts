@@ -57,6 +57,17 @@ interface IUseAnnotationOrchestratorOptions {
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
+    recordPdfjsHistoryCommand?: (params: {
+        type?: number;
+        overwriteIfSameType?: boolean;
+    }) => void;
+    recordPdfjsHistoryClean?: (type: number) => void;
+    recordPdfjsHistoryUndo?: () => void;
+    recordPdfjsHistoryRedo?: () => void;
+    discardPdfjsHistory?: () => void;
+    isPdfjsHistoryRouted?: () => boolean;
+    routeAnnotationHistoryUndo?: () => boolean;
+    routeAnnotationHistoryRedo?: () => boolean;
     emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => IAnnotationCommentSummary[] | undefined;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationContextMenu: (payload: IAnnotationContextMenuPayload) => void;
@@ -95,6 +106,14 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         updateVisibleRange,
         emitAnnotationModified,
         emitAnnotationState,
+        recordPdfjsHistoryCommand,
+        recordPdfjsHistoryClean,
+        recordPdfjsHistoryUndo,
+        recordPdfjsHistoryRedo,
+        discardPdfjsHistory,
+        isPdfjsHistoryRouted,
+        routeAnnotationHistoryUndo,
+        routeAnnotationHistoryRedo,
         emitAnnotationComments,
         emitAnnotationOpenNote,
         emitAnnotationContextMenu,
@@ -149,6 +168,14 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getFreeTextResize: () => freeTextResize,
         emitAnnotationModified,
         emitAnnotationState,
+        ...(recordPdfjsHistoryCommand ? { recordPdfjsHistoryCommand } : {}),
+        ...(recordPdfjsHistoryClean ? { recordPdfjsHistoryClean } : {}),
+        ...(recordPdfjsHistoryUndo ? { recordPdfjsHistoryUndo } : {}),
+        ...(recordPdfjsHistoryRedo ? { recordPdfjsHistoryRedo } : {}),
+        ...(discardPdfjsHistory ? { discardPdfjsHistory } : {}),
+        ...(isPdfjsHistoryRouted ? { isPdfjsHistoryRouted } : {}),
+        ...(routeAnnotationHistoryUndo ? { routeAnnotationHistoryUndo } : {}),
+        ...(routeAnnotationHistoryRedo ? { routeAnnotationHistoryRedo } : {}),
         emitAnnotationOpenNote,
     });
 

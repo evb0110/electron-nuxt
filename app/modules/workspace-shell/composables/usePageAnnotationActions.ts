@@ -62,6 +62,7 @@ type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     'registerAnnotationHistoryCommand'
     | 'clearPendingImagePlacement'
     | 'restorePendingImagePlacement'
+    | 'restoreAnnotationToInternalCache'
     | 'unsuppressAnnotationId'
     | 'unsuppressAnnotationStableKey'
 >>;
@@ -113,6 +114,7 @@ interface IPageAnnotationActionsDeps {
     restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => void;
     queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
     unqueuePendingEmbeddedAnnotationDelete: (stableKey: string) => void;
+    markPreservedAnnotationSourceDirty?: () => void;
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
     embedPlacedImageToPage: (
         data: Uint8Array,
@@ -911,7 +913,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (embeddedAnnotationId) {
                 viewer.unsuppressAnnotationId?.(embeddedAnnotationId);
             }
+            viewer.restoreAnnotationToInternalCache?.(comment);
             deps.restoreAnnotationToCache(comment);
+            deps.markPreservedAnnotationSourceDirty?.();
             viewer.invalidatePages([comment.pageNumber]);
         };
 

@@ -171,6 +171,10 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             syncAnnotationClean();
             return;
         }
+        if (!hasAnnotationChanges()) {
+            syncAnnotationClean();
+            return;
+        }
         markAnnotationDirty();
     }
 

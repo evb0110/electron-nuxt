@@ -88,7 +88,10 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     annotationDirty: Ref<boolean>;
     annotationNoteWindowsCount: Ref<number>;
     hasAnnotationChanges: () => boolean;
-    markAnnotationSaved: () => void;
+    hasLivePdfJsAnnotationChanges?: () => boolean;
+    hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
+    hasPreservedAnnotationSourceChanges?: () => boolean;
+    markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
     isDirty: Ref<boolean>;
@@ -132,6 +135,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         annotationDirty,
         annotationNoteWindowsCount,
         hasAnnotationChanges,
+        hasLivePdfJsAnnotationChanges,
+        hasSavedPdfJsAnnotationBaselineChanges,
+        hasPreservedAnnotationSourceChanges,
         markAnnotationSaved,
         markPageLabelsSaved,
         markBookmarksSaved,
@@ -203,7 +209,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         hasAnnotationChanges,
+        ...(hasLivePdfJsAnnotationChanges ? { hasLivePdfJsAnnotationChanges } : {}),
+        ...(hasSavedPdfJsAnnotationBaselineChanges ? { hasSavedPdfJsAnnotationBaselineChanges } : {}),
+        ...(hasPreservedAnnotationSourceChanges ? { hasPreservedAnnotationSourceChanges } : {}),
         hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
+        hasManagedShapes: () => (pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
         getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
         serializePdfForSave,
         persistAllAnnotationNotes,

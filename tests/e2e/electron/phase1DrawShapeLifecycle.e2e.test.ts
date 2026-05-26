@@ -103,6 +103,42 @@ async function waitForShapeCount(page: Page, expectedCount: number) {
     }, { timeout: 20_000 }, expectedCount);
 }
 
+async function waitForShapeSidebarCount(page: Page, expectedCount: number) {
+    await waitForFunctionInPage(page, (count: number) => {
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        };
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisible);
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && visibleHosts.includes(activeHost))
+            ? activeHost
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+        const shapeItems = Array.from(host?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [])
+            .filter(isVisible);
+        return shapeItems.length === count;
+    }, { timeout: 20_000 }, expectedCount);
+}
+
+async function clickEnabledToolbarAction(page: Page, label: string) {
+    const clicked = await evaluateInPage(page, (targetLabel: string) => {
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(candidate => (
+                candidate.getAttribute('aria-label')?.trim() === targetLabel
+                && !candidate.disabled
+                && candidate.getAttribute('aria-disabled') !== 'true'
+            ));
+        button?.click();
+        return Boolean(button);
+    }, label);
+
+    if (!clicked) {
+        throw new Error(`Enabled toolbar action not found: ${label}`);
+    }
+}
+
 async function waitForAnnotationSubtypeCountOnDisk(
     filePath: string,
     subtype: string,
@@ -1266,6 +1302,44 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
             x: 0.34,
             y: 0.6,
         })).toBe(false);
+    });
+
+    it('keeps drawing undo and redo coherent after saving the new shape', async () => {
+        const page = session?.page;
+        if (!page) {
+            throw new Error('Phase 1 draw-shape session was not initialized');
+        }
+
+        const fixturePath = await createBlankFixturePdf(`phase1-draw-save-undo-redo-${Date.now()}.pdf`, 1);
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+
+        await dragLineSegment(page, {
+            start: {
+                x: 0.18,
+                y: 0.22,
+            },
+            end: {
+                x: 0.66,
+                y: 0.48,
+            },
+        });
+        await waitForShapeCount(page, 1);
+        await waitForShapeSidebarCount(page, 1);
+
+        await saveViaWindowHandle(page);
+        await waitForShapeCount(page, 1);
+        await waitForShapeSidebarCount(page, 1);
+        const annotationSummary = await waitForLineCountOnDisk(fixturePath, 1);
+        expect(annotationSummary.bySubtype.Line ?? 0).toBe(1);
+
+        await clickEnabledToolbarAction(page, 'Undo');
+        await waitForShapeCount(page, 0);
+        await waitForShapeSidebarCount(page, 0);
+
+        await clickEnabledToolbarAction(page, 'Redo');
+        await waitForShapeCount(page, 1);
+        await waitForShapeSidebarCount(page, 1);
     });
 
     extendedIt('keeps multiple saved strokes fully managed after save so delete clears them visually before the next save', async () => {

@@ -50,6 +50,10 @@ import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = Parameters<TAnnotationEditorUIManager['updateParams']>[1];
+type TUiManagerCommandParams = Parameters<TAnnotationEditorUIManager['addCommands']>[0] & {
+    type?: unknown;
+    overwriteIfSameType?: unknown;
+};
 
 function toEditorParamValue(value: unknown): TEditorParamValue {
     return value;
@@ -106,6 +110,17 @@ interface IEditorBridgeDeps {
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
+    recordPdfjsHistoryCommand?: (params: {
+        type?: number;
+        overwriteIfSameType?: boolean;
+    }) => void;
+    recordPdfjsHistoryClean?: (type: number) => void;
+    recordPdfjsHistoryUndo?: () => void;
+    recordPdfjsHistoryRedo?: () => void;
+    discardPdfjsHistory?: () => void;
+    isPdfjsHistoryRouted?: () => boolean;
+    routeAnnotationHistoryUndo?: () => boolean;
+    routeAnnotationHistoryRedo?: () => boolean;
 }
 
 export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
@@ -126,6 +141,14 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         emitAnnotationModified,
         emitAnnotationState,
         emitAnnotationOpenNote,
+        recordPdfjsHistoryCommand,
+        recordPdfjsHistoryClean,
+        recordPdfjsHistoryUndo,
+        recordPdfjsHistoryRedo,
+        discardPdfjsHistory,
+        isPdfjsHistoryRouted,
+        routeAnnotationHistoryUndo,
+        routeAnnotationHistoryRedo,
     } = deps;
 
     const annotationEventBus = shallowRef<TEventBus | null>(null);
@@ -361,6 +384,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         }
 
         destroyAnnotationEditor();
+        discardPdfjsHistory?.();
 
         const eventBus = new EventBus();
         annotationEventBus.value = eventBus;
@@ -532,9 +556,32 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         uiManager.addCommands = (params) => {
             emitAnnotationModified();
             const result = originalAddCommands(params);
+            const commandParams = params as TUiManagerCommandParams;
+            const historyParams: {
+                type?: number;
+                overwriteIfSameType?: boolean;
+            } = { overwriteIfSameType: commandParams.overwriteIfSameType === true };
+            if (typeof commandParams.type === 'number') {
+                historyParams.type = commandParams.type;
+            }
+            if (!isPdfjsHistoryRouted?.()) {
+                recordPdfjsHistoryCommand?.(historyParams);
+            }
             commentSync.scheduleAnnotationCommentsSync();
             return result;
         };
+
+        const uiManagerWithCleanUndoStack = uiManager as TAnnotationEditorUIManager & { cleanUndoStack?: (type: number) => unknown };
+        if (typeof uiManagerWithCleanUndoStack.cleanUndoStack === 'function') {
+            const originalCleanUndoStack = uiManagerWithCleanUndoStack.cleanUndoStack.bind(uiManager);
+            uiManagerWithCleanUndoStack.cleanUndoStack = (type) => {
+                const result = originalCleanUndoStack(type);
+                if (typeof type === 'number') {
+                    recordPdfjsHistoryClean?.(type);
+                }
+                return result;
+            };
+        }
 
         const uiManagerWithDelete = uiManager as TAnnotationEditorUIManager & { delete?: () => unknown };
         if (typeof uiManagerWithDelete.delete === 'function') {
@@ -559,7 +606,13 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
 
         const originalUndo = uiManager.undo.bind(uiManager);
         uiManager.undo = () => {
+            if (!isPdfjsHistoryRouted?.() && routeAnnotationHistoryUndo?.()) {
+                return;
+            }
             const result = originalUndo();
+            if (!isPdfjsHistoryRouted?.()) {
+                recordPdfjsHistoryUndo?.();
+            }
             emitAnnotationModified();
             commentSync.scheduleAnnotationCommentsSync();
             return result;
@@ -567,7 +620,13 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
 
         const originalRedo = uiManager.redo.bind(uiManager);
         uiManager.redo = () => {
+            if (!isPdfjsHistoryRouted?.() && routeAnnotationHistoryRedo?.()) {
+                return;
+            }
             const result = originalRedo();
+            if (!isPdfjsHistoryRouted?.()) {
+                recordPdfjsHistoryRedo?.();
+            }
             emitAnnotationModified();
             commentSync.scheduleAnnotationCommentsSync();
             return result;

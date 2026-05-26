@@ -15,6 +15,7 @@ describe('buildPdfAnnotationSavePlan', () => {
                 replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: false,
+                fingerprint: 'dirty',
             },
             replayableEmbeddedAnnotationIds: new Set(['3856R']),
         });
@@ -32,6 +33,7 @@ describe('buildPdfAnnotationSavePlan', () => {
                 replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: false,
+                fingerprint: 'dirty',
             },
             replayableEmbeddedAnnotationIds: new Set(['3856R']),
         });
@@ -50,6 +52,7 @@ describe('buildPdfAnnotationSavePlan', () => {
                 replayableEditorNoteIds: new Set(),
                 hasChanges: false,
                 hasUnknownChanges: false,
+                fingerprint: 'empty',
             },
             replayableEmbeddedAnnotationIds: new Set(),
         });
@@ -67,6 +70,7 @@ describe('buildPdfAnnotationSavePlan', () => {
                 replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: true,
+                fingerprint: 'unknown',
             },
             replayableEmbeddedAnnotationIds: new Set(),
         });
@@ -84,6 +88,7 @@ describe('buildPdfAnnotationSavePlan', () => {
                 replayableEditorNoteIds: new Set(),
                 hasChanges: true,
                 hasUnknownChanges: true,
+                fingerprint: 'unknown',
             },
             replayableEmbeddedAnnotationIds: new Set(['pdfjs_internal_editor_0']),
         });

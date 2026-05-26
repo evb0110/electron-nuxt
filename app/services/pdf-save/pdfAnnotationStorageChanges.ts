@@ -10,10 +10,12 @@ export interface IPdfLiveAnnotationChangeSummary {
     replayableEditorNoteIds: Set<string>;
     hasChanges: boolean;
     hasUnknownChanges: boolean;
+    fingerprint: string;
 }
 
 const PDFJS_FREETEXT_ANNOTATION_EDITOR_TYPE = 3;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
+const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -156,6 +158,7 @@ export function collectLivePdfJsAnnotationChangeIds(
             replayableEditorNoteIds: new Set<string>(),
             hasChanges: false,
             hasUnknownChanges: false,
+            fingerprint: EMPTY_ANNOTATION_CHANGE_FINGERPRINT,
         };
     }
 
@@ -166,7 +169,11 @@ export function collectLivePdfJsAnnotationChangeIds(
         const replayableEditorNoteIds = new Set<string>();
         const serializableRuntimeIdsMappedToPdfRefs = new Set<string>();
         const deletedEditorOnlyRuntimeIds = new Set<string>();
-        const serializableMap = storage?.serializable?.map;
+        const serializable = storage?.serializable;
+        const serializableMap = serializable?.map;
+        const serializableHash = typeof serializable?.hash === 'string'
+            ? serializable.hash
+            : '';
         let hasSerializableChanges = false;
 
         if (serializableMap instanceof Map && serializableMap.size > 0) {
@@ -215,11 +222,21 @@ export function collectLivePdfJsAnnotationChangeIds(
             });
         }
 
+        const hasChanges = ids.size > 0 || hasSerializableChanges;
+        const fingerprint = hasChanges
+            ? JSON.stringify({
+                hash: serializableHash,
+                ids: [...ids].sort(),
+                serializable: hasSerializableChanges,
+            })
+            : EMPTY_ANNOTATION_CHANGE_FINGERPRINT;
+
         return {
             ids,
             replayableEditorNoteIds,
-            hasChanges: ids.size > 0 || hasSerializableChanges,
+            hasChanges,
             hasUnknownChanges: ids.size === 0 && hasSerializableChanges,
+            fingerprint,
         };
     } catch (error) {
         BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
@@ -228,6 +245,13 @@ export function collectLivePdfJsAnnotationChangeIds(
             replayableEditorNoteIds: new Set<string>(),
             hasChanges: true,
             hasUnknownChanges: true,
+            fingerprint: 'unknown',
         };
     }
+}
+
+export function collectLivePdfJsAnnotationChangeFingerprint(
+    document: PDFDocumentProxy | null | undefined,
+) {
+    return collectLivePdfJsAnnotationChangeIds(document).fingerprint;
 }

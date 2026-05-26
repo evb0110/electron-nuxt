@@ -442,6 +442,7 @@ describe('useFileOperations', () => {
             resetModified,
         } = createDeps({
             annotationDirty: ref(true),
+            pageLabelsDirty: ref(true),
             hasShapeChanges: vi.fn(() => true),
             preparePostSaveReload: () => ({
                 promise: deferredReload.promise,

@@ -9,7 +9,11 @@ import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNote
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
-import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
+import {
+    hasAnnotationChanges as detectAnnotationChanges,
+    hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges,
+} from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
+import { collectLivePdfJsAnnotationChangeFingerprint } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 
 interface IWorkspaceAnnotationSessionOptions {
@@ -39,6 +43,13 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         showAnnotationContextMenu,
     } = useAnnotationContextMenu();
 
+    const savedAnnotationStorageFingerprint = ref<string | null>(null);
+    const savedAnnotationStorageFingerprintPreservesLiveSession = ref(false);
+
+    function captureAnnotationStorageFingerprint() {
+        return collectLivePdfJsAnnotationChangeFingerprint(pdfDocument.value);
+    }
+
     function clearAnnotationChanges() {
         try {
             pdfDocument.value?.annotationStorage?.resetModified();
@@ -51,7 +62,21 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         return detectAnnotationChanges({
             pdfViewerRef,
             pdfDocument,
+            savedAnnotationStorageFingerprint,
         });
+    }
+
+    function hasLivePdfJsAnnotationChanges() {
+        return detectLivePdfJsAnnotationChanges({
+            pdfDocument,
+            savedAnnotationStorageFingerprint,
+        });
+    }
+
+    function hasSavedPdfJsAnnotationBaselineChanges() {
+        return savedAnnotationStorageFingerprintPreservesLiveSession.value
+            && savedAnnotationStorageFingerprint.value !== null
+            && hasLivePdfJsAnnotationChanges();
     }
 
     const {
@@ -71,8 +96,8 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         handleAnnotationState,
         handleAnnotationModified,
         markAnnotationDirty,
-        markAnnotationSaved,
-        resetAnnotationTracking,
+        markAnnotationSaved: markAnnotationRevisionSaved,
+        resetAnnotationTracking: resetAnnotationRevisionTracking,
         markAnnotationCommentsLoading,
         applyAnnotationComments,
         clearAnnotationComments,
@@ -83,6 +108,18 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         closeAnnotationContextMenu,
         hasAnnotationChanges,
     });
+
+    function markAnnotationSaved(opts?: { preserveLivePdfjsSession?: boolean }) {
+        savedAnnotationStorageFingerprint.value = captureAnnotationStorageFingerprint();
+        savedAnnotationStorageFingerprintPreservesLiveSession.value = opts?.preserveLivePdfjsSession === true;
+        markAnnotationRevisionSaved();
+    }
+
+    function resetAnnotationTracking() {
+        savedAnnotationStorageFingerprint.value = null;
+        savedAnnotationStorageFingerprintPreservesLiveSession.value = false;
+        resetAnnotationRevisionTracking();
+    }
 
     const annotationKeepActiveStorage = useStorage<string>(
         STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE,
@@ -145,6 +182,8 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         showAnnotationContextMenu,
         clearAnnotationChanges,
         hasAnnotationChanges,
+        hasLivePdfJsAnnotationChanges,
+        hasSavedPdfJsAnnotationBaselineChanges,
         hasPendingAnnotationChanges: hasPendingTabChanges,
         annotationTool,
         annotationKeepActive,
