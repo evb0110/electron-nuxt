@@ -471,8 +471,8 @@ function mergeCreatedAt(
     existing: Pick<IAnnotationCommentSummary, 'createdAt' | 'modifiedAt'>,
     incoming: Pick<IAnnotationCommentSummary, 'createdAt' | 'modifiedAt'>,
 ) {
-    const existingTs = existing.createdAt ?? existing.modifiedAt ?? null;
-    const incomingTs = incoming.createdAt ?? incoming.modifiedAt ?? null;
+    const existingTs = existing.createdAt ?? null;
+    const incomingTs = incoming.createdAt ?? null;
     if (existingTs && incomingTs) {
         return Math.min(existingTs, incomingTs);
     }

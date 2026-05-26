@@ -14,6 +14,7 @@ import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/co
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspaceFileLifecycleController';
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspaceSidebarSearchSyncController';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
+import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/composables/workspaceAnnotationCommentMerge';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -22,12 +23,14 @@ import type { IRecentFile } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
+import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -41,6 +44,7 @@ interface IWorkspaceOrchestrationDeps {
 }
 
 const WORKSPACE_PAGE_NAVIGATION_LOCK_MS = 2_000;
+const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
     const {
@@ -196,6 +200,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationEditorState,
         annotationDirty,
         handleAnnotationToolChange,
+        handleAnnotationModified,
         markAnnotationSaved,
         resetAnnotationTracking,
         annotationNoteWindows,
@@ -209,11 +214,53 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isSameAnnotationComment,
         consumePendingEmbeddedTextUpdates,
         restorePendingEmbeddedTextUpdates,
+        applyAnnotationComments: applyAnnotationCommentsFromSession,
     } = annotationSession;
 
     const pendingEmbeddedAnnotationDeletes = shallowRef(new Map<string, IAnnotationCommentSummary>());
     const pendingEmbeddedAnnotationDeleteCount = computed(() => pendingEmbeddedAnnotationDeletes.value.size);
+    const undoableOpenEmptyEditorNoteCount = computed(() => (
+        annotationNoteWindows.value.some((note) => {
+            const comment = note.comment;
+            const noteText = typeof note.text === 'string' ? note.text : comment.text;
+            return comment.source === 'editor'
+                && isNoteEligibleComment(comment)
+                && noteText.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length === 0;
+        })
+            ? 1
+            : 0
+    ));
+    const appAnnotationUndoDepth = computed(() => (
+        pendingEmbeddedAnnotationDeleteCount.value + undoableOpenEmptyEditorNoteCount.value
+    ));
+    const thumbnailHiddenAnnotationIds = computed(() => {
+        const ids = new Set<string>();
+        pendingEmbeddedAnnotationDeletes.value.forEach((comment) => {
+            const stableRef = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu)?.[1] ?? null;
+            [
+                comment.annotationId,
+                comment.uid,
+                comment.id,
+                stableRef,
+            ].forEach((candidate) => {
+                const normalizedId = normalizePdfJsAnnotationId(candidate);
+                if (normalizedId) {
+                    ids.add(normalizedId);
+                }
+            });
+        });
+        return [...ids];
+    });
     const preservedAnnotationSourceDirty = ref(false);
+
+    function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
+        applyAnnotationCommentsFromSession(mergeWorkspaceAnnotationComments({
+            incomingComments: comments,
+            previousComments: annotationComments.value,
+            openNotes: annotationNoteWindows.value,
+            isSameAnnotationComment,
+        }));
+    }
 
     function queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary) {
         pendingEmbeddedAnnotationDeletes.value = new Map([
@@ -418,7 +465,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationTool,
         annotationPlacingPageNote,
         annotationEditorState,
-        appAnnotationUndoDepth: pendingEmbeddedAnnotationDeleteCount,
+        hasLivePdfJsAnnotationChanges: computed(() => hasLivePdfJsAnnotationChanges()),
+        appAnnotationUndoDepth,
         hasOpenAnnotationNotes,
         canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
         canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
@@ -442,6 +490,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canUndo,
         canRedo,
         isAnnotationUndoContext,
+        shouldPreferTimelineUndo: () => (
+            !annotationDirty.value
+            && !isDirty.value
+            && pendingEmbeddedAnnotationDeleteCount.value === 0
+            && workspaceUndoTimeline.nextUndoSource.value === 'file'
+        ),
         nextUndoSource: workspaceUndoTimeline.nextUndoSource,
         nextRedoSource: workspaceUndoTimeline.nextRedoSource,
         workingCopyPath,
@@ -483,6 +537,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationNoteWindows,
         loadPdfFromData,
         waitForPdfReload,
+        invalidateThumbnailPages: requestThumbnailInvalidation,
         removeAnnotationFromCache: (stableKey: string) => {
             annotationComments.value = annotationComments.value.filter(comment => comment.stableKey !== stableKey);
         },
@@ -503,7 +558,22 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pasteImageFromClipboardAt,
         shapePropertiesPopover,
         closeShapeProperties,
+        undoLatestFreshAnnotationNoteCreation,
     } = annotationActions;
+
+    async function handleUndo() {
+        if (await undoLatestFreshAnnotationNoteCreation()) {
+            return;
+        }
+        await pdfHistory.handleUndo();
+    }
+
+    function handleAnnotationModifiedWithThumbnailInvalidation(
+        payload?: Parameters<typeof handleAnnotationModified>[0],
+    ) {
+        handleAnnotationModified(payload);
+        requestThumbnailInvalidation([currentPage.value]);
+    }
 
     const documentControls = useWorkspaceDocumentControls({
         hasDocument: hasOpenDocument,
@@ -747,7 +817,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ...pdfHistory,
         ...pageSaveOrchestration,
         ...workspacePrint,
+        applyAnnotationComments,
         shouldAcceptViewerCurrentPageUpdate,
+        thumbnailHiddenAnnotationIds,
         appSettings,
         pdfDocument,
         pdfData,
@@ -769,6 +841,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         docxExportError,
         handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),
         handlePasteImageFromClipboard: () => pasteImageFromClipboardAt(currentPage.value, 0.5, 0.5),
+        handleUndo,
+        handleAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
         handlePrint: workspacePrint.handlePrint,
     };
 };

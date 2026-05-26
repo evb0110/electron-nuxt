@@ -122,6 +122,7 @@ function createHarness() {
         startImagePlacement: vi.fn(async () => true),
         clearPendingImagePlacement: vi.fn(),
         restorePendingImagePlacement: vi.fn(),
+        restoreAnnotationToInternalCache: vi.fn(),
     };
 
     const annotationTool = ref<TAnnotationTool>('highlight');
@@ -165,6 +166,7 @@ function createHarness() {
             persistWorkingCopy?: boolean;
         }) => {}),
         waitForPdfReload: vi.fn(async (_page: number) => {}),
+        invalidateThumbnailPages: vi.fn(),
         removeAnnotationFromCache: vi.fn(),
         restoreAnnotationToCache: vi.fn(),
         queuePendingEmbeddedAnnotationDelete: vi.fn(),
@@ -202,6 +204,176 @@ afterEach(() => {
 });
 
 describe('usePageAnnotationActions', () => {
+    it('keeps a newly opened editor note in the sidebar cache before text is entered', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
+        try {
+            const {
+                deps,
+                viewer,
+                actions,
+            } = createHarness();
+            const comment = createComment('new-editor-note');
+            comment.source = 'editor';
+            comment.subtype = 'FreeText';
+            comment.hasNote = true;
+            comment.text = '\u200B';
+
+            actions.handleOpenAnnotationNote(comment);
+
+            const expected = expect.objectContaining({
+                stableKey: 'new-editor-note',
+                createdAt: new Date('2026-05-26T12:00:00Z').getTime(),
+            });
+            expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(expected);
+            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenCalledWith(expected);
+            expect(deps.openAnnotationNoteWindow).toHaveBeenCalledWith(expected);
+            expect(deps.annotationActiveCommentStableKey.value).toBe('new-editor-note');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('registers a fresh editor note as its own undoable annotation command', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
+        try {
+            const {
+                deps,
+                viewer,
+                actions,
+            } = createHarness();
+            const comment = createComment('fresh-editor-note');
+            comment.source = 'editor';
+            comment.subtype = 'FreeText';
+            comment.hasNote = true;
+            comment.text = '\u200B\uFEFF ';
+
+            actions.handleOpenAnnotationNote(comment);
+            const noteComment = deps.openAnnotationNoteWindow.mock.calls[0]?.[0];
+            deps.annotationNoteWindows.value = [{ comment: noteComment! }];
+            vi.runOnlyPendingTimers();
+
+            expect(noteComment).toEqual(expect.objectContaining({
+                stableKey: 'fresh-editor-note',
+                createdAt: new Date('2026-05-26T12:00:00Z').getTime(),
+            }));
+            const command = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
+            expect(command).toBeDefined();
+
+            command!.undo();
+
+            expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('fresh-editor-note');
+            expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(noteComment);
+            expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith('fresh-editor-note');
+            expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith('fresh-editor-note');
+            expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([1]);
+
+            command!.cmd();
+
+            expect(deps.restoreAnnotationToCache).toHaveBeenLastCalledWith(noteComment);
+            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenLastCalledWith(noteComment);
+            expect(deps.openAnnotationNoteWindow).toHaveBeenLastCalledWith(noteComment);
+            expect(deps.annotationActiveCommentStableKey.value).toBe('fresh-editor-note');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('registers fresh note undo after the open note identity is synchronized', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
+        try {
+            const {
+                deps,
+                viewer,
+                actions,
+            } = createHarness();
+            const comment = createComment('src:editor:0:transient-note');
+            comment.source = 'editor';
+            comment.id = 'transient-note';
+            comment.subtype = 'FreeText';
+            comment.hasNote = true;
+            comment.text = '\u200B';
+            comment.markerRect = {
+                left: 0.25,
+                top: 0.35,
+                width: 0.01,
+                height: 0.01,
+            };
+
+            actions.handleOpenAnnotationNote(comment);
+            const noteComment = deps.openAnnotationNoteWindow.mock.calls[0]?.[0] as IAnnotationCommentSummary;
+            deps.annotationNoteWindows.value = [{ comment: {
+                ...noteComment,
+                id: 'actual-editor',
+                uid: 'actual-editor',
+                stableKey: 'uid:0:actual-editor',
+            } }];
+            vi.runOnlyPendingTimers();
+
+            expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('undoes the latest fresh empty editor note directly', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
+        try {
+            const {
+                deps,
+                viewer,
+                actions,
+            } = createHarness();
+            const highlight = createComment('highlight');
+            highlight.source = 'editor';
+            highlight.subtype = 'Highlight';
+            const note = createComment('fresh-note');
+            note.source = 'editor';
+            note.subtype = 'FreeText';
+            note.hasNote = true;
+            note.text = '\u200B';
+            note.createdAt = Date.now();
+            deps.annotationNoteWindows.value = [
+                { comment: highlight },
+                { comment: note },
+            ];
+
+            const undone = await actions.undoLatestFreshAnnotationNoteCreation();
+
+            expect(undone).toBe(true);
+            expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(note);
+            expect(viewer.deleteAnnotationComment).not.toHaveBeenCalledWith(highlight);
+            expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('fresh-note');
+            expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith('fresh-note');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('can undo an empty editor note before PDF.js reports a creation timestamp', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const note = createComment('untimestamped-note');
+        note.source = 'editor';
+        note.subtype = 'FreeText';
+        note.hasNote = true;
+        note.text = '\u200B';
+        note.createdAt = null;
+        note.modifiedAt = null;
+        deps.annotationNoteWindows.value = [{ comment: note }];
+
+        const undone = await actions.undoLatestFreshAnnotationNoteCreation();
+
+        expect(undone).toBe(true);
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(note);
+    });
+
     it('starts quick note placement when selection-based note is not created', async () => {
         const {
             deps,
@@ -638,6 +810,7 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([1]);
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
         expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
     });
@@ -749,6 +922,7 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.unsuppressAnnotationId).toHaveBeenCalledWith('12R');
         expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(comment);
         expect(viewer.invalidatePages).toHaveBeenCalledWith([comment.pageNumber]);
+        expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([comment.pageNumber]);
     });
 
     it('defers embedded stamp deletes and refreshes the hidden annotation page without reloading', async () => {

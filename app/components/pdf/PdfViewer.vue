@@ -816,6 +816,20 @@ function isTransientEditorOnlyComment(comment: IAnnotationCommentSummary) {
     return comment.source === 'editor' && !comment.annotationId;
 }
 
+function withTransientNoteCreationTimestamp(comment: IAnnotationCommentSummary) {
+    if (
+        !isTransientEditorOnlyComment(comment)
+        || !isNoteEligibleComment(comment)
+        || comment.createdAt
+    ) {
+        return comment;
+    }
+    return {
+        ...comment,
+        createdAt: Date.now(),
+    };
+}
+
 function getPendingMarkerMove(comment: IAnnotationCommentSummary) {
     return pendingMarkerMoves.get(comment.stableKey) ?? null;
 }
@@ -927,6 +941,29 @@ function withReloadStableDisplayText(
         ...comment,
         displayText,
     };
+}
+
+function withReloadStableCreatedAt(
+    comment: IAnnotationCommentSummary,
+    previous: IAnnotationCommentSummary | null | undefined,
+) {
+    if (comment.createdAt || !previous?.createdAt) {
+        return comment;
+    }
+    return {
+        ...comment,
+        createdAt: previous.createdAt,
+    };
+}
+
+function withReloadStableSummaryFields(
+    comment: IAnnotationCommentSummary,
+    previous: IAnnotationCommentSummary | null | undefined,
+) {
+    return withReloadStableCreatedAt(
+        withReloadStableDisplayText(comment, previous),
+        previous,
+    );
 }
 
 function commentsShareNonEmptyNoteText(
@@ -1179,13 +1216,17 @@ function mergeAnnotationCommentsThroughReload(
     previousComments: IAnnotationCommentSummary[],
 ) {
     const merged = incomingComments.map((comment) => {
+        const previousStableComment = previousComments.find(previous =>
+            commentsRepresentSameVisibleNote(comment, previous)
+            || commentsShareTransientTransitionIdentity(comment, previous),
+        );
         const previousDisplayTextComment = findPreviousReloadDisplayTextComment(
             comment,
             previousComments,
         );
-        const displayStableComment = withReloadStableDisplayText(
+        const displayStableComment = withReloadStableSummaryFields(
             comment,
-            previousDisplayTextComment,
+            previousDisplayTextComment ?? previousStableComment,
         );
         const pendingMarkerMove = pendingMarkerMoves.get(comment.stableKey);
         if (pendingMarkerMove) {
@@ -1202,7 +1243,7 @@ function mergeAnnotationCommentsThroughReload(
         const transientPrevious = findPreviousTransientTransitionComment(comment, previousComments);
         if (transientPrevious?.markerRect) {
             return {
-                ...withReloadStableDisplayText(displayStableComment, transientPrevious),
+                ...withReloadStableSummaryFields(displayStableComment, transientPrevious),
                 markerRect: getPendingMarkerMove(transientPrevious)?.markerRect ?? transientPrevious.markerRect,
             };
         }
@@ -1213,7 +1254,7 @@ function mergeAnnotationCommentsThroughReload(
         }
 
         return {
-            ...withReloadStableDisplayText(displayStableComment, previous),
+            ...withReloadStableSummaryFields(displayStableComment, previous),
             markerRect: previous.markerRect,
         };
     });
@@ -1358,8 +1399,9 @@ const annotations = useAnnotationOrchestrator({
     routeAnnotationHistoryRedo: () => appAnnotationHistory.redo({ redoPdfjs: () => redoPdfjsAnnotationHandler?.() }),
     emitAnnotationComments: applyAnnotationCommentsFromSync,
     emitAnnotationOpenNote: (comment) => {
-        upsertAnnotationComment(comment);
-        emit('annotation-open-note', comment);
+        const noteComment = withTransientNoteCreationTimestamp(comment);
+        upsertAnnotationComment(noteComment);
+        emit('annotation-open-note', noteComment);
     },
     emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
     emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
@@ -1503,9 +1545,9 @@ watch(() => src.value, (next, previous) => {
         }
         clearPendingImagePlacement();
         activeCommentStableKey.value = null;
+        pendingMarkerMoves.clear();
+        locallyDeletedAnnotationComments.length = 0;
         if (!next) {
-            pendingMarkerMoves.clear();
-            locallyDeletedAnnotationComments.length = 0;
             annotationReloadCacheGraceUntil = 0;
             annotationCommentsCache.value = [];
             emitAnnotationCommentsForSidebar([], { includeShapes: false });
@@ -2183,6 +2225,7 @@ defineExpose({
     preparePersistedManagedShapesForSave,
     restorePreparedManagedShapesAfterFailedSave,
     saveDocument: saveViewerDocument,
+    clearAnnotationHistory: () => appAnnotationHistory.clear(),
     renderLoadedPdfPagesForBrowserPrint,
     markSavedShapeState: shapeComposable.markSavedShapeState,
     highlightSelection: highlightComposable.highlightSelection,

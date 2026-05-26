@@ -82,6 +82,7 @@
                         :page-labels="pageLabels"
                         :selected-pages="selectedThumbnailPages"
                         :invalidation-request="thumbnailInvalidationRequest"
+                        :hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                         :is-active="isOpen && activeTab === 'thumbnails'"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
@@ -210,6 +211,7 @@ interface IProps {
         id: number;
         pages: number[];
     } | null | undefined;
+    thumbnailHiddenAnnotationIds?: string[] | undefined;
 }
 
 const { t } = useTypedI18n();
@@ -241,6 +243,7 @@ const {
     searchQuery,
     searchResults,
     selectedThumbnailPages: selectedThumbnailPagesProp,
+    thumbnailHiddenAnnotationIds = undefined,
     submittedSearchQuery = undefined,
     thumbnailInvalidationRequest = undefined,
     totalMatches,

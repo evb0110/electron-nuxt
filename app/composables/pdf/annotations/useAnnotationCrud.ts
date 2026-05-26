@@ -27,6 +27,7 @@ import {
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import {
+    detectEditorSubtype,
     getCommentText,
     hasEditorCommentPayload,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
@@ -448,7 +449,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
                 ...resolvedComment,
                 text,
                 hasNote: true,
-                createdAt: resolvedComment.createdAt ?? modifiedAt,
+                createdAt: resolvedComment.createdAt ?? null,
                 modifiedAt,
             });
         }
@@ -568,6 +569,40 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
                 ? findEditorByAnnotationElementId(target.pageIndex, target.comment.annotationId)
                 : null)
             ?? findEditorByMarkerRect(target.comment, target.pageIndex);
+    }
+
+    function isFreeTextEditor(editor: IPdfjsEditor) {
+        const editorType = (editor as {
+            _editorType?: unknown;
+            editorType?: unknown;
+        })._editorType
+            ?? (editor as { constructor?: { _editorType?: unknown } }).constructor?._editorType
+            ?? (editor as { editorType?: unknown }).editorType;
+        if (editorType === AnnotationEditorType.FREETEXT) {
+            return true;
+        }
+        const subtype = detectEditorSubtype(editor)?.toLowerCase() ?? '';
+        if (subtype === 'typewriter' || subtype === 'freetext') {
+            return true;
+        }
+        const className = editor.div?.className;
+        return typeof className === 'string'
+            && className.split(/\s+/u).includes('freeTextEditor');
+    }
+
+    function findSingleFreeTextDeleteFallback(
+        uiManager: AnnotationEditorUIManager,
+        target: ReturnType<typeof toDeleteTargetState>,
+    ) {
+        if (
+            target.comment.source !== 'editor'
+            || !isNoteEligibleComment(target.comment)
+        ) {
+            return null;
+        }
+
+        const candidates = getEditorsOnPage(uiManager, target.pageIndex).filter(isFreeTextEditor);
+        return candidates.length === 1 ? candidates[0]! : null;
     }
 
     async function switchToPopupModeForDelete(
@@ -740,6 +775,10 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
                 deleteState.sync(stablePdfFallback);
                 editor = findStablePdfFallbackDeleteEditor(deleteState.deleteTarget);
             }
+        }
+
+        if (!editor) {
+            editor = findSingleFreeTextDeleteFallback(uiManager, deleteState.deleteTarget);
         }
 
         const deletedViaSelectionFallback = deleteViaSelectedCommentFallback(uiManager, attemptedCommentSelection, Boolean(editor));

@@ -120,16 +120,34 @@ describe('compareAnnotations', () => {
         expect(compareAnnotations(right, left)).toBe(1);
     });
 
-    it('falls back to ascending modifiedAt when creation time is absent', () => {
+    it('does not reorder undated annotations by edit time', () => {
         const left = createComment({
             pageIndex: 0,
+            sortIndex: 1,
             modifiedAt: 100,
         });
         const right = createComment({
             pageIndex: 0,
+            sortIndex: 0,
             modifiedAt: 200,
         });
-        expect(compareAnnotations(left, right)).toBeLessThan(0);
+        expect(compareAnnotations(left, right)).toBeGreaterThan(0);
+    });
+
+    it('keeps creation order stable when a note is edited later', () => {
+        const createdFirstEditedLater = createComment({
+            pageIndex: 0,
+            createdAt: 100,
+            modifiedAt: 1_000,
+        });
+        const createdSecond = createComment({
+            pageIndex: 0,
+            stableKey: 'second',
+            createdAt: 200,
+            modifiedAt: 200,
+        });
+
+        expect(compareAnnotations(createdFirstEditedLater, createdSecond)).toBeLessThan(0);
     });
 
     it('keeps undated legacy annotations before dated additions on the same page', () => {
@@ -140,6 +158,7 @@ describe('compareAnnotations', () => {
         const addedLater = createComment({
             pageIndex: 0,
             sortIndex: 0,
+            createdAt: 200,
             modifiedAt: 200,
         });
         expect(compareAnnotations(legacy, addedLater)).toBeLessThan(0);

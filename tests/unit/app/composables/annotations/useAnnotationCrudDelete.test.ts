@@ -58,6 +58,7 @@ interface IFakeEditor {
     uid: string | null;
     annotationElementId: string | null;
     parentPageIndex: number;
+    _editorType?: number | undefined;
     comment: string | { text?: string };
     div: HTMLElement | undefined;
     addToAnnotationStorage: ReturnType<typeof vi.fn>;
@@ -85,6 +86,7 @@ function createFakeEditor(overrides: Partial<IFakeEditor> = {}): IFakeEditor {
         uid: overrides.uid ?? 'editor-1',
         annotationElementId: overrides.annotationElementId ?? null,
         parentPageIndex: overrides.parentPageIndex ?? 0,
+        _editorType: overrides._editorType,
         comment: overrides.comment ?? '',
         div: overrides.div,
         addToAnnotationStorage: overrides.addToAnnotationStorage ?? vi.fn(),
@@ -448,6 +450,42 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
         expect(harness.scheduleAnnotationCommentsSync).not.toHaveBeenCalled();
         expect(harness.forgetSummaryText).not.toHaveBeenCalled();
+    });
+
+    it('deletes the only FreeText editor on the page when a transient note id is stale', async () => {
+        const editor = createFakeEditor({
+            id: 'actual-editor',
+            uid: 'actual-editor',
+            parentPageIndex: 0,
+            _editorType: 1,
+            comment: '',
+        });
+        const harness = await createHarness({
+            editors: [editor],
+            commentToReturnFromCache: null,
+            uiManagerOpts: { omitSelectComment: true },
+        });
+        const staleNote = createComment({
+            id: 'stale-note',
+            uid: null,
+            stableKey: 'src:editor:0:stale-note',
+            text: '',
+            subtype: 'FreeText',
+            hasNote: true,
+            markerRect: {
+                left: 0.9,
+                top: 0.9,
+                width: 0.01,
+                height: 0.01,
+            },
+        });
+
+        const result = await harness.crud.deleteAnnotationComment(staleNote);
+
+        expect(result).toBe(true);
+        expect(harness.uiManager?.setSelected).toHaveBeenCalledWith(editor);
+        expect(harness.uiManager?.delete).toHaveBeenCalledTimes(1);
+        expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(1);
     });
 
     it('does not throw when given an unknown id and leaves cache untouched', async () => {

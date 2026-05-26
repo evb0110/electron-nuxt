@@ -182,6 +182,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
 
         annotationActiveCommentStableKey.value = null;
         closeAnnotationContextMenu();
+        clearAnnotationComments();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     });
 

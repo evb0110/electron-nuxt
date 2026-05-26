@@ -28,6 +28,7 @@ export const usePdfHistory = (deps: {
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     isAnnotationUndoContext: Ref<boolean>;
+    shouldPreferTimelineUndo?: (() => boolean) | undefined;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
     nextRedoSource: Ref<TWorkspaceUndoSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -45,6 +46,7 @@ export const usePdfHistory = (deps: {
         canUndo,
         canRedo,
         isAnnotationUndoContext,
+        shouldPreferTimelineUndo,
         nextUndoSource,
         nextRedoSource,
         workingCopyPath,
@@ -94,7 +96,7 @@ export const usePdfHistory = (deps: {
         if (isAnySaving.value || !canUndo.value) {
             return;
         }
-        if (isAnnotationUndoContext.value) {
+        if (isAnnotationUndoContext.value && shouldPreferTimelineUndo?.() !== true) {
             pdfViewerRef.value?.undoAnnotation();
             return;
         }
