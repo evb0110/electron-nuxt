@@ -44,6 +44,12 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const isFitHeightActive = computed(
         () => deps.zoomMode.value === 'fit-height',
     );
+    // App-routed PDF.js commands are undoable before live storage fingerprinting
+    // necessarily reports a dirty annotation state.
+    const hasAppAnnotationHistoryUndoState = computed(() => (
+        deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
+        || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
+    ));
     const hasLivePdfJsAnnotationUndoState = computed(() => (
         deps.hasLivePdfJsAnnotationChanges.value
         && (
@@ -53,6 +59,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     ));
     const isAnnotationUndoContext = computed(
         () => isAuthoringAnnotationTool(deps.annotationTool.value)
+            || hasAppAnnotationHistoryUndoState.value
             || hasLivePdfJsAnnotationUndoState.value
             || deps.appAnnotationUndoDepth.value > 0,
     );
@@ -73,6 +80,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
                     deps.annotationEditorState.value.hasSomethingToUndo
                     && deps.hasLivePdfJsAnnotationChanges.value
                 )
+                || deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
                 || deps.appAnnotationUndoDepth.value > 0
             )
             : deps.canUndoHistory.value
@@ -80,8 +88,11 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const canRedo = computed(() => (
         isAnnotationUndoContext.value
             ? (
-                deps.annotationEditorState.value.hasSomethingToRedo
-                && deps.hasLivePdfJsAnnotationChanges.value
+                (
+                    deps.annotationEditorState.value.hasSomethingToRedo
+                    && deps.hasLivePdfJsAnnotationChanges.value
+                )
+                || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
             )
             : deps.canRedoHistory.value
     ));

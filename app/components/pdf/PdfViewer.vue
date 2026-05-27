@@ -374,7 +374,7 @@ watch(
     { immediate: true },
 );
 const {
-    containerStyle,
+    containerStyle: scaleContainerStyle,
     scaledMargin,
     computeFitWidthScale,
     effectiveScale,
@@ -648,6 +648,40 @@ const isTextSelectionModeActive = computed(() =>
     annotationCursorMode.value
     && (annotationTool.value === 'none' || isSelectionInteractionTool(annotationTool.value)),
 );
+const selectionMarkupColor = computed(() => {
+    const settings = annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS;
+    if (annotationTool.value === 'underline') {
+        return {
+            color: settings.underlineColor,
+            opacity: settings.underlineOpacity,
+        };
+    }
+    if (annotationTool.value === 'strikethrough') {
+        return {
+            color: settings.strikethroughColor,
+            opacity: settings.strikethroughOpacity,
+        };
+    }
+    return {
+        color: settings.highlightColor,
+        opacity: settings.highlightOpacity,
+    };
+});
+const containerStyle = computed(() => {
+    const baseStyle = scaleContainerStyle.value;
+    if (!isSelectionMarkupToolActive.value) {
+        return baseStyle;
+    }
+    const {
+        color,
+        opacity,
+    } = selectionMarkupColor.value;
+    const opacityPercent = Math.round(Math.max(0, Math.min(1, opacity)) * 100);
+    return {
+        ...baseStyle,
+        '--app-pdf-text-selection-bg': `color-mix(in srgb, ${color} ${opacityPercent}%, transparent)`,
+    };
+});
 
 const {
     isDragging,
@@ -814,7 +848,11 @@ function updateCachedAnnotationCommentColor(comment: IAnnotationCommentSummary, 
     emitAnnotationCommentsForSidebar(next);
 }
 
-function applyEmbeddedMarkupDomColor(comment: IAnnotationCommentSummary, color: string) {
+function applyEmbeddedMarkupDomColor(
+    comment: IAnnotationCommentSummary,
+    color: string,
+    opts?: { forceVisible?: boolean },
+) {
     const container = viewerContainer.value;
     if (!container) {
         return false;
@@ -825,7 +863,7 @@ function applyEmbeddedMarkupDomColor(comment: IAnnotationCommentSummary, color: 
             annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
         )
         : color;
-    return applyAnnotationCommentTextMarkupColor(container, comment, displayColor);
+    return applyAnnotationCommentTextMarkupColor(container, comment, displayColor, opts);
 }
 
 function findTextMarkupEditorForComment(comment: IAnnotationCommentSummary) {
@@ -2246,20 +2284,53 @@ const pdfViewerPublicApi = createPdfViewerPublicApi({
         if (!subtype) {
             return false;
         }
+        annotations.editor.markupSubtype.rememberMarkupSubtypeColorOverride(comment.annotationId, color);
         if (!editor) {
-            applyEmbeddedMarkupDomColor(comment, color);
+            const domUpdated = applyEmbeddedMarkupDomColor(comment, color, { forceVisible: subtype === 'Highlight' });
+            BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
+                annotationId: comment.annotationId ?? null,
+                stableKey: comment.stableKey,
+                subtype,
+                previousColor: comment.color ?? null,
+                nextColor: color,
+                editorFound: false,
+                editorConnected: false,
+                editorUpdated: false,
+                domUpdated,
+            }));
             updateCachedAnnotationCommentColor(comment, color);
             emitForcedAnnotationMutation();
             return true;
         }
-        const didUpdate = annotations.editor.markupSubtype.updateTextMarkupAnnotationColor(
+        const editorUpdated = annotations.editor.markupSubtype.updateTextMarkupAnnotationColor(
             editor,
             comment.pageIndex,
             subtype,
             color,
         );
+        const editorConnected = editor.div?.isConnected === true;
+        // Connected editors already redraw through PDF.js and our subtype draw
+        // layer; the DOM fallback is only for materialized annotations.
+        const domUpdated = editorConnected
+            ? false
+            : applyEmbeddedMarkupDomColor(
+                comment,
+                color,
+                { forceVisible: subtype === 'Highlight' },
+            );
+        const didUpdate = editorUpdated || domUpdated;
+        BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
+            annotationId: comment.annotationId ?? null,
+            stableKey: comment.stableKey,
+            subtype,
+            previousColor: comment.color ?? null,
+            nextColor: color,
+            editorFound: true,
+            editorConnected,
+            editorUpdated,
+            domUpdated,
+        }));
         if (didUpdate) {
-            applyEmbeddedMarkupDomColor(comment, color);
             updateCachedAnnotationCommentColor(comment, color);
             emitForcedAnnotationMutation({ scheduleCommentSync: true });
         }
@@ -2660,14 +2731,26 @@ defineExpose(pdfViewerPublicApi);
 }
 
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-underline *,
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout,
-.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly {
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout *,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly * {
     fill: transparent !important;
     fill-opacity: 0 !important;
+    stroke: transparent !important;
+    stroke-opacity: 0 !important;
+}
+
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly {
     mix-blend-mode: normal !important;
 }
 
 .pdfViewer svg.pdf-markup-subtype-draw-visual {
+    fill: transparent !important;
+    fill-opacity: 0 !important;
     mix-blend-mode: normal;
     pointer-events: none;
 }

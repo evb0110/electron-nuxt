@@ -45,6 +45,10 @@ function asElement(value: object): HTMLElement {
     return value as HTMLElement;
 }
 
+function asNode(value: object): Node {
+    return value as Node;
+}
+
 function createFakePageContainer(page: number, rect: IRect): IFakePageElement {
     return {
         dataset: { page: String(page) },
@@ -92,6 +96,7 @@ function createHighlightHarness(viewerContainer: IFakeViewerContainer) {
         }),
         getSync: () => ({
             pendingCommentEditorKeys: new Set<string>(),
+            scheduleAnnotationCommentsSync: () => {},
             toEditorSummary: () => {
                 throw new Error('not used in resolvePagePointTarget tests');
             },
@@ -121,6 +126,7 @@ function createDomPageContainer(page: number, rect: IRect) {
 class FakeHTMLElement {
     className = '';
     dataset: { page?: string } = {};
+    tagName = 'div';
     rect: IRect = {
         left: 0,
         top: 0,
@@ -128,13 +134,35 @@ class FakeHTMLElement {
         height: 0,
     };
     children: FakeHTMLElement[] = [];
+    parentElement: FakeHTMLElement | null = null;
+    classList = {remove: (..._classNames: string[]) => {}};
 
     append(child: FakeHTMLElement) {
+        child.parentElement = this;
         this.children.push(child);
     }
 
-    contains(target: FakeHTMLElement | null) {
-        return target === this || Boolean(target && this.children.includes(target));
+    contains(target: FakeHTMLElement | null): boolean {
+        return target === this || Boolean(target && this.children.some(child => child.contains(target)));
+    }
+
+    closest(selector: string): FakeHTMLElement | null {
+        if (
+            selector === '.text-layer, .textLayer'
+            && (
+                this.className.split(/\s+/).includes('text-layer')
+                || this.className.split(/\s+/).includes('textLayer')
+            )
+        ) {
+            return this;
+        }
+        if (
+            selector === '.page_container'
+            && this.className.split(/\s+/).includes('page_container')
+        ) {
+            return this;
+        }
+        return this.parentElement?.closest(selector) ?? null;
     }
 
     querySelector(selector: string) {
@@ -158,6 +186,8 @@ class FakeHTMLElement {
         return true;
     }
 
+    blur() {}
+
     getBoundingClientRect() {
         const rect = this.rect;
         return {
@@ -172,12 +202,16 @@ class FakeHTMLElement {
             toJSON: () => ({}),
         };
     }
+
+    getAttributeNames() {
+        return [];
+    }
 }
 
 class FakePointerEvent {
     constructor(
         readonly type: string,
-        readonly init: PointerEventInit,
+        readonly init: PointerEventInit = {},
     ) {}
 }
 
@@ -320,6 +354,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             }),
             getSync: () => ({
                 pendingCommentEditorKeys,
+                scheduleAnnotationCommentsSync: () => {},
                 toEditorSummary: (editor, pageIndex, text) => ({
                     id: String(editor.id),
                     stableKey: `src:editor:${pageIndex}:${String(editor.id)}`,
@@ -351,4 +386,134 @@ describe('useAnnotationHighlight commentAtPoint', () => {
         expect(emitAnnotationOpenNote).not.toHaveBeenCalled();
         expect(pendingCommentEditorKeys.has('pending:existing-editor')).toBe(false);
     });
+});
+
+describe('useAnnotationHighlight highlightSelectionInternal', () => {
+    it('registers a created text markup editor with PDF.js undo history', async () => {
+        const originalDocument = Reflect.get(globalThis, 'document');
+        const originalNode = Reflect.get(globalThis, 'Node');
+
+        vi.stubGlobal('HTMLElement', FakeHTMLElement);
+        vi.stubGlobal('PointerEvent', FakePointerEvent);
+        Reflect.set(globalThis, 'Node', { TEXT_NODE: 3 });
+
+        const viewer = new FakeHTMLElement();
+        const page = createDomPageContainer(1, {
+            left: 0,
+            top: 0,
+            width: 200,
+            height: 200,
+        });
+        const textLayer = new FakeHTMLElement();
+        textLayer.className = 'textLayer';
+        const textSpan = new FakeHTMLElement();
+        textLayer.append(textSpan);
+        page.append(textLayer);
+        viewer.append(page);
+
+        const textNode = {
+            nodeType: 3,
+            parentElement: textSpan,
+        };
+        const range = {
+            cloneRange: () => range,
+            commonAncestorContainer: asNode(textNode),
+            endContainer: asNode(textNode),
+            endOffset: 5,
+            startContainer: asNode(textNode),
+            startOffset: 0,
+            toString: () => 'Hello',
+        } as Range;
+        const selection = {
+            addRange: vi.fn(),
+            removeAllRanges: vi.fn(),
+        };
+        Reflect.set(globalThis, 'document', {
+            activeElement: null,
+            getSelection: () => selection,
+            querySelectorAll: () => [],
+        });
+
+        try {
+            const createdEditor = {
+                id: 'created-editor',
+                div: asElement(new FakeHTMLElement()),
+                parentPageIndex: 0,
+            };
+            const layer = {
+                div: asElement(new FakeHTMLElement()),
+                addCommands: vi.fn(),
+                addUndoableEditor: vi.fn(),
+                createAndAddNewEditor: vi.fn(() => createdEditor),
+            };
+            const selectionBoxes = [{
+                x: 0.1,
+                y: 0.1,
+                width: 0.2,
+                height: 0.03,
+            }];
+            const uiManager = {
+                getActive: vi.fn(() => null),
+                getEditors: vi.fn(() => new Set()),
+                getLayer: vi.fn(() => layer),
+                getMode: vi.fn(() => 0),
+                getSelectionBoxes: vi.fn(() => selectionBoxes),
+                waitForEditorsRendered: vi.fn(async () => undefined),
+            };
+
+            const highlight = useAnnotationHighlight({
+                viewerContainer: ref(asElement(viewer)),
+                annotationUiManager: shallowRef(uiManager as never),
+                numPages: ref(1),
+                currentPage: ref(1),
+                annotationTool: ref('none'),
+                getIdentity: () => ({
+                    getEditorIdentity: editor => String(editor.id),
+                    getEditorPendingKey: editor => `pending:${String(editor.id)}`,
+                }),
+                getMarkupSubtype: () => ({
+                    TOOL_TO_MARKUP_SUBTYPE: {},
+                    isSelectionMarkupTool: () => false,
+                    setEditorMarkupSubtypeOverride: () => {},
+                    resolveEditorMarkupSubtypeOverride: () => null,
+                    resolveEditorSubtypeFromPresentation: () => null,
+                    syncMarkupSubtypePresentationForEditors: () => {},
+                }),
+                getSync: () => ({
+                    pendingCommentEditorKeys: new Set<string>(),
+                    scheduleAnnotationCommentsSync: () => {},
+                    toEditorSummary: () => {
+                        throw new Error('not used in highlight selection test');
+                    },
+                }),
+                getToolManager: () => ({
+                    updateModeWithRetry: async () => null,
+                    maybeAutoResetAnnotationTool: () => {},
+                }),
+                stopDrag: () => {},
+                emitAnnotationOpenNote: () => {},
+                emitAnnotationNotePlacementChange: () => {},
+            });
+
+            const created = await highlight.highlightSelectionInternal(false, range);
+
+            expect(created).toBe(true);
+            expect(layer.createAndAddNewEditor).toHaveBeenCalled();
+            expect(layer.addCommands).toHaveBeenCalledTimes(1);
+            expect(layer.addCommands).toHaveBeenCalledWith(expect.objectContaining({ mustExec: false }));
+            expect(layer.addUndoableEditor).not.toHaveBeenCalled();
+        } finally {
+            if (originalDocument === undefined) {
+                Reflect.deleteProperty(globalThis, 'document');
+            } else {
+                Reflect.set(globalThis, 'document', originalDocument);
+            }
+            if (originalNode === undefined) {
+                Reflect.deleteProperty(globalThis, 'Node');
+            } else {
+                Reflect.set(globalThis, 'Node', originalNode);
+            }
+        }
+    });
+
 });

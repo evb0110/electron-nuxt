@@ -28,6 +28,7 @@ import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
+    addUndoableEditorToLayer,
     asPdfjsEditor,
     clearSelectedEditorState,
     getActiveEditor,
@@ -43,6 +44,7 @@ import {
 } from '@app/composables/pdf/annotations/pdfPagePointResolver';
 import type { INotePlacementDiagnosticsContext } from '@app/composables/pdf/annotations/pdfPagePointResolver';
 import { buildRangeFromPagePoint } from '@app/composables/pdf/annotations/pdfTextAnchorResolver';
+import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/composables/pdf/annotations/annotationDomRemoval';
 
 interface IHighlightIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -52,7 +54,12 @@ interface IHighlightIdentity {
 interface IHighlightMarkupSubtype {
     TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
     isSelectionMarkupTool: (tool: TAnnotationTool) => boolean;
-    setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
+    setEditorMarkupSubtypeOverride: (
+        e: IPdfjsEditor,
+        pi: number,
+        s: TMarkupSubtype,
+        opts?: { preferEditorColor?: boolean },
+    ) => void;
     resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
     syncMarkupSubtypePresentationForEditors: () => void;
@@ -60,6 +67,7 @@ interface IHighlightMarkupSubtype {
 
 interface IHighlightSync {
     pendingCommentEditorKeys: Set<string>;
+    scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
     toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text: string) => IAnnotationCommentSummary;
 }
 
@@ -83,6 +91,7 @@ interface IUseAnnotationHighlightOptions {
     getSync: () => IHighlightSync;
     getToolManager: () => IHighlightToolManager;
     ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
+    deferCreatedEditorUndoToStorage?: boolean;
     stopDrag: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
@@ -99,6 +108,7 @@ interface IHighlightCommentContext {
     markupSubtype: IHighlightMarkupSubtype;
     commentSync: IHighlightSync;
     modeRestoredPromise: Promise<void>;
+    registerCreatedEditorUndo: (editor: IPdfjsEditor | null) => boolean;
     applySubtypeOverrideToEditor: (editor: IPdfjsEditor | null) => boolean;
     clearEditorSelectionVisuals: (editor: IPdfjsEditor | null) => void;
 }
@@ -119,6 +129,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         getSync,
         getToolManager,
         ensureAnnotationEditorLayerReady,
+        deferCreatedEditorUndoToStorage = false,
         stopDrag,
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
@@ -318,6 +329,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return;
             }
             attachSelectionPreviewText(lateEditor, context.selectionPreviewText);
+            context.registerCreatedEditorUndo(lateEditor);
             context.applySubtypeOverrideToEditor(lateEditor);
             context.commentSync.pendingCommentEditorKeys.add(context.identity.getEditorPendingKey(lateEditor, context.pageIndex));
             const summary = context.commentSync.toEditorSummary(lateEditor, context.pageIndex, getCommentText(lateEditor));
@@ -428,7 +440,12 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return false;
             }
             editor.__evbMarkupBoxes = cloneHighlightBoxes(boxes);
-            markupSubtype.setEditorMarkupSubtypeOverride(editor, pageIndex, markupSubtypeOverride);
+            markupSubtype.setEditorMarkupSubtypeOverride(
+                editor,
+                pageIndex,
+                markupSubtypeOverride,
+                { preferEditorColor: false },
+            );
             queueMicrotask(() => {
                 if (!isAnnotationUiManagerCurrent(uiManager)) {
                     return;
@@ -488,6 +505,32 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             }
 
             const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
+            let undoRegistered = false;
+            const registerCreatedEditorUndo = (editor: IPdfjsEditor | null) => {
+                if (!editor || undoRegistered || !isAnnotationUiManagerCurrent(uiManager)) {
+                    return false;
+                }
+                try {
+                    if (deferCreatedEditorUndoToStorage) {
+                        undoRegistered = true;
+                        return true;
+                    }
+                    if (editor.__evbCreationHistoryRegistered) {
+                        undoRegistered = true;
+                        return true;
+                    }
+                    const activeLayer = getAnnotationEditorLayer(uiManager, pageIndex) ?? layer ?? editor.parent ?? null;
+                    if (!addUndoableEditorToLayer(activeLayer, editor)) {
+                        return false;
+                    }
+                    editor.__evbCreationHistoryRegistered = true;
+                    undoRegistered = true;
+                    return true;
+                } catch (error) {
+                    BrowserLogger.warn('annotations', `Failed to register created text markup undo command: ${errorToLogText(error)}`);
+                    return false;
+                }
+            };
             replaceOverlappingSelectionMarkup(
                 pageIndex,
                 boxes,
@@ -512,6 +555,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             );
             createdAnnotation = true;
             const targetEditor = await resolveCreatedEditor(asPdfjsEditor(createdEditor));
+            registerCreatedEditorUndo(targetEditor);
             attachSelectionPreviewText(targetEditor, selectionPreviewText);
             applySubtypeOverrideToEditor(targetEditor);
 
@@ -522,6 +566,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                         return;
                     }
                     const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
+                    registerCreatedEditorUndo(lateEditor);
                     attachSelectionPreviewText(lateEditor, selectionPreviewText);
                     if (applySubtypeOverrideToEditor(lateEditor)) {
                         return;
@@ -549,6 +594,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     markupSubtype,
                     commentSync,
                     modeRestoredPromise: modeRestored.promise,
+                    registerCreatedEditorUndo,
                     applySubtypeOverrideToEditor,
                     clearEditorSelectionVisuals,
                 });
@@ -1226,8 +1272,14 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     ): IAnnotationContextMenuPayload {
         const selectionRange = getSelectionRangeForCommentAction();
         const target = resolvePagePointTarget(clientX, clientY);
-        return {
+        const menuComment = resolveCommentWithRenderedTextMarkupColorAtPoint(
+            viewerContainer.value,
             comment,
+            clientX,
+            clientY,
+        );
+        return {
+            comment: menuComment,
             clientX,
             clientY,
             hasSelection: Boolean(selectionRange),

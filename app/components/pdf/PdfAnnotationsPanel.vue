@@ -41,6 +41,7 @@
                         :settings="settings"
                         @set-tool="setTool"
                         @update-setting="updateSetting"
+                        @color-selected="stylePopoverOpen = false"
                     />
                 </div>
             </template>
@@ -208,7 +209,7 @@ function placeNote() {
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
-    width: min(14.5rem, calc(100vw - 2rem));
+    width: min(18rem, calc(100vw - 2rem));
     max-width: calc(100vw - 2rem);
     padding: 0.625rem;
     border: 1px solid var(--ui-border);

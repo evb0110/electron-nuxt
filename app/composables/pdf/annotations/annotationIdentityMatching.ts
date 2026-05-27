@@ -540,6 +540,21 @@ function mergeColorField(
     existing: IAnnotationCommentSummary,
     incoming: IAnnotationCommentSummary,
 ) {
+    if (existing.colorEdited && existing.color) {
+        return existing.color;
+    }
+    if (incoming.colorEdited && incoming.color) {
+        return incoming.color;
+    }
+    if (
+        isTextMarkupSubtype(existing.subtype)
+        && isTextMarkupSubtype(incoming.subtype)
+        && existing.source === 'editor'
+        && incoming.source === 'pdf'
+        && incoming.color
+    ) {
+        return incoming.color;
+    }
     return selectTextMarkupConflictWinner(existing, incoming)?.color
         ?? existing.color
         ?? incoming.color;

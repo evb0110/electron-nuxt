@@ -26,8 +26,17 @@ import type { IPdfjsEditor } from '@app/types/pdfjs';
 const annotationUiManagerInstances: FakeAnnotationEditorUIManager[] = [];
 
 class FakeAnnotationEditorUIManager {
-    addToAnnotationStorage = vi.fn();
-    addCommands = vi.fn();
+    __addToAnnotationStorageSpy = vi.fn((editor?: {
+        __assignAnnotationElementIdOnStorage?: boolean;
+        annotationElementId?: string | null;
+    }) => {
+        if (editor?.__assignAnnotationElementIdOnStorage) {
+            editor.annotationElementId = 'generated-annotation-id';
+        }
+    });
+    addToAnnotationStorage = this.__addToAnnotationStorageSpy;
+    __addCommandsSpy = vi.fn();
+    addCommands = this.__addCommandsSpy;
     addEditListeners = vi.fn();
     copy = vi.fn();
     cut = vi.fn();
@@ -181,6 +190,7 @@ interface IMarkupSubtypeHarness {
     resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
     setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
+    clearMarkupSubtypeEditorClass: (e: IPdfjsEditor) => void;
     applyEditorMarkupSubtypePresentation: (e: IPdfjsEditor, s: TMarkupSubtype | null) => void;
     syncMarkupSubtypePresentationForEditors: () => void;
     clearOverrides: () => void;
@@ -203,6 +213,7 @@ async function createBridgeHarness(
     const emitAnnotationModified = vi.fn();
     const emitAnnotationState = vi.fn<(state: IAnnotationEditorState) => void>();
     const emitAnnotationOpenNote = vi.fn<(comment: IAnnotationCommentSummary) => void>();
+    const recordPdfjsHistoryCommand = vi.fn();
     const annotationTool = ref<TAnnotationTool>(tool);
     const pendingAnnotationTool = ref<TAnnotationTool>(tool);
     const maybeAutoResetAnnotationTool = vi.fn(() => {
@@ -254,6 +265,7 @@ async function createBridgeHarness(
         emitAnnotationModified,
         emitAnnotationState,
         emitAnnotationOpenNote,
+        recordPdfjsHistoryCommand,
     });
 
     bridge.initAnnotationEditor();
@@ -265,7 +277,9 @@ async function createBridgeHarness(
 
     return {
         emitAnnotationModified,
+        emitAnnotationState,
         markupSubtype,
+        recordPdfjsHistoryCommand,
         scheduleAnnotationCommentsSync,
         uiManager,
     };
@@ -279,6 +293,7 @@ function createMarkupSubtypeHarness(overrides?: Partial<IMarkupSubtypeHarness>) 
         resolveEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['resolveEditorMarkupSubtypeOverride']>(() => null),
         resolveEditorSubtypeFromPresentation: vi.fn<IMarkupSubtypeHarness['resolveEditorSubtypeFromPresentation']>(() => null),
         setEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['setEditorMarkupSubtypeOverride']>(),
+        clearMarkupSubtypeEditorClass: vi.fn<IMarkupSubtypeHarness['clearMarkupSubtypeEditorClass']>(),
         applyEditorMarkupSubtypePresentation: vi.fn<IMarkupSubtypeHarness['applyEditorMarkupSubtypePresentation']>(),
         syncMarkupSubtypePresentationForEditors: vi.fn<IMarkupSubtypeHarness['syncMarkupSubtypePresentationForEditors']>(),
         clearOverrides: vi.fn<IMarkupSubtypeHarness['clearOverrides']>(),
@@ -419,6 +434,55 @@ describe('useAnnotationEditorBridge', () => {
         const applyPresentation = vi.mocked(markupSubtype.applyEditorMarkupSubtypePresentation);
         expect(markupSubtype.setEditorMarkupSubtypeOverride).not.toHaveBeenCalled();
         expect(applyPresentation.mock.calls.map(call => call[1])).not.toContain('Underline');
+    });
+
+    it('registers PDF.js undo history for new text markup editors created through storage', async () => {
+        const {
+            markupSubtype,
+            recordPdfjsHistoryCommand,
+            uiManager,
+        } = await createBridgeHarness('underline', { markupSubtype: { TOOL_TO_MARKUP_SUBTYPE: { underline: 'Underline' } } });
+        const remove = vi.fn();
+        const rebuild = vi.fn();
+        const parentAddCommands = vi.fn();
+        const editorDiv = document.createElement('div');
+        const editor: IPdfjsEditor & { __assignAnnotationElementIdOnStorage: boolean } = {
+            id: 'highlight-2',
+            div: editorDiv,
+            annotationElementId: null,
+            __assignAnnotationElementIdOnStorage: true,
+            parentPageIndex: 0,
+            isEmpty: vi.fn(() => false),
+            parent: { addCommands: parentAddCommands },
+            remove,
+            _uiManager: { rebuild },
+        };
+        editorDiv.className = 'highlightEditor';
+
+        uiManager.addToAnnotationStorage(editor);
+
+        expect(uiManager.__addCommandsSpy).toHaveBeenCalledTimes(1);
+        expect(parentAddCommands).not.toHaveBeenCalled();
+        expect(recordPdfjsHistoryCommand).toHaveBeenCalledTimes(1);
+        expect(recordPdfjsHistoryCommand).toHaveBeenCalledWith({ overwriteIfSameType: true });
+        expect(editor.__evbCreationHistoryRegistered).toBe(true);
+        expect(editor.annotationElementId).toBe('generated-annotation-id');
+
+        const command = uiManager.__addCommandsSpy.mock.calls[0]?.[0];
+        expect(command).toMatchObject({
+            __evbSkipAppHistory: true,
+            mustExec: false,
+        });
+        const clearMarkupSubtypeEditorClass = vi.mocked(markupSubtype.clearMarkupSubtypeEditorClass);
+        const applyEditorMarkupSubtypePresentation = vi.mocked(markupSubtype.applyEditorMarkupSubtypePresentation);
+        command.undo();
+        expect(clearMarkupSubtypeEditorClass.mock.calls[0]?.[0]).toBe(editor);
+        applyEditorMarkupSubtypePresentation.mockClear();
+        command.cmd();
+
+        expect(remove).toHaveBeenCalledOnce();
+        expect(rebuild.mock.calls[0]?.[0]).toBe(editor);
+        expect(applyEditorMarkupSubtypePresentation.mock.calls.some(call => call[1] === 'Underline')).toBe(true);
     });
 
     it('installs a default-param updater for toolbar settings', async () => {

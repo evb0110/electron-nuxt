@@ -7,6 +7,7 @@ import {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
+    addUndoableEditorToLayer,
     clearSelectedEditorState,
     getEditorById,
     getEditorByUidFromLayer,
@@ -138,5 +139,82 @@ describe('annotationEditorAdapter', () => {
 
         expect(updateEditorDefaultParams(uiManager, 31, '#2563eb')).toBe(true);
         expect(updater).toHaveBeenCalledWith(31, '#2563eb');
+    });
+
+    it('registers created editors through layer commands when available', () => {
+        const remove = vi.fn();
+        const rebuild = vi.fn();
+        const addCommands = vi.fn();
+        const editor = {
+            id: 'created-highlight',
+            remove,
+            _uiManager: { rebuild },
+        } as IPdfjsEditor;
+        const layer = {
+            div: {} as HTMLElement,
+            addCommands,
+            createAndAddNewEditor: vi.fn(),
+        };
+
+        expect(addUndoableEditorToLayer(layer, editor)).toBe(true);
+
+        const command = addCommands.mock.calls[0]?.[0];
+        expect(command).toMatchObject({ mustExec: false });
+        command.undo();
+        command.cmd();
+        expect(remove).toHaveBeenCalledOnce();
+        expect(rebuild).toHaveBeenCalledWith(editor);
+    });
+
+    it('marks undo commands whose app history is recorded externally', () => {
+        const addCommands = vi.fn();
+        const editor = {
+            id: 'created-highlight',
+            remove: vi.fn(),
+        } as IPdfjsEditor;
+        const layer = {
+            div: {} as HTMLElement,
+            addCommands,
+            createAndAddNewEditor: vi.fn(),
+        };
+
+        expect(addUndoableEditorToLayer(layer, editor, { skipAppHistory: true })).toBe(true);
+
+        expect(addCommands.mock.calls[0]?.[0]).toMatchObject({
+            __evbSkipAppHistory: true,
+            mustExec: false,
+        });
+    });
+
+    it('runs editor history hooks around undo and redo commands', () => {
+        const beforeUndo = vi.fn();
+        const afterRedo = vi.fn();
+        const remove = vi.fn();
+        const rebuild = vi.fn();
+        const addCommands = vi.fn();
+        const editor = {
+            id: 'created-highlight',
+            remove,
+            _uiManager: { rebuild },
+        } as IPdfjsEditor;
+        const layer = {
+            div: {} as HTMLElement,
+            addCommands,
+            createAndAddNewEditor: vi.fn(),
+        };
+
+        expect(addUndoableEditorToLayer(layer, editor, {
+            beforeUndo,
+            afterRedo,
+        })).toBe(true);
+
+        const command = addCommands.mock.calls[0]?.[0];
+        command.undo();
+        command.cmd();
+
+        expect(beforeUndo).toHaveBeenCalledWith(editor);
+        expect(remove).toHaveBeenCalledOnce();
+        expect(rebuild).toHaveBeenCalledWith(editor);
+        expect(afterRedo).toHaveBeenCalledWith(editor);
     });
 });

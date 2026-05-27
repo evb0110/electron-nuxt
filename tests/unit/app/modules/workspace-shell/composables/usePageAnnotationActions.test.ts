@@ -111,6 +111,8 @@ function createHarness() {
         unsuppressAnnotationStableKey: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
+        updateSelectedTextMarkupAnnotationColor: vi.fn(() => true),
+        updateTextMarkupAnnotationColor: vi.fn(() => true),
         selectedShapeId: null as string | null,
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => selectedShape.value),
@@ -562,6 +564,44 @@ describe('usePageAnnotationActions', () => {
         expect(deps.annotationTool.value).toBe('none');
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
+
+    it.each([
+        {
+            settingsKey: 'highlightColor',
+            subtype: 'Highlight',
+        },
+        {
+            settingsKey: 'underlineColor',
+            subtype: 'Underline',
+        },
+        {
+            settingsKey: 'strikethroughColor',
+            subtype: 'StrikeOut',
+        },
+    ] as const)(
+        'updates %s context menu color immediately after viewer repaint succeeds',
+        ({
+            settingsKey,
+            subtype,
+        }) => {
+            const {
+                deps,
+                viewer,
+                actions,
+            } = createHarness();
+            const comment = createComment(`context-color-${subtype}`);
+            comment.subtype = subtype;
+            comment.color = '#22c55e';
+            deps.annotationContextMenu.value.comment = comment;
+
+            actions.handleContextTextMarkupColorUpdate('#ef4444');
+
+            expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenCalledWith(comment, '#ef4444');
+            expect(deps.annotationContextMenu.value.comment?.color).toBe('#ef4444');
+            expect(deps.annotationContextMenu.value.comment?.colorEdited).toBe(true);
+            expect(deps.annotationSettings.value[settingsKey]).toBe('#ef4444');
+        },
+    );
 
     it('closes the context menu when free note placement fails', async () => {
         const {

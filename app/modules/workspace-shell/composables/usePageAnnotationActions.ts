@@ -699,6 +699,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             annotationSettings.value = nextSettings;
         }
         selectedTextMarkupForProperties.value = pdfViewerRef.value?.getSelectedTextMarkupAnnotationProperties?.() ?? selectedTextMarkupForProperties.value;
+        closeTextMarkupProperties();
     }
 
     function updateTextMarkupDefaultSettings(comment: IAnnotationCommentSummary, color: string) {
@@ -722,9 +723,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
         const didUpdate = pdfViewerRef.value?.updateTextMarkupAnnotationColor?.(comment, color) === true;
-        if (!didUpdate) {
-            return;
-        }
         updateTextMarkupDefaultSettings(comment, color);
         annotationContextMenu.value = {
             ...annotationContextMenu.value,
@@ -734,6 +732,15 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 colorEdited: true,
             },
         };
+        if (!didUpdate) {
+            BrowserLogger.debug('annotations', 'Context-menu text markup color state updated before DOM repaint', () => ({
+                annotationId: comment.annotationId ?? null,
+                stableKey: comment.stableKey,
+                subtype: comment.subtype ?? null,
+                color,
+            }));
+        }
+        closeAnnotationContextMenu();
     }
 
     function updateShapeColorDefault(

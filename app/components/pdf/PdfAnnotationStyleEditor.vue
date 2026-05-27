@@ -121,6 +121,7 @@ const {
 
 const emit = defineEmits<{
     (e: 'set-tool', tool: TAnnotationTool): void;
+    (e: 'color-selected'): void;
     (e: 'update-setting', payload: {
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings];
@@ -253,30 +254,36 @@ const activeDrawStyle = computed<TDrawStyle>(() => {
 function handleColorInput(color: string) {
     if (tool === 'draw') {
         updateSetting('inkColor', color);
+        emit('color-selected');
         return;
     }
 
     if (tool === 'underline') {
         updateSetting('underlineColor', color);
+        emit('color-selected');
         return;
     }
 
     if (tool === 'text') {
         updateSetting('textColor', color);
+        emit('color-selected');
         return;
     }
 
     if (tool === 'strikethrough') {
         updateSetting('strikethroughColor', color);
+        emit('color-selected');
         return;
     }
 
     if (isShapeTool(tool)) {
         updateSetting('shapeColor', color);
+        emit('color-selected');
         return;
     }
 
     updateSetting('highlightColor', color);
+    emit('color-selected');
 }
 
 function handleWidthInput(width: number) {
@@ -356,7 +363,7 @@ function applyDrawStyle(style: TDrawStyle) {
 
 .swatch-row {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.3rem;
 }
 
@@ -375,6 +382,12 @@ function applyDrawStyle(style: TDrawStyle) {
     box-shadow:
         0 0 0 1px var(--app-sidebar-bg),
         0 0 0 3px var(--ui-text);
+}
+
+@media (width <= 360px) {
+    .swatch-row {
+        flex-wrap: wrap;
+    }
 }
 
 .style-range {

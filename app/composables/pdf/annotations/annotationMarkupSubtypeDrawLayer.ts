@@ -17,9 +17,18 @@ import { refreshHighlightCompositeOverlay } from '@app/composables/pdf/pdfHighli
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 const MARKUP_DRAW_LAYER_VISUAL_CLASS = 'pdf-markup-subtype-draw-visual';
 const MARKUP_VISUAL_READY_CLASS = 'pdf-markup-subtype-visual-ready';
+// PDF.js may insert drawLayer visuals as page-level SVG siblings rather than
+// children of the highlight SVG, so cleanup has to scan the page wrappers.
+const STANDALONE_MARKUP_DRAW_LAYER_VISUAL_SELECTOR = [
+    '.page_canvas svg.pdf-markup-subtype-draw-visual',
+    '.canvasWrapper svg.pdf-markup-subtype-draw-visual',
+    '.page_canvas svg[class*="pdf-markup-subtype-draw-visual"]',
+    '.canvasWrapper svg[class*="pdf-markup-subtype-draw-visual"]',
+].join(', ');
 const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
 const DRAW_LAYER_RETRY_LIMIT = 18;
 const DRAW_LAYER_RETRY_DELAY_MS = 50;
+const SUPPRESSED_TEXT_MARKUP_FILL = 'transparent';
 
 interface IHighlightDrawLayerCandidate {
     distance: number;
@@ -184,12 +193,16 @@ export function findClosestHighlightDrawLayerSvg(pageContainer: HTMLElement, edi
 
 function setHighlightSvgPaintColor(svg: SVGElement, color: string) {
     svg.setAttribute('fill', color);
+    svg.setAttribute('fill-opacity', '1');
     svg.style.setProperty('fill', color);
+    svg.style.setProperty('fill-opacity', '1');
     svg.querySelectorAll<SVGElement>('path, rect, line, polyline, polygon, use').forEach((node) => {
         const fill = node.getAttribute('fill');
         if (!fill || fill !== 'none') {
             node.setAttribute('fill', color);
+            node.setAttribute('fill-opacity', '1');
             node.style.setProperty('fill', color);
+            node.style.setProperty('fill-opacity', '1');
         }
         const stroke = node.getAttribute('stroke');
         if (stroke && stroke !== 'none') {
@@ -197,6 +210,61 @@ function setHighlightSvgPaintColor(svg: SVGElement, color: string) {
             node.style.setProperty('stroke', color);
         }
     });
+}
+
+function suppressHighlightSvgFill(svg: SVGElement) {
+    // Underline/strike/squiggly keep PDF.js' highlight SVG as the hit target,
+    // but the filled base must be invisible to avoid drawing a rectangle.
+    svg.setAttribute('fill', SUPPRESSED_TEXT_MARKUP_FILL);
+    svg.setAttribute('fill-opacity', '0');
+    svg.setAttribute('stroke', SUPPRESSED_TEXT_MARKUP_FILL);
+    svg.setAttribute('stroke-opacity', '0');
+    svg.style.setProperty('fill', SUPPRESSED_TEXT_MARKUP_FILL);
+    svg.style.setProperty('fill-opacity', '0');
+    svg.style.setProperty('stroke', SUPPRESSED_TEXT_MARKUP_FILL);
+    svg.style.setProperty('stroke-opacity', '0');
+    svg.querySelectorAll<SVGElement>('path, rect, line, polyline, polygon, use').forEach((node) => {
+        const fill = node.getAttribute('fill');
+        if (fill !== 'none') {
+            node.setAttribute('fill', SUPPRESSED_TEXT_MARKUP_FILL);
+            node.setAttribute('fill-opacity', '0');
+            node.style.setProperty('fill', SUPPRESSED_TEXT_MARKUP_FILL);
+            node.style.setProperty('fill-opacity', '0');
+        }
+        const stroke = node.getAttribute('stroke');
+        if (stroke && stroke !== 'none') {
+            node.setAttribute('stroke', SUPPRESSED_TEXT_MARKUP_FILL);
+            node.setAttribute('stroke-opacity', '0');
+            node.style.setProperty('stroke', SUPPRESSED_TEXT_MARKUP_FILL);
+            node.style.setProperty('stroke-opacity', '0');
+        }
+    });
+}
+
+function isMatchingStandaloneSubtypeDrawLayerVisual(highlightSvg: SVGElement, visualSvg: SVGElement) {
+    if (visualSvg === highlightSvg || highlightSvg.contains(visualSvg)) {
+        return false;
+    }
+    const highlightRect = highlightSvg.getBoundingClientRect();
+    const visualRect = visualSvg.getBoundingClientRect();
+    if (!isRenderableRect(highlightRect) || !isRenderableRect(visualRect)) {
+        return false;
+    }
+    return rectIoU(highlightRect, visualRect) > 0
+        || rectCenterDistance(highlightRect, visualRect) <= MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE;
+}
+
+function removeStandaloneSubtypeDrawLayerVisuals(highlightSvg: SVGElement) {
+    const pageContainer = highlightSvg.closest<HTMLElement>('.page_container');
+    if (!pageContainer) {
+        return;
+    }
+    pageContainer.querySelectorAll<SVGElement>(STANDALONE_MARKUP_DRAW_LAYER_VISUAL_SELECTOR)
+        .forEach((visualSvg) => {
+            if (isMatchingStandaloneSubtypeDrawLayerVisual(highlightSvg, visualSvg)) {
+                visualSvg.remove();
+            }
+        });
 }
 
 export function createAnnotationMarkupSubtypeDrawLayer() {
@@ -280,6 +348,19 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         return true;
     }
 
+    function suppressEditorHighlightDrawLayerFill(editor: IPdfjsEditor) {
+        const highlightSvg = resolveEditorDrawLayerHighlight(editor);
+        if (!highlightSvg) {
+            return false;
+        }
+        suppressHighlightSvgFill(highlightSvg);
+        const pageContainer = highlightSvg.closest<HTMLElement>('.page_container');
+        if (pageContainer) {
+            refreshHighlightCompositeOverlay(pageContainer);
+        }
+        return true;
+    }
+
     function removeSubtypeDrawLayerVisual(drawLayer: IPdfjsDrawLayer, id: number) {
         try {
             drawLayer.remove(id);
@@ -293,6 +374,8 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         if (!refs) {
             return;
         }
+        // drawLayer.remove keeps PDF.js' own bookkeeping in sync; removing only
+        // the DOM node leaves stale visuals behind on later redraws.
         refs.ids.forEach(id => removeSubtypeDrawLayerVisual(refs.drawLayer, id));
         editorSubtypeDrawLayerRefs.delete(editor);
     }
@@ -301,6 +384,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         highlightSvg.querySelectorAll(
             `.${MARKUP_DRAW_LAYER_VISUAL_CLASS}`,
         ).forEach(node => node.remove());
+        removeStandaloneSubtypeDrawLayerVisuals(highlightSvg);
         highlightSvg.classList.remove(
             `${MARKUP_DRAW_LAYER_CLASS_PREFIX}underline`,
             `${MARKUP_DRAW_LAYER_CLASS_PREFIX}strikeout`,
@@ -404,6 +488,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
             editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
             return true;
         }
+        suppressHighlightSvgFill(highlightSvg);
 
         const drawLayerRect = resolveDrawLayerSvgRect(highlightSvg);
         const pageDimensions = resolveEditorPageDimensions(editor);
@@ -455,6 +540,7 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
     return {
         resolveEditorDrawLayerHighlight,
         recolorEditorHighlightDrawLayer,
+        suppressEditorHighlightDrawLayerFill,
         clearMarkupSubtypeDrawLayerClass,
         applyMarkupSubtypeDrawLayerClass,
         clearDrawLayerState,

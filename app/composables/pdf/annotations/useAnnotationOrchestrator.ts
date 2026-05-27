@@ -239,6 +239,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getMarkupSubtype: () => toolState,
         getSync: () => commentSync,
         getToolManager: () => toolState,
+        deferCreatedEditorUndoToStorage: true,
         stopDrag,
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
