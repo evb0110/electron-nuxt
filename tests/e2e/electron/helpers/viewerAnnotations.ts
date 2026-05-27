@@ -45,8 +45,23 @@ async function waitForActiveAnnotationTool(
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
     await page.waitForFunction((expectedToolId: string) => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 100
+                && rect.height > 100
+            );
+        };
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && visibleHosts.includes(activeHost))
+            ? activeHost
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         if (!host) {
             return false;
         }
@@ -274,7 +289,7 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
         const normalise = (c: string) => c.toLowerCase().trim();
-        const swatch = swatches.find((btn) => normalise(btn.title) === normalise(targetColor));
+        const swatch = swatches.find((btn) => normalise(btn.getAttribute('aria-label') ?? '') === normalise(targetColor));
         if (!swatch) {
             return false;
         }

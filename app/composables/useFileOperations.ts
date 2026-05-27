@@ -97,7 +97,6 @@ export interface IFileOperationsDeps {
     restorePreparedPersistedShapeState?: (snapshot: unknown) => Promise<void> | void;
     adoptPersistedShapeStateForNextReload?: () => void;
     clearPendingPersistedShapeStateForNextReload?: () => void;
-    clearAnnotationHistoryAfterSave?: () => void;
 }
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
@@ -143,7 +142,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         restorePreparedPersistedShapeState,
         adoptPersistedShapeStateForNextReload,
         clearPendingPersistedShapeStateForNextReload,
-        clearAnnotationHistoryAfterSave,
     } = deps;
 
     let saveOperationInProgress = false;
@@ -319,7 +317,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
         markPageLabelsSaved();
         markBookmarksSaved();
-        clearAnnotationHistoryAfterSave?.();
         if (opts?.markShapeStateSaved !== false) {
             markShapeStateSaved?.();
             if (opts?.preserveLivePdfjsSession !== true) {
