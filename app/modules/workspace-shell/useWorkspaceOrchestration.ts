@@ -308,6 +308,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preservedAnnotationSourceDirty.value = true;
     }
 
+    function setPreservedAnnotationSourceDirty(dirty: boolean) {
+        preservedAnnotationSourceDirty.value = dirty;
+    }
+
     function hasPreservedAnnotationSourceChanges() {
         return preservedAnnotationSourceDirty.value;
     }
@@ -384,6 +388,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         restorePendingEmbeddedTextUpdates: updates => restorePendingEmbeddedTextUpdates(updates),
         consumePendingEmbeddedAnnotationDeletes: () => consumePendingEmbeddedAnnotationDeletes(),
         restorePendingEmbeddedAnnotationDeletes: deletions => restorePendingEmbeddedAnnotationDeletes(deletions),
+        clearAnnotationHistory: () => pdfViewerRef.value?.clearAnnotationHistory?.(),
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
@@ -552,6 +557,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         queuePendingEmbeddedAnnotationDelete,
         unqueuePendingEmbeddedAnnotationDelete,
         markPreservedAnnotationSourceDirty,
+        setPreservedAnnotationSourceDirty,
+        getAnnotationCommentsSnapshot: () => annotationComments.value,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     });

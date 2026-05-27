@@ -210,9 +210,13 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         };
     }
 
-    function applyMarkupPayload(payload: IPdfSerializationSavePayload) {
+    function applyMarkupPayload(
+        payload: IPdfSerializationSavePayload,
+        additionalComments: IAnnotationCommentSummary[] = [],
+    ) {
         payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
         payload.markupSubtypeHints = [
+            ...collectMarkupSubtypeHints(additionalComments),
             ...(getMarkupSubtypeHints?.() ?? []),
             ...collectMarkupSubtypeHints(getAnnotationCommentsForSerialization()),
         ];
@@ -316,9 +320,12 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return runSerializedEdit(data, payload);
     }
 
-    async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
+    async function rewriteMarkupSubtypes(
+        data: Uint8Array,
+        additionalComments: IAnnotationCommentSummary[] = [],
+    ): Promise<Uint8Array> {
         const payload = createEmptySavePayload();
-        applyMarkupPayload(payload);
+        applyMarkupPayload(payload, additionalComments);
         return runSerializedEdit(data, payload);
     }
 

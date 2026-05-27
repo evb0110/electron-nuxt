@@ -3,7 +3,6 @@ import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer-runtime/rendering/usePdfPageRenderingController';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer-runtime/rendering/usePdfRenderViewModel';
 import { usePdfViewerRenderingRuntime } from '@app/modules/pdf-viewer-runtime/rendering/usePdfViewerRenderingRuntime';
-import { usePdfImagePlacementTool } from '@app/modules/pdf-viewer-tools/usePdfImagePlacementTool';
 import { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
 import { usePdfViewerRuntime } from '@app/modules/pdf-viewer-runtime/usePdfViewerRuntime';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer-runtime/navigation/usePdfSinglePageNavigationController';
@@ -25,9 +24,12 @@ import type {
     TPdfViewerEmit,
 } from '@app/modules/pdf-viewer-runtime/contracts/pdfViewerComponent.types';
 import { usePdfViewerPropModel } from '@app/modules/pdf-viewer-runtime/contracts/usePdfViewerPropModel';
-import { usePdfRegionSnipTool } from '@app/modules/pdf-viewer-tools/usePdfRegionSnipTool';
-import { usePdfCropTool } from '@app/modules/pdf-viewer-tools/usePdfCropTool';
-import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer-tools/usePdfViewerSelectionToolState';
+import {
+    usePdfCropTool,
+    usePdfImagePlacementTool,
+    usePdfRegionSnipTool,
+    usePdfViewerSelectionToolState,
+} from '@app/modules/pdf-viewer-tools/public';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
 import type {

@@ -28,6 +28,7 @@ import {
     isNoteEligibleComment,
     markerRectCenterDistance,
 } from '@app/composables/pdf/annotations/annotationRules';
+import { resolveAnnotationCommentTextMarkupColor } from '@app/composables/pdf/annotations/annotationDomRemoval';
 
 const SUPPORTED_IMAGE_MIME_TYPES = [
     'image/apng',
@@ -130,6 +131,8 @@ interface IPageAnnotationActionsDeps {
     queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
     unqueuePendingEmbeddedAnnotationDelete: (stableKey: string) => void;
     markPreservedAnnotationSourceDirty?: () => void;
+    setPreservedAnnotationSourceDirty?: (dirty: boolean) => void;
+    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
     embedPlacedImageToPage: (
         data: Uint8Array,
@@ -681,11 +684,15 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         updateTextMarkupPropertiesPopoverPosition(markup);
     }
 
-    function handleTextMarkupColorUpdate(color: string) {
+    function normalizeTextMarkupColorValue(color: string | null | undefined) {
+        return color?.trim().toLowerCase() ?? '';
+    }
+
+    function applySelectedTextMarkupColorUpdate(color: string) {
         const selectedMarkup = selectedTextMarkupForProperties.value;
         const didUpdate = pdfViewerRef.value?.updateSelectedTextMarkupAnnotationColor?.(color) === true;
         if (!didUpdate) {
-            return;
+            return false;
         }
         if (selectedMarkup) {
             const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
@@ -693,12 +700,40 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 nextSettings.underlineColor = color;
             } else if (selectedMarkup.subtype === 'StrikeOut') {
                 nextSettings.strikethroughColor = color;
+            } else if (selectedMarkup.subtype === 'Squiggly') {
+                nextSettings.squigglyColor = color;
             } else if (selectedMarkup.subtype === 'Highlight') {
                 nextSettings.highlightColor = color;
             }
             annotationSettings.value = nextSettings;
         }
         selectedTextMarkupForProperties.value = pdfViewerRef.value?.getSelectedTextMarkupAnnotationProperties?.() ?? selectedTextMarkupForProperties.value;
+        return true;
+    }
+
+    function handleTextMarkupColorUpdate(color: string) {
+        const selectedMarkup = selectedTextMarkupForProperties.value;
+        const previousColor = selectedMarkup?.color ?? null;
+        const didUpdate = applySelectedTextMarkupColorUpdate(color);
+        if (!didUpdate) {
+            return;
+        }
+        if (
+            selectedMarkup
+            && previousColor
+            && normalizeTextMarkupColorValue(previousColor) !== normalizeTextMarkupColorValue(color)
+        ) {
+            pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
+                cmd: () => {
+                    selectedTextMarkupForProperties.value = selectedMarkup;
+                    applySelectedTextMarkupColorUpdate(color);
+                },
+                undo: () => {
+                    selectedTextMarkupForProperties.value = selectedMarkup;
+                    applySelectedTextMarkupColorUpdate(previousColor);
+                },
+            });
+        }
         closeTextMarkupProperties();
     }
 
@@ -709,6 +744,8 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             nextSettings.underlineColor = color;
         } else if (subtype === 'strikeout' || subtype === 'strikethrough') {
             nextSettings.strikethroughColor = color;
+        } else if (subtype === 'squiggly') {
+            nextSettings.squigglyColor = color;
         } else if (subtype === 'highlight') {
             nextSettings.highlightColor = color;
         } else {
@@ -717,21 +754,43 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         annotationSettings.value = nextSettings;
     }
 
-    function handleContextTextMarkupColorUpdate(color: string) {
-        const comment = annotationContextMenu.value.comment;
-        if (!comment) {
-            return;
-        }
-        const didUpdate = pdfViewerRef.value?.updateTextMarkupAnnotationColor?.(comment, color) === true;
+    function applyContextTextMarkupColorUpdate(
+        comment: IAnnotationCommentSummary,
+        color: string,
+        options: {
+            colorEdited?: boolean;
+            sourceColor?: string | null;
+        } = {},
+    ) {
+        const colorEdited = options.colorEdited ?? true;
+        const sourceColor = options.sourceColor ?? comment.color ?? null;
+        const nextComment = {
+            ...comment,
+            color,
+            colorEdited,
+        };
+        const didUpdate = pdfViewerRef.value?.updateTextMarkupAnnotationColor?.({
+            ...nextComment,
+            color: sourceColor ?? nextComment.color,
+        }, color) === true;
         updateTextMarkupDefaultSettings(comment, color);
         annotationContextMenu.value = {
             ...annotationContextMenu.value,
-            comment: {
-                ...comment,
-                color,
-                colorEdited: true,
-            },
+            comment: nextComment,
         };
+        restoreAnnotationToCache(nextComment);
+        pdfViewerRef.value?.restoreAnnotationToInternalCache?.(nextComment);
+        invalidateAnnotationPage(nextComment);
+        const nextSnapshot = [
+            ...(deps.getAnnotationCommentsSnapshot?.() ?? []).filter(candidate => candidate.stableKey !== nextComment.stableKey),
+            nextComment,
+        ];
+        const hasColorEdits = nextSnapshot.some(candidate => candidate.colorEdited === true);
+        if (deps.setPreservedAnnotationSourceDirty) {
+            deps.setPreservedAnnotationSourceDirty(hasColorEdits);
+        } else if (hasColorEdits) {
+            deps.markPreservedAnnotationSourceDirty?.();
+        }
         if (!didUpdate) {
             BrowserLogger.debug('annotations', 'Context-menu text markup color state updated before DOM repaint', () => ({
                 annotationId: comment.annotationId ?? null,
@@ -739,6 +798,60 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 subtype: comment.subtype ?? null,
                 color,
             }));
+        }
+        return didUpdate;
+    }
+
+    function resolveContextTextMarkupUndoColor(comment: IAnnotationCommentSummary) {
+        if (comment.color) {
+            return comment.color;
+        }
+        const container = viewerContainer.value;
+        if (!container) {
+            return null;
+        }
+        return resolveAnnotationCommentTextMarkupColor(container, comment);
+    }
+
+    function handleContextTextMarkupColorUpdate(color: string) {
+        const comment = annotationContextMenu.value.comment;
+        if (!comment) {
+            return;
+        }
+        const previousColor = resolveContextTextMarkupUndoColor(comment);
+        const previousColorEdited = comment.colorEdited === true;
+        applyContextTextMarkupColorUpdate(comment, color, { sourceColor: previousColor });
+        if (
+            previousColor
+            && normalizeTextMarkupColorValue(previousColor) !== normalizeTextMarkupColorValue(color)
+        ) {
+            pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
+                cmd: () => {
+                    applyContextTextMarkupColorUpdate(
+                        {
+                            ...comment,
+                            color,
+                            colorEdited: true,
+                        },
+                        color,
+                        { sourceColor: previousColor },
+                    );
+                },
+                undo: () => {
+                    applyContextTextMarkupColorUpdate(
+                        {
+                            ...comment,
+                            color: previousColor,
+                            colorEdited: previousColorEdited,
+                        },
+                        previousColor,
+                        {
+                            colorEdited: previousColorEdited,
+                            sourceColor: color,
+                        },
+                    );
+                },
+            });
         }
         closeAnnotationContextMenu();
     }
@@ -1238,7 +1351,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             }
             viewer.restoreAnnotationToInternalCache?.(comment);
             deps.restoreAnnotationToCache(comment);
-            deps.markPreservedAnnotationSourceDirty?.();
             invalidateAnnotationPage(comment);
         };
 

@@ -61,7 +61,7 @@ function isTextMarkupComment(comment: IAnnotationCommentSummary) {
     return isTextMarkupSubtype(comment.subtype);
 }
 
-export function toPdfTextMarkupSubtype(comment: IAnnotationCommentSummary): TMarkupSubtype | null {
+function toPdfTextMarkupSubtype(comment: IAnnotationCommentSummary): TMarkupSubtype | null {
     const subtype = (comment.subtype ?? '').trim().toLowerCase();
     if (subtype === 'highlight') {
         return 'Highlight';
@@ -147,11 +147,33 @@ function withReloadStableCreatedAt(
     };
 }
 
+function withReloadStableTextMarkupColor(
+    comment: IAnnotationCommentSummary,
+    previous: IAnnotationCommentSummary | null | undefined,
+) {
+    if (
+        !previous?.colorEdited
+        || !isTextMarkupComment(comment)
+        || !isTextMarkupComment(previous)
+        || !previous.color
+    ) {
+        return comment;
+    }
+    return {
+        ...comment,
+        color: previous.color,
+        colorEdited: true,
+    };
+}
+
 function withReloadStableSummaryFields(
     comment: IAnnotationCommentSummary,
     previous: IAnnotationCommentSummary | null | undefined,
 ) {
-    return withReloadStableCreatedAt(withReloadStableDisplayText(comment, previous), previous);
+    return withReloadStableTextMarkupColor(
+        withReloadStableCreatedAt(withReloadStableDisplayText(comment, previous), previous),
+        previous,
+    );
 }
 
 function commentsShareNonEmptyNoteText(
@@ -446,7 +468,12 @@ export function usePdfAnnotationCommentModel(
         emitCommentsForSidebar(next);
     }
 
-    function updateCachedColor(comment: IAnnotationCommentSummary, color: string) {
+    function updateCachedColor(
+        comment: IAnnotationCommentSummary,
+        color: string,
+        options: { colorEdited?: boolean } = {},
+    ) {
+        const colorEdited = options.colorEdited ?? true;
         const next = annotationCommentsCache.value.map((candidate) => {
             const sameStableKey = candidate.stableKey === comment.stableKey;
             const sameAnnotationId = Boolean(
@@ -460,7 +487,7 @@ export function usePdfAnnotationCommentModel(
             return {
                 ...candidate,
                 color,
-                colorEdited: true,
+                colorEdited,
                 modifiedAt: Date.now(),
             };
         });

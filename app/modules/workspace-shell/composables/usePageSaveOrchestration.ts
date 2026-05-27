@@ -101,6 +101,7 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     restorePendingEmbeddedTextUpdates?: (updates: Map<string, string> | null | undefined) => void;
     consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
     restorePendingEmbeddedAnnotationDeletes?: (deletions: IAnnotationCommentSummary[] | null | undefined) => void;
+    clearAnnotationHistory?: () => void;
     loadRecentFiles: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     loadPdfFromData: (data: Uint8Array, opts?: {
@@ -152,6 +153,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         restorePendingEmbeddedTextUpdates,
         consumePendingEmbeddedAnnotationDeletes,
         restorePendingEmbeddedAnnotationDeletes,
+        clearAnnotationHistory,
         loadRecentFiles,
         clearOcrCache,
         loadPdfFromData,
@@ -221,6 +223,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         ...(restorePendingEmbeddedTextUpdates !== undefined ? { restorePendingEmbeddedTextUpdates } : {}),
         consumePendingEmbeddedAnnotationDeletes,
         ...(restorePendingEmbeddedAnnotationDeletes !== undefined ? { restorePendingEmbeddedAnnotationDeletes } : {}),
+        ...(clearAnnotationHistory !== undefined ? { clearAnnotationHistory } : {}),
         annotationNoteWindowsCount,
         loadRecentFiles,
         preparePostSaveReload: () => {

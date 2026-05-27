@@ -11,9 +11,9 @@ import type {
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-annotations/usePdfAnnotationCommentModel';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { applyAnnotationCommentTextMarkupColor } from '@app/composables/pdf/annotations/annotationDomRemoval';
 import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorMutation';
+import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -38,26 +38,12 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         emitForcedAnnotationMutation,
     } = options;
 
-    function updateCachedAnnotationCommentColor(comment: IAnnotationCommentSummary, color: string) {
-        annotationCommentModel.updateCachedColor(comment, color);
-    }
-
-    function applyEmbeddedMarkupDomColor(
+    function updateCachedAnnotationCommentColor(
         comment: IAnnotationCommentSummary,
         color: string,
-        opts?: { forceVisible?: boolean },
+        options: { colorEdited?: boolean } = {},
     ) {
-        const container = viewerContainer.value;
-        if (!container) {
-            return false;
-        }
-        const displayColor = annotationCommentModel.toTextMarkupSubtype(comment) === 'Highlight'
-            ? toOpaqueHighlightDisplayColor(
-                color,
-                annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
-            )
-            : color;
-        return applyAnnotationCommentTextMarkupColor(container, comment, displayColor, opts);
+        annotationCommentModel.updateCachedColor(comment, color, options);
     }
 
     function findTextMarkupEditorForComment(comment: IAnnotationCommentSummary) {
@@ -68,6 +54,36 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
             ?? (comment.annotationId
                 ? getStoredAnnotationEditor(pdfDocument.value, comment.annotationId)
                 : null);
+    }
+
+    function getRenderedMarkupDisplayColor(comment: IAnnotationCommentSummary, color: string) {
+        const subtype = annotationCommentModel.toTextMarkupSubtype(comment);
+        if (subtype !== 'Highlight') {
+            return color;
+        }
+        return toOpaqueHighlightDisplayColor(
+            color,
+            annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
+        );
+    }
+
+    function applyRenderedMarkupColor(
+        comment: IAnnotationCommentSummary,
+        color: string,
+        opts: {
+            forceVisible?: boolean;
+            sourceColor?: string | null;
+        } = {},
+    ) {
+        if (!viewerContainer.value) {
+            return false;
+        }
+        return applyAnnotationCommentTextMarkupColor(
+            viewerContainer.value,
+            comment,
+            getRenderedMarkupDisplayColor(comment, color),
+            opts,
+        );
     }
 
     function updateSelectedTextMarkupAnnotationColor(color: string) {
@@ -86,7 +102,7 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         }
         annotations.editor.markupSubtype.rememberMarkupSubtypeColorOverride(comment.annotationId, color);
         if (!editor) {
-            const domUpdated = applyEmbeddedMarkupDomColor(comment, color, { forceVisible: subtype === 'Highlight' });
+            const renderedUpdated = applyRenderedMarkupColor(comment, color, { sourceColor: comment.color ?? null });
             BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
                 annotationId: comment.annotationId ?? null,
                 stableKey: comment.stableKey,
@@ -96,11 +112,12 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
                 editorFound: false,
                 editorConnected: false,
                 editorUpdated: false,
-                domUpdated,
+                renderedUpdated,
+                preview: renderedUpdated ? 'rendered-page' : 'rendered-page-missing',
             }));
-            updateCachedAnnotationCommentColor(comment, color);
+            updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
             emitForcedAnnotationMutation();
-            return true;
+            return renderedUpdated;
         }
         const editorUpdated = annotations.editor.markupSubtype.updateTextMarkupAnnotationColor(
             editor,
@@ -109,16 +126,10 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
             color,
         );
         const editorConnected = editor.div?.isConnected === true;
-        // Connected editors already redraw through PDF.js and our subtype draw
-        // layer; the DOM fallback is only for materialized annotations.
-        const domUpdated = editorConnected
+        const renderedUpdated = editorConnected
             ? false
-            : applyEmbeddedMarkupDomColor(
-                comment,
-                color,
-                { forceVisible: subtype === 'Highlight' },
-            );
-        const didUpdate = editorUpdated || domUpdated;
+            : applyRenderedMarkupColor(comment, color, { sourceColor: comment.color ?? null });
+        const didUpdate = (editorUpdated && editorConnected) || renderedUpdated;
         BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
             annotationId: comment.annotationId ?? null,
             stableKey: comment.stableKey,
@@ -128,12 +139,13 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
             editorFound: true,
             editorConnected,
             editorUpdated,
-            domUpdated,
+            renderedUpdated,
+            preview: editorUpdated && editorConnected
+                ? 'editor'
+                : (renderedUpdated ? 'rendered-page' : 'rendered-page-missing'),
         }));
-        if (didUpdate) {
-            updateCachedAnnotationCommentColor(comment, color);
-            emitForcedAnnotationMutation({ scheduleCommentSync: true });
-        }
+        updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
+        emitForcedAnnotationMutation({ scheduleCommentSync: didUpdate });
         return didUpdate;
     }
 

@@ -358,7 +358,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     const {
         nextActivationRestoreRunId,
-        isActivationRestoreRunCurrent,
+        isActivationRunCurrent,
         renderActiveDocumentAfterActivation,
     } = usePdfViewerActivationRestore({
         viewerContainer,
@@ -574,7 +574,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         const runId = nextActivationRestoreRunId();
         if (active) {
             await nextTick();
-            if (!isActivationRestoreRunCurrent(runId)) {
+            if (!isActivationRunCurrent(runId)) {
                 return;
             }
             scheduleSetAnnotationTool(annotationTool.value, 'restore annotation tool after tab activation');

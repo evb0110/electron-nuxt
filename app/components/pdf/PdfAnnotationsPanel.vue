@@ -54,6 +54,7 @@
                         :settings="settings"
                         @set-tool="setTool"
                         @update-setting="updateSetting"
+                        @color-selected="stylePopoverOpen = false"
                     />
                 </div>
             </template>

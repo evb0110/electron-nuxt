@@ -106,10 +106,14 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
     }
 
     function isActiveDocumentRestoreRunCurrent(runId: number) {
+        return isActivationRunCurrent(runId)
+            && Boolean(pdfDocument.value);
+    }
+
+    function isActivationRunCurrent(runId: number) {
         return runId === activeDocumentRestoreRunId
             && isActive.value
-            && !isLoading.value
-            && Boolean(pdfDocument.value);
+            && !isLoading.value;
     }
 
     async function waitForActivationRenderFrame() {
@@ -179,6 +183,7 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
 
     return {
         nextActivationRestoreRunId,
+        isActivationRunCurrent,
         isActivationRestoreRunCurrent: isActiveDocumentRestoreRunCurrent,
         renderActiveDocumentAfterActivation,
     };

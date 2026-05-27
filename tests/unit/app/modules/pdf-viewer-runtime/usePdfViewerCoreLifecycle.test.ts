@@ -257,8 +257,7 @@ describe('usePdfViewerCore inactive lifecycle', () => {
         expect(lifecycleMocks.scheduleLoadFromSource).not.toHaveBeenCalled();
 
         harness.isActive.value = true;
-        await nextTick();
-        await nextTick();
+        await flushActivationRendering();
 
         expect(lifecycleMocks.scheduleLoadFromSource).toHaveBeenCalledTimes(1);
 
