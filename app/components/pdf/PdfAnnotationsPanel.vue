@@ -27,7 +27,7 @@
             v-model:open="stylePopoverOpen"
             :reference="stylePopoverReference ?? undefined"
             :content="stylePopoverContent"
-            :portal="false"
+            portal="body"
         >
             <span class="style-popover-virtual-trigger" aria-hidden="true" />
 
@@ -244,6 +244,8 @@ function placeNote() {
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
+    position: relative;
+    z-index: 1400;
     width: min(18rem, calc(100vw - 2rem));
     max-width: calc(100vw - 2rem);
     padding: 0.625rem;
