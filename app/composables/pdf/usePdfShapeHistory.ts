@@ -30,8 +30,10 @@ export function usePdfShapeHistory(options: {
     registerCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
     addShape: (shape: IShapeAnnotation) => void;
     updateShape: (shapeId: string, shape: IShapeAnnotation) => void;
-    deleteShape: (shape: IShapeAnnotation) => void;
+    deleteShape: (shape: IShapeAnnotation) => IShapeAnnotation[];
     selectShape: (shapeId: string) => void;
+    handleDeletedShape: (shape: IShapeAnnotation) => void;
+    notifyShapeCommentsChanged: () => void;
     markModified: () => void;
 }) {
     function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
@@ -48,11 +50,13 @@ export function usePdfShapeHistory(options: {
                 options.updateShape(nextShape.id, nextShape);
                 options.selectShape(nextShape.id);
                 options.markModified();
+                options.notifyShapeCommentsChanged();
             },
             undo: () => {
                 options.updateShape(previousShape.id, previousShape);
                 options.selectShape(previousShape.id);
                 options.markModified();
+                options.notifyShapeCommentsChanged();
             },
         });
     }
@@ -64,10 +68,15 @@ export function usePdfShapeHistory(options: {
             cmd: () => {
                 options.addShape(shape);
                 options.markModified();
+                options.notifyShapeCommentsChanged();
             },
             undo: () => {
-                options.deleteShape(shape);
+                const deletedShapes = options.deleteShape(shape);
+                for (const deletedShape of deletedShapes) {
+                    options.handleDeletedShape(deletedShape);
+                }
                 options.markModified();
+                options.notifyShapeCommentsChanged();
             },
         });
     }

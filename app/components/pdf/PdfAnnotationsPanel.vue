@@ -9,12 +9,25 @@
 
         <div class="notes-panel-divider" />
 
+        <div
+            v-if="showStyleEditor"
+            class="annotation-style-editor-cache"
+            aria-hidden="true"
+        >
+            <PdfAnnotationStyleEditor
+                :tool="tool"
+                :settings="settings"
+                @set-tool="setTool"
+                @update-setting="updateSetting"
+            />
+        </div>
+
         <UPopover
             v-if="showStyleEditor"
             v-model:open="stylePopoverOpen"
             :reference="stylePopoverReference ?? undefined"
             :content="stylePopoverContent"
-            portal="body"
+            :portal="false"
         >
             <span class="style-popover-virtual-trigger" aria-hidden="true" />
 
@@ -41,7 +54,6 @@
                         :settings="settings"
                         @set-tool="setTool"
                         @update-setting="updateSetting"
-                        @color-selected="stylePopoverOpen = false"
                     />
                 </div>
             </template>
@@ -85,15 +97,16 @@ interface IProps {
 const { settings: appSettings } = useSettings();
 const { t } = useTypedI18n();
 
-const {
-    activeCommentStableKey = undefined,
-    commentsStatus,
-    tool,
-} = defineProps<IProps>();
-const showStyleEditor = computed(() => isAuthoringAnnotationTool(tool));
+const props = defineProps<IProps>();
+const tool = computed(() => props.tool);
+const settings = computed(() => props.settings);
+const comments = computed(() => props.comments);
+const commentsStatus = computed(() => props.commentsStatus);
+const activeCommentStableKey = computed(() => props.activeCommentStableKey ?? undefined);
+const showStyleEditor = computed(() => isAuthoringAnnotationTool(props.tool));
 const stylePopoverOpen = ref(false);
 const toolbarRef = ref<InstanceType<typeof PdfAnnotationToolbar> | null>(null);
-const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(tool) ?? null);
+const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(props.tool) ?? null);
 const stylePopoverContent = {
     align: 'start' as const,
     side: 'bottom' as const,
@@ -102,7 +115,7 @@ const stylePopoverContent = {
 };
 
 const toolLabel = computed(() => {
-    switch (tool) {
+    switch (props.tool) {
         case 'draw':
             return t('annotations.draw');
         case 'text':
@@ -129,7 +142,7 @@ const toolLabel = computed(() => {
 });
 const stylePopoverLabel = computed(() => `${toolLabel.value} ${t('annotations.style')}`);
 
-watch(() => tool, async () => {
+watch(() => props.tool, async () => {
     if (!showStyleEditor.value) {
         stylePopoverOpen.value = false;
         return;
@@ -137,6 +150,12 @@ watch(() => tool, async () => {
 
     await nextTick();
     stylePopoverOpen.value = true;
+});
+
+watch(() => props.commentsStatus, (status) => {
+    if (status === 'loading') {
+        stylePopoverOpen.value = false;
+    }
 });
 
 const emit = defineEmits<{
@@ -153,7 +172,7 @@ const emit = defineEmits<{
 }>();
 
 function setTool(nextTool: TAnnotationTool) {
-    emit('set-tool', nextTool === tool ? 'none' : nextTool);
+    emit('set-tool', nextTool === props.tool ? 'none' : nextTool);
 }
 
 function updateSetting(payload: {
@@ -161,6 +180,13 @@ function updateSetting(payload: {
     value: IAnnotationSettings[keyof IAnnotationSettings];
 }) {
     emit('update-setting', payload);
+    if (showStyleEditor.value) {
+        window.setTimeout(() => {
+            if (showStyleEditor.value) {
+                stylePopoverOpen.value = true;
+            }
+        });
+    }
 }
 
 function focusComment(comment: IAnnotationCommentSummary) {
@@ -203,6 +229,15 @@ function placeNote() {
     width: 0;
     height: 0;
     overflow: hidden;
+}
+
+.annotation-style-editor-cache {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .annotation-style-popover {

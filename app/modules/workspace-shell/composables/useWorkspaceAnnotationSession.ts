@@ -123,7 +123,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
 
     const annotationKeepActiveStorage = useStorage<string>(
         STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE,
-        '0',
+        '1',
         undefined,
         { initOnMounted: true },
     );

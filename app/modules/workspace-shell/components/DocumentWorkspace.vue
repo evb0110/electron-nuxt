@@ -1275,6 +1275,7 @@ function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
         annotationCommentsStatus.value === 'loading'
         && annotationComments.value.length > 0
         && comments.length === 0
+        && isLoading.value
     ) {
         return;
     }

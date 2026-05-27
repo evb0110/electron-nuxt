@@ -1,0 +1,203 @@
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
+import {
+    getCurrentSpreadRenderedBoundsFromMetrics,
+    resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp,
+} from '@app/composables/pdf/pdfHorizontalScrollClamp';
+import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
+import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
+import type {
+    IPdfPageMetric,
+    TFitMode,
+    TPdfViewMode,
+    TZoomMode,
+} from '@app/types/pdf';
+
+interface IUsePdfViewportViewModelOptions {
+    viewerContainer: Ref<HTMLElement | null>;
+    bufferPages: ComputedRef<number>;
+    viewMode: ComputedRef<TPdfViewMode>;
+    numPages: Ref<number>;
+    currentPage: Ref<number>;
+    continuousScroll: ComputedRef<boolean>;
+    basePageWidth: Ref<number | null>;
+    basePageHeight: Ref<number | null>;
+    pageMetrics: Ref<IPdfPageMetric[]>;
+    pageMetricsVersion: Ref<number>;
+    effectiveScale: Ref<number>;
+    scaledMargin: Ref<number>;
+    visibleRange: Ref<{
+        start: number;
+        end: number;
+    }>;
+    navigationAnchorPage: ComputedRef<number | null>;
+    resizeTransitionAnchorPage: Ref<number | null>;
+    zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
+    scaleContainerStyle: ComputedRef<Record<string, string>>;
+    selectionMarkupStyle: ComputedRef<Record<string, string> | null>;
+    classState: {
+        isAnySaving: ComputedRef<boolean>;
+        isDragging: Ref<boolean>;
+        isViewerPanDragModeActive: ComputedRef<boolean>;
+        isPlacingComment: Ref<boolean>;
+        isSelectionMarkupToolActive: ComputedRef<boolean>;
+        isTextSelectionModeActive: ComputedRef<boolean>;
+        fitMode: ComputedRef<TFitMode>;
+        zoomMode: ComputedRef<TZoomMode>;
+        resizeTransitionVisible: Ref<boolean>;
+        zoomSnapSuppressed: Ref<boolean>;
+    };
+}
+
+const HORIZONTAL_SCROLL_CLAMP_EPSILON_PX = 1.5;
+
+export function usePdfViewportViewModel(options: IUsePdfViewportViewModelOptions) {
+    const fitWidthHorizontalScrollLocked = ref(false);
+
+    const virtualization = usePdfViewerVirtualization({
+        bufferPages: options.bufferPages,
+        viewMode: options.viewMode,
+        numPages: options.numPages,
+        currentPage: options.currentPage,
+        continuousScroll: options.continuousScroll,
+        basePageWidth: options.basePageWidth,
+        basePageHeight: options.basePageHeight,
+        pageMetrics: options.pageMetrics,
+        pageMetricsVersion: options.pageMetricsVersion,
+        effectiveScale: options.effectiveScale,
+        scaledMargin: options.scaledMargin,
+        visibleRange: options.visibleRange,
+        navigationAnchorPage: options.navigationAnchorPage,
+        resizeTransitionAnchorPage: options.resizeTransitionAnchorPage,
+        zoomVirtualizationFreeze: options.zoomVirtualizationFreeze,
+    });
+
+    const containerStyle = computed(() => ({
+        ...options.scaleContainerStyle.value,
+        ...(options.selectionMarkupStyle.value ?? {}),
+    }));
+
+    const isActiveSpreadHorizontalScrollLocked = computed(() => {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return false;
+        }
+
+        const renderedSpreadBounds = getCurrentSpreadRenderedBoundsFromMetrics({
+            container,
+            basePageWidth: options.basePageWidth.value,
+            basePageHeight: options.basePageHeight.value,
+            numPages: options.numPages.value,
+            pageMetrics: options.pageMetrics.value,
+            currentPage: options.currentPage.value,
+            viewMode: options.viewMode.value,
+            effectiveScale: options.effectiveScale.value,
+            scaledMargin: options.scaledMargin.value,
+        });
+
+        return renderedSpreadBounds
+            ? renderedSpreadBounds.width <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+            : container.scrollWidth <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX;
+    });
+
+    const viewerClass = computed(() => ({
+        'pdfViewer--saving': options.classState.isAnySaving.value,
+        'is-dragging': options.classState.isDragging.value,
+        'drag-mode': options.classState.isViewerPanDragModeActive.value,
+        'is-placing-comment': options.classState.isPlacingComment.value,
+        'is-selection-markup-tool': options.classState.isSelectionMarkupToolActive.value,
+        'is-text-selection-mode': options.classState.isTextSelectionModeActive.value,
+        'pdfViewer--single-page': !options.continuousScroll.value,
+        'pdfViewer--mode-single': options.viewMode.value === 'single',
+        'pdfViewer--mode-facing': options.viewMode.value === 'facing',
+        'pdfViewer--mode-facing-first-single': options.viewMode.value === 'facing-first-single',
+        'pdfViewer--fit-width': options.classState.zoomMode.value === 'fit-width',
+        'pdfViewer--fit-width-page-fits': fitWidthHorizontalScrollLocked.value,
+        'pdfViewer--fit-height': options.classState.fitMode.value === 'height',
+        'pdfViewer--active-spread-fits-width': isActiveSpreadHorizontalScrollLocked.value,
+        'pdfViewer--resize-transition': options.classState.resizeTransitionVisible.value,
+        'pdfViewer--zoom-snap-suppressed': options.classState.zoomSnapSuppressed.value,
+    }));
+
+    function resolveActiveSpreadHorizontalScrollLock() {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return false;
+        }
+
+        const shouldLock = isActiveSpreadHorizontalScrollLocked.value;
+        if (shouldLock && container.scrollLeft !== 0) {
+            container.scrollLeft = 0;
+        }
+
+        return shouldLock;
+    }
+
+    function resolveHorizontalScrollClampForActiveSpread() {
+        const container = options.viewerContainer.value;
+        if (
+            !container
+            || options.classState.fitMode.value !== 'width'
+        ) {
+            fitWidthHorizontalScrollLocked.value = false;
+            return null;
+        }
+
+        const scrollClamp = resolveActiveSpreadHorizontalScrollClamp({
+            container,
+            fitMode: options.classState.fitMode.value,
+            pageNumber: options.currentPage.value,
+            viewMode: options.viewMode.value,
+            numPages: options.numPages.value,
+            basePageWidth: options.basePageWidth.value,
+            basePageHeight: options.basePageHeight.value,
+            pageMetrics: options.pageMetrics.value,
+            effectiveScale: options.effectiveScale.value,
+            scaledMargin: options.scaledMargin.value,
+            epsilon: HORIZONTAL_SCROLL_CLAMP_EPSILON_PX,
+        });
+        fitWidthHorizontalScrollLocked.value = scrollClamp?.shouldLock ?? false;
+        return scrollClamp;
+    }
+
+    function syncHorizontalScrollForZoomMode() {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            fitWidthHorizontalScrollLocked.value = false;
+            return false;
+        }
+
+        const scrollClamp = resolveHorizontalScrollClampForActiveSpread();
+        if (scrollClamp) {
+            const scrollDelta = Math.abs(container.scrollLeft - scrollClamp.scrollLeft);
+            if (scrollDelta > HORIZONTAL_SCROLL_CLAMP_EPSILON_PX) {
+                container.scrollLeft = scrollClamp.scrollLeft;
+            }
+            return scrollClamp.shouldLock;
+        }
+
+        if (resolveActiveSpreadHorizontalScrollLock()) {
+            return true;
+        }
+
+        if (
+            (options.classState.zoomMode.value === 'fit-width' || options.classState.zoomMode.value === 'fit-height')
+            && container.scrollWidth <= container.clientWidth
+            && container.scrollLeft !== 0
+        ) {
+            container.scrollLeft = 0;
+        }
+        return false;
+    }
+
+    return {
+        ...virtualization,
+        containerStyle,
+        viewerClass,
+        isActiveSpreadHorizontalScrollLocked,
+        resolveHorizontalScrollClampForActiveSpread,
+        syncHorizontalScrollForZoomMode,
+    };
+}

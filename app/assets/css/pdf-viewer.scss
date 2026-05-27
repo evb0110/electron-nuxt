@@ -1,0 +1,476 @@
+/* ── Page Container & Canvas ───────────────────────────────────────── */
+
+.page_container {
+    position: relative;
+    margin: 0 auto;
+    flex-shrink: 0;
+
+    --scale-round-x: 1px;
+    --scale-round-y: 1px;
+
+    canvas {
+        background: transparent;
+        box-shadow: none;
+        border-radius: inherit;
+    }
+}
+
+.pdf-viewer-virtual-spacer {
+    flex-shrink: 0;
+    width: 1px;
+    pointer-events: none;
+    opacity: 0;
+}
+
+.pdfViewer.pdfViewer--mode-facing .pdf-viewer-virtual-spacer,
+.pdfViewer.pdfViewer--mode-facing-first-single .pdf-viewer-virtual-spacer {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+}
+
+.pdfViewer .page_container--rendered .pdf-page-skeleton {
+    display: none;
+}
+
+.pdfViewer .page_container:not(.page_container--rendered) .text-layer,
+.pdfViewer .page_container:not(.page_container--rendered) .textLayer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotation-layer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotationLayer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotation-editor-layer,
+.pdfViewer .page_container:not(.page_container--rendered) .annotationEditorLayer {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.page_canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    background: var(--pdf-page-bg);
+    box-shadow: var(--pdf-page-shadow);
+    border-radius: 2px;
+
+    > canvas {
+        width: 100% !important;
+        height: 100% !important;
+    }
+}
+
+/* ── Text Layer (PDF.js) ───────────────────────────────────────────── */
+
+.pdfViewer .text-layer {
+    position: absolute;
+    text-align: initial;
+    inset: 0;
+    overflow: clip;
+    opacity: 1;
+    line-height: 1;
+    text-size-adjust: none;
+    forced-color-adjust: none;
+    transform-origin: 0 0;
+    caret-color: CanvasText;
+    z-index: 1;
+    pointer-events: auto;
+    user-select: text;
+
+    --min-font-size: 1;
+    --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+    --min-font-size-inv: calc(1 / var(--min-font-size));
+
+    span,
+    br {
+        color: transparent;
+        position: absolute;
+        white-space: pre;
+        cursor: text;
+        transform-origin: 0% 0%;
+    }
+
+    > :not(.markedContent),
+    .markedContent span:not(.markedContent) {
+        z-index: 1;
+        font-size: calc(var(--text-scale-factor) * var(--font-height, 10px));
+        transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
+    }
+
+    .markedContent {
+        display: contents;
+    }
+
+    br {
+        user-select: none;
+    }
+
+    ::selection {
+        background: var(--app-pdf-text-selection-bg);
+    }
+
+    br::selection {
+        background: transparent;
+    }
+
+    .end-of-content {
+        display: block;
+        position: absolute;
+        inset: 100% 0 0;
+        z-index: 0;
+        cursor: default;
+        user-select: none;
+    }
+
+    &.selecting .end-of-content {
+        top: 0;
+    }
+}
+
+/* ── Annotation Layers ─────────────────────────────────────────────── */
+
+.pdfViewer .annotation-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 2;
+    pointer-events: none;
+
+    a {
+        pointer-events: auto;
+        display: block;
+        position: absolute;
+    }
+
+    section {
+        position: absolute;
+    }
+
+    .linkAnnotation > a {
+        background: var(--app-pdf-link-bg);
+        transition: background 150ms ease;
+
+        &:hover {
+            background: var(--app-pdf-link-hover-bg);
+        }
+    }
+}
+
+.pdfViewer .annotation-editor-layer,
+.pdfViewer .annotationEditorLayer {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+}
+
+.pdfViewer.is-selection-markup-tool .annotation-editor-layer,
+.pdfViewer.is-selection-markup-tool .annotationEditorLayer,
+.pdfViewer.is-text-selection-mode .annotation-editor-layer,
+.pdfViewer.is-text-selection-mode .annotationEditorLayer {
+    pointer-events: none !important;
+}
+
+.pdfViewer.is-selection-markup-tool .text-layer,
+.pdfViewer.is-selection-markup-tool .textLayer,
+.pdfViewer.is-text-selection-mode .text-layer,
+.pdfViewer.is-text-selection-mode .textLayer {
+    cursor: text !important;
+}
+
+.pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .highlightAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .underlineAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .strikeoutAnnotation,
+.pdfViewer.is-selection-markup-tool .annotationLayer .squigglyAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .editorAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .highlightAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .underlineAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
+.pdfViewer.is-text-selection-mode .annotation-layer .squigglyAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .highlightAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
+.pdfViewer.is-text-selection-mode .annotationLayer .squigglyAnnotation {
+    pointer-events: none !important;
+    cursor: text !important;
+}
+
+.pdfViewer.pdfViewer--resize-transition .text-layer,
+.pdfViewer.pdfViewer--resize-transition .textLayer,
+.pdfViewer.pdfViewer--resize-transition .annotation-layer,
+.pdfViewer.pdfViewer--resize-transition .annotationLayer,
+.pdfViewer.pdfViewer--resize-transition .annotation-editor-layer,
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer,
+.pdfViewer.pdfViewer--resize-transition .pdf-shape-overlay {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ── Container & Viewer ────────────────────────────────────────────── */
+
+.pdfViewer {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    scroll-behavior: auto;
+    overflow-anchor: none;
+    background: var(--app-pdf-viewer-bg);
+    display: flex;
+    flex-direction: column;
+
+    &.pdfViewer--mode-facing,
+    &.pdfViewer--mode-facing-first-single {
+        display: grid;
+        grid-template-columns: repeat(2, max-content);
+        place-content: flex-start center;
+    }
+
+    &.is-placing-comment {
+        cursor: crosshair;
+    }
+
+    &.pdfViewer--fit-height {
+        overflow-x: auto;
+    }
+
+    &.pdfViewer--active-spread-fits-width {
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
+    }
+
+    &.pdfViewer--fit-width-page-fits {
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
+    }
+
+    /*
+     * Single-page mode is driven entirely by JS (see usePdfSinglePageScroll).
+     * CSS scroll-snap was previously enabled here but collided with the JS
+     * snap targets — `scroll-snap-align: center` resolves to a different
+     * scrollTop than the JS `centerTarget` calculation (margin handling
+     * differs), causing the engine to override JS-set positions. The most
+     * visible symptom was that wheel-up appeared to do nothing because the
+     * snap engine pulled the position back. JS owns paging end-to-end now.
+     */
+
+    &.pdfViewer--hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* Hidden PDF.js UI — Okular-style workflow: comment editing is handled from side reviews + note window. */
+    /* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
+    .editToolbar,
+    .annotationCommentButton,
+    .popupTriggerArea,
+    .commentPopup,
+    #commentManagerDialog {
+        display: none !important;
+    }
+    /* stylelint-enable selector-id-pattern */
+}
+
+.pdfViewer.pdfViewer--mode-facing .page_container,
+.pdfViewer.pdfViewer--mode-facing-first-single .page_container {
+    margin: 0;
+}
+
+.pdfViewer .page_container--spread-single {
+    grid-column: 1 / -1;
+    justify-self: center;
+}
+
+.pdfViewer .page_container--buffered {
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-200vw);
+}
+
+/* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
+
+.pdfViewer.drag-mode {
+    &.is-dragging {
+        cursor: grabbing !important;
+        user-select: none;
+    }
+
+    &:not(.is-dragging) {
+        cursor: grab !important;
+    }
+
+    *,
+    &.is-dragging * {
+        cursor: inherit !important;
+    }
+
+    /* stylelint-disable no-descending-specificity -- drag mode uses !important on all props; specificity order is irrelevant */
+    .text-layer,
+    .text-layer *,
+    .textLayer,
+    .textLayer *,
+    .annotation-layer,
+    .annotation-layer *,
+    .annotation-layer a,
+    .annotation-editor-layer,
+    .annotation-editor-layer *,
+    .annotationEditorLayer,
+    .annotationEditorLayer *,
+    .page_container,
+    .page_container canvas,
+    .pdf-link-overlay-layer,
+    .pdf-link-overlay-layer *,
+    .pdf-comment-marker-layer-vue,
+    .pdf-shape-overlay,
+    .pdf-shape-overlay *,
+    .annotationLayer,
+    .annotationLayer *,
+    .canvasWrapper {
+        cursor: inherit !important;
+        user-select: none !important;
+        pointer-events: none !important;
+    }
+    /* stylelint-enable no-descending-specificity */
+}
+
+/* ── Markup Subtype Visual Overrides (underline / strikethrough / squiggly) ──── */
+
+.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-visual-ready .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-visual-ready .internal {
+    opacity: 0 !important;
+}
+
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-underline *,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout *,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly * {
+    fill: transparent !important;
+    fill-opacity: 0 !important;
+    stroke: transparent !important;
+    stroke-opacity: 0 !important;
+}
+
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout,
+.pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly {
+    mix-blend-mode: normal !important;
+}
+
+.pdfViewer svg.pdf-markup-subtype-draw-visual {
+    fill: transparent !important;
+    fill-opacity: 0 !important;
+    mix-blend-mode: normal;
+    pointer-events: none;
+}
+
+/* ── Dark Mode (Invert Colors) Overrides ───────────────────────────── */
+
+.pdf-viewer-container--dark {
+    .text-layer ::selection {
+        background: var(--app-pdf-text-selection-bg);
+    }
+
+    /* stylelint-disable no-descending-specificity -- dark mode filter targets different properties than drag mode */
+    .page_container,
+    .page_container canvas {
+        filter: invert(1) hue-rotate(180deg) saturate(1.05);
+    }
+    /* stylelint-enable no-descending-specificity */
+
+    .pdfViewer {
+        background: var(--app-pdf-viewer-bg);
+    }
+}
+
+/*
+ * Single-page CSS scroll-snap was removed — paging is JS-driven via
+ * usePdfSinglePageScroll. Keeping a CSS snap point on each .page_container
+ * fought the JS centerTarget math and produced asymmetric wheel behavior.
+ */
+
+.page {
+    margin: 1px auto -3px !important;
+    border: 1px dashed transparent !important;
+    box-shadow: var(--pdf-page-shadow);
+    box-sizing: content-box;
+    user-select: none;
+    position: relative;
+}
+
+/* ── FreeText Editor & Resize Handles ──────────────────────────────── */
+
+.pdfViewer .freeTextEditor {
+    --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
+    --resizer-shift: calc(
+        0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
+    );
+
+    .overlay.enabled {
+        display: block !important;
+    }
+
+    > .resizers {
+        pointer-events: none;
+
+        > .resizer {
+            pointer-events: auto;
+            background: transparent !important;
+            border: none !important;
+            box-sizing: border-box;
+            touch-action: none;
+
+            &::after {
+                content: '';
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: var(--resizer-bg-color, var(--ui-primary));
+                border-radius: 2px;
+                pointer-events: none;
+            }
+
+            &.topLeft,
+            &.bottomRight {
+                cursor: nwse-resize !important;
+            }
+
+            &.topRight,
+            &.bottomLeft {
+                cursor: nesw-resize !important;
+            }
+
+            &.topMiddle,
+            &.middleRight,
+            &.bottomMiddle,
+            &.middleLeft {
+                display: none !important;
+            }
+        }
+    }
+}
+
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor {
+    pointer-events: auto !important;
+}
+
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers,
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay {
+    pointer-events: auto !important;
+}

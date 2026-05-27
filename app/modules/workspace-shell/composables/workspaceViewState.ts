@@ -61,6 +61,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         () => isAuthoringAnnotationTool(deps.annotationTool.value)
             || hasAppAnnotationHistoryUndoState.value
             || hasLivePdfJsAnnotationUndoState.value
+            || deps.annotationEditorState.value.hasSomethingToRedo
             || deps.appAnnotationUndoDepth.value > 0,
     );
     const annotationCursorMode = computed(() => {
@@ -92,6 +93,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
                     deps.annotationEditorState.value.hasSomethingToRedo
                     && deps.hasLivePdfJsAnnotationChanges.value
                 )
+                || deps.annotationEditorState.value.hasSomethingToRedo
                 || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
             )
             : deps.canRedoHistory.value

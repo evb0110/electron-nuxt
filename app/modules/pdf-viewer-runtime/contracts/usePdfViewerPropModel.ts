@@ -43,8 +43,17 @@ export interface IPdfViewerPropModel {
 
 const emptyAnnotationMatches = new Map<number, IPdfPageMatches>();
 
+function isPropProvided(...names: string[]) {
+    const vnodeProps = getCurrentInstance()?.vnode.props;
+    if (!vnodeProps) {
+        return false;
+    }
+    return names.some(name => Object.prototype.hasOwnProperty.call(vnodeProps, name));
+}
+
 export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>): IPdfViewerPropModel {
     const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
+    const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
 
     return {
         src: computed(() => props.src),
@@ -61,7 +70,7 @@ export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>): IPdfVie
         viewMode: computed<TPdfViewMode>(() => props.viewMode ?? 'single'),
         isResizing: computed(() => props.isResizing ?? false),
         invertColors: computed(() => props.invertColors ?? false),
-        showAnnotations: computed(() => props.showAnnotations ?? true),
+        showAnnotations: computed(() => !hasShowAnnotationsProp || props.showAnnotations !== false),
         annotationTool: computed<TAnnotationTool>(() => props.annotationTool ?? 'none'),
         annotationCursorMode: computed(() => props.annotationCursorMode ?? false),
         annotationKeepActive: computed(() => props.annotationKeepActive ?? true),

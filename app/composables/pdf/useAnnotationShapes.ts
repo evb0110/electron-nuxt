@@ -597,7 +597,7 @@ export const useAnnotationShapes = () => {
         });
 
         if (deletedShapes.length === 0) {
-            return false;
+            return [];
         }
 
         BrowserLogger.debug('pdf-shapes', 'Deleting shape', () => ({
@@ -631,7 +631,7 @@ export const useAnnotationShapes = () => {
             deletedAnnotationIdsAfter: [...deletedEmbeddedAnnotationIds.value],
             deletedStableKeysAfter: [...deletedEmbeddedShapeStableKeys.value],
         }));
-        return true;
+        return deletedShapes.map(shape => cloneShape(shape));
     }
 
     function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
@@ -668,7 +668,7 @@ export const useAnnotationShapes = () => {
 
     function deleteShapeByReference(reference: IShapeAnnotation) {
         const matchIds = getShapeHistoryReferenceMatchIds(reference);
-        deleteShapesByPredicate(
+        return deleteShapesByPredicate(
             shape => matchIds.has(shape.id),
             reference,
         );

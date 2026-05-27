@@ -17,8 +17,9 @@ export function usePdfSelectedShapeCommands(options: {
     deleteShapeByReference: (shape: IShapeAnnotation) => void;
     addShape: (shape: IShapeAnnotation) => void;
     applyShapeUpdateWithHistory: (previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) => void;
-    refreshDeletedEmbeddedShape: (shape: IShapeAnnotation) => void;
+    handleDeletedShape: (shape: IShapeAnnotation) => void;
     registerHistoryCommand: (command: IPdfAppAnnotationHistoryCommand) => void;
+    notifyShapeCommentsChanged: () => void;
     markModified: () => void;
 }) {
     function getSelectedShape(): IShapeAnnotation | null {
@@ -56,6 +57,7 @@ export function usePdfSelectedShapeCommands(options: {
 
         options.updateShape(id, updates);
         options.applyShapeUpdateWithHistory(cloneShape(previousShape), nextShape);
+        options.notifyShapeCommentsChanged();
     }
 
     function deleteShapeById(id: string) {
@@ -79,21 +81,24 @@ export function usePdfSelectedShapeCommands(options: {
         }));
 
         options.deleteShape(id);
-        options.refreshDeletedEmbeddedShape(deletedShape);
+        options.handleDeletedShape(deletedShape);
         options.markModified();
 
         options.registerHistoryCommand({
             cmd: () => {
                 options.deleteShapeByReference(deletedShape);
-                options.refreshDeletedEmbeddedShape(deletedShape);
+                options.handleDeletedShape(deletedShape);
                 options.markModified();
+                options.notifyShapeCommentsChanged();
             },
             undo: () => {
                 options.addShape(deletedShape);
                 options.selectShape(id);
                 options.markModified();
+                options.notifyShapeCommentsChanged();
             },
         });
+        options.notifyShapeCommentsChanged();
 
         return true;
     }

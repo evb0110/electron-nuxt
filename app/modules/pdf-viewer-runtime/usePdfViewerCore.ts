@@ -3,8 +3,6 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import {useEventListener} from '@vueuse/core';
-import { PixelsPerInch } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,
@@ -34,6 +32,8 @@ import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer-runtime
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerRenderStallRecovery';
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerZoomRerenderQueue';
 import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer-runtime/lifecycle/usePdfViewerActivationRestore';
+import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer-runtime/annotations/usePdfViewerAnnotationRuntimeBridge';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -43,7 +43,7 @@ interface IPageRange {
     end: number;
 }
 
-interface IUsePdfViewerCoreOptions {
+export interface IUsePdfViewerCoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
     isAnySaving?: ComputedRef<boolean> | undefined;
@@ -281,7 +281,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     } = annotations;
 
     const SKELETON_BUFFER = 3;
-    let activeDocumentRestoreRunId = 0;
     const {
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
@@ -357,122 +356,25 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         return visibleRange.value;
     }
 
-    function getCurrentPageRowRange(): IPageRange {
-        if (numPages.value <= 0) {
-            return {
-                start: 1,
-                end: 1,
-            };
-        }
-
-        const rowBounds = getPageRowBoundsForViewMode({
-            pageNumber: currentPage.value,
-            viewMode: viewMode.value,
-            totalPages: numPages.value,
-        });
-        return {
-            start: rowBounds.start,
-            end: rowBounds.end,
-        };
-    }
-
-    function rangeContainsPage(range: IPageRange, page: number) {
-        return page >= range.start && page <= range.end;
-    }
-
-    function hasMountedPageCanvas(pageNumber: number) {
-        return Boolean(
-            viewerContainer.value?.querySelector(
-                `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
-            ),
-        );
-    }
-
-    function hasRenderedContentInRange(range: IPageRange) {
-        if (!viewerContainer.value) {
-            return true;
-        }
-
-        for (let page = range.start; page <= range.end; page += 1) {
-            if (isPageRendered(page) || hasMountedPageCanvas(page)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    function isActiveDocumentRestoreRunCurrent(runId: number) {
-        return runId === activeDocumentRestoreRunId
-            && isActive.value
-            && !isLoading.value
-            && Boolean(pdfDocument.value);
-    }
-
-    async function waitForActivationRenderFrame() {
-        await nextTick();
-        await new Promise<void>((resolve) => {
-            if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-                window.requestAnimationFrame(() => resolve());
-                return;
-            }
-            setTimeout(resolve, 0);
-        });
-    }
-
-    async function restoreCurrentPageViewportForActivation() {
-        updateVisibleRange(viewerContainer.value, numPages.value);
-        const visible = visibleRange.value;
-        if (
-            !viewerContainer.value
-            || numPages.value <= 0
-            || rangeContainsPage(visible, currentPage.value)
-        ) {
-            return;
-        }
-
-        scrollToPage(currentPage.value);
-        await waitForActivationRenderFrame();
-        updateVisibleRange(viewerContainer.value, numPages.value);
-    }
-
-    async function renderActiveDocumentAfterActivation(runId: number) {
-        await restoreCurrentPageViewportForActivation();
-        if (!isActiveDocumentRestoreRunCurrent(runId)) {
-            return;
-        }
-
-        const activationRange = {...visibleRange.value};
-        await renderVisiblePages(activationRange, { preserveRenderedPages: true });
-        if (!isActiveDocumentRestoreRunCurrent(runId)) {
-            return;
-        }
-
-        const currentRow = getCurrentPageRowRange();
-        if (hasRenderedContentInRange(currentRow)) {
-            applySearchHighlights();
-            return;
-        }
-
-        if (!rangeContainsPage(visibleRange.value, currentPage.value)) {
-            scrollToPage(currentPage.value);
-            await waitForActivationRenderFrame();
-            updateVisibleRange(viewerContainer.value, numPages.value);
-            if (!isActiveDocumentRestoreRunCurrent(runId)) {
-                return;
-            }
-        }
-
-        await renderVisiblePages(currentRow, {
-            preserveRenderedPages: true,
-            forceRerender: true,
-            bufferOverride: 0,
-        });
-        if (!isActiveDocumentRestoreRunCurrent(runId)) {
-            return;
-        }
-        applySearchHighlights();
-    }
+    const {
+        nextActivationRestoreRunId,
+        isActivationRestoreRunCurrent,
+        renderActiveDocumentAfterActivation,
+    } = usePdfViewerActivationRestore({
+        viewerContainer,
+        pdfDocument,
+        isActive,
+        isLoading,
+        numPages,
+        currentPage,
+        visibleRange,
+        viewMode,
+        updateVisibleRange,
+        scrollToPage,
+        renderVisiblePages,
+        isPageRendered,
+        applySearchHighlights,
+    });
 
     const rerenderSyncDelegate = createRequiredDelegate<
         [syncOptions?: ICurrentPageSyncOptions],
@@ -641,12 +543,18 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
     rerenderSyncDelegate.bind(reRenderVisiblePagesAndSyncCurrentPageFromCoordinator);
 
-    function scheduleSetAnnotationTool(tool: TAnnotationTool, stage: string) {
-        runGuardedTask(() => editor.setAnnotationTool(tool), {
-            scope: 'pdf-viewer',
-            message: `Failed to ${stage}`,
-        });
-    }
+    const { scheduleSetAnnotationTool } = usePdfViewerAnnotationRuntimeBridge({
+        isActive,
+        currentPage,
+        effectiveScale,
+        annotationTool,
+        annotationCursorMode,
+        annotationSettings,
+        annotationUiManager,
+        annotationCommentsCache,
+        activeCommentStableKey,
+        annotations,
+    });
 
     function undoAnnotation() {
         annotationUiManager.value?.undo();
@@ -654,28 +562,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     function redoAnnotation() {
         annotationUiManager.value?.redo();
     }
-
-    const documentTarget = typeof document !== 'undefined' ? document : null;
-    useEventListener(
-        documentTarget,
-        'selectionchange',
-        () => {
-            if (isActive.value) {
-                highlight.cacheCurrentTextSelection();
-            }
-        },
-        { passive: true },
-    );
-    useEventListener(
-        documentTarget,
-        'pointerup',
-        (event) => {
-            if (isActive.value && event instanceof PointerEvent) {
-                highlight.handleDocumentPointerUp(event);
-            }
-        },
-        { passive: true },
-    );
 
     onMounted(() => {
         inlineIndicators.attachInlineCommentMarkerObserver();
@@ -685,10 +571,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
 
     watch(isActive, async (active) => {
-        const runId = ++activeDocumentRestoreRunId;
+        const runId = nextActivationRestoreRunId();
         if (active) {
             await nextTick();
-            if (runId !== activeDocumentRestoreRunId || !isActive.value) {
+            if (!isActivationRestoreRunCurrent(runId)) {
                 return;
             }
             scheduleSetAnnotationTool(annotationTool.value, 'restore annotation tool after tab activation');
@@ -729,7 +615,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(src, (newSrc, oldSrc) => {
         if (newSrc !== oldSrc) {
-            activeDocumentRestoreRunId += 1;
+            nextActivationRestoreRunId();
             resetRenderStallRecoveryState();
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {
@@ -757,83 +643,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             scheduleLoadFromSource(isReload);
         }
     });
-
-    const annotationCommentStableKeys = computed(() =>
-        annotationCommentsCache.value.map(comment => comment.stableKey),
-    );
-    watch(
-        annotationCommentStableKeys,
-        (stableKeys) => {
-            const activeKey = activeCommentStableKey.value;
-            if (!activeKey) {
-                return;
-            }
-            if (!stableKeys.includes(activeKey)) {
-                activeCommentStableKey.value = null;
-            }
-        },
-    );
-
-    watch(effectiveScale, (scale) => {
-        if (!isActive.value) {
-            return;
-        }
-        annotationUiManager.value?.onScaleChanging({scale: scale / PixelsPerInch.PDF_TO_CSS_UNITS});
-        const syncMarkupSubtypePresentation = () => {
-            annotations.editor.markupSubtype.syncMarkupSubtypePresentationForEditors();
-        };
-        if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(syncMarkupSubtypePresentation);
-        } else {
-            queueMicrotask(syncMarkupSubtypePresentation);
-        }
-    });
-
-    watch(currentPage, (page) => {
-        if (!isActive.value) {
-            return;
-        }
-        annotationUiManager.value?.onPageChanging({ pageNumber: page });
-    });
-
-    watch(
-        annotationTool,
-        (tool) => {
-            if (!isActive.value) {
-                return;
-            }
-            if (tool !== 'none') highlight.cancelCommentPlacement();
-            scheduleSetAnnotationTool(tool, `apply annotation tool "${tool}"`);
-        },
-        { immediate: true },
-    );
-
-    watch(annotationCursorMode, () => {
-        if (!isActive.value) {
-            return;
-        }
-        if (annotationTool.value === 'none') {
-            scheduleSetAnnotationTool('none', 're-apply annotation cursor mode');
-        }
-    });
-
-    const annotationSettingsSignature = computed(() => {
-        const settings = annotationSettings.value;
-        if (!settings) {
-            return '';
-        }
-        return Object.values(settings).join('|');
-    });
-    watch(
-        annotationSettingsSignature,
-        () => {
-            if (!isActive.value) {
-                return;
-            }
-            editor.applyAnnotationSettings(annotationSettings.value);
-        },
-        {immediate: true},
-    );
 
     const isEffectivelyLoading = computed(() => !!src.value && isLoading.value);
 
