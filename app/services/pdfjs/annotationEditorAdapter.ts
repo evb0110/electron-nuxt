@@ -315,7 +315,7 @@ export function addUndoableEditorToLayer(
     return false;
 }
 
-export function rebuildEditorForHistory(
+function rebuildEditorForHistory(
     layer: IPdfjsAnnotationEditorLayer | IPdfjsEditorParent | null,
     editor: IPdfjsEditor | null,
 ) {
@@ -345,7 +345,7 @@ export function rebuildEditorForHistory(
     return false;
 }
 
-export function removeEditorForHistory(editor: IPdfjsEditor | null) {
+function removeEditorForHistory(editor: IPdfjsEditor | null) {
     if (!editor) {
         return false;
     }

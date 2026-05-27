@@ -20,15 +20,22 @@ import type {
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 
-const { deleteEmbeddedAnnotationOffThread } = vi.hoisted(() => ({deleteEmbeddedAnnotationOffThread: vi.fn(async (
-    _data: Uint8Array,
-    _comment: IAnnotationCommentSummary,
-) => new Uint8Array([
-    8,
-    8,
-]))}));
+const {
+    deleteEmbeddedAnnotationOffThread,
+    resolveAnnotationCommentTextMarkupColor,
+} = vi.hoisted(() => ({
+    deleteEmbeddedAnnotationOffThread: vi.fn(async (
+        _data: Uint8Array,
+        _comment: IAnnotationCommentSummary,
+    ) => new Uint8Array([
+        8,
+        8,
+    ])),
+    resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null),
+}));
 
 vi.mock('@app/composables/pdf/pdfSerializationWorkerClient', () => ({deleteEmbeddedAnnotationOffThread}));
+vi.mock('@app/composables/pdf/annotations/annotationDomRemoval', () => ({resolveAnnotationCommentTextMarkupColor}));
 
 function createComment(stableKey: string): IAnnotationCommentSummary {
     return {
@@ -173,6 +180,9 @@ function createHarness() {
         restoreAnnotationToCache: vi.fn(),
         queuePendingEmbeddedAnnotationDelete: vi.fn(),
         unqueuePendingEmbeddedAnnotationDelete: vi.fn(),
+        markPreservedAnnotationSourceDirty: vi.fn(),
+        setPreservedAnnotationSourceDirty: vi.fn(),
+        getAnnotationCommentsSnapshot: vi.fn(() => []),
         getEmbeddedMutationBaseData: vi.fn(async () => new Uint8Array([
             6,
             6,
@@ -194,6 +204,8 @@ function createHarness() {
 
 beforeEach(() => {
     deleteEmbeddedAnnotationOffThread.mockClear();
+    resolveAnnotationCommentTextMarkupColor.mockReset();
+    resolveAnnotationCommentTextMarkupColor.mockReturnValue(null);
     vi.stubGlobal('useTypedI18n', () => ({
         t: (key: string) => key,
         setLocale: vi.fn(async () => {}),
@@ -578,9 +590,13 @@ describe('usePageAnnotationActions', () => {
             settingsKey: 'strikethroughColor',
             subtype: 'StrikeOut',
         },
+        {
+            settingsKey: 'squigglyColor',
+            subtype: 'Squiggly',
+        },
     ] as const)(
-        'updates %s context menu color immediately after viewer repaint succeeds',
-        ({
+        'updates %s materialized context menu color without reloading and records history',
+        async ({
             settingsKey,
             subtype,
         }) => {
@@ -596,12 +612,116 @@ describe('usePageAnnotationActions', () => {
 
             actions.handleContextTextMarkupColorUpdate('#ef4444');
 
-            expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenCalledWith(comment, '#ef4444');
+            expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    stableKey: comment.stableKey,
+                    color: '#22c55e',
+                    colorEdited: true,
+                }),
+                '#ef4444',
+            );
             expect(deps.annotationContextMenu.value.comment?.color).toBe('#ef4444');
             expect(deps.annotationContextMenu.value.comment?.colorEdited).toBe(true);
             expect(deps.annotationSettings.value[settingsKey]).toBe('#ef4444');
+            expect(deps.restoreAnnotationToCache).toHaveBeenCalledWith(expect.objectContaining({
+                stableKey: comment.stableKey,
+                color: '#ef4444',
+                colorEdited: true,
+            }));
+            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenCalledWith(expect.objectContaining({
+                stableKey: comment.stableKey,
+                color: '#ef4444',
+                colorEdited: true,
+            }));
+            expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+            expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+            const historyCommand = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
+            historyCommand?.undo();
+            expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    stableKey: comment.stableKey,
+                    color: '#ef4444',
+                    colorEdited: false,
+                }),
+                '#22c55e',
+            );
+            expect(deps.restoreAnnotationToCache).toHaveBeenLastCalledWith(expect.objectContaining({
+                stableKey: comment.stableKey,
+                color: '#22c55e',
+                colorEdited: false,
+            }));
+            historyCommand?.cmd();
+            expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    stableKey: comment.stableKey,
+                    color: '#22c55e',
+                }),
+                '#ef4444',
+            );
+            expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenCalledWith(true);
+            expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenCalledWith(false);
         },
     );
+
+    it('uses rendered materialized color as undo baseline when the cached comment has no color', () => {
+        const {
+            deps,
+            viewer,
+            viewerContainer,
+            actions,
+        } = createHarness();
+        viewerContainer.value = {
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            querySelector: vi.fn(() => null),
+        };
+        resolveAnnotationCommentTextMarkupColor.mockReturnValue('#ef4444');
+        const comment = createComment('context-color-rendered-baseline');
+        comment.subtype = 'Highlight';
+        comment.color = null;
+        deps.annotationContextMenu.value.comment = comment;
+
+        actions.handleContextTextMarkupColorUpdate('#22c55e');
+
+        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+        const historyCommand = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
+        historyCommand?.undo();
+        expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                stableKey: comment.stableKey,
+                color: '#22c55e',
+                colorEdited: false,
+            }),
+            '#ef4444',
+        );
+        expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenLastCalledWith(false);
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+    });
+
+    it('keeps rapid materialized text markup color updates latest-wins without reload', () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('context-color-rapid');
+        comment.subtype = 'Underline';
+        comment.color = '#dc2626';
+        viewer.updateTextMarkupAnnotationColor.mockReturnValue(false);
+        deps.annotationContextMenu.value.comment = comment;
+
+        actions.handleContextTextMarkupColorUpdate('#22c55e');
+        deps.annotationContextMenu.value.comment = {
+            ...comment,
+            color: '#22c55e',
+            colorEdited: true,
+        };
+        actions.handleContextTextMarkupColorUpdate('#2563eb');
+
+        expect(deps.annotationContextMenu.value.comment?.color).toBe('#2563eb');
+        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
+        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledTimes(2);
+    });
 
     it('closes the context menu when free note placement fails', async () => {
         const {

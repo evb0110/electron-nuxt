@@ -16,7 +16,7 @@
                 {{ annotationLabel }}
             </p>
             <button
-                v-if="!isImageComment"
+                v-if="canOpenNote && !isImageComment"
                 type="button"
                 class="pdf-context-menu__action"
                 @click="openNote"
@@ -155,6 +155,7 @@ interface IContextMenuState {
         stableKey: string;
         text: string;
         color?: string | null;
+        hasNote?: boolean | undefined;
         source?: string | undefined;
         subtype?: string | null | undefined;
     } | null;
@@ -197,6 +198,7 @@ const EDITABLE_COLOR_SUBTYPES = new Set([
     'underline',
     'strikeout',
     'strikethrough',
+    'squiggly',
 ]);
 
 function getFallbackColorForSubtype(subtype: string | null | undefined) {
@@ -207,8 +209,26 @@ function getFallbackColorForSubtype(subtype: string | null | undefined) {
     if (normalizedSubtype === 'strikeout' || normalizedSubtype === 'strikethrough') {
         return DEFAULT_ANNOTATION_SETTINGS.strikethroughColor;
     }
+    if (normalizedSubtype === 'squiggly') {
+        return DEFAULT_ANNOTATION_SETTINGS.squigglyColor;
+    }
     return DEFAULT_ANNOTATION_SETTINGS.highlightColor;
 }
+
+const canOpenNote = computed(() => {
+    const comment = props.menu.comment;
+    if (!comment) {
+        return false;
+    }
+    const subtype = comment.subtype?.trim().toLowerCase() ?? '';
+    return comment.text.trim().length > 0
+        || comment.hasNote === true
+        || subtype === 'text'
+        || subtype === 'note-linked'
+        || subtype === 'note-inline'
+        || subtype.includes('popup')
+        || subtype.includes('note');
+});
 
 function normalizeColorInputValue(
     color: string | null | undefined,

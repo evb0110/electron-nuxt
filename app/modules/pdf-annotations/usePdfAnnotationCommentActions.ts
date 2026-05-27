@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-annotations/usePdfAnnotationCommentModel';
-import type { usePdfShapeTool } from '@app/modules/pdf-viewer-tools/usePdfShapeTool';
+import type { usePdfShapeTool } from '@app/modules/pdf-viewer-tools/public';
 import type { IPageRange } from '@app/composables/pdf/pdfPageBufferManager';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

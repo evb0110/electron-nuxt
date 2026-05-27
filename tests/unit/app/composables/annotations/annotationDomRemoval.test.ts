@@ -180,7 +180,11 @@ class FakeElement {
     }
 
     getBoundingClientRect() {
-        return this.rect as DOMRect;
+        return {
+            ...this.rect,
+            bottom: this.rect.top + this.rect.height,
+            right: this.rect.left + this.rect.width,
+        } as DOMRect;
     }
 
     contains(element: FakeElement): boolean {
@@ -257,9 +261,6 @@ class FakeElement {
             if (part === 'mark' || part === 'u' || part === 's') {
                 return this.tagName.toLowerCase() === part;
             }
-            if (part === '.pdf-text-markup-color-override') {
-                return this.classList.contains('pdf-text-markup-color-override');
-            }
             return false;
         });
     }
@@ -292,10 +293,40 @@ class FakePage extends FakeElement {
         if (selector === 'canvas') {
             return ownMatches;
         }
-        if (selector.includes('svg') || selector.includes('path') || selector.includes('line') || selector.includes('pdf-text-markup-color-override')) {
+        if (selector.includes('svg') || selector.includes('path') || selector.includes('line')) {
             return ownMatches;
         }
         return [];
+    }
+}
+
+class FakeCanvas extends FakeElement {
+    height: number;
+    putImageDataCalls = 0;
+    width: number;
+    private readonly pixelData: Uint8ClampedArray;
+
+    constructor(rect: IFakeRect, pixelData: Uint8ClampedArray) {
+        super('canvas', rect);
+        this.width = rect.width;
+        this.height = rect.height;
+        this.pixelData = pixelData;
+    }
+
+    getContext(type: string) {
+        if (type !== '2d') {
+            return null;
+        }
+        return {
+            getImageData: vi.fn(() => ({
+                data: this.pixelData,
+                height: this.height,
+                width: this.width,
+            })),
+            putImageData: vi.fn(() => {
+                this.putImageDataCalls += 1;
+            }),
+        };
     }
 }
 
@@ -563,6 +594,192 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
         },
     );
 
+    it('recolors canvas-backed materialized text markup without a page reload', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 100,
+            height: 100,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 100,
+            height: 100,
+        });
+        connectPage(container, page);
+        const pixels = new Uint8ClampedArray([
+            255,
+            230,
+            80,
+            255,
+            255,
+            255,
+            255,
+            255,
+            0,
+            0,
+            0,
+            255,
+            255,
+            230,
+            80,
+            255,
+        ]);
+        const canvas = new FakeCanvas({
+            left: 0,
+            top: 0,
+            width: 2,
+            height: 2,
+        }, pixels);
+        connectToPage(page, canvas);
+
+        const didUpdate = applyAnnotationCommentTextMarkupColor(
+            toHTMLElement(container),
+            createComment({
+                annotationId: null,
+                subtype: 'Highlight',
+                markerRect: {
+                    left: 0,
+                    top: 0,
+                    width: 1,
+                    height: 1,
+                },
+            }),
+            '#ec4899',
+        );
+
+        expect(didUpdate).toBe(true);
+        expect(canvas.putImageDataCalls).toBe(1);
+        expect(Array.from(pixels)).toEqual([
+            236,
+            72,
+            153,
+            255,
+            255,
+            255,
+            255,
+            255,
+            0,
+            0,
+            0,
+            255,
+            236,
+            72,
+            153,
+            255,
+        ]);
+    });
+
+    it('does not recolor overlapping highlight fill when repainting canvas-backed underline', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 100,
+            height: 100,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 100,
+            height: 100,
+        });
+        connectPage(container, page);
+        const pixels = new Uint8ClampedArray([
+            236,
+            72,
+            153,
+            255,
+            236,
+            72,
+            153,
+            255,
+            236,
+            72,
+            153,
+            255,
+            236,
+            72,
+            153,
+            255,
+            239,
+            68,
+            68,
+            255,
+            239,
+            68,
+            68,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+        ]);
+        const canvas = new FakeCanvas({
+            left: 0,
+            top: 0,
+            width: 2,
+            height: 4,
+        }, pixels);
+        connectToPage(page, canvas);
+
+        const didUpdate = applyAnnotationCommentTextMarkupColor(
+            toHTMLElement(container),
+            createComment({
+                annotationId: null,
+                subtype: 'Underline',
+                markerRect: {
+                    left: 0,
+                    top: 0,
+                    width: 1,
+                    height: 1,
+                },
+            }),
+            '#22c55e',
+            { sourceColor: '#ef4444' },
+        );
+
+        expect(didUpdate).toBe(true);
+        expect(Array.from(pixels)).toEqual([
+            236,
+            72,
+            153,
+            255,
+            236,
+            72,
+            153,
+            255,
+            236,
+            72,
+            153,
+            255,
+            236,
+            72,
+            153,
+            255,
+            34,
+            197,
+            94,
+            255,
+            34,
+            197,
+            94,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+            255,
+        ]);
+    });
+
     it('recolors the matching draw-layer highlight instead of stacking annotation-layer background', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         refresh.mockClear();
@@ -727,10 +944,8 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             '#ec4899',
         );
 
-        const overlay = page.querySelectorAll('.pdf-text-markup-color-override')[0];
         expect(didUpdate).toBe(false);
         expect(outlineRect.getAttribute('stroke')).toBe('#111827');
-        expect(overlay).toBeUndefined();
         expect(refresh).not.toHaveBeenCalled();
     });
 
@@ -808,14 +1023,12 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             '#22c55e',
         );
 
-        const overlay = page.querySelectorAll('.pdf-text-markup-color-override')[0];
         expect(didUpdate).toBe(true);
         expect(baseHighlightSvg.getAttribute('fill')).toBe('transparent');
         expect(baseHighlightUse.getAttribute('fill')).toBe('transparent');
         expect(baseHighlightSvg.getAttribute('stroke')).toBe('transparent');
         expect(baseHighlightPath.getAttribute('stroke')).toBe('transparent');
         expect(underlinePath.getAttribute('stroke')).toBe('#22c55e');
-        expect(overlay).toBeUndefined();
     });
 
     it('suppresses unclassified PDF.js highlight geometry when recoloring underline markup', () => {
@@ -931,9 +1144,7 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             '#ef4444',
         );
 
-        const overlay = page.querySelectorAll('.pdf-text-markup-color-override')[0];
         expect(didUpdate).toBe(true);
-        expect(overlay).toBeUndefined();
         expect(staleAnnotationNode.style.textDecorationColor).toBe('#ef4444');
         expect(staleAnnotationNode.style.borderColor).toBe('');
         expect(staleAnnotationNode.style.color).toBe('');
@@ -969,9 +1180,7 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             '#3b82f6',
         );
 
-        const overlay = page.querySelectorAll('.pdf-text-markup-color-override')[0];
         expect(didUpdate).toBe(false);
-        expect(overlay).toBeUndefined();
     });
 });
 

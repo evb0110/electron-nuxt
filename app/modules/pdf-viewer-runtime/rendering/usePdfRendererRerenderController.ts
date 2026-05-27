@@ -279,8 +279,3 @@ export function usePdfRendererRerenderController(options: IUsePdfRendererRerende
 
     return {reRenderAllVisiblePages};
 }
-
-export type {
-    IRerenderAllVisiblePagesOptions,
-    IRerenderAllVisiblePagesOptionsWithExplicitUndefined,
-};

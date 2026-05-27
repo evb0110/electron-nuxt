@@ -24,7 +24,7 @@ export interface IPdfAnnotationCommentModel {
     ) => void;
     upsertComment(comment: IAnnotationCommentSummary): void;
     toTextMarkupSubtype(comment: IAnnotationCommentSummary): TMarkupSubtype | null;
-    updateCachedColor(comment: IAnnotationCommentSummary, color: string): void;
+    updateCachedColor(comment: IAnnotationCommentSummary, color: string, options?: { colorEdited?: boolean }): void;
     withTransientNoteCreationTimestamp(comment: IAnnotationCommentSummary): IAnnotationCommentSummary;
     markLocallyDeleted(comment: IAnnotationCommentSummary): void;
     restoreLocally(comment: IAnnotationCommentSummary): void;

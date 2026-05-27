@@ -10,10 +10,12 @@ import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializatio
 import { isImportedEmbeddedShapeSubtype } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import type { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
-import { usePdfAnnotationCommentModel } from '@app/modules/pdf-annotations/usePdfAnnotationCommentModel';
-import { usePdfAnnotationColorCommands } from '@app/modules/pdf-annotations/usePdfAnnotationColorCommands';
-import { usePdfAnnotationCommentActions } from '@app/modules/pdf-annotations/usePdfAnnotationCommentActions';
-import { usePdfShapeTool } from '@app/modules/pdf-viewer-tools/usePdfShapeTool';
+import {
+    usePdfAnnotationColorCommands,
+    usePdfAnnotationCommentActions,
+    usePdfAnnotationCommentModel,
+} from '@app/modules/pdf-annotations/public';
+import { usePdfShapeTool } from '@app/modules/pdf-viewer-tools/public';
 import { usePdfViewerPortalAnnotationHandlers } from '@app/modules/pdf-viewer-runtime/annotations/usePdfViewerPortalAnnotationHandlers';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { BrowserLogger } from '@app/utils/browserLogger';
