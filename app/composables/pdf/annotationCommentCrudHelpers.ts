@@ -149,6 +149,123 @@ export function findPdfAnnotationSummaryFromTarget(
     )) ?? annotationCommentsCache.find(c => c.annotationId === annotationId) ?? null;
 }
 
+function findSummaryForAnnotationElement(
+    annotationElement: HTMLElement,
+    pageIndex: number,
+    annotationCommentsCache: IAnnotationCommentSummary[],
+) {
+    const annotationId = annotationElement.dataset.annotationId
+        ?? annotationElement.getAttribute('data-annotation-id');
+    if (!annotationId) {
+        return null;
+    }
+    return annotationCommentsCache.find(c => c.annotationId === annotationId && c.pageIndex === pageIndex)
+        ?? annotationCommentsCache.find(c => c.annotationId === annotationId)
+        ?? null;
+}
+
+function findPdfAnnotationSummaryFromElementsAtPoint(
+    target: HTMLElement,
+    clientX: number,
+    clientY: number,
+    pageIndex: number,
+    annotationCommentsCache: IAnnotationCommentSummary[],
+) {
+    const elementsFromPoint = target.ownerDocument.elementsFromPoint?.(clientX, clientY) ?? [];
+    for (const element of elementsFromPoint) {
+        const annotationElement = element.closest?.<HTMLElement>(
+            '.annotationLayer [data-annotation-id], .annotation-layer [data-annotation-id]',
+        );
+        if (!annotationElement) {
+            continue;
+        }
+        const summary = findSummaryForAnnotationElement(annotationElement, pageIndex, annotationCommentsCache);
+        if (summary) {
+            return summary;
+        }
+    }
+    return null;
+}
+
+function pointDistanceToRect(clientX: number, clientY: number, rect: DOMRect) {
+    const dx = clientX < rect.left
+        ? rect.left - clientX
+        : clientX > rect.right
+            ? clientX - rect.right
+            : 0;
+    const dy = clientY < rect.top
+        ? rect.top - clientY
+        : clientY > rect.bottom
+            ? clientY - rect.bottom
+            : 0;
+    return Math.hypot(dx, dy);
+}
+
+function findPdfAnnotationSummaryFromAnnotationLayerGeometry(
+    pageContainer: HTMLElement,
+    clientX: number,
+    clientY: number,
+    pageIndex: number,
+    annotationCommentsCache: IAnnotationCommentSummary[],
+) {
+    let bestSummary: IAnnotationCommentSummary | null = null;
+    let bestElementIndex = -1;
+    let bestScore = Number.POSITIVE_INFINITY;
+    pageContainer.querySelectorAll<HTMLElement>(
+        '.annotationLayer [data-annotation-id], .annotation-layer [data-annotation-id]',
+    ).forEach((annotationElement, index) => {
+        const rect = annotationElement.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+        const tolerance = Math.max(4, Math.min(14, rect.height + 4));
+        const distance = pointDistanceToRect(clientX, clientY, rect);
+        if (distance > tolerance) {
+            return;
+        }
+        const summary = findSummaryForAnnotationElement(annotationElement, pageIndex, annotationCommentsCache);
+        if (!summary) {
+            return;
+        }
+        const areaScore = rect.width * rect.height;
+        const score = (distance * 1_000_000) + areaScore;
+        if (score < bestScore || (score === bestScore && index > bestElementIndex)) {
+            bestScore = score;
+            bestElementIndex = index;
+            bestSummary = summary;
+        }
+    });
+    return bestSummary;
+}
+
+function getSummaryRecencyScore(summary: IAnnotationCommentSummary, index: number) {
+    return [
+        summary.modifiedAt ?? summary.createdAt ?? 0,
+        index,
+    ] as const;
+}
+
+function shouldPreferPointSummaryTie(
+    candidate: IAnnotationCommentSummary,
+    candidateIndex: number,
+    current: IAnnotationCommentSummary | null,
+    currentIndex: number,
+) {
+    if (!current) {
+        return true;
+    }
+    const [
+        candidateTime,
+        candidateOrder,
+    ] = getSummaryRecencyScore(candidate, candidateIndex);
+    const [
+        currentTime,
+        currentOrder,
+    ] = getSummaryRecencyScore(current, currentIndex);
+    return candidateTime > currentTime
+        || (candidateTime === currentTime && candidateOrder > currentOrder);
+}
+
 export function findAnnotationSummaryFromPoint(
     target: HTMLElement,
     clientX: number,
@@ -169,6 +286,29 @@ export function findAnnotationSummaryFromPoint(
     if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
         return null;
     }
+    const pageIndex = Math.max(0, pageNumber - 1);
+
+    const pointElementSummary = findPdfAnnotationSummaryFromElementsAtPoint(
+        target,
+        clientX,
+        clientY,
+        pageIndex,
+        annotationCommentsCache,
+    );
+    if (pointElementSummary) {
+        return pointElementSummary;
+    }
+
+    const annotationGeometrySummary = findPdfAnnotationSummaryFromAnnotationLayerGeometry(
+        pageContainer,
+        clientX,
+        clientY,
+        pageIndex,
+        annotationCommentsCache,
+    );
+    if (annotationGeometrySummary) {
+        return annotationGeometrySummary;
+    }
 
     const pageRect = pageContainer.getBoundingClientRect();
     if (pageRect.width <= 0 || pageRect.height <= 0) {
@@ -181,9 +321,10 @@ export function findAnnotationSummaryFromPoint(
     const toleranceY = 14 / pageRect.height;
 
     let bestSummary: IAnnotationCommentSummary | null = null;
+    let bestSummaryIndex = -1;
     let bestScore = Number.POSITIVE_INFINITY;
 
-    annotationCommentsCache.forEach((summary) => {
+    annotationCommentsCache.forEach((summary, index) => {
         if (summary.pageNumber !== pageNumber) {
             return;
         }
@@ -207,9 +348,16 @@ export function findAnnotationSummaryFromPoint(
         const areaScore = rect.width * rect.height;
         const score = distanceScore + areaScore;
 
-        if (score < bestScore) {
+        if (
+            score < bestScore
+            || (
+                score === bestScore
+                && shouldPreferPointSummaryTie(summary, index, bestSummary, bestSummaryIndex)
+            )
+        ) {
             bestScore = score;
             bestSummary = summary;
+            bestSummaryIndex = index;
         }
     });
 

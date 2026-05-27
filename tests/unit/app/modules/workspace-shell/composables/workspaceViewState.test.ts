@@ -135,4 +135,39 @@ describe('useWorkspaceViewState', () => {
         expect(state.isAnnotationUndoContext.value).toBe(false);
         expect(state.canUndo.value).toBe(true);
     });
+
+    it('enables app-routed PDF.js annotation undo before live dirty detection catches up', () => {
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('annotations'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: false,
+                hasSomethingToUndo: true,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+                hasAppAnnotationUndoHistory: true,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            pdfViewerRef: ref({
+                scrollToPage: () => {},
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        expect(state.isAnnotationUndoContext.value).toBe(true);
+        expect(state.canUndo.value).toBe(true);
+    });
 });

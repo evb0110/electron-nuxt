@@ -143,6 +143,11 @@
 import PdfContextMenuBase from '@app/components/pdf/PdfContextMenuBase.vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import {
+    parseCssRgbColor,
+    rgbToHex,
+} from '@app/composables/pdf/textMarkupColor';
 
 interface IContextMenuState {
     visible: boolean;
@@ -194,11 +199,30 @@ const EDITABLE_COLOR_SUBTYPES = new Set([
     'strikethrough',
 ]);
 
-function normalizeColorInputValue(color: string | null | undefined) {
-    const match = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color?.trim() ?? '');
+function getFallbackColorForSubtype(subtype: string | null | undefined) {
+    const normalizedSubtype = subtype?.trim().toLowerCase() ?? '';
+    if (normalizedSubtype === 'underline') {
+        return DEFAULT_ANNOTATION_SETTINGS.underlineColor;
+    }
+    if (normalizedSubtype === 'strikeout' || normalizedSubtype === 'strikethrough') {
+        return DEFAULT_ANNOTATION_SETTINGS.strikethroughColor;
+    }
+    return DEFAULT_ANNOTATION_SETTINGS.highlightColor;
+}
+
+function normalizeColorInputValue(
+    color: string | null | undefined,
+    subtype: string | null | undefined,
+) {
+    const value = color?.trim() ?? '';
+    const parsed = parseCssRgbColor(value);
+    if (parsed) {
+        return rgbToHex(parsed);
+    }
+    const match = /^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
     const hex = match?.groups?.hex;
     if (!hex) {
-        return '#ffd400';
+        return getFallbackColorForSubtype(subtype);
     }
     return hex.length === 3
         ? `#${hex.split('').map(channel => channel + channel).join('')}`
@@ -210,7 +234,10 @@ const canEditColor = computed(() => {
     return EDITABLE_COLOR_SUBTYPES.has(subtype);
 });
 
-const editableColor = computed(() => normalizeColorInputValue(props.menu.comment?.color));
+const editableColor = computed(() => normalizeColorInputValue(
+    props.menu.comment?.color,
+    props.menu.comment?.subtype,
+));
 
 function normalizeColorValue(color: string | null | undefined) {
     return color?.trim().toLowerCase() ?? '';

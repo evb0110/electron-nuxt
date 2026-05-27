@@ -27,6 +27,15 @@ export interface IPdfjsDrawLayer {
 }
 
 export interface IPdfjsEditorParent {
+    add?: (editor: IPdfjsEditor) => unknown;
+    addOrRebuild?: (editor: IPdfjsEditor) => unknown;
+    addCommands?: (params: {
+        __evbSkipAppHistory?: boolean;
+        cmd: () => void;
+        mustExec: boolean;
+        undo: () => void;
+    }) => unknown;
+    addUndoableEditor?: (editor: IPdfjsEditor) => unknown;
     div?: HTMLElement;
     drawLayer?: IPdfjsDrawLayer;
 }
@@ -59,9 +68,11 @@ export interface IPdfjsEditor {
     setDims?: () => void;
     fixAndSetPosition?: () => void;
     parent?: IPdfjsEditorParent;
+    _uiManager?: { rebuild?: (editor: IPdfjsEditor) => unknown };
     __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
     __evbResolvedPageIndex?: number;
     __evbPlacementAttemptId?: string | null;
+    __evbCreationHistoryRegistered?: boolean;
     __evbMarkupSubtypeColor?: string | null;
     __evbMarkupBoxes?: IPdfjsHighlightBox[] | null;
     __evbSelectionText?: string | null;
@@ -85,7 +96,7 @@ export interface IPdfjsEditorConstructorLike {updateDefaultParams?: (type: numbe
 
 export interface IPdfjsEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
 
-export interface IPdfjsAnnotationEditorLayer {
+export interface IPdfjsAnnotationEditorLayer extends IPdfjsEditorParent {
     div: HTMLElement;
     createAndAddNewEditor: (
         event: PointerEvent,

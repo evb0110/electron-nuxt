@@ -387,6 +387,8 @@ describe('useAnnotationToolState', () => {
         }) as never);
 
         manager.setEditorMarkupSubtypeOverride(highlightEditor as never, 0, 'Highlight');
+        highlightEditor.onUpdatedColor.mockClear();
+        highlightEditor.addToAnnotationStorage.mockClear();
 
         expect(manager.updateSelectedTextMarkupAnnotationColor('#336699')).toBe(true);
         expect(highlightEditor.color).toBe('#85a3c2');
@@ -405,6 +407,125 @@ describe('useAnnotationToolState', () => {
             pageIndex: 0,
             source: 'editor-live',
         });
+    });
+
+    it('reapplies underline presentation after PDF.js updates editor color', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const div = new FakeMarkupElement();
+        const underlineEditor = {
+            id: 'underline-1',
+            color: '#00ff00',
+            isSelected: true,
+            parentPageIndex: 0,
+            div,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.04,
+            onUpdatedColor: vi.fn(() => {
+                div.dataset.markupSubtypeColor = '#111827';
+                div.style.setProperty('--pdf-markup-subtype-color', '#111827');
+            }),
+            addToAnnotationStorage: vi.fn(),
+        };
+        underlineEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({ getEditors: vi.fn(() => [underlineEditor]) });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'underline',
+        }) as never);
+
+        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        underlineEditor.onUpdatedColor.mockClear();
+        underlineEditor.addToAnnotationStorage.mockClear();
+
+        expect(manager.updateSelectedTextMarkupAnnotationColor('#ef4444')).toBe(true);
+        expect(underlineEditor.onUpdatedColor).toHaveBeenCalledTimes(1);
+        expect(underlineEditor.div.dataset.markupSubtypeColor).toBe('#ef4444');
+        expect(underlineEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#ef4444');
+        expect(underlineEditor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
+    });
+
+    it('stores raw highlight color for selection-created editors instead of the opaque display color', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const highlightEditor = {
+            id: 'highlight-1',
+            color: '#ffff66',
+            opacity: 1,
+            __evbSelectionText: 'selected text',
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.04,
+        };
+        highlightEditor.div.classList.add('highlightEditor');
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'highlight',
+        }) as never);
+
+        expect(manager.resolveEditorMarkupSubtypeColor(highlightEditor as never, 'Highlight', 0)).toBe('#ffff00');
+        expect((highlightEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#ffff00');
+    });
+
+    it('uses raw highlight settings for active-tool subtype overrides while keeping the visual color opaque', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const highlightEditor = {
+            id: 'highlight-1',
+            color: '#ffff66',
+            opacity: 1,
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.04,
+            onUpdatedColor: vi.fn(),
+            addToAnnotationStorage: vi.fn(),
+        };
+        highlightEditor.div.classList.add('highlightEditor');
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'highlight',
+        }) as never);
+
+        manager.setEditorMarkupSubtypeOverride(
+            highlightEditor as never,
+            0,
+            'Highlight',
+            { preferEditorColor: false },
+        );
+
+        expect((highlightEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#ffff00');
+        expect(highlightEditor.color).toBe('#ffff66');
+        expect(highlightEditor.opacity).toBe(1);
+    });
+
+    it('prefers materialized annotation colors over stale editor defaults', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const underlineEditor = {
+            id: 'underline-1',
+            annotationElementId: '42R0',
+            color: '#ffd400',
+            opacity: 1,
+            div: new FakeMarkupElement(),
+        };
+        underlineEditor.div.classList.add('highlightEditor');
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager({ getEditors: vi.fn(() => [underlineEditor]) }), {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'underline',
+        }) as never);
+
+        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#ffd400');
+
+        manager.rememberMarkupSubtypeColorOverride('42R0', '#22c55e');
+
+        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#22c55e');
+        expect((underlineEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#22c55e');
     });
 
     it('records the per-page text markup order for subtype geometry hints', async () => {

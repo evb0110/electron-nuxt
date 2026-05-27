@@ -4,6 +4,7 @@ import type {
     IPdfjsEditor,
     IPdfjsEditorConstructorLike,
     IPdfjsEditorLayerWithGetEditorByUid,
+    IPdfjsEditorParent,
     IPdfjsEditorWithEditComment,
 } from '@app/types/pdfjs';
 import {
@@ -263,6 +264,92 @@ export function unselectAllEditors(
     }
 
     uiManager.unselectAll();
+    return true;
+}
+
+export function addUndoableEditorToLayer(
+    layer: IPdfjsAnnotationEditorLayer | IPdfjsEditorParent | null,
+    editor: IPdfjsEditor | null,
+    options: {
+        skipAppHistory?: boolean;
+        beforeUndo?: (editor: IPdfjsEditor) => void;
+        afterRedo?: (editor: IPdfjsEditor) => void;
+    } = {},
+) {
+    if (!editor) {
+        return false;
+    }
+    const target = layer ?? editor.parent ?? null;
+    // Some PDF.js creation paths add an editor to storage without installing an
+    // undo command. Prefer addCommands because it supports paired redo hooks.
+    const addCommands = getOptionalFunction<[{
+        cmd: () => void;
+        mustExec: boolean;
+        undo: () => void;
+    }], unknown>(target, 'addCommands');
+    if (addCommands) {
+        addCommands.call(target, {
+            ...(options.skipAppHistory ? { __evbSkipAppHistory: true } : {}),
+            cmd: () => {
+                rebuildEditorForHistory(target, editor);
+                options.afterRedo?.(editor);
+            },
+            undo: () => {
+                options.beforeUndo?.(editor);
+                removeEditorForHistory(editor);
+            },
+            mustExec: false,
+        });
+        return true;
+    }
+    const addUndoableEditor = getOptionalFunction<[IPdfjsEditor], unknown>(target, 'addUndoableEditor');
+    if (addUndoableEditor) {
+        addUndoableEditor.call(target, editor);
+        return true;
+    }
+    const parentAddUndoableEditor = getOptionalFunction<[IPdfjsEditor], unknown>(editor.parent, 'addUndoableEditor');
+    if (parentAddUndoableEditor) {
+        parentAddUndoableEditor.call(editor.parent, editor);
+        return true;
+    }
+    return false;
+}
+
+export function rebuildEditorForHistory(
+    layer: IPdfjsAnnotationEditorLayer | IPdfjsEditorParent | null,
+    editor: IPdfjsEditor | null,
+) {
+    if (!editor) {
+        return false;
+    }
+
+    const rebuild = getOptionalFunction<[IPdfjsEditor], unknown>(editor._uiManager, 'rebuild');
+    if (rebuild) {
+        rebuild.call(editor._uiManager, editor);
+        return true;
+    }
+
+    const target = editor.parent ?? layer;
+    const addOrRebuild = getOptionalFunction<[IPdfjsEditor], unknown>(target, 'addOrRebuild');
+    if (addOrRebuild) {
+        addOrRebuild.call(target, editor);
+        return true;
+    }
+
+    const add = getOptionalFunction<[IPdfjsEditor], unknown>(target, 'add');
+    if (add) {
+        add.call(target, editor);
+        return true;
+    }
+
+    return false;
+}
+
+export function removeEditorForHistory(editor: IPdfjsEditor | null) {
+    if (!editor) {
+        return false;
+    }
+    editor.remove?.();
     return true;
 }
 

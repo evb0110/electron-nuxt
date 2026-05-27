@@ -37,6 +37,7 @@ import {
 } from '@app/composables/pdf/annotationCssUtils';
 import { shouldIgnoreEditorEvent } from '@app/composables/pdf/annotations/annotationEditorEventGuards';
 import {
+    addUndoableEditorToLayer,
     asPdfjsEditor,
     clearSelectedEditorState,
     getEditorConstructor,
@@ -51,6 +52,7 @@ import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = Parameters<TAnnotationEditorUIManager['updateParams']>[1];
 type TUiManagerCommandParams = Parameters<TAnnotationEditorUIManager['addCommands']>[0] & {
+    __evbSkipAppHistory?: unknown;
     type?: unknown;
     overwriteIfSameType?: unknown;
 };
@@ -98,7 +100,13 @@ interface IEditorBridgeDeps {
         applyHighlightParamsForTool: (mgr: TAnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
         resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
         resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
-        setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
+        setEditorMarkupSubtypeOverride: (
+            e: IPdfjsEditor,
+            pi: number,
+            s: TMarkupSubtype,
+            opts?: { preferEditorColor?: boolean },
+        ) => void;
+        clearMarkupSubtypeEditorClass: (e: IPdfjsEditor) => void;
         applyEditorMarkupSubtypePresentation: (e: IPdfjsEditor, s: TMarkupSubtype | null) => void;
         syncMarkupSubtypePresentationForEditors: () => void;
         clearOverrides: () => void;
@@ -504,6 +512,9 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 detectEditorSubtype(normalizedEditorBeforeStorage) === 'Ink'
                 && normalizedEditorBeforeStorage?.annotationElementId == null
             );
+            // PDF.js assigns annotationElementId during storage insertion, so
+            // capture "new editor" before delegating to its original method.
+            const isNewStorageEditor = normalizedEditorBeforeStorage?.annotationElementId == null;
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
             const normalizedEditor = asPdfjsEditor(editor);
@@ -523,17 +534,59 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                     const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
                         ? (normalizedEditor.parentPageIndex as number)
                         : Math.max(0, currentPage.value - 1);
+                    const resolvedEditorSubtype = editorSubtype ?? detectEditorSubtype(normalizedEditor);
                     let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
                     if (!knownSubtype) {
                         knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
                     }
                     const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
-                    if (!knownSubtype && toolSubtype && shouldInferMarkupSubtypeFromActiveTool(normalizedEditor, editorSubtype, toolSubtype)) {
-                        markupSubtype.setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
+                    if (!knownSubtype && toolSubtype && shouldInferMarkupSubtypeFromActiveTool(normalizedEditor, resolvedEditorSubtype, toolSubtype)) {
+                        // The active tool is authoritative for underline/strike/squiggly creation;
+                        // do not preserve PDF.js' generic highlight-yellow default here.
+                        markupSubtype.setEditorMarkupSubtypeOverride(
+                            normalizedEditor,
+                            pageIndex,
+                            toolSubtype,
+                            { preferEditorColor: false },
+                        );
                         knownSubtype = toolSubtype;
                     }
                     if (knownSubtype) {
                         markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
+                    }
+                    if (
+                        resolvedEditorSubtype === 'Highlight'
+                        && isNewStorageEditor
+                        && !normalizedEditor.__evbCreationHistoryRegistered
+                    ) {
+                        // Toolbar-created text markup can reach storage without a PDF.js undo
+                        // command, so install one and mirror it into the app stack once.
+                        const undoRegistered = addUndoableEditorToLayer(uiManager, normalizedEditor, {
+                            skipAppHistory: true,
+                            // Our subtype SVGs are drawLayer-owned, not editor DOM children.
+                            beforeUndo: editorForUndo => markupSubtype.clearMarkupSubtypeEditorClass(editorForUndo),
+                            afterRedo: (editorForRedo) => {
+                                const subtypeForRedo = markupSubtype.resolveEditorMarkupSubtypeOverride(editorForRedo, pageIndex)
+                                    ?? knownSubtype
+                                    ?? markupSubtype.resolveEditorSubtypeFromPresentation(editorForRedo);
+                                if (subtypeForRedo) {
+                                    markupSubtype.applyEditorMarkupSubtypePresentation(editorForRedo, subtypeForRedo);
+                                }
+                            },
+                        });
+                        if (undoRegistered) {
+                            normalizedEditor.__evbCreationHistoryRegistered = true;
+                            if (!isPdfjsHistoryRouted?.()) {
+                                // If PDF.js already announced this creation, keep the toolbar at
+                                // one undo step for the single user action.
+                                recordPdfjsHistoryCommand?.({ overwriteIfSameType: true });
+                            }
+                            annotationState.value = {
+                                ...annotationState.value,
+                                isEmpty: false,
+                            };
+                            emitAnnotationState(annotationState.value);
+                        }
                     }
                 }
                 if (shouldClearSelectionAfterCreate) {
@@ -564,7 +617,8 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             if (typeof commandParams.type === 'number') {
                 historyParams.type = commandParams.type;
             }
-            if (!isPdfjsHistoryRouted?.()) {
+            if (!commandParams.__evbSkipAppHistory && !isPdfjsHistoryRouted?.()) {
+                // Commands installed manually above are mirrored after coalescing.
                 recordPdfjsHistoryCommand?.(historyParams);
             }
             commentSync.scheduleAnnotationCommentsSync();

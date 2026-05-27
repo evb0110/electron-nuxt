@@ -71,6 +71,10 @@ export interface IAnnotationEditorState {
     hasSomethingToUndo: boolean;
     hasSomethingToRedo: boolean;
     hasSelectedEditor: boolean;
+    // Separate app-routed history flags keep toolbar undo responsive when
+    // PDF.js storage state events arrive after command registration.
+    hasAppAnnotationUndoHistory?: boolean;
+    hasAppAnnotationRedoHistory?: boolean;
 }
 
 export interface IAnnotationModifiedPayload { forceDirty?: boolean }

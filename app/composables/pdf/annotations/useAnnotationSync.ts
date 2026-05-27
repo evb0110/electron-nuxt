@@ -21,7 +21,10 @@ import {
     detectEditorSubtype,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
 import { parsePdfDateTimestamp } from '@app/services/pdf/annotationMetadata';
-import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
+import {
+    annotationKindLabelFromSubtype,
+    isTextMarkupSubtype,
+} from '@app/services/pdf/annotationSubtype';
 import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -55,6 +58,8 @@ interface ISyncIdentity {
 interface ISyncMarkupSubtype {
     resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
+    resolveEditorMarkupSubtypeColor: (editor: IPdfjsEditor, subtype: TMarkupSubtype, pageIndex: number) => string;
+    rememberMarkupSubtypeColorOverride: (annotationId: string | null | undefined, color: string | null | undefined) => void;
     syncMarkupSubtypePresentationForEditors: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     forgetMarkupSubtypeOverride: (annotationId: string | null | undefined) => void;
@@ -224,6 +229,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     function rememberResolvedMarkupSubtypeOverride(
         annotationId: string | null,
         resolvedSubtype: string | null | undefined,
+        color: string | null | undefined,
         markupSubtype: ISyncMarkupSubtype,
     ) {
         const overrideRegistration = resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype);
@@ -231,6 +237,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             markupSubtype.forgetMarkupSubtypeOverride(annotationId);
             return;
         }
+        markupSubtype.rememberMarkupSubtypeColorOverride(annotationId, color);
         markupSubtype.getMarkupSubtypeOverrides().set(
             overrideRegistration.annotationId,
             overrideRegistration.subtype,
@@ -312,7 +319,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             ?? parsePdfDateTimestamp(data.modificationDate);
     }
 
-    function resolveEditorSummaryColor(editor: IPdfjsEditor, data: TEditorData) {
+    function resolveEditorSummaryColor(
+        editor: IPdfjsEditor,
+        data: TEditorData,
+        pageIndex: number,
+        subtype: string | null,
+        markupSubtype: ISyncMarkupSubtype,
+    ) {
+        if (isTextMarkupSubtype(subtype)) {
+            return markupSubtype.resolveEditorMarkupSubtypeColor(editor, subtype as TMarkupSubtype, pageIndex);
+        }
         return toCssColor(
             data.color ?? editor.color,
             data.opacity ?? editor.opacity ?? 1,
@@ -342,8 +358,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         const uid = editor.uid ?? null;
         const annotationId = editor.annotationElementId ?? null;
+        const color = resolveEditorSummaryColor(editor, data, pageIndex, resolvedSubtype, markupSubtype);
 
-        rememberResolvedMarkupSubtypeOverride(annotationId, resolvedSubtype, markupSubtype);
+        rememberResolvedMarkupSubtypeOverride(
+            annotationId,
+            resolvedSubtype,
+            color,
+            markupSubtype,
+        );
 
         const id = identity.getEditorIdentity(editor, pageIndex);
         const hasNote = resolveEditorSummaryHasNote(editor, pageIndex, identity);
@@ -371,7 +393,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             author: resolveEditorSummaryAuthor(),
             createdAt: resolveEditorSummaryCreatedAt(data),
             modifiedAt: resolveEditorSummaryModifiedAt(data),
-            color: resolveEditorSummaryColor(editor, data),
+            color,
             uid,
             annotationId,
             source: 'editor',
@@ -589,6 +611,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         rememberResolvedMarkupSubtypeOverride(
             summary.annotationId,
             summary.subtype,
+            summary.color,
             markupSubtype,
         );
     }

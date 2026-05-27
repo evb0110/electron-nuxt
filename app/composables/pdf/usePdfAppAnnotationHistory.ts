@@ -55,7 +55,21 @@ export function usePdfAppAnnotationHistory(options: {
             ...pdfjsState,
             hasSomethingToUndo: pdfjsState.hasSomethingToUndo || canUndo.value,
             hasSomethingToRedo: pdfjsState.hasSomethingToRedo || canRedo.value,
+            // App-routed PDF.js history is known immediately, while storage dirty
+            // detection can lag until the next annotation state event.
+            hasAppAnnotationUndoHistory: canUndo.value,
+            hasAppAnnotationRedoHistory: canRedo.value,
         });
+    }
+
+    function syncPdfjsUndoStateToRoutedHistory() {
+        // Routed PDF.js undo/redo can leave the last annotationeditorstateschanged
+        // payload stale; sync it so toolbar buttons settle after one click.
+        options.pdfjsAnnotationState.value = {
+            ...options.pdfjsAnnotationState.value,
+            hasSomethingToUndo: canUndo.value,
+            hasSomethingToRedo: canRedo.value,
+        };
     }
 
     function registerCommand(command: IPdfAppAnnotationHistoryCommand) {
@@ -180,6 +194,7 @@ export function usePdfAppAnnotationHistory(options: {
             withRoutedPdfjsHistory(() => {
                 handlers?.undoPdfjs?.();
             });
+            syncPdfjsUndoStateToRoutedHistory();
         }
         options.markModified();
         emitCombinedState();
@@ -204,6 +219,7 @@ export function usePdfAppAnnotationHistory(options: {
             withRoutedPdfjsHistory(() => {
                 handlers?.redoPdfjs?.();
             });
+            syncPdfjsUndoStateToRoutedHistory();
         }
         options.markModified();
         emitCombinedState();

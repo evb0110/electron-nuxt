@@ -53,6 +53,7 @@ function makeSummary(
         author: overrides.author ?? null,
         modifiedAt: overrides.modifiedAt ?? null,
         color: overrides.color ?? null,
+        colorEdited: overrides.colorEdited,
         uid: overrides.uid ?? null,
         annotationId: overrides.annotationId ?? null,
         source: overrides.source ?? 'editor',
@@ -616,6 +617,41 @@ describe('mergeCommentSummaries', () => {
             subtype: 'Highlight',
             color: '#eab308',
         });
+    });
+
+    it('uses the PDF text-markup color when the editor mirror still has the default highlight color', () => {
+        const existing = makeSummary({
+            source: 'editor',
+            subtype: 'Underline',
+            color: '#ffd400',
+            annotationId: '42R0',
+        });
+        const incoming = makeSummary({
+            source: 'pdf',
+            subtype: 'Underline',
+            color: '#06b6d4',
+            annotationId: '42R0',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).color).toBe('#06b6d4');
+    });
+
+    it('preserves a locally edited text-markup color over the next PDF mirror', () => {
+        const existing = makeSummary({
+            source: 'editor',
+            subtype: 'Underline',
+            color: '#ec4899',
+            colorEdited: true,
+            annotationId: '42R0',
+        });
+        const incoming = makeSummary({
+            source: 'pdf',
+            subtype: 'Underline',
+            color: '#06b6d4',
+            annotationId: '42R0',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).color).toBe('#ec4899');
     });
 });
 
