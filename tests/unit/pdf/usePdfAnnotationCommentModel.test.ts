@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { usePdfAnnotationCommentModel } from '@app/modules/pdf-annotations/usePdfAnnotationCommentModel';
+import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,

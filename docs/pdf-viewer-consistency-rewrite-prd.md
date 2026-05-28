@@ -12,7 +12,7 @@ The rewrite should be implemented in one coordinated pass on `main`. Internal st
 
 ## Problem
 
-`PdfViewer.vue` currently acts as a compatibility wrapper, runtime coordinator, annotation controller, comment reconciliation layer, render lifecycle manager, interaction router, and public imperative API. Related behavior is spread across `app/components/pdf`, `app/composables/pdf`, and `app/modules/pdf-viewer-runtime` with mixed ownership.
+`PdfViewer.vue` currently acts as a compatibility wrapper, runtime coordinator, annotation controller, comment reconciliation layer, render lifecycle manager, interaction router, and public imperative API. Related behavior is spread across `app/components/pdf`, `app/composables/pdf`, and `app/modules/pdf-viewer/runtime` with mixed ownership.
 
 Current pain points:
 
@@ -63,8 +63,8 @@ Key files:
 | File | Current role |
 |---|---|
 | `app/components/pdf/PdfViewer.vue` | Main shell, runtime wiring, annotation comment model, interaction handlers, exposed imperative API |
-| `app/modules/pdf-viewer-runtime/usePdfViewerCore.ts` | Partial runtime coordinator with many injected delegates |
-| `app/composables/pdf/usePdfPageRenderer.ts` | Page render pipeline and layer rendering orchestration |
+| `app/modules/pdf-viewer/runtime/usePdfViewerRuntimeLifecycle.ts` | Partial runtime coordinator with many injected delegates |
+| `app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts` | Page render pipeline and layer rendering orchestration |
 | `app/composables/pdf/usePdfSinglePageScroll.ts` | Single-page scroll and navigation behavior |
 | `app/composables/pdf/annotations/useAnnotationOrchestrator.ts` | Annotation feature orchestration |
 | `docs/css-load-bearing-classes.md` | DOM class contracts that must survive the rewrite |
@@ -98,7 +98,7 @@ It should not own cross-cutting runtime state, annotation reconciliation, render
 Introduce a cohesive runtime module, tentatively:
 
 ```text
-app/modules/pdf-viewer-runtime/
+app/modules/pdf-viewer/runtime/
   usePdfViewerRuntime.ts
   pdfViewerRuntime.types.ts
   document/
@@ -140,7 +140,7 @@ interface IPdfViewerRuntime {
 Move annotation behavior into a feature module that depends on the runtime instead of the component:
 
 ```text
-app/modules/pdf-annotations/
+app/modules/pdf-viewer/annotations/
   usePdfAnnotationFeature.ts
   usePdfAnnotationCommentModel.ts
   usePdfAnnotationMarkerModel.ts
@@ -167,7 +167,7 @@ The feature should emit semantic events through an adapter rather than directly 
 Move optional viewer tools behind explicit feature controllers:
 
 ```text
-app/modules/pdf-viewer-tools/
+app/modules/pdf-viewer/tools/
   usePdfRegionSnipTool.ts
   usePdfCropTool.ts
   usePdfImagePlacementTool.ts
@@ -317,11 +317,11 @@ Deliverables:
 
 - Create `usePdfViewerRuntime`.
 - Move document, current page, visible range, load state, initial visual readiness, reload transition, and lifecycle wiring into the runtime.
-- Replace the delegate-heavy `usePdfViewerCore` call with a smaller controller contract.
+- Replace the delegate-heavy `usePdfViewerRuntimeLifecycle` call with a smaller controller contract.
 
 Acceptance criteria:
 
-- `usePdfViewerCore` is either removed or reduced to an internal implementation detail.
+- `usePdfViewerRuntimeLifecycle` is either removed or reduced to an internal implementation detail.
 - Runtime owns lifecycle ordering.
 - `PdfViewer.vue` no longer passes long lists of render, scroll, scale, and cleanup delegates through a single options object.
 
@@ -428,8 +428,8 @@ Quality gates:
 
 ## Open Questions
 
-- Should the new runtime live under `app/modules/pdf-viewer-runtime` or should feature modules move under a broader `app/modules/pdf-viewer` namespace?
-- Should annotation modules remain under `app/composables/pdf/annotations` during migration, or move to `app/modules/pdf-annotations` once the boundary is clear?
+- Should the new runtime live under `app/modules/pdf-viewer/runtime` or should feature modules move under a broader `app/modules/pdf-viewer` namespace?
+- Should annotation modules remain under `app/composables/pdf/annotations` during migration, or move to `app/modules/pdf-viewer/annotations` once the boundary is clear?
 - Which existing parent components rely on `PdfViewer.vue` exposed methods in ways that should become formal contracts?
 - Are there user-visible PDF workflows that lack automated coverage and should be added before Stage 2?
 

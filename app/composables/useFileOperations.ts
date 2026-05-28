@@ -135,7 +135,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         restorePendingEmbeddedTextUpdates,
         consumePendingEmbeddedAnnotationDeletes,
         restorePendingEmbeddedAnnotationDeletes,
-        clearAnnotationHistory,
         annotationNoteWindowsCount,
         loadRecentFiles,
         preparePostSaveReload,
@@ -317,7 +316,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             pdfDocument.value?.annotationStorage?.resetModified();
         }
         markAnnotationSaved({ preserveLivePdfjsSession: opts?.preserveLivePdfjsSession === true });
-        clearAnnotationHistory?.();
         markPageLabelsSaved();
         markBookmarksSaved();
         if (opts?.markShapeStateSaved !== false) {
