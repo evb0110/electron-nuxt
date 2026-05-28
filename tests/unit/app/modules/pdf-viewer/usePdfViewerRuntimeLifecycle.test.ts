@@ -96,6 +96,17 @@ async function flushActivationRendering() {
 function createViewerContainerStub(queryResult: Element | null) {
     const container: HTMLElement = Object.create(null);
     container.querySelector = vi.fn(() => queryResult);
+    container.getBoundingClientRect = vi.fn(() => ({
+        bottom: 600,
+        height: 600,
+        left: 0,
+        right: 800,
+        top: 0,
+        width: 800,
+        x: 0,
+        y: 0,
+        toJSON: vi.fn(),
+    }));
     return container;
 }
 
@@ -329,20 +340,51 @@ describe('usePdfViewerRuntimeLifecycle inactive lifecycle', () => {
         const harness = mountCore({
             isActive: false,
             hasDocument: true,
+            viewerContainer: createViewerContainerStub(null),
         });
         vi.clearAllMocks();
 
         harness.isActive.value = true;
         await flushActivationRendering();
+        await vi.waitFor(() => {
+            expect(lifecycleMocks.renderVisiblePages).toHaveBeenCalled();
+        });
 
         expect(harness.editor.setAnnotationTool).toHaveBeenCalledWith('none');
         expect(harness.editor.applyAnnotationSettings).toHaveBeenCalledWith(null);
-        expect(lifecycleMocks.updateVisibleRange).toHaveBeenCalledWith(null, 5);
+        expect(lifecycleMocks.updateVisibleRange).toHaveBeenCalledWith(harness.viewerContainer.value, 5);
         expect(lifecycleMocks.renderVisiblePages).toHaveBeenCalledWith({
             start: 2,
             end: 3,
         }, { preserveRenderedPages: true });
         expect(lifecycleMocks.applySearchHighlights).toHaveBeenCalledTimes(1);
+
+        harness.app.unmount();
+    });
+
+    it('waits for a measurable viewer container before restoring an activated document', async () => {
+        const renderVisiblePages = vi.fn().mockResolvedValue(undefined);
+        const harness = mountCore({
+            isActive: false,
+            hasDocument: true,
+            viewerContainer: null,
+            renderVisiblePages,
+        });
+        vi.clearAllMocks();
+
+        harness.isActive.value = true;
+        await nextTick();
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+
+        harness.viewerContainer.value = createViewerContainerStub(null);
+        await vi.waitFor(() => {
+            expect(renderVisiblePages).toHaveBeenCalled();
+        });
+
+        expect(renderVisiblePages).toHaveBeenCalledWith({
+            start: 2,
+            end: 3,
+        }, { preserveRenderedPages: true });
 
         harness.app.unmount();
     });

@@ -37,6 +37,8 @@ interface IUsePdfViewerActivationRestoreOptions {
     applySearchHighlights: () => void;
 }
 
+const ACTIVATION_RESTORE_CONTAINER_FRAME_LIMIT = 30;
+
 export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRestoreOptions) {
     const {
         viewerContainer,
@@ -93,7 +95,7 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
 
     function hasRenderedContentInRange(range: IPageRange) {
         if (!viewerContainer.value) {
-            return true;
+            return false;
         }
 
         for (let page = range.start; page <= range.end; page += 1) {
@@ -127,6 +129,30 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
         });
     }
 
+    function hasMeasurableViewerContainer() {
+        const container = viewerContainer.value;
+        if (!container) {
+            return false;
+        }
+
+        const rect = container.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    }
+
+    async function waitForActivationViewerContainer(runId: number) {
+        for (let frame = 0; frame < ACTIVATION_RESTORE_CONTAINER_FRAME_LIMIT; frame += 1) {
+            if (!isActivationRunCurrent(runId)) {
+                return false;
+            }
+            if (hasMeasurableViewerContainer()) {
+                return true;
+            }
+            await waitForActivationRenderFrame();
+        }
+
+        return isActivationRunCurrent(runId) && hasMeasurableViewerContainer();
+    }
+
     async function restoreCurrentPageViewportForActivation() {
         updateVisibleRange(viewerContainer.value, numPages.value);
         const visible = visibleRange.value;
@@ -144,6 +170,9 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
     }
 
     async function renderActiveDocumentAfterActivation(runId: number) {
+        if (!await waitForActivationViewerContainer(runId)) {
+            return;
+        }
         await restoreCurrentPageViewportForActivation();
         if (!isActiveDocumentRestoreRunCurrent(runId)) {
             return;
