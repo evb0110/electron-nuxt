@@ -68,7 +68,10 @@ export interface IPdfjsEditor {
     setDims?: () => void;
     fixAndSetPosition?: () => void;
     parent?: IPdfjsEditorParent;
-    _uiManager?: { rebuild?: (editor: IPdfjsEditor) => unknown };
+    _uiManager?: {
+        addChangedExistingAnnotation?: (editor: IPdfjsEditor) => unknown;
+        rebuild?: (editor: IPdfjsEditor) => unknown;
+    };
     __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
     __evbResolvedPageIndex?: number;
     __evbPlacementAttemptId?: string | null;

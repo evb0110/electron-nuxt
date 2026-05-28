@@ -75,6 +75,10 @@ import {
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type {
+    IAnnotationCommentSummary,
+    IAnnotationSettings,
+} from '@app/types/annotations';
+import type {
     PDFDocumentProxy,
     PDFPageProxy,
     RenderTask,
@@ -95,6 +99,10 @@ import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createHiddenAnnotationOperationsFilter } from '@app/composables/pdf/pdfHiddenAnnotationOperations';
+import { drawAnnotationCommentTextMarkupCanvasVisual } from '@app/composables/pdf/annotations/annotationDomRemoval';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/editedTextMarkupCanvasSuppression';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -107,6 +115,8 @@ interface IProps {
         pages: number[];
     } | null | undefined;
     hiddenAnnotationIds?: string[] | undefined;
+    annotationComments?: IAnnotationCommentSummary[] | undefined;
+    annotationSettings?: IAnnotationSettings | null | undefined;
     isActive?: boolean | undefined;
 }
 
@@ -130,6 +140,8 @@ const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
 const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 
 const {
+    annotationComments = undefined,
+    annotationSettings = undefined,
     currentPage,
     hiddenAnnotationIds = undefined,
     invalidationRequest = undefined,
@@ -192,10 +204,36 @@ const selectionFocusPage = ref<number | null>(null);
 
 const multiSelection = useMultiSelection<number>();
 const selectedPagesSet = computed(() => new Set(selectedPages ?? []));
-const hiddenAnnotationIdSet = computed(() => new Set(hiddenAnnotationIds ?? []));
+const editedTextMarkupComments = computed(() => (annotationComments ?? []).filter(comment => (
+    comment.colorEdited === true
+    && Boolean(comment.color)
+    && Boolean(comment.markerRect)
+    && isTextMarkupSubtype(comment.subtype)
+)));
+const hiddenAnnotationIdSet = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
+    annotationComments ?? [],
+    hiddenAnnotationIds ?? [],
+));
 const hiddenAnnotationIdsSignature = computed(() => (
     [...hiddenAnnotationIdSet.value].sort((left, right) => left.localeCompare(right)).join('\u0000')
 ));
+const editedTextMarkupVisualSignature = computed(() => editedTextMarkupComments.value
+    .map((comment) => [
+        comment.stableKey,
+        comment.annotationId ?? '',
+        comment.pageNumber,
+        comment.subtype ?? '',
+        comment.color ?? '',
+        (comment.subtype ?? '').trim().toLowerCase() === 'highlight'
+            ? annotationSettings?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity
+            : '',
+        comment.markerRect?.left ?? '',
+        comment.markerRect?.top ?? '',
+        comment.markerRect?.width ?? '',
+        comment.markerRect?.height ?? '',
+    ].join('\u0001'))
+    .sort((left, right) => left.localeCompare(right))
+    .join('\u0000'));
 
 function isValidAspectRatio(value: number | null | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
@@ -362,6 +400,7 @@ function getThumbnailRenderKey(page: number) {
         outputScale,
         pageEpoch,
         hiddenAnnotationIdsSignature.value,
+        editedTextMarkupVisualSignature.value,
     ].join(':');
 }
 
@@ -1423,6 +1462,38 @@ function shouldIgnoreThumbnailRenderError(
     );
 }
 
+function resolveThumbnailTextMarkupColor(comment: IAnnotationCommentSummary) {
+    return comment.color?.trim() || null;
+}
+
+function resolveThumbnailTextMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {
+    if ((comment.subtype ?? '').trim().toLowerCase() !== 'highlight') {
+        return null;
+    }
+    return annotationSettings?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
+}
+
+function drawEditedTextMarkupThumbnailVisuals(
+    pageNum: number,
+    canvas: HTMLCanvasElement,
+    context: CanvasRenderingContext2D,
+) {
+    editedTextMarkupComments.value
+        .filter(comment => Math.floor(comment.pageNumber) === pageNum)
+        .forEach((comment) => {
+            const color = resolveThumbnailTextMarkupColor(comment);
+            if (color) {
+                drawAnnotationCommentTextMarkupCanvasVisual(
+                    canvas,
+                    context,
+                    comment,
+                    color,
+                    { highlightOpacity: resolveThumbnailTextMarkupHighlightOpacity(comment) },
+                );
+            }
+        });
+}
+
 async function renderPreparedThumbnail(
     pdfDocument: PDFDocumentProxy,
     pageNum: number,
@@ -1473,6 +1544,13 @@ async function renderPreparedThumbnail(
             if (renderTasks.get(pageNum) === task) {
                 renderTasks.delete(pageNum);
             }
+        }
+        if (
+            getCanvas(pageNum) === canvas
+            && getThumbnailRenderKey(pageNum) === renderKey
+            && isCanvasForRenderKey(canvas, renderKey)
+        ) {
+            drawEditedTextMarkupThumbnailVisuals(pageNum, canvas, context);
         }
         finalizeRenderedThumbnail(pageNum, canvas, renderKey);
     } finally {
@@ -1863,9 +1941,15 @@ function invalidatePages(pages: number[]) {
 }
 
 watch(
-    hiddenAnnotationIdsSignature,
+    () => [
+        hiddenAnnotationIdsSignature.value,
+        editedTextMarkupVisualSignature.value,
+    ],
     (nextSignature, previousSignature) => {
-        if (nextSignature === previousSignature) {
+        if (
+            nextSignature[0] === previousSignature?.[0]
+            && nextSignature[1] === previousSignature?.[1]
+        ) {
             return;
         }
         const pages = virtualPages.value.length > 0

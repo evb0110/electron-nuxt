@@ -499,6 +499,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
     rerenderVisiblePagesAndSyncCurrentPage = reRenderVisiblePagesAndSyncCurrentPageFromCoordinator;
 
     const { scheduleSetAnnotationTool } = usePdfViewerAnnotationRuntimeBridge({
+        viewerContainer: options.viewerContainer,
         isActive,
         currentPage,
         effectiveScale,

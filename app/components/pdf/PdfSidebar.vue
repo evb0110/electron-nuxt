@@ -83,6 +83,8 @@
                         :selected-pages="selectedThumbnailPages"
                         :invalidation-request="thumbnailInvalidationRequest"
                         :hidden-annotation-ids="thumbnailHiddenAnnotationIds"
+                        :annotation-comments="annotationComments"
+                        :annotation-settings="annotationSettings"
                         :is-active="isOpen && activeTab === 'thumbnails'"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"

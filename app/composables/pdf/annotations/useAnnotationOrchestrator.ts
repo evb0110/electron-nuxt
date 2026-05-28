@@ -204,6 +204,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
             setAnnotations: (comments: IAnnotationCommentSummary[]) => {
                 const appliedComments = emitAnnotationComments(comments) ?? comments;
                 annotationCommentsCache.value = appliedComments;
+                return appliedComments;
             },
             setLinkAnnotations: (links: ILinkAnnotation[]) => {
                 linkAnnotations.value = links;

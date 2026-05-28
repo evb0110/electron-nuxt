@@ -65,6 +65,41 @@ describe('resolvePdfAnnotationPreviewText', () => {
         expect(preview).toBe('CD');
     });
 
+    it('does not pull text from the next line when the padded target barely overlaps it', () => {
+        const preview = resolvePdfAnnotationPreviewText(
+            {
+                subtype: 'StrikeOut',
+                rect: [
+                    30,
+                    70,
+                    50,
+                    80,
+                ],
+            },
+            [
+                lineTextItem,
+                {
+                    str: 'lower words',
+                    transform: [
+                        4,
+                        0,
+                        0,
+                        4,
+                        10,
+                        67,
+                    ],
+                    width: 80,
+                    height: 4,
+                },
+            ],
+            pageView,
+            0,
+            viewport,
+        );
+
+        expect(preview).toBe('CD');
+    });
+
     it('keeps rect-only fallback text for legacy markup without quad points', () => {
         const preview = resolvePdfAnnotationPreviewText(
             {

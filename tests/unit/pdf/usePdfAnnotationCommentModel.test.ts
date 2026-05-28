@@ -99,6 +99,49 @@ describe('usePdfAnnotationCommentModel', () => {
         expect(merged[0]?.displayText).toBe('selected text');
     });
 
+    it('updates cached text markup color through normalized annotation ids', () => {
+        const { model } = createModel();
+        const cached = comment({
+            annotationId: '42R',
+            color: '#ef4444',
+            subtype: 'Underline',
+        });
+        model.upsertComment(cached);
+
+        model.updateCachedColor(comment({
+            ...cached,
+            annotationId: '42R0',
+        }), '#3b82f6');
+
+        expect(model.annotationCommentsCache.value[0]).toMatchObject({
+            annotationId: '42R',
+            color: '#3b82f6',
+            colorEdited: true,
+        });
+    });
+
+    it('preserves edited text markup color through normalized ids during sync', () => {
+        const { model } = createModel();
+        model.upsertComment(comment({
+            annotationId: '42R0',
+            color: '#3b82f6',
+            colorEdited: true,
+            subtype: 'StrikeOut',
+        }));
+
+        const merged = model.applyFromSync([comment({
+            annotationId: '42R',
+            color: '#ef4444',
+            subtype: 'StrikeOut',
+        })]);
+
+        expect(merged[0]).toMatchObject({
+            annotationId: '42R',
+            color: '#3b82f6',
+            colorEdited: true,
+        });
+    });
+
     it('suppresses locally deleted comments that reappear from sync', () => {
         const {
             model,

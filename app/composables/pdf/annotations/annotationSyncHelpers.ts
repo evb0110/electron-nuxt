@@ -320,6 +320,44 @@ function hasPdfAnnotationNote(
     );
 }
 
+function normalizeGeneratedMarkupText(value: string) {
+    return value.replace(/\s+/gu, ' ').trim().toLowerCase();
+}
+
+function normalizeGeneratedMarkupTextCompact(value: string) {
+    return normalizeGeneratedMarkupText(value).replace(/\s+/gu, '');
+}
+
+function looksLikeGeneratedTextMarkupContents(text: string, previewText: string | null) {
+    const normalizedText = normalizeGeneratedMarkupText(text);
+    const normalizedPreview = normalizeGeneratedMarkupText(previewText ?? '');
+    if (!normalizedText || !normalizedPreview) {
+        return false;
+    }
+    if (normalizedText.includes(normalizedPreview) || normalizedPreview.includes(normalizedText)) {
+        return true;
+    }
+
+    const compactText = normalizeGeneratedMarkupTextCompact(text);
+    const compactPreview = normalizeGeneratedMarkupTextCompact(previewText ?? '');
+    return Boolean(
+        compactText
+        && compactPreview
+        && (compactText.includes(compactPreview) || compactPreview.includes(compactText)),
+    );
+}
+
+function shouldTreatTextMarkupContentsAsPreview(
+    subtype: string | null,
+    hasLinkedPopup: boolean,
+    text: string,
+    previewText: string | null,
+) {
+    return isTextMarkupSubtype(subtype)
+        && !hasLinkedPopup
+        && looksLikeGeneratedTextMarkupContents(text, previewText);
+}
+
 function shouldLoadTextPreviewItems(pageAnnotations: readonly IPdfAnnotationRecord[]) {
     return pageAnnotations.some(annotation => isTextMarkupSubtype(annotation.subtype));
 }
@@ -422,7 +460,7 @@ export function buildPdfAnnotationCommentSummary(
     textItems: readonly IPdfTextPreviewItem[] = [],
     textViewport: IPdfTextPreviewViewport | null = null,
 ): IAnnotationCommentSummary {
-    const text = resolveCombinedAnnotationText(annotation, popupAnnotation);
+    const rawText = resolveCombinedAnnotationText(annotation, popupAnnotation);
     const subtype = annotation.subtype ?? null;
     const {
         id,
@@ -434,9 +472,22 @@ export function buildPdfAnnotationCommentSummary(
         pageView,
         pageRotation,
     );
-    const previewText = text.trim()
-        ? null
-        : resolvePdfAnnotationPreviewText(annotation, textItems, pageView, pageRotation, textViewport);
+    const extractedPreviewText = resolvePdfAnnotationPreviewText(
+        annotation,
+        textItems,
+        pageView,
+        pageRotation,
+        textViewport,
+    );
+    const text = shouldTreatTextMarkupContentsAsPreview(
+        subtype,
+        hasLinkedPopup,
+        rawText,
+        extractedPreviewText,
+    )
+        ? ''
+        : rawText;
+    const previewText = text.trim() ? null : extractedPreviewText;
 
     return {
         id,

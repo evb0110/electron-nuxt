@@ -50,6 +50,7 @@ import {
     normalizeMarkupSubtypeFragmentBoxes,
 } from '@app/composables/pdf/annotations/annotationEditorPresentation';
 import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS = 500;
@@ -362,13 +363,23 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         });
     }
 
+    function markExistingEditorAnnotationChanged(editor: IPdfjsEditor) {
+        if (!editor.annotationElementId) {
+            return;
+        }
+        const uiManager = (annotationUiManager.value ?? editor._uiManager) as { addChangedExistingAnnotation?: (editor: IPdfjsEditor) => unknown } | null | undefined;
+        uiManager?.addChangedExistingAnnotation?.(editor);
+    }
+
     function resolveEditorMarkupSubtypeColor(
         editor: IPdfjsEditor,
         subtype: TMarkupSubtype,
         pageIndex: number,
     ) {
         if (editor.annotationElementId) {
-            const annotationColor = markupSubtypeColorOverrides.get(editor.annotationElementId);
+            const normalizedAnnotationId = normalizePdfJsAnnotationId(editor.annotationElementId);
+            const annotationColor = markupSubtypeColorOverrides.get(editor.annotationElementId)
+                ?? (normalizedAnnotationId ? markupSubtypeColorOverrides.get(normalizedAnnotationId) : undefined);
             if (annotationColor) {
                 storeEditorMarkupSubtypeColor(editor, pageIndex, annotationColor);
                 return annotationColor;
@@ -816,7 +827,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (subtype !== 'Highlight') {
             return color;
         }
-        const opacity = annotationSettings.value?.highlightOpacity ?? 1;
+        const opacity = annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
         return toOpaqueHighlightDisplayColor(color, opacity);
     }
 
@@ -835,6 +846,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         updateMarkupSubtypeGeometryHintColor(editor, pageIndex, color);
         refreshEditorTextMarkupColor(editor, visualColor, subtype, pageIndex);
         editor.addToAnnotationStorage?.();
+        markExistingEditorAnnotationChanged(editor);
     }
 
     function updateSelectedTextMarkupAnnotationColor(color: string) {
@@ -869,11 +881,12 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function resolveEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number): TMarkupSubtype | null {
         if (editor.annotationElementId) {
-            const byAnnotationId = markupSubtypeOverrides.get(editor.annotationElementId);
+            const normalizedAnnotationId = normalizePdfJsAnnotationId(editor.annotationElementId);
+            const byAnnotationId = markupSubtypeOverrides.get(editor.annotationElementId)
+                ?? (normalizedAnnotationId ? markupSubtypeOverrides.get(normalizedAnnotationId) : undefined);
             if (byAnnotationId) {
                 return byAnnotationId;
             }
-            const normalizedAnnotationId = normalizePdfJsAnnotationId(editor.annotationElementId);
             if (normalizedAnnotationId && forgottenMaterializedMarkupSubtypeAnnotationIds.has(normalizedAnnotationId)) {
                 return null;
             }

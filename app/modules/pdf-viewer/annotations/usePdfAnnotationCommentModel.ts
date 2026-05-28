@@ -9,6 +9,7 @@ import {
 } from '@app/composables/pdf/annotations/annotationRules';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
+import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -474,12 +475,14 @@ export function usePdfAnnotationCommentModel(
         options: { colorEdited?: boolean } = {},
     ) {
         const colorEdited = options.colorEdited ?? true;
+        const commentAnnotationId = normalizePdfJsAnnotationId(comment.annotationId);
         const next = annotationCommentsCache.value.map((candidate) => {
             const sameStableKey = candidate.stableKey === comment.stableKey;
+            const candidateAnnotationId = normalizePdfJsAnnotationId(candidate.annotationId);
             const sameAnnotationId = Boolean(
-                comment.annotationId
-                && candidate.annotationId
-                && candidate.annotationId === comment.annotationId,
+                commentAnnotationId
+                && candidateAnnotationId
+                && candidateAnnotationId === commentAnnotationId,
             );
             if (!sameStableKey && !sameAnnotationId) {
                 return candidate;

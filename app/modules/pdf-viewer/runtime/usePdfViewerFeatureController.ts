@@ -29,9 +29,18 @@ import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement'
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
+import {
+    applyAnnotationCommentTextMarkupColor,
+    syncAnnotationCommentTextMarkupVisualOverlays,
+} from '@app/composables/pdf/annotations/annotationDomRemoval';
+import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/editedTextMarkupCanvasSuppression';
 import type {
     IAnnotationEditorState,
+    IAnnotationCommentSummary,
     IAnnotationModifiedPayload,
 } from '@app/types/annotations';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -222,6 +231,57 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
     function relayPageRenderStall(payload: IPageRenderStallPayload) {
         pageRenderStallRecoveryHandler?.(payload);
     }
+    const canvasHiddenAnnotationIds = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
+        annotationCommentsCache.value,
+        hiddenEmbeddedAnnotationIds.value,
+    ));
+    function resolveRenderedTextMarkupColor(comment: IAnnotationCommentSummary) {
+        if (!comment.color) {
+            return null;
+        }
+        if ((comment.subtype ?? '').trim().toLowerCase() !== 'highlight') {
+            return comment.color;
+        }
+        return toOpaqueHighlightDisplayColor(
+            comment.color,
+            annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
+        );
+    }
+
+    function resolveRenderedTextMarkupOverlayColor(comment: IAnnotationCommentSummary) {
+        return comment.color?.trim() || null;
+    }
+
+    function resolveRenderedTextMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {
+        if ((comment.subtype ?? '').trim().toLowerCase() !== 'highlight') {
+            return null;
+        }
+        return annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
+    }
+    function applyEditedTextMarkupColorsForRenderedPage(pageNumber: number) {
+        const container = viewerContainer.value;
+        if (!container) {
+            return;
+        }
+        for (const comment of annotationCommentsCache.value) {
+            if (
+                comment.pageNumber !== pageNumber
+                || comment.colorEdited !== true
+                || !isTextMarkupSubtype(comment.subtype)
+            ) {
+                continue;
+            }
+            const color = resolveRenderedTextMarkupColor(comment);
+            if (color) {
+                applyAnnotationCommentTextMarkupColor(container, comment, color, { suppressNativeTextMarkupDecoration: true });
+            }
+        }
+        syncAnnotationCommentTextMarkupVisualOverlays(container, annotationCommentsCache.value, {
+            pageNumber,
+            resolveColor: resolveRenderedTextMarkupOverlayColor,
+            resolveHighlightOpacity: resolveRenderedTextMarkupHighlightOpacity,
+        });
+    }
     const {
         setupPagePlaceholders,
         renderVisiblePages,
@@ -245,6 +305,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         bufferPages,
         showAnnotations,
         hiddenAnnotationIds: hiddenEmbeddedAnnotationIds,
+        canvasHiddenAnnotationIds,
         managedAnnotationIds: managedEmbeddedAnnotationIds,
         annotationUiManager,
         annotationL10n,
@@ -259,6 +320,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         onRenderStall: relayPageRenderStall,
         onPageCanvasMounted: handlePageCanvasMounted,
         onPageRendered: handlePageRendered,
+        onAnnotationLayersRendered: pageNumber => applyEditedTextMarkupColorsForRenderedPage(pageNumber),
         onRenderedPageStateChanged: handleRenderedPageStateChanged,
         renderedPageStateVersion,
     });

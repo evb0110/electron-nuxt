@@ -47,6 +47,7 @@ interface IUiManagerLike {
     getEditors: ReturnType<typeof vi.fn>;
     setActiveEditor: ReturnType<typeof vi.fn>;
     unselectAll: ReturnType<typeof vi.fn>;
+    addChangedExistingAnnotation?: ReturnType<typeof vi.fn>;
     hasSelection?: boolean;
     __evbUpdateDefaultParams?: ReturnType<typeof vi.fn>;
 }
@@ -409,6 +410,44 @@ describe('useAnnotationToolState', () => {
         });
     });
 
+    it('marks existing materialized text markup as changed after color updates', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const addChangedExistingAnnotation = vi.fn();
+        const highlightEditor = {
+            id: 'highlight-1',
+            annotationElementId: '42R0',
+            color: '#ffff66',
+            opacity: 1,
+            div: new FakeMarkupElement(),
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.04,
+            onUpdatedColor: vi.fn(),
+            addToAnnotationStorage: vi.fn(),
+        };
+        highlightEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({
+            addChangedExistingAnnotation,
+            getEditors: vi.fn(() => [highlightEditor]),
+        });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'highlight',
+        }) as never);
+
+        expect(manager.updateTextMarkupAnnotationColor(
+            highlightEditor as never,
+            0,
+            'Highlight',
+            '#22c55e',
+        )).toBe(true);
+
+        expect(highlightEditor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
+        expect(addChangedExistingAnnotation).toHaveBeenCalledWith(highlightEditor);
+    });
+
     it('reapplies underline presentation after PDF.js updates editor color', async () => {
         vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
@@ -526,6 +565,26 @@ describe('useAnnotationToolState', () => {
 
         expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#22c55e');
         expect((underlineEditor as { __evbMarkupSubtypeColor?: string }).__evbMarkupSubtypeColor).toBe('#22c55e');
+    });
+
+    it('uses normalized materialized annotation ids for markup color overrides', async () => {
+        vi.stubGlobal('HTMLElement', FakeMarkupElement);
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const underlineEditor = {
+            id: 'underline-1',
+            annotationElementId: '42R',
+            color: '#ef4444',
+            div: new FakeMarkupElement(),
+        };
+        underlineEditor.div.classList.add('highlightEditor');
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager({ getEditors: vi.fn(() => [underlineEditor]) }), {
+            getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            tool: 'underline',
+        }) as never);
+
+        manager.rememberMarkupSubtypeColorOverride('42R0', '#3b82f6');
+
+        expect(manager.resolveEditorMarkupSubtypeColor(underlineEditor as never, 'Underline', 0)).toBe('#3b82f6');
     });
 
     it('records the per-page text markup order for subtype geometry hints', async () => {

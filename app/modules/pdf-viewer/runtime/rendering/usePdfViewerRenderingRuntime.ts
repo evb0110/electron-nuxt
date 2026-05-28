@@ -29,6 +29,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     bufferPages: ComputedRef<number>;
     showAnnotations: ComputedRef<boolean>;
     hiddenAnnotationIds: Ref<Set<string>> | ComputedRef<Set<string>>;
+    canvasHiddenAnnotationIds?: Ref<Set<string>> | ComputedRef<Set<string>> | undefined;
     managedAnnotationIds: Ref<Set<string>> | ComputedRef<Set<string>>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationL10n: ShallowRef<IL10n | null>;
@@ -43,6 +44,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     onRenderStall: (payload: IPageRenderStallPayload) => void;
     onPageCanvasMounted: (pageNumber: number) => void;
     onPageRendered: (pageNumber: number) => void;
+    onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     onRenderedPageStateChanged: () => void;
     renderedPageStateVersion: Ref<number>;
 }
@@ -57,6 +59,7 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         bufferPages: options.bufferPages,
         showAnnotations: options.showAnnotations,
         hiddenAnnotationIds: options.hiddenAnnotationIds,
+        canvasHiddenAnnotationIds: options.canvasHiddenAnnotationIds,
         managedAnnotationIds: options.managedAnnotationIds,
         annotationUiManager: options.annotationUiManager,
         annotationL10n: options.annotationL10n,
@@ -71,6 +74,7 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         onRenderStall: options.onRenderStall,
         onPageCanvasMounted: options.onPageCanvasMounted,
         onPageRendered: options.onPageRendered,
+        onAnnotationLayersRendered: options.onAnnotationLayersRendered,
         onRenderedPageStateChanged: options.onRenderedPageStateChanged,
     });
 

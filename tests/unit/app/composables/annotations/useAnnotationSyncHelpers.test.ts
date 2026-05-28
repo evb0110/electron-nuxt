@@ -613,6 +613,73 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.previewText).toBe('Highlighted text');
     });
 
+    it('treats generated text-markup contents as selected-text preview when there is no popup', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'strikeout-1',
+                subtype: 'StrikeOut',
+                contents: 'CD lower',
+                rect: [
+                    30,
+                    70,
+                    50,
+                    80,
+                ],
+            },
+            null,
+            1,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+            [
+                {
+                    str: 'ABCDEFGH',
+                    transform: [
+                        10,
+                        0,
+                        0,
+                        10,
+                        10,
+                        70,
+                    ],
+                    width: 80,
+                    height: 10,
+                },
+                {
+                    str: 'lower words',
+                    transform: [
+                        4,
+                        0,
+                        0,
+                        4,
+                        10,
+                        67,
+                    ],
+                    width: 80,
+                    height: 4,
+                },
+            ],
+            {
+                transform: [
+                    1,
+                    0,
+                    0,
+                    -1,
+                    0,
+                    100,
+                ],
+                width: 100,
+                height: 100,
+                scale: 1,
+            },
+        );
+
+        expect(summary.text).toBe('');
+        expect(summary.previewText).toBe('CD');
+        expect(summary.hasNote).toBe(false);
+    });
+
     it('does not replace explicit markup note text with extracted preview text', () => {
         const summary = __test__.buildPdfAnnotationCommentSummary(
             {
