@@ -67,6 +67,7 @@
                         class="note-item-delete"
                         :aria-label="t('annotations.delete')"
                         @click.stop="deleteComment(comment)"
+                        @dblclick.stop.prevent
                     >
                         <UIcon name="i-ph-trash" />
                     </button>
@@ -150,6 +151,7 @@ import {
 
 type TInlineChipKind = 'solid';
 type TTextMarkupKind = 'highlight' | 'underline' | 'strikeout' | 'squiggly';
+const POINT_NOTE_MARKER_MAX_SIZE = 0.02;
 
 interface IProps {
     comments: IAnnotationCommentSummary[];
@@ -305,6 +307,24 @@ function isStampSubtype(subtype: string) {
     return subtype === 'stamp';
 }
 
+function isPointLikeInlineNote(comment: IAnnotationCommentSummary) {
+    if (!isInlineNoteSubtype(normalizedSubtype(comment))) {
+        return false;
+    }
+    if (comment.hasNote === true) {
+        return true;
+    }
+
+    const rect = comment.markerRect;
+    return Boolean(
+        rect
+        && isFiniteNumber(rect.width)
+        && isFiniteNumber(rect.height)
+        && rect.width <= POINT_NOTE_MARKER_MAX_SIZE
+        && rect.height <= POINT_NOTE_MARKER_MAX_SIZE,
+    );
+}
+
 function hasUserPreviewText(comment: IAnnotationCommentSummary) {
     return Boolean(getAnnotationCommentPreviewText(comment));
 }
@@ -347,6 +367,9 @@ function inlineChipKind(comment: IAnnotationCommentSummary): TInlineChipKind | n
     const subtype = normalizedSubtype(comment);
 
     if (isStickyNoteSubtype(subtype) || isStampSubtype(subtype)) {
+        return null;
+    }
+    if (isPointLikeInlineNote(comment)) {
         return null;
     }
 

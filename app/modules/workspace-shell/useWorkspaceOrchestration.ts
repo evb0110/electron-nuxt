@@ -194,6 +194,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
+        annotationCommentsStatus,
         markAnnotationCommentsLoading,
         clearAnnotationComments,
         annotationActiveCommentStableKey,
@@ -557,6 +558,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markPreservedAnnotationSourceDirty,
         setPreservedAnnotationSourceDirty,
         getAnnotationCommentsSnapshot: () => annotationComments.value,
+        getAnnotationCommentsStatusSnapshot: () => annotationCommentsStatus.value,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     });
