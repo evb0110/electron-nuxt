@@ -55,6 +55,13 @@
                             <mark v-else class="note-match">{{ part.text }}</mark>
                         </template>
                     </span>
+                    <span
+                        v-if="inlineChipKind(comment)"
+                        class="note-item-color-chip"
+                        :class="`note-item-color-chip--${inlineChipKind(comment)}`"
+                        :style="inlineChipStyle(comment)"
+                        :aria-label="inlineChipAriaLabel(comment)"
+                    />
                     <button
                         type="button"
                         class="note-item-delete"
@@ -82,10 +89,15 @@
                     </span>
                 </span>
                 <span v-else class="note-item-text">
-                    <template v-for="(part, index) in highlightTextParts(annotationPreview(comment))" :key="`text-${comment.stableKey}-${index}`">
-                        <span v-if="!part.match">{{ part.text }}</span>
-                        <mark v-else class="note-match">{{ part.text }}</mark>
-                    </template>
+                    <span
+                        :class="textMarkupKind(comment) ? `note-item-text-mark note-item-text-mark--${textMarkupKind(comment)}` : null"
+                        :style="textMarkupKind(comment) ? textMarkupStyle(comment) : null"
+                    >
+                        <template v-for="(part, index) in highlightTextParts(annotationPreview(comment))" :key="`text-${comment.stableKey}-${index}`">
+                            <span v-if="!part.match">{{ part.text }}</span>
+                            <mark v-else class="note-match">{{ part.text }}</mark>
+                        </template>
+                    </span>
                 </span>
                 <span class="note-item-meta">
                     <span>
@@ -131,7 +143,13 @@ import {
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
 import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
-import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
+import {
+    annotationKindLabelFromSubtype,
+    isTextMarkupSubtype,
+} from '@app/services/pdf/annotationSubtype';
+
+type TInlineChipKind = 'solid';
+type TTextMarkupKind = 'highlight' | 'underline' | 'strikeout' | 'squiggly';
 
 interface IProps {
     comments: IAnnotationCommentSummary[];
@@ -269,6 +287,84 @@ function shapeStrokeStyle(comment: IAnnotationCommentSummary) {
         '--note-item-shape-opacity': shapeOpacity(comment),
         '--note-item-shape-stroke-width': `${formatShapeStrokeWidth(comment) || '1'}px`,
     };
+}
+
+function normalizedSubtype(comment: IAnnotationCommentSummary) {
+    return (comment.subtype ?? '').trim().toLowerCase();
+}
+
+function isInlineNoteSubtype(subtype: string) {
+    return subtype === 'freetext' || subtype === 'typewriter' || subtype === 'note-inline';
+}
+
+function isStickyNoteSubtype(subtype: string) {
+    return subtype === 'text' || subtype === 'note-linked';
+}
+
+function isStampSubtype(subtype: string) {
+    return subtype === 'stamp';
+}
+
+function hasUserPreviewText(comment: IAnnotationCommentSummary) {
+    return Boolean(getAnnotationCommentPreviewText(comment));
+}
+
+function textMarkupKind(comment: IAnnotationCommentSummary): TTextMarkupKind | null {
+    if (!comment.color || !hasUserPreviewText(comment)) {
+        return null;
+    }
+
+    const subtype = normalizedSubtype(comment);
+    if (!isTextMarkupSubtype(subtype)) {
+        return null;
+    }
+
+    if (subtype === 'underline') {
+        return 'underline';
+    }
+    if (subtype === 'strikeout') {
+        return 'strikeout';
+    }
+    if (subtype === 'squiggly') {
+        return 'squiggly';
+    }
+    return 'highlight';
+}
+
+function textMarkupStyle(comment: IAnnotationCommentSummary) {
+    return {'--note-item-marker-color': comment.color ?? 'currentcolor'};
+}
+
+function inlineChipKind(comment: IAnnotationCommentSummary): TInlineChipKind | null {
+    if (!comment.color) {
+        return null;
+    }
+
+    if (hasShapeStylePreview(comment) || textMarkupKind(comment)) {
+        return null;
+    }
+
+    const subtype = normalizedSubtype(comment);
+
+    if (isStickyNoteSubtype(subtype) || isStampSubtype(subtype)) {
+        return null;
+    }
+
+    if (isInlineNoteSubtype(subtype) || comment.source === 'shape') {
+        return 'solid';
+    }
+
+    return null;
+}
+
+function inlineChipStyle(comment: IAnnotationCommentSummary) {
+    return {'--note-item-chip-color': comment.color ?? 'currentcolor'};
+}
+
+function inlineChipAriaLabel(comment: IAnnotationCommentSummary) {
+    return comment.color
+        ? `${commentTypeLabel(comment)} ${comment.color}`
+        : commentTypeLabel(comment);
 }
 
 function authorLabel(comment: IAnnotationCommentSummary) {
@@ -484,6 +580,52 @@ function placeNote() {
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.note-item-color-chip {
+    --note-item-chip-color: currentcolor;
+
+    display: inline-block;
+    flex: 0 0 auto;
+    margin-left: 0.1rem;
+}
+
+.note-item-color-chip--solid {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 0.18rem;
+    background: var(--note-item-chip-color);
+}
+
+.note-item-text-mark {
+    --note-item-marker-color: currentcolor;
+}
+
+.note-item-text-mark--highlight {
+    background: color-mix(in srgb, var(--note-item-marker-color) 45%, transparent);
+    border-radius: 0.15rem;
+    padding: 0 0.15rem;
+    box-decoration-break: clone;
+}
+
+.note-item-text-mark--underline {
+    text-decoration: underline;
+    text-decoration-color: var(--note-item-marker-color);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+.note-item-text-mark--strikeout {
+    text-decoration: line-through;
+    text-decoration-color: var(--note-item-marker-color);
+    text-decoration-thickness: 1px;
+}
+
+.note-item-text-mark--squiggly {
+    text-decoration: underline wavy;
+    text-decoration-color: var(--note-item-marker-color);
+    text-decoration-thickness: 0.75px;
+    text-underline-offset: 3px;
 }
 
 .note-item-meta {

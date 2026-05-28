@@ -72,8 +72,24 @@ function applyOpacityToCssString(value: string, opacity: number) {
     return value;
 }
 
+function isNumericRgbChannels(value: unknown): value is ArrayLike<number> {
+    if (value === null || typeof value !== 'object') {
+        return false;
+    }
+    const candidate = value as ArrayLike<unknown>;
+    if (typeof candidate.length !== 'number' || candidate.length < 3) {
+        return false;
+    }
+    for (let index = 0; index < 3; index += 1) {
+        if (typeof candidate[index] !== 'number') {
+            return false;
+        }
+    }
+    return true;
+}
+
 export function toCssColor(
-    color: string | number[] | {
+    color: string | ArrayLike<number> | {
         r: number;
         g: number;
         b: number;
@@ -88,7 +104,7 @@ export function toCssColor(
         return applyOpacityToCssString(color, opacity);
     }
 
-    if (Array.isArray(color) && color.length >= 3) {
+    if (isNumericRgbChannels(color)) {
         return toRgbaString(color[0]!, color[1]!, color[2]!, opacity);
     }
 

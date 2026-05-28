@@ -48,7 +48,7 @@ export interface IPdfAnnotationRecord {
     richText?: { str?: string | null };
     title?: string;
     titleObj?: { str?: string | null };
-    color?: number[] | string | null;
+    color?: ArrayLike<number> | string | null;
     opacity?: number;
     modificationDate?: string | null;
     creationDate?: string | null;
