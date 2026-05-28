@@ -42,7 +42,10 @@ const testRenderer = createRenderer<object, object>({
     nextSibling: () => null,
 });
 
-vi.mock('@vueuse/core', () => ({useEventListener: vi.fn()}));
+vi.mock('@vueuse/core', () => ({
+    tryOnScopeDispose: vi.fn(() => true),
+    useEventListener: vi.fn(),
+}));
 
 vi.mock('@app/utils/asyncGuard', () => ({runGuardedTask: (run: () => unknown) => run()}));
 

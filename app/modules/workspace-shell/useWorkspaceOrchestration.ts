@@ -499,8 +499,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             !annotationDirty.value
             && !isDirty.value
             && pendingEmbeddedAnnotationDeleteCount.value === 0
-            && annotationEditorState.value.hasAppAnnotationUndoHistory !== true
-            && !annotationEditorState.value.hasSomethingToUndo
             && workspaceUndoTimeline.nextUndoSource.value === 'file'
         ),
         nextUndoSource: workspaceUndoTimeline.nextUndoSource,
