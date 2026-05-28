@@ -107,7 +107,7 @@ vi.mock('@app/composables/pdf/usePdfTextLayerRenderer', () => ({usePdfTextLayerR
 
 vi.mock('@app/composables/pdf/usePdfAnnotationLayerRenderer', () => ({usePdfAnnotationLayerRenderer: () => annotationLayerRendererMock}));
 
-const { usePdfPageRenderer } = await import('@app/composables/pdf/usePdfPageRenderer');
+const { usePdfPageRenderer } = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
 const { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } = await import('@app/constants/timeouts');
 
 function createClassList(): IClassList {

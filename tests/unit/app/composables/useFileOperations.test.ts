@@ -164,6 +164,20 @@ describe('useFileOperations', () => {
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
+    it('preserves annotation undo history after a successful save', async () => {
+        const clearAnnotationHistory = vi.fn();
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            clearAnnotationHistory,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(clearAnnotationHistory).not.toHaveBeenCalled();
+    });
+
     it('serializes on save-as and refreshes recent files when path is returned', async () => {
         const {
             deps,

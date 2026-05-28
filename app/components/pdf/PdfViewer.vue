@@ -69,11 +69,11 @@ import PdfViewerPortalLayers from '@app/components/pdf/PdfViewerPortalLayers.vue
 import PdfViewerViewport from '@app/components/pdf/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
 import PdfCropOverlay from '@app/components/pdf/PdfCropOverlay.vue';
-import { usePdfViewerController } from '@app/modules/pdf-viewer-runtime/usePdfViewerController';
 import type {
     IPdfViewerProps,
     TPdfViewerEmit,
-} from '@app/modules/pdf-viewer-runtime/contracts/pdfViewerComponent.types';
+} from '@app/modules/pdf-viewer/public';
+import { usePdfViewerController } from '@app/modules/pdf-viewer/public';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
