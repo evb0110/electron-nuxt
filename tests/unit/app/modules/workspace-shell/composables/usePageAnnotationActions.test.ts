@@ -15,6 +15,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
+    TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
@@ -182,7 +183,8 @@ function createHarness() {
         unqueuePendingEmbeddedAnnotationDelete: vi.fn(),
         markPreservedAnnotationSourceDirty: vi.fn(),
         setPreservedAnnotationSourceDirty: vi.fn(),
-        getAnnotationCommentsSnapshot: vi.fn(() => []),
+        getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
+        getAnnotationCommentsStatusSnapshot: vi.fn((): TAnnotationCommentsStatus => 'loading'),
         getEmbeddedMutationBaseData: vi.fn(async () => new Uint8Array([
             6,
             6,
@@ -951,6 +953,32 @@ describe('usePageAnnotationActions', () => {
         expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('b');
     });
 
+    it('ignores duplicate delete requests for the same annotation while the first is pending', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('rapid-delete-note');
+        comment.source = 'editor';
+        deps.annotationNoteWindows.value = [{ comment }];
+        const gate = deferred<boolean>();
+        viewer.deleteAnnotationComment.mockImplementation(async () => gate.promise);
+
+        const deleteA = actions.handleDeleteAnnotationComment(comment);
+        const deleteB = actions.handleDeleteAnnotationComment(comment);
+
+        await waitForCondition(() => viewer.deleteAnnotationComment.mock.calls.length === 1);
+        gate.resolve(true);
+        await Promise.all([
+            deleteA,
+            deleteB,
+        ]);
+
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledTimes(1);
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(comment.stableKey);
+    });
+
     it('uses the embedded delete path directly for PDF-backed highlights', async () => {
         const {
             deps,
@@ -973,6 +1001,113 @@ describe('usePageAnnotationActions', () => {
         expect(deps.invalidateThumbnailPages).toHaveBeenCalledWith([1]);
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
         expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+    });
+
+    it('closes remaining note windows when an explicit delete drains the annotation cache', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        const comment = createComment('ann:504:12R0');
+        comment.source = 'pdf';
+        comment.annotationId = '12R';
+        comment.subtype = 'FreeText';
+        comment.hasNote = true;
+        comment.text = 'orphan note text';
+        comment.pageIndex = 504;
+        comment.pageNumber = 505;
+        comment.markerRect = {
+            left: 0.1,
+            top: 0.1,
+            width: 0.01,
+            height: 0.01,
+        };
+        const openNote = {
+            ...comment,
+            stableKey: 'uid:504:open-note',
+            id: 'open-note',
+            source: 'editor' as const,
+            annotationId: null,
+            uid: 'open-note',
+            markerRect: {
+                left: 0.8,
+                top: 0.8,
+                width: 0.01,
+                height: 0.01,
+            },
+        };
+        let comments = [comment];
+        deps.getAnnotationCommentsSnapshot.mockImplementation(() => comments);
+        deps.removeAnnotationFromCache.mockImplementation((stableKey: string) => {
+            comments = comments.filter(candidate => candidate.stableKey !== stableKey);
+        });
+        deps.annotationNoteWindows.value = [{ comment: openNote }];
+        deps.annotationActiveCommentStableKey.value = openNote.stableKey;
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.annotationActiveCommentStableKey.value).toBeNull();
+    });
+
+    it('closes a stale note window when a fast delete sees an already-empty ready cache', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        const comment = createComment('ann:504:12R0');
+        comment.source = 'pdf';
+        comment.annotationId = '12R';
+        comment.subtype = 'FreeText';
+        comment.hasNote = true;
+        comment.text = 'stale note text';
+        comment.pageIndex = 504;
+        comment.pageNumber = 505;
+        const openNote = {
+            ...comment,
+            stableKey: 'uid:504:open-note',
+            id: 'open-note',
+            source: 'editor' as const,
+            annotationId: null,
+            uid: 'open-note',
+        };
+        deps.getAnnotationCommentsSnapshot.mockReturnValue([]);
+        deps.getAnnotationCommentsStatusSnapshot.mockReturnValue('ready');
+        deps.annotationNoteWindows.value = [{ comment: openNote }];
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(openNote.stableKey);
+    });
+
+    it('keeps unmatched note windows through an explicit delete during a loading sync gap', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        const comment = createComment('ann:504:12R0');
+        comment.source = 'pdf';
+        comment.annotationId = '12R';
+        comment.subtype = 'FreeText';
+        comment.hasNote = true;
+        const openNote = {
+            ...comment,
+            stableKey: 'uid:504:open-note',
+            id: 'open-note',
+            source: 'editor' as const,
+            annotationId: null,
+            uid: 'open-note',
+        };
+        deps.getAnnotationCommentsSnapshot.mockReturnValue([]);
+        deps.getAnnotationCommentsStatusSnapshot.mockReturnValue('loading');
+        deps.annotationNoteWindows.value = [{ comment: openNote }];
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(deps.removeAnnotationNoteWindow).not.toHaveBeenCalledWith(openNote.stableKey);
+        expect(deps.removeAnnotationFromCache).not.toHaveBeenCalledWith(openNote.stableKey);
     });
 
     it('resolves embedded refs from stable keys before suppressing and queueing deletes', async () => {

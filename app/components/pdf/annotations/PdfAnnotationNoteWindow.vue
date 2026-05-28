@@ -21,7 +21,8 @@
                         type="button"
                         class="note-window__delete"
                         :aria-label="t('noteWindow.deleteNote')"
-                        @click="deleteNote"
+                        @click.stop="deleteNote"
+                        @dblclick.stop.prevent
                     >
                         <UIcon name="i-ph-trash" class="size-3.5" />
                     </button>

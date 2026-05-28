@@ -15,6 +15,7 @@ import type {
     IAnnotationSettings,
     IShapeAnnotation,
     ITextMarkupAnnotationProperties,
+    TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
@@ -133,6 +134,7 @@ interface IPageAnnotationActionsDeps {
     markPreservedAnnotationSourceDirty?: () => void;
     setPreservedAnnotationSourceDirty?: (dirty: boolean) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
+    getAnnotationCommentsStatusSnapshot?: () => TAnnotationCommentsStatus;
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
     embedPlacedImageToPage: (
         data: Uint8Array,
@@ -544,8 +546,59 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         );
     }
 
-    function removeDeletedAnnotationState(comment: IAnnotationCommentSummary) {
+    function getAnnotationCommentsSnapshot() {
+        return deps.getAnnotationCommentsSnapshot?.() ?? null;
+    }
+
+    function isAnnotationCommentsSnapshotReady() {
+        return deps.getAnnotationCommentsStatusSnapshot?.() === 'ready';
+    }
+
+    function removeAnnotationCacheKeys(stableKeys: Set<string>, removedStableKeys: Set<string>) {
+        stableKeys.forEach((stableKey) => {
+            if (removedStableKeys.has(stableKey)) {
+                return;
+            }
+            removedStableKeys.add(stableKey);
+            removeAnnotationFromCache(stableKey);
+        });
+    }
+
+    function shouldCloseRemainingNoteWindowsAfterExplicitDelete(
+        commentsBeforeDelete: IAnnotationCommentSummary[] | null,
+    ) {
+        const commentsAfterDelete = getAnnotationCommentsSnapshot();
+        if (
+            !commentsAfterDelete
+            || commentsAfterDelete.length > 0
+            || annotationNoteWindows.value.length === 0
+        ) {
+            return false;
+        }
+
+        if (commentsBeforeDelete && commentsBeforeDelete.length > 0) {
+            return true;
+        }
+
+        return isAnnotationCommentsSnapshotReady();
+    }
+
+    function closeRemainingAnnotationNoteWindows(stableKeys: Set<string>) {
+        annotationNoteWindows.value.forEach((note) => {
+            if (stableKeys.has(note.comment.stableKey)) {
+                return;
+            }
+            stableKeys.add(note.comment.stableKey);
+            removeAnnotationNoteWindow(note.comment.stableKey);
+        });
+    }
+
+    function removeDeletedAnnotationState(
+        comment: IAnnotationCommentSummary,
+        commentsBeforeDelete: IAnnotationCommentSummary[] | null = null,
+    ) {
         const stableKeys = new Set<string>([comment.stableKey]);
+        const removedStableKeys = new Set<string>();
         annotationNoteWindows.value
             .filter(note => commentsShareDeleteTarget(note.comment, comment))
             .forEach((note) => {
@@ -553,7 +606,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 removeAnnotationNoteWindow(note.comment.stableKey);
             });
 
-        stableKeys.forEach(stableKey => removeAnnotationFromCache(stableKey));
+        removeAnnotationCacheKeys(stableKeys, removedStableKeys);
+        if (shouldCloseRemainingNoteWindowsAfterExplicitDelete(commentsBeforeDelete)) {
+            closeRemainingAnnotationNoteWindows(stableKeys);
+            removeAnnotationCacheKeys(stableKeys, removedStableKeys);
+        }
+
         if (
             annotationActiveCommentStableKey.value
             && stableKeys.has(annotationActiveCommentStableKey.value)
@@ -1294,6 +1352,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     let annotationDeleteQueue: Promise<void> = Promise.resolve();
+    const pendingAnnotationDeleteStableKeys = new Set<string>();
 
     function resolveEmbeddedPdfAnnotationId(comment: IAnnotationCommentSummary) {
         const annotationId = normalizePdfJsAnnotationId(comment.annotationId);
@@ -1396,13 +1455,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             pageNumber: comment.pageNumber,
         });
         setAnnotationNoteWindowError(comment.stableKey, null);
+        const commentsBeforeDelete = getAnnotationCommentsSnapshot();
         if (shouldUseEmbeddedDeletePath(comment)) {
             const deleted = deleteAnnotationCommentWithFallbacks(comment, false);
             if (!deleted) {
                 handleAnnotationDeleteFailure(comment);
                 return;
             }
-            removeDeletedAnnotationState(comment);
+            removeDeletedAnnotationState(comment, commentsBeforeDelete);
             return;
         }
 
@@ -1417,15 +1477,23 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             handleAnnotationDeleteFailure(comment);
             return;
         }
-        removeDeletedAnnotationState(comment);
+        removeDeletedAnnotationState(comment, commentsBeforeDelete);
         invalidateAnnotationPage(comment);
     }
 
     async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
+        if (pendingAnnotationDeleteStableKeys.has(comment.stableKey)) {
+            return;
+        }
+        pendingAnnotationDeleteStableKeys.add(comment.stableKey);
         annotationDeleteQueue = annotationDeleteQueue
             .catch(() => undefined)
             .then(async () => {
-                await performDeleteAnnotationComment(comment);
+                try {
+                    await performDeleteAnnotationComment(comment);
+                } finally {
+                    pendingAnnotationDeleteStableKeys.delete(comment.stableKey);
+                }
             });
         await annotationDeleteQueue;
     }
