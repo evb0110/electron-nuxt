@@ -48,6 +48,7 @@ export interface IUsePdfPageRendererOptions {
     bufferPages?: MaybeRefOrGetter<number>;
     showAnnotations?: MaybeRefOrGetter<boolean>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
+    canvasHiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
     managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     scrollToPage?: (
         pageNumber: number,
@@ -69,6 +70,7 @@ export interface IUsePdfPageRendererOptions {
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
     onPageRendered?: (pageNumber: number) => void;
     onPageCanvasMounted?: (pageNumber: number) => void;
+    onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     onRenderedPageStateChanged?: () => void;
 }
 
@@ -335,7 +337,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         canvasRenderer,
         activeRenderTasks,
         pageCanvases,
-        hiddenAnnotationIds: () => toValue(options.hiddenAnnotationIds),
+        hiddenAnnotationIds: () => toValue(options.canvasHiddenAnnotationIds ?? options.hiddenAnnotationIds),
         getRenderVersion: () => renderVersion,
         getPage,
         cancelActiveRenderTask,
@@ -350,6 +352,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         getRenderVersion: () => renderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
+        onAnnotationLayersRendered: options.onAnnotationLayersRendered,
     });
     const { renderTextLayerForPage } = usePdfRendererTextLayerController({
         textLayerRenderer,

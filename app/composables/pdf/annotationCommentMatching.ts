@@ -1,4 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 
 type TAnnotationCommentMatchInput = Pick<
     IAnnotationCommentSummary,
@@ -14,7 +15,14 @@ export function annotationCommentsMatch(
     }
 
     if (left.annotationId && right.annotationId) {
-        return left.annotationId === right.annotationId && left.pageIndex === right.pageIndex;
+        const leftAnnotationId = normalizePdfJsAnnotationId(left.annotationId);
+        const rightAnnotationId = normalizePdfJsAnnotationId(right.annotationId);
+        return Boolean(
+            leftAnnotationId
+            && rightAnnotationId
+            && leftAnnotationId === rightAnnotationId
+            && left.pageIndex === right.pageIndex,
+        );
     }
 
     if (left.uid && right.uid) {

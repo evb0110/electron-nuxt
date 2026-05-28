@@ -8,6 +8,8 @@ import {
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
     applyAnnotationCommentTextMarkupColor,
+    applyAnnotationCommentTextMarkupVisualOverlay,
+    drawAnnotationCommentTextMarkupCanvasVisual,
     removeAnnotationCommentDom,
     resolveAnnotationCommentTextMarkupColor,
     resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics,
@@ -175,6 +177,8 @@ class FakeElement {
         if (name === 'class') {
             this.className = value;
             this.classList = new FakeClassList(value);
+        } else if (name === 'data-annotation-id') {
+            this.dataset.annotationId = value;
         }
         this.attributes.set(name, value);
     }
@@ -249,6 +253,10 @@ class FakeElement {
             if (part === '[data-annotation-id]') {
                 return Boolean(this.dataset.annotationId);
             }
+            if (part === 'svg[data-evb-edited-text-markup-overlay="true"]') {
+                return this.tagName.toLowerCase() === 'svg'
+                    && this.getAttribute('data-evb-edited-text-markup-overlay') === 'true';
+            }
             if (part === '[class*="pdf-markup-subtype-draw"]' || part === '[class*="pdf-markup-subtype-draw"] *') {
                 return this.className.includes('pdf-markup-subtype-draw');
             }
@@ -258,8 +266,14 @@ class FakeElement {
             if (part === 'svg.highlight:not(.free)' || part === 'svg.highlight:not(.free) *') {
                 return this.tagName.toLowerCase() === 'svg' && this.classList.contains('highlight');
             }
+            if (part === '.overlaidText') {
+                return this.classList.contains('overlaidText');
+            }
             if (part === 'mark' || part === 'u' || part === 's') {
                 return this.tagName.toLowerCase() === part;
+            }
+            if (part.startsWith('.')) {
+                return this.classList.contains(part.slice(1));
             }
             return false;
         });
@@ -275,6 +289,10 @@ class FakeElement {
         };
         this.children.forEach(visit);
         return matches;
+    }
+
+    querySelector(selector: string) {
+        return this.querySelectorAll(selector)[0] ?? null;
     }
 }
 
@@ -345,7 +363,7 @@ class FakeContainer extends FakeElement {
         return [];
     }
 
-    querySelector(selector: string) {
+    override querySelector(selector: string) {
         const pageMatch = selector.match(/^\.page_container\[data-page="(\d+)"\]$/);
         if (!pageMatch?.[1]) {
             return null;
@@ -780,7 +798,7 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
         ]);
     });
 
-    it('recolors the matching draw-layer highlight instead of stacking annotation-layer background', () => {
+    it('recolors matching highlight visuals and keeps annotation-layer highlight paint authoritative', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         refresh.mockClear();
         const container = new FakeContainer('viewer', {
@@ -833,7 +851,7 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
         );
 
         expect(didUpdate).toBe(true);
-        expect(annotation.style.backgroundColor).toBe('');
+        expect(annotation.style.backgroundColor).toBe('#22c55e');
         expect(matchingHighlight.getAttribute('fill')).toBe('#22c55e');
         expect(matchingHighlight.style.getPropertyValue('fill')).toBe('#22c55e');
         expect(distantHighlight.getAttribute('fill')).toBe('#fff066');
@@ -1150,6 +1168,55 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
         expect(staleAnnotationNode.style.color).toBe('');
     });
 
+    it('keeps edited highlight annotation-layer text visible when the stale canvas paint is suppressed', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const highlightNode = new FakeElement('annotationLayerItem highlightAnnotation', {
+            left: 100,
+            top: 200,
+            width: 400,
+            height: 80,
+        });
+        const overlaidText = new FakeElement('overlaidText', {
+            left: 100,
+            top: 200,
+            width: 400,
+            height: 80,
+        });
+        highlightNode.dataset.annotationId = '12R0';
+        highlightNode.style.backgroundColor = '#fde047';
+        highlightNode.append(overlaidText);
+        page.annotations = [highlightNode];
+        connectPage(container, page);
+        connectToPage(page, highlightNode);
+        container.annotations = [highlightNode];
+
+        const didUpdate = applyAnnotationCommentTextMarkupColor(
+            toHTMLElement(container),
+            createComment({
+                annotationId: '12R0',
+                subtype: 'Highlight',
+            }),
+            '#86efac',
+        );
+
+        expect(didUpdate).toBe(true);
+        expect(highlightNode.style.backgroundColor).toBe('#86efac');
+        expect(overlaidText.style.backgroundColor).toBe('#86efac');
+        expect(highlightNode.style.visibility).toBe('visible');
+        expect(overlaidText.style.opacity).toBe('1');
+    });
+
     it('does not synthesize duplicate underline overlays when no visible visual can be recolored', () => {
         const container = new FakeContainer('viewer', {
             left: 0,
@@ -1181,6 +1248,226 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
         );
 
         expect(didUpdate).toBe(false);
+    });
+
+    it('creates a stable edited underline overlay from marker geometry', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        connectPage(container, page);
+
+        const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
+            toHTMLElement(container),
+            createComment({
+                annotationId: '12R0',
+                subtype: 'Underline',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.05,
+                },
+            }),
+            '#22c55e',
+        );
+
+        const overlay = page.querySelector('svg[data-evb-edited-text-markup-overlay="true"]');
+        const visual = overlay?.querySelector('.pdf-edited-text-markup-overlay__visual');
+        const path = visual?.querySelector('path');
+        expect(didUpdate).toBe(true);
+        expect(overlay).toBeTruthy();
+        expect(visual?.getAttribute('data-annotation-id')).toBe('12R0');
+        expect(path?.getAttribute('stroke')).toBe('#22c55e');
+        expect(path?.getAttribute('d')).toBe('M 0.1 0.25 L 0.3 0.25');
+    });
+
+    it('renders edited highlight overlays with raw color and configured opacity', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        connectPage(container, page);
+
+        const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
+            toHTMLElement(container),
+            createComment({
+                annotationId: '12R0',
+                subtype: 'Highlight',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.05,
+                },
+            }),
+            '#22c55e',
+            { highlightOpacity: 0.35 },
+        );
+
+        const overlay = page.querySelector('svg[data-evb-edited-text-markup-overlay="true"]');
+        const rect = overlay?.querySelector('rect');
+        expect(didUpdate).toBe(true);
+        expect(rect?.getAttribute('fill')).toBe('#22c55e');
+        expect(rect?.getAttribute('fill-opacity')).toBe('0.35');
+    });
+
+    it('suppresses native highlight paint when an edited highlight overlay is active', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const annotation = new FakeElement('highlightAnnotation', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        const mark = new FakeElement('mark', {
+            left: 100,
+            top: 200,
+            width: 200,
+            height: 50,
+        });
+        annotation.dataset.annotationId = '12R0';
+        annotation.style.backgroundColor = '#b2ebc7';
+        mark.style.backgroundColor = '#b2ebc7';
+        annotation.append(mark);
+        page.annotations = [annotation];
+        connectPage(container, page);
+
+        const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
+            toHTMLElement(container),
+            createComment({
+                annotationId: '12R0',
+                subtype: 'Highlight',
+            }),
+            '#22c55e',
+            { highlightOpacity: 0.35 },
+        );
+
+        expect(didUpdate).toBe(true);
+        expect(annotation.style.backgroundColor).toBe('transparent');
+        expect(annotation.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#22c55e');
+        expect(mark.style.backgroundColor).toBe('transparent');
+    });
+
+    it('converts blended preset highlight display colors back to raw overlay colors', () => {
+        const container = new FakeContainer('viewer', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        const page = new FakePage('page_container', {
+            left: 0,
+            top: 0,
+            width: 1000,
+            height: 1000,
+        });
+        connectPage(container, page);
+
+        const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
+            toHTMLElement(container),
+            createComment({
+                annotationId: '12R0',
+                subtype: 'Highlight',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.05,
+                },
+            }),
+            '#b2ebc7',
+            { highlightOpacity: 0.35 },
+        );
+
+        const overlay = page.querySelector('svg[data-evb-edited-text-markup-overlay="true"]');
+        const rect = overlay?.querySelector('rect');
+        expect(didUpdate).toBe(true);
+        expect(rect?.getAttribute('fill')).toBe('#22c55e');
+        expect(rect?.getAttribute('fill-opacity')).toBe('0.35');
+    });
+
+    it('draws edited strikeout color into thumbnail canvases after suppressing stale PDF paint', () => {
+        const moveTo = vi.fn();
+        const lineTo = vi.fn();
+        type TTextMarkupCanvasContext = Pick<
+            CanvasRenderingContext2D,
+            | 'beginPath'
+            | 'lineTo'
+            | 'lineCap'
+            | 'lineJoin'
+            | 'lineWidth'
+            | 'moveTo'
+            | 'restore'
+            | 'save'
+            | 'stroke'
+            | 'strokeStyle'
+        >;
+        const context: TTextMarkupCanvasContext = {
+            beginPath: vi.fn(),
+            lineTo,
+            lineCap: 'butt',
+            lineJoin: 'miter',
+            lineWidth: 0,
+            moveTo,
+            restore: vi.fn(),
+            save: vi.fn(),
+            stroke: vi.fn(),
+            strokeStyle: '',
+        };
+        const canvas = {
+            height: 1000,
+            width: 1000,
+        } as HTMLCanvasElement;
+
+        const didDraw = drawAnnotationCommentTextMarkupCanvasVisual(
+            canvas,
+            context as CanvasRenderingContext2D,
+            createComment({
+                subtype: 'StrikeOut',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.05,
+                },
+            }),
+            '#22c55e',
+        );
+
+        expect(didDraw).toBe(true);
+        expect(moveTo).toHaveBeenCalledWith(100, 226);
+        expect(lineTo).toHaveBeenCalledWith(300, 226);
+        expect(context.strokeStyle).toBe('#22c55e');
+        expect(context.lineWidth).toBe(1);
+        expect(context.stroke).toHaveBeenCalled();
     });
 });
 

@@ -244,6 +244,25 @@ export function usePdfViewerAnnotationRuntime(options: IUsePdfViewerAnnotationRu
         annotations,
         annotationCommentModel,
         emitForcedAnnotationMutation,
+        refreshEditedTextMarkupPage: (pageNumber) => {
+            runGuardedTask(
+                () => options.renderVisiblePages(
+                    {
+                        start: pageNumber,
+                        end: pageNumber,
+                    },
+                    {
+                        preserveRenderedPages: true,
+                        forceRerender: true,
+                        bufferOverride: 0,
+                    },
+                ),
+                {
+                    scope: 'annotations',
+                    message: `Failed to refresh edited text markup page ${pageNumber}`,
+                },
+            );
+        },
     });
     const {
         focusAnnotationComment,

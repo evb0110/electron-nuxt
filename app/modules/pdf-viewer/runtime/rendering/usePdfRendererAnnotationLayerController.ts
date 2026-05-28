@@ -23,6 +23,7 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     getRenderVersion: () => number;
     cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
+    onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
 }
 
 export function usePdfRendererAnnotationLayerController(options: IUsePdfRendererAnnotationLayerControllerOptions) {
@@ -33,6 +34,7 @@ export function usePdfRendererAnnotationLayerController(options: IUsePdfRenderer
         getRenderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
+        onAnnotationLayersRendered,
     } = options;
 
     async function renderAnnotationLayersForPage(
@@ -127,6 +129,17 @@ export function usePdfRendererAnnotationLayerController(options: IUsePdfRenderer
                     annotationLayerInstance: null,
                 };
             }
+
+        }
+
+        try {
+            onAnnotationLayersRendered?.(pageNumber, container);
+        } catch (error) {
+            logNonCriticalStageError(
+                pageNumber,
+                'annotation color sync',
+                error,
+            );
         }
 
         return {

@@ -1,6 +1,7 @@
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
+    TMarkupSubtype,
 } from '@app/types/annotations';
 import {
     markerRectIoU,
@@ -14,6 +15,7 @@ import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import {
     parseCssRgbColor,
     rgbToHex,
+    toOpaqueHighlightDisplayColor,
 } from '@app/composables/pdf/textMarkupColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -21,6 +23,20 @@ const MIN_HIGHLIGHT_VISUAL_IOU = 0.2;
 const MAX_HIGHLIGHT_VISUAL_CENTER_DISTANCE = 0.025;
 const TEXT_MARKUP_AXIS_TOLERANCE = 0.018;
 const MIN_TEXT_MARKUP_HORIZONTAL_OVERLAP_RATIO = 0.2;
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const EDITED_TEXT_MARKUP_OVERLAY_SELECTOR = 'svg[data-evb-edited-text-markup-overlay="true"]';
+const EDITED_TEXT_MARKUP_OVERLAY_CLASS = 'pdf-edited-text-markup-overlay';
+const EDITED_TEXT_MARKUP_VISUAL_CLASS = 'pdf-edited-text-markup-overlay__visual';
+const EDITED_TEXT_MARKUP_VISUAL_KEY_ATTR = 'data-evb-edited-text-markup-key';
+const EDITED_TEXT_MARKUP_STROKE_WIDTHS: Record<Exclude<TMarkupSubtype, 'Highlight'>, string> = {
+    Underline: 'calc(var(--total-scale-factor, 1) * 0.571px)',
+    StrikeOut: 'calc(var(--total-scale-factor, 1) * 1px)',
+    Squiggly: 'calc(var(--total-scale-factor, 1) * 1px)',
+};
+const EDITED_TEXT_MARKUP_THUMBNAIL_STROKE_WIDTH = 1;
+const DEFAULT_EDITED_HIGHLIGHT_OVERLAY_OPACITY = 0.35;
+
+interface IEditedTextMarkupVisualOptions { highlightOpacity?: number | null | undefined; }
 
 interface IHighlightVisualCandidate {
     axisOverlap: boolean;
@@ -1605,6 +1621,457 @@ function normalizeTextMarkupSubtype(subtype: string | null | undefined) {
     return (subtype ?? '').trim().toLowerCase();
 }
 
+function toTextMarkupSubtype(subtype: string | null | undefined): TMarkupSubtype | null {
+    const normalized = normalizeTextMarkupSubtype(subtype);
+    if (normalized === 'highlight') {
+        return 'Highlight';
+    }
+    if (normalized === 'underline') {
+        return 'Underline';
+    }
+    if (normalized === 'squiggly') {
+        return 'Squiggly';
+    }
+    if (normalized === 'strikeout') {
+        return 'StrikeOut';
+    }
+    return null;
+}
+
+function getEditedTextMarkupVisualKey(comment: IAnnotationCommentSummary) {
+    return normalizePdfJsAnnotationId(comment.annotationId ?? comment.uid ?? comment.id)
+        ?? comment.stableKey
+        ?? comment.id;
+}
+
+function formatOverlayNumber(value: number) {
+    const normalized = Math.abs(value) < 0.000001 ? 0 : value;
+    if (Number.isInteger(normalized)) {
+        return String(normalized);
+    }
+    return normalized
+        .toFixed(6)
+        .replace(/0+$/u, '')
+        .replace(/\.$/u, '');
+}
+
+function normalizeEditedHighlightOverlayOpacity(value: number | null | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return DEFAULT_EDITED_HIGHLIGHT_OVERLAY_OPACITY;
+    }
+    return Math.min(1, Math.max(0, value));
+}
+
+function normalizeComparableColor(value: string | null | undefined) {
+    const parsed = parseCssRgbColor(value);
+    return parsed ? rgbToHex(parsed).toLowerCase() : (value?.trim().toLowerCase() ?? '');
+}
+
+function normalizeEditedHighlightOverlayColor(color: string, opacity: number) {
+    const normalizedColor = normalizeComparableColor(color);
+    const matchingRawSwatch = ANNOTATION_COLOR_SWATCHES.find((swatch) => (
+        normalizeComparableColor(toOpaqueHighlightDisplayColor(swatch, opacity)) === normalizedColor
+    ));
+    return matchingRawSwatch ?? color;
+}
+
+function createLineOverlayPath(rect: IAnnotationMarkerRect, yRatio: number) {
+    const y = rect.top + rect.height * yRatio;
+    return [
+        `M ${formatOverlayNumber(rect.left)} ${formatOverlayNumber(y)}`,
+        `L ${formatOverlayNumber(rect.left + rect.width)} ${formatOverlayNumber(y)}`,
+    ].join(' ');
+}
+
+function createSquigglyOverlayPath(rect: IAnnotationMarkerRect) {
+    const amplitude = Math.max(rect.height * 0.09, 0.001);
+    const baseline = rect.top + rect.height * 0.84;
+    const step = Math.max(rect.height * 0.16, rect.width / 28, 0.002);
+    let x = rect.left;
+    let up = true;
+    const right = rect.left + rect.width;
+    const commands = [`M ${formatOverlayNumber(x)} ${formatOverlayNumber(baseline - amplitude)}`];
+
+    while (x < right) {
+        x = Math.min(right, x + step);
+        commands.push(`L ${formatOverlayNumber(x)} ${formatOverlayNumber(up ? baseline + amplitude : baseline - amplitude)}`);
+        up = !up;
+    }
+
+    return commands.join(' ');
+}
+
+function createTextMarkupOverlayPath(subtype: TMarkupSubtype, rect: IAnnotationMarkerRect) {
+    if (subtype === 'Underline') {
+        return createLineOverlayPath(rect, 1);
+    }
+    if (subtype === 'StrikeOut') {
+        return createLineOverlayPath(rect, 0.52);
+    }
+    if (subtype === 'Squiggly') {
+        return createSquigglyOverlayPath(rect);
+    }
+    return null;
+}
+
+function getEditedTextMarkupOverlayHost(pageContainer: HTMLElement) {
+    return pageContainer.querySelector<HTMLElement>('.page_canvas, .canvasWrapper') ?? pageContainer;
+}
+
+function getEditedTextMarkupOverlayRoot(pageContainer: HTMLElement) {
+    const host = getEditedTextMarkupOverlayHost(pageContainer);
+    return host.querySelector<SVGSVGElement>(EDITED_TEXT_MARKUP_OVERLAY_SELECTOR);
+}
+
+function ensureEditedTextMarkupOverlayRoot(pageContainer: HTMLElement) {
+    const existing = getEditedTextMarkupOverlayRoot(pageContainer);
+    if (existing) {
+        return existing;
+    }
+
+    const host = getEditedTextMarkupOverlayHost(pageContainer);
+    const root = pageContainer.ownerDocument.createElementNS(SVG_NAMESPACE, 'svg');
+    host.style.setProperty('position', 'relative');
+    root.setAttribute('class', EDITED_TEXT_MARKUP_OVERLAY_CLASS);
+    root.setAttribute('data-evb-edited-text-markup-overlay', 'true');
+    root.setAttribute('aria-hidden', 'true');
+    root.setAttribute('focusable', 'false');
+    root.setAttribute('viewBox', '0 0 1 1');
+    root.setAttribute('preserveAspectRatio', 'none');
+    root.style.setProperty('position', 'absolute');
+    root.style.setProperty('inset', '0');
+    root.style.setProperty('width', '100%');
+    root.style.setProperty('height', '100%');
+    root.style.setProperty('overflow', 'visible');
+    root.style.setProperty('pointer-events', 'none');
+    root.style.setProperty('z-index', '3');
+    host.append(root);
+    return root;
+}
+
+function removeEditedTextMarkupOverlayRootIfEmpty(root: SVGSVGElement) {
+    if (root.querySelectorAll(`.${EDITED_TEXT_MARKUP_VISUAL_CLASS}`).length === 0) {
+        root.remove();
+    }
+}
+
+function removeEditedTextMarkupOverlayVisual(root: SVGSVGElement, key: string) {
+    root
+        .querySelectorAll<SVGGElement>(`.${EDITED_TEXT_MARKUP_VISUAL_CLASS}`)
+        .forEach((visual) => {
+            if (visual.getAttribute(EDITED_TEXT_MARKUP_VISUAL_KEY_ATTR) === key) {
+                visual.remove();
+            }
+        });
+}
+
+function appendEditedTextMarkupOverlayVisual(
+    root: SVGSVGElement,
+    comment: IAnnotationCommentSummary,
+    color: string,
+    subtype: TMarkupSubtype,
+    rect: IAnnotationMarkerRect,
+    options: IEditedTextMarkupVisualOptions = {},
+) {
+    const key = getEditedTextMarkupVisualKey(comment);
+    removeEditedTextMarkupOverlayVisual(root, key);
+
+    const visual = root.ownerDocument.createElementNS(SVG_NAMESPACE, 'g');
+    visual.setAttribute('class', `${EDITED_TEXT_MARKUP_VISUAL_CLASS} ${EDITED_TEXT_MARKUP_VISUAL_CLASS}--${subtype.toLowerCase()}`);
+    visual.setAttribute(EDITED_TEXT_MARKUP_VISUAL_KEY_ATTR, key);
+    if (comment.annotationId) {
+        visual.setAttribute('data-annotation-id', comment.annotationId);
+    }
+    visual.style.setProperty('pointer-events', 'none');
+
+    if (subtype === 'Highlight') {
+        const highlightOpacity = normalizeEditedHighlightOverlayOpacity(options.highlightOpacity);
+        const highlightColor = normalizeEditedHighlightOverlayColor(color, highlightOpacity);
+        const highlightRect = root.ownerDocument.createElementNS(SVG_NAMESPACE, 'rect');
+        highlightRect.setAttribute('x', formatOverlayNumber(rect.left));
+        highlightRect.setAttribute('y', formatOverlayNumber(rect.top));
+        highlightRect.setAttribute('width', formatOverlayNumber(rect.width));
+        highlightRect.setAttribute('height', formatOverlayNumber(rect.height));
+        highlightRect.setAttribute('fill', highlightColor);
+        highlightRect.setAttribute('fill-opacity', formatOverlayNumber(highlightOpacity));
+        highlightRect.style.setProperty('mix-blend-mode', 'multiply');
+        visual.append(highlightRect);
+    } else {
+        const path = createTextMarkupOverlayPath(subtype, rect);
+        if (!path) {
+            return false;
+        }
+        const strokeWidth = EDITED_TEXT_MARKUP_STROKE_WIDTHS[subtype];
+        const stroke = root.ownerDocument.createElementNS(SVG_NAMESPACE, 'path');
+        stroke.setAttribute('d', path);
+        stroke.setAttribute('fill', 'none');
+        stroke.setAttribute('stroke', color);
+        stroke.setAttribute('stroke-opacity', '1');
+        stroke.setAttribute('stroke-linecap', subtype === 'Squiggly' ? 'round' : 'butt');
+        stroke.setAttribute('stroke-linejoin', subtype === 'Squiggly' ? 'round' : 'miter');
+        stroke.setAttribute('stroke-width', strokeWidth);
+        stroke.setAttribute('vector-effect', 'non-scaling-stroke');
+        stroke.style.setProperty('stroke', color);
+        stroke.style.setProperty('stroke-width', strokeWidth);
+        visual.append(stroke);
+    }
+
+    root.append(visual);
+    return true;
+}
+
+function suppressNativeTextMarkupDecorationElement(element: HTMLElement, color: string) {
+    element.style.setProperty('--pdf-markup-subtype-color', color);
+    element.dataset.markupSubtypeColor = 'true';
+    element.style.textDecorationColor = color;
+    element.style.borderBottomColor = color;
+    element.style.borderTopColor = color;
+    element.style.setProperty('text-decoration-line', 'none', 'important');
+    element.style.setProperty('text-decoration', 'none', 'important');
+    element.style.setProperty('border-bottom-style', 'none', 'important');
+    element.style.setProperty('border-top-style', 'none', 'important');
+}
+
+function suppressNativeHighlightVisualElement(element: HTMLElement, color: string) {
+    element.style.setProperty('--pdf-markup-subtype-color', color);
+    element.dataset.markupSubtypeColor = 'true';
+    element.style.setProperty('background', 'transparent', 'important');
+    element.style.setProperty('background-color', 'transparent', 'important');
+    element.style.setProperty('box-shadow', 'none', 'important');
+}
+
+function suppressNativeHighlightPaintElement(element: SVGElement) {
+    element.style.setProperty('fill', 'transparent', 'important');
+    element.style.setProperty('fill-opacity', '0', 'important');
+    element.setAttribute('fill', 'transparent');
+    element.setAttribute('fill-opacity', '0');
+}
+
+function suppressNativeTextMarkupAnnotationLayerVisuals(
+    pageContainer: HTMLElement,
+    comment: IAnnotationCommentSummary,
+    subtype: TMarkupSubtype,
+    color: string,
+) {
+    const annotationElements = comment.annotationId
+        ? collectMatchingAnnotationElements(pageContainer, comment.annotationId)
+        : [];
+    collectGeometryMatchedTextMarkupElements(pageContainer, comment)
+        .forEach(element => appendUniqueElement(annotationElements, element));
+    if (subtype === 'Highlight') {
+        annotationElements.forEach((element) => {
+            suppressNativeHighlightVisualElement(element, color);
+            element
+                .querySelectorAll<HTMLElement>('.overlaidText, mark')
+                .forEach(node => suppressNativeHighlightVisualElement(node, color));
+            element
+                .querySelectorAll<SVGElement>('svg, path, line, rect, polyline, polygon')
+                .forEach(suppressNativeHighlightPaintElement);
+        });
+        return;
+    }
+
+    annotationElements.forEach((element) => {
+        suppressNativeTextMarkupDecorationElement(element, color);
+        element
+            .querySelectorAll<HTMLElement>('.overlaidText, mark, u, s')
+            .forEach(node => suppressNativeTextMarkupDecorationElement(node, color));
+    });
+}
+
+export function applyAnnotationCommentTextMarkupVisualOverlay(
+    container: HTMLElement,
+    comment: IAnnotationCommentSummary,
+    color: string,
+    options: IEditedTextMarkupVisualOptions = {},
+) {
+    const subtype = toTextMarkupSubtype(comment.subtype);
+    const rect = normalizeMarkerRect(comment.markerRect);
+    const normalizedColor = color.trim();
+    if (!subtype || !rect || !normalizedColor) {
+        return false;
+    }
+
+    let updated = false;
+    findPageContainers(container, comment, []).forEach((pageContainer) => {
+        const root = ensureEditedTextMarkupOverlayRoot(pageContainer);
+        suppressNativeTextMarkupAnnotationLayerVisuals(pageContainer, comment, subtype, normalizedColor);
+        updated = appendEditedTextMarkupOverlayVisual(
+            root,
+            comment,
+            normalizedColor,
+            subtype,
+            rect,
+            options,
+        ) || updated;
+    });
+    return updated;
+}
+
+export function syncAnnotationCommentTextMarkupVisualOverlays(
+    container: HTMLElement,
+    comments: readonly IAnnotationCommentSummary[],
+    options: {
+        pageNumber?: number | undefined;
+        resolveColor: (comment: IAnnotationCommentSummary) => string | null;
+        resolveHighlightOpacity?: (comment: IAnnotationCommentSummary) => number | null | undefined;
+    },
+) {
+    const commentsByPage = new Map<HTMLElement, IAnnotationCommentSummary[]>();
+    const pageContainers = new Set<HTMLElement>();
+    if (Number.isFinite(options.pageNumber) && options.pageNumber! > 0) {
+        const pageContainer = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${Math.floor(options.pageNumber!)}"]`,
+        );
+        if (pageContainer) {
+            pageContainers.add(pageContainer);
+        }
+    }
+
+    comments.forEach((comment) => {
+        if (!comment.colorEdited || !isTextMarkupSubtype(comment.subtype) || !normalizeMarkerRect(comment.markerRect)) {
+            return;
+        }
+        findPageContainers(container, comment, []).forEach((pageContainer) => {
+            if (
+                Number.isFinite(options.pageNumber)
+                && options.pageNumber! > 0
+                && Math.floor(comment.pageNumber) !== Math.floor(options.pageNumber!)
+            ) {
+                return;
+            }
+            pageContainers.add(pageContainer);
+            const pageComments = commentsByPage.get(pageContainer) ?? [];
+            pageComments.push(comment);
+            commentsByPage.set(pageContainer, pageComments);
+        });
+    });
+
+    if (!Number.isFinite(options.pageNumber)) {
+        container
+            .querySelectorAll<SVGSVGElement>(EDITED_TEXT_MARKUP_OVERLAY_SELECTOR)
+            .forEach((root) => {
+                const pageContainer = root.closest<HTMLElement>('.page_container');
+                if (pageContainer) {
+                    pageContainers.add(pageContainer);
+                }
+            });
+    }
+
+    let updatedCount = 0;
+    pageContainers.forEach((pageContainer) => {
+        const pageComments = commentsByPage.get(pageContainer) ?? [];
+        const currentKeys = new Set(pageComments.map(getEditedTextMarkupVisualKey));
+        const existingRoot = getEditedTextMarkupOverlayRoot(pageContainer);
+        if (existingRoot) {
+            existingRoot
+                .querySelectorAll<SVGGElement>(`.${EDITED_TEXT_MARKUP_VISUAL_CLASS}`)
+                .forEach((visual) => {
+                    const key = visual.getAttribute(EDITED_TEXT_MARKUP_VISUAL_KEY_ATTR);
+                    if (!key || !currentKeys.has(key)) {
+                        visual.remove();
+                        updatedCount += 1;
+                    }
+                });
+            removeEditedTextMarkupOverlayRootIfEmpty(existingRoot);
+        }
+
+        pageComments.forEach((comment) => {
+            const color = options.resolveColor(comment)?.trim();
+            const subtype = toTextMarkupSubtype(comment.subtype);
+            const rect = normalizeMarkerRect(comment.markerRect);
+            if (!color || !subtype || !rect) {
+                return;
+            }
+            const root = ensureEditedTextMarkupOverlayRoot(pageContainer);
+            suppressNativeTextMarkupAnnotationLayerVisuals(pageContainer, comment, subtype, color);
+            if (appendEditedTextMarkupOverlayVisual(
+                root,
+                comment,
+                color,
+                subtype,
+                rect,
+                { highlightOpacity: options.resolveHighlightOpacity?.(comment) },
+            )) {
+                updatedCount += 1;
+            }
+        });
+    });
+
+    return updatedCount;
+}
+
+function toCanvasRect(canvas: HTMLCanvasElement, rect: IAnnotationMarkerRect) {
+    return {
+        left: rect.left * canvas.width,
+        top: rect.top * canvas.height,
+        width: rect.width * canvas.width,
+        height: rect.height * canvas.height,
+    };
+}
+
+function getCanvasTextMarkupStrokeWidth() {
+    return EDITED_TEXT_MARKUP_THUMBNAIL_STROKE_WIDTH;
+}
+
+export function drawAnnotationCommentTextMarkupCanvasVisual(
+    canvas: HTMLCanvasElement,
+    context: CanvasRenderingContext2D,
+    comment: IAnnotationCommentSummary,
+    color: string,
+    options: IEditedTextMarkupVisualOptions = {},
+) {
+    const subtype = toTextMarkupSubtype(comment.subtype);
+    const rect = normalizeMarkerRect(comment.markerRect);
+    const normalizedColor = color.trim();
+    if (!subtype || !rect || !normalizedColor || canvas.width <= 0 || canvas.height <= 0) {
+        return false;
+    }
+
+    const canvasRect = toCanvasRect(canvas, rect);
+    context.save();
+    try {
+        if (subtype === 'Highlight') {
+            const highlightOpacity = normalizeEditedHighlightOverlayOpacity(options.highlightOpacity);
+            context.fillStyle = normalizeEditedHighlightOverlayColor(normalizedColor, highlightOpacity);
+            context.globalAlpha = highlightOpacity;
+            context.globalCompositeOperation = 'multiply';
+            context.fillRect(canvasRect.left, canvasRect.top, canvasRect.width, canvasRect.height);
+            return true;
+        }
+
+        context.beginPath();
+        context.strokeStyle = normalizedColor;
+        context.globalAlpha = 1;
+        context.lineWidth = getCanvasTextMarkupStrokeWidth();
+        context.lineCap = subtype === 'Squiggly' ? 'round' : 'butt';
+        context.lineJoin = subtype === 'Squiggly' ? 'round' : 'miter';
+
+        if (subtype === 'Underline' || subtype === 'StrikeOut') {
+            const y = canvasRect.top + canvasRect.height * (subtype === 'Underline' ? 1 : 0.52);
+            context.moveTo(canvasRect.left, y);
+            context.lineTo(canvasRect.left + canvasRect.width, y);
+        } else {
+            const amplitude = Math.max(canvasRect.height * 0.09, 0.75);
+            const baseline = canvasRect.top + canvasRect.height * 0.84;
+            const step = Math.max(canvasRect.height * 0.16, canvasRect.width / 28, 1.5);
+            let x = canvasRect.left;
+            let up = true;
+            const right = canvasRect.left + canvasRect.width;
+            context.moveTo(x, baseline - amplitude);
+            while (x < right) {
+                x = Math.min(right, x + step);
+                context.lineTo(x, up ? baseline + amplitude : baseline - amplitude);
+                up = !up;
+            }
+        }
+        context.stroke();
+        return true;
+    } finally {
+        context.restore();
+    }
+}
+
 function collectGeometryMatchedTextMarkupElements(
     container: HTMLElement,
     comment: IAnnotationCommentSummary,
@@ -1656,7 +2123,10 @@ function applyAnnotationLayerTextMarkupColor(
     element: HTMLElement,
     subtype: string,
     color: string,
-    opts: { forceVisible: boolean },
+    opts: {
+        forceVisible: boolean;
+        suppressNativeTextMarkupDecoration: boolean;
+    },
 ) {
     const computedStyle = readComputedStyle(element);
     const forceVisible = opts.forceVisible && subtype === 'highlight';
@@ -1678,10 +2148,21 @@ function applyAnnotationLayerTextMarkupColor(
         )
     );
     element.style.setProperty('--pdf-markup-subtype-color', color);
+    element.dataset.markupSubtypeColor = 'true';
     if (subtype === 'highlight') {
-        element.style.removeProperty('background');
-        element.style.removeProperty('background-color');
+        if (forceVisible) {
+            element.style.setProperty('background-color', color);
+        } else {
+            element.style.removeProperty('background');
+            element.style.removeProperty('background-color');
+        }
     } else {
+        if (opts.suppressNativeTextMarkupDecoration) {
+            element.style.setProperty('text-decoration-line', 'none');
+            element.style.setProperty('text-decoration', 'none');
+            element.style.setProperty('border-bottom-style', 'none');
+            element.style.setProperty('border-top-style', 'none');
+        }
         if (hasElementDecoration) {
             element.style.textDecorationColor = color;
             if (
@@ -1706,14 +2187,25 @@ function applyAnnotationLayerTextMarkupColor(
     }
     const textNodes = Array.from(element.querySelectorAll<HTMLElement>('.overlaidText, mark, u, s'));
     textNodes.forEach((node) => {
+        node.dataset.markupSubtypeColor = 'true';
         node.style.textDecorationColor = color;
+        if (subtype !== 'highlight' && opts.suppressNativeTextMarkupDecoration) {
+            node.style.setProperty('text-decoration-line', 'none');
+            node.style.setProperty('text-decoration', 'none');
+            node.style.setProperty('border-bottom-style', 'none');
+            node.style.setProperty('border-top-style', 'none');
+        }
         if (forceVisible) {
             node.style.setProperty('visibility', 'visible', 'important');
             node.style.setProperty('opacity', '1', 'important');
         }
         if (subtype === 'highlight') {
-            node.style.removeProperty('background');
-            node.style.removeProperty('background-color');
+            if (forceVisible) {
+                node.style.setProperty('background-color', color);
+            } else {
+                node.style.removeProperty('background');
+                node.style.removeProperty('background-color');
+            }
         }
     });
     const svgNodes = Array.from(element.querySelectorAll<SVGElement>(
@@ -1763,6 +2255,7 @@ export function applyAnnotationCommentTextMarkupColor(
     opts: {
         forceVisible?: boolean;
         sourceColor?: string | null;
+        suppressNativeTextMarkupDecoration?: boolean;
     } = {},
 ) {
     const normalizedColor = color.trim();
@@ -1778,12 +2271,17 @@ export function applyAnnotationCommentTextMarkupColor(
     let updated = false;
     const forceVisible = opts.forceVisible !== false;
     const forceAnnotationLayerVisible = forceVisible && subtype === 'highlight';
+    const suppressNativeTextMarkupDecoration = opts.suppressNativeTextMarkupDecoration === true
+        && subtype !== 'highlight';
     let recoloredElementCount = 0;
     let recoloredVisualCount = 0;
     let recoloredCanvasCount = 0;
 
     annotationElements.forEach((element) => {
-        if (applyAnnotationLayerTextMarkupColor(element, subtype, normalizedColor, { forceVisible: forceAnnotationLayerVisible })) {
+        if (applyAnnotationLayerTextMarkupColor(element, subtype, normalizedColor, {
+            forceVisible: forceAnnotationLayerVisible,
+            suppressNativeTextMarkupDecoration,
+        })) {
             recoloredElementCount += 1;
             updated = true;
         }

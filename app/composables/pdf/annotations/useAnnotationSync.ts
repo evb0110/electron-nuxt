@@ -67,7 +67,7 @@ interface ISyncMarkupSubtype {
 }
 
 interface ISyncStore {
-    setAnnotations: (comments: IAnnotationCommentSummary[]) => void;
+    setAnnotations: (comments: IAnnotationCommentSummary[]) => IAnnotationCommentSummary[] | undefined;
     setLinkAnnotations: (links: ILinkAnnotation[]) => void;
     setActiveKey: (key: string | null) => void;
 }
@@ -616,6 +616,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         );
     }
 
+    function rememberMarkupSubtypeOverrides(
+        comments: IAnnotationCommentSummary[],
+        markupSubtype: ISyncMarkupSubtype,
+    ) {
+        comments.forEach(comment => rememberMarkupSubtypeOverride(comment, markupSubtype));
+    }
+
     function mergeHydratedSummary(
         identity: ISyncIdentity,
         commentsByKey: Map<string, IAnnotationCommentSummary>,
@@ -636,7 +643,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
     function mergePdfCommentSummaries(
         identity: ISyncIdentity,
-        markupSubtype: ISyncMarkupSubtype,
         pdfSnapshot: IPdfAnnotationSnapshot,
         commentsByKey: Map<string, IAnnotationCommentSummary>,
         sourceOrder: number,
@@ -656,7 +662,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             };
             nextSourceOrder += 1;
 
-            rememberMarkupSubtypeOverride(summary, markupSubtype);
             mergeHydratedSummary(identity, commentsByKey, summaryWithSortIndex);
         }
 
@@ -689,15 +694,15 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const comments = identity.dedupeAnnotationCommentSummaries(
             Array.from(commentsByKey.values()),
         );
-        comments.forEach((comment) => {
-            identity.rememberSummaryText(comment);
-        });
-
         tracePdfAnnotationSaveEvent('annotation-sync:apply-state', () => ({
             comments: summarizeCommentsForTrace(comments),
             links: links.length,
         }));
-        store.setAnnotations(comments);
+        const appliedComments = store.setAnnotations(comments) ?? comments;
+        appliedComments.forEach((comment) => {
+            identity.rememberSummaryText(comment);
+        });
+        rememberMarkupSubtypeOverrides(appliedComments, markupSubtype);
         store.setLinkAnnotations(links);
         markupSubtype.syncMarkupSubtypePresentationForEditors();
         syncInlineCommentIndicators();
@@ -737,7 +742,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         mergePdfCommentSummaries(
             identity,
-            markupSubtype,
             pdfSnapshot,
             commentsByKey,
             sourceOrder,

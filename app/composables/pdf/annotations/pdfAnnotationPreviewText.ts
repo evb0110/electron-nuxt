@@ -30,6 +30,7 @@ export interface IPdfTextPreviewViewport {
 const MAX_PREVIEW_TEXT_LENGTH = 280;
 const TARGET_RECT_PADDING = 0.006;
 const MIN_CROSS_AXIS_OVERLAP_RATIO = 0.35;
+const MIN_UNPADDED_CROSS_AXIS_OVERLAP_RATIO = 0.5;
 const TEXT_RANGE_EPSILON = 1e-6;
 
 interface ITextRange {
@@ -180,6 +181,10 @@ function intervalOverlap(start: number, end: number, targetStart: number, target
     return Math.max(0, Math.min(end, targetEnd) - Math.max(start, targetStart));
 }
 
+function intervalContains(value: number, start: number, end: number) {
+    return value >= start - TEXT_RANGE_EPSILON && value <= end + TEXT_RANGE_EPSILON;
+}
+
 function clamp01(value: number) {
     if (!Number.isFinite(value)) {
         return 0;
@@ -214,6 +219,25 @@ function toTextRangeForTarget(
     const crossStart = isHorizontal ? textRect.top : textRect.left;
     const crossLength = isHorizontal ? textRect.height : textRect.width;
     const crossEnd = crossStart + crossLength;
+    const targetCrossStart = isHorizontal ? targetRect.top : targetRect.left;
+    const targetCrossLength = isHorizontal ? targetRect.height : targetRect.width;
+    const targetCrossEnd = targetCrossStart + targetCrossLength;
+    const unpaddedCrossOverlap = intervalOverlap(
+        crossStart,
+        crossEnd,
+        targetCrossStart,
+        targetCrossEnd,
+    );
+    const crossCenter = crossStart + crossLength / 2;
+    const crossCenterInsideTarget = intervalContains(crossCenter, targetCrossStart, targetCrossEnd);
+    if (
+        !crossCenterInsideTarget
+        && crossLength > 0
+        && unpaddedCrossOverlap / crossLength < MIN_UNPADDED_CROSS_AXIS_OVERLAP_RATIO
+    ) {
+        return null;
+    }
+
     const expandedTargetCrossStart = isHorizontal ? expandedTarget.top : expandedTarget.left;
     const expandedTargetCrossLength = isHorizontal ? expandedTarget.height : expandedTarget.width;
     const expandedTargetCrossEnd = expandedTargetCrossStart + expandedTargetCrossLength;

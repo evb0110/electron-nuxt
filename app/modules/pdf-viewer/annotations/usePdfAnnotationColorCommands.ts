@@ -7,11 +7,15 @@ import type { PDFDocumentProxy } from '@app/types/pdf';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
+    ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { applyAnnotationCommentTextMarkupColor } from '@app/composables/pdf/annotations/annotationDomRemoval';
+import {
+    applyAnnotationCommentTextMarkupColor,
+    applyAnnotationCommentTextMarkupVisualOverlay,
+} from '@app/composables/pdf/annotations/annotationDomRemoval';
 import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorMutation';
 import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -26,6 +30,7 @@ interface IUsePdfAnnotationColorCommandsOptions {
     annotations: TAnnotationOrchestrator;
     annotationCommentModel: TAnnotationCommentModel;
     emitForcedAnnotationMutation: (options?: { scheduleCommentSync?: boolean }) => void;
+    refreshEditedTextMarkupPage?: ((pageNumber: number) => void) | undefined;
 }
 
 export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCommandsOptions) {
@@ -36,6 +41,7 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         annotations,
         annotationCommentModel,
         emitForcedAnnotationMutation,
+        refreshEditedTextMarkupPage,
     } = options;
 
     function updateCachedAnnotationCommentColor(
@@ -44,6 +50,18 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         options: { colorEdited?: boolean } = {},
     ) {
         annotationCommentModel.updateCachedColor(comment, color, options);
+    }
+
+    function resetAnnotationStorageModifiedIds() {
+        const annotationStorage = pdfDocument.value?.annotationStorage as { resetModifiedIds?: () => void } | undefined;
+        annotationStorage?.resetModifiedIds?.();
+    }
+
+    function refreshRenderedMarkupPage(comment: IAnnotationCommentSummary) {
+        const pageNumber = Math.floor(comment.pageNumber);
+        if (Number.isFinite(pageNumber) && pageNumber > 0) {
+            refreshEditedTextMarkupPage?.(pageNumber);
+        }
     }
 
     function findTextMarkupEditorForComment(comment: IAnnotationCommentSummary) {
@@ -67,6 +85,20 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         );
     }
 
+    function getRenderedMarkupOverlayColor(comment: IAnnotationCommentSummary, color: string) {
+        const subtype = annotationCommentModel.toTextMarkupSubtype(comment);
+        return subtype === 'Highlight'
+            ? color
+            : getRenderedMarkupDisplayColor(comment, color);
+    }
+
+    function getRenderedMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {
+        const subtype = annotationCommentModel.toTextMarkupSubtype(comment);
+        return subtype === 'Highlight'
+            ? annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity
+            : null;
+    }
+
     function applyRenderedMarkupColor(
         comment: IAnnotationCommentSummary,
         color: string,
@@ -78,17 +110,62 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
         if (!viewerContainer.value) {
             return false;
         }
-        return applyAnnotationCommentTextMarkupColor(
+        const displayColor = getRenderedMarkupDisplayColor(comment, color);
+        const didApplyRenderedColor = applyAnnotationCommentTextMarkupColor(
             viewerContainer.value,
             comment,
-            getRenderedMarkupDisplayColor(comment, color),
-            opts,
+            displayColor,
+            {
+                ...opts,
+                suppressNativeTextMarkupDecoration: true,
+            },
         );
+        const didApplyStableOverlay = applyAnnotationCommentTextMarkupVisualOverlay(
+            viewerContainer.value,
+            comment,
+            getRenderedMarkupOverlayColor(comment, color),
+            { highlightOpacity: getRenderedMarkupHighlightOpacity(comment) },
+        );
+        return didApplyRenderedColor || didApplyStableOverlay;
+    }
+
+    function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
+        return {
+            id: markup.id,
+            stableKey: markup.id,
+            pageIndex: markup.pageIndex,
+            pageNumber: markup.pageIndex + 1,
+            text: '',
+            author: null,
+            modifiedAt: null,
+            color: markup.color,
+            uid: null,
+            annotationId: markup.id,
+            source: 'editor',
+            subtype: markup.subtype,
+            markerRect: markup.markerRect,
+        };
     }
 
     function updateSelectedTextMarkupAnnotationColor(color: string) {
+        const selectedMarkup = annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties();
         const didUpdate = annotations.editor.markupSubtype.updateSelectedTextMarkupAnnotationColor(color);
         if (didUpdate) {
+            const selectedComment = selectedMarkup ? toSelectedTextMarkupComment(selectedMarkup) : null;
+            if (selectedComment) {
+                updateCachedAnnotationCommentColor(selectedComment, color);
+            }
+            if (selectedMarkup?.subtype && selectedMarkup.subtype !== 'Highlight') {
+                applyRenderedMarkupColor(
+                    selectedComment ?? toSelectedTextMarkupComment(selectedMarkup),
+                    color,
+                    { sourceColor: selectedMarkup.color },
+                );
+            }
+            if (selectedComment) {
+                refreshRenderedMarkupPage(selectedComment);
+            }
+            resetAnnotationStorageModifiedIds();
             emitForcedAnnotationMutation({ scheduleCommentSync: true });
         }
         return didUpdate;
@@ -116,6 +193,8 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
                 preview: renderedUpdated ? 'rendered-page' : 'rendered-page-missing',
             }));
             updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
+            refreshRenderedMarkupPage(comment);
+            resetAnnotationStorageModifiedIds();
             emitForcedAnnotationMutation();
             return renderedUpdated;
         }
@@ -126,9 +205,9 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
             color,
         );
         const editorConnected = editor.div?.isConnected === true;
-        const renderedUpdated = editorConnected
-            ? false
-            : applyRenderedMarkupColor(comment, color, { sourceColor: comment.color ?? null });
+        const renderedUpdated = (!editorConnected || subtype !== 'Highlight')
+            ? applyRenderedMarkupColor(comment, color, { sourceColor: comment.color ?? null })
+            : false;
         const didUpdate = (editorUpdated && editorConnected) || renderedUpdated;
         BrowserLogger.debug('annotations', 'Updated context-menu text markup color', () => ({
             annotationId: comment.annotationId ?? null,
@@ -145,6 +224,8 @@ export function usePdfAnnotationColorCommands(options: IUsePdfAnnotationColorCom
                 : (renderedUpdated ? 'rendered-page' : 'rendered-page-missing'),
         }));
         updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
+        refreshRenderedMarkupPage(comment);
+        resetAnnotationStorageModifiedIds();
         emitForcedAnnotationMutation({ scheduleCommentSync: didUpdate });
         return didUpdate;
     }
