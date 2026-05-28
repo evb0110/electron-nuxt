@@ -39,7 +39,7 @@
                 <span class="annotation-context-menu-color-label">{{ t('annotationProperties.color') }}</span>
                 <div class="annotation-context-menu-color-swatches">
                     <button
-                        v-for="swatch in displayColorSwatches"
+                        v-for="swatch in ANNOTATION_COLOR_SWATCHES"
                         :key="swatch"
                         type="button"
                         class="annotation-context-menu-color-button"
@@ -262,17 +262,6 @@ const editableColor = computed(() => normalizeColorInputValue(
 function normalizeColorValue(color: string | null | undefined) {
     return color?.trim().toLowerCase() ?? '';
 }
-
-const displayColorSwatches = computed(() => {
-    const active = editableColor.value;
-    const hasMatchingPreset = ANNOTATION_COLOR_SWATCHES.some(swatch => normalizeColorValue(swatch) === normalizeColorValue(active));
-    return hasMatchingPreset
-        ? ANNOTATION_COLOR_SWATCHES
-        : [
-            active,
-            ...ANNOTATION_COLOR_SWATCHES,
-        ];
-});
 
 function openNote() {
     emit('open-note');
