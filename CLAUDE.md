@@ -38,6 +38,9 @@ Use `pnpm run fallow:all` when intentionally checking dead code, duplicates, and
 ## FreeText Note Persistence
 FreeText+Popup annotation persistence is non-trivial due to PDF.js reading `/Contents` from the parent dict. Review the project note-persistence documentation before modifying annotation serialization or note window code.
 
+## E2E
+Electron e2e (`pnpm run test:e2e:electron`, or `:smoke:no-build` when `dist-electron` is current) is part of release gates — run it rather than skipping. Each test starts its own isolated named session, so a running dev server and the `default` session stay untouched. Re-run startup failures (Electron `SIGKILL` / CDP-not-ready) in isolation; those are resource-contention flakes, not regressions.
+
 ## Commands
 ```bash
 pnpm run gate:commit           # Fast staged-file checks used by pre-commit

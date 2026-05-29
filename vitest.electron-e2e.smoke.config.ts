@@ -15,6 +15,7 @@ export default defineConfig({ test: {
         'tests/e2e/electron/phase0InactivePdfTabs.e2e.test.ts',
         'tests/e2e/electron/phase0InactiveDjvuTabs.e2e.test.ts',
         'tests/e2e/electron/phase1AnnotationLifecycle.e2e.test.ts',
+        'tests/e2e/electron/phase1SquigglyMarkup.e2e.test.ts',
         ...(includeExtendedDrawShapeLifecycle
             ? ['tests/e2e/electron/phase1DrawShapeLifecycle.e2e.test.ts']
             : []),
