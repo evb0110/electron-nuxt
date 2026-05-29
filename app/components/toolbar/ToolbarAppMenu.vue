@@ -251,7 +251,7 @@ function handleMenuCommand(command: TMenuCommand) {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 @use '@app/assets/css/toolbarMenuShared';
 
 .app-menu-bar {
