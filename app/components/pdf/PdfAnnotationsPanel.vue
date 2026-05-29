@@ -127,6 +127,8 @@ const toolLabel = computed(() => {
             return t('annotations.underline');
         case 'strikethrough':
             return t('annotations.strikethrough');
+        case 'squiggly':
+            return t('annotations.squiggly');
         case 'rectangle':
             return t('annotations.rectangle');
         case 'circle':

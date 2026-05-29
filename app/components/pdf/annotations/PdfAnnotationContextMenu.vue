@@ -94,6 +94,13 @@
             >
                 {{ t('contextMenu.strikethrough') }}
             </button>
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                @click="markupSquiggly"
+            >
+                {{ t('contextMenu.squiggly') }}
+            </button>
             <div class="pdf-context-menu__divider" />
         </template>
 
@@ -293,6 +300,10 @@ function markupUnderline() {
 
 function markupStrikethrough() {
     emit('markup', 'strikethrough');
+}
+
+function markupSquiggly() {
+    emit('markup', 'squiggly');
 }
 
 function createFreeNote() {

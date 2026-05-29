@@ -47,7 +47,7 @@ export function compareAnnotations(
 }
 
 export function isSelectionMarkupTool(tool: TAnnotationTool): boolean {
-    return tool === 'highlight' || tool === 'underline' || tool === 'strikethrough';
+    return tool === 'highlight' || tool === 'underline' || tool === 'strikethrough' || tool === 'squiggly';
 }
 
 export function isSelectionInteractionTool(tool: TAnnotationTool): boolean {
@@ -63,12 +63,13 @@ export function isShapeTool(tool: TAnnotationTool): tool is Extract<TAnnotationT
 }
 
 export function shouldForceTextMarkup(tool: TAnnotationTool): boolean {
-    return tool === 'underline' || tool === 'strikethrough';
+    return tool === 'underline' || tool === 'strikethrough' || tool === 'squiggly';
 }
 
 export const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>> = {
     underline: 'Underline',
     strikethrough: 'StrikeOut',
+    squiggly: 'Squiggly',
 };
 
 export function markerRectCenterDistance(

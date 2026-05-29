@@ -1,3 +1,31 @@
+/**
+ * Per-page compositing overlay for **true text highlights** (PDF `Highlight`
+ * subtype). It replaces PDF.js' native per-SVG `mix-blend-mode: multiply`
+ * stacking with an explicit z-order model so overlapping highlights stay
+ * visually clean. The contract this module exists to guarantee:
+ *
+ * - **Same-colour overlap** does not stack or darken (no multiply seam — the
+ *   artefact Acrobat/Preview/stock PDF.js exhibit and which PDF.js itself
+ *   treats as a regression).
+ * - **Different-colour overlap** shows the **newest (top-most) annotation's
+ *   colour** in the intersection — never a blended third colour.
+ *
+ * How it works: each contributing highlight SVG is decomposed into axis-aligned
+ * rects ({@link extractRectsFromHighlightPath}); the rects are flattened by a
+ * painter's algorithm ({@link composeHighlightFragments}) into a single set of
+ * non-overlapping fragments; the source SVGs are hidden; and one overlay `<svg>`
+ * is rendered. The overlay is multiplied against the page (see
+ * `pdfjs-overrides.css`) so pale colours stay visible on scanned/grayscale pages.
+ *
+ * Scope: only `highlight` SVGs that are NOT `free` and NOT markup-subtype-draw
+ * strokes participate — see {@link shouldCompositeHighlightClassList}. Underline,
+ * strikeout and squiggly are strokes, not fills: they are drawn independently
+ * and resolve overlap by z-order, so they need no compositing.
+ *
+ * Refactor warning: the "newest wins, no blending" behaviour is intentional and
+ * load-bearing. Do not revert to native multiply stacking without also bringing
+ * back the same-colour darkening seam.
+ */
 interface IHighlightRect {
     x: number;
     y: number;
@@ -61,6 +89,12 @@ function normalizeFragments(rects: IHighlightRect[]) {
     return rects.filter(rect => rect.width > EPSILON && rect.height > EPSILON);
 }
 
+/**
+ * Subtracts `blocker` from `source`, returning the still-visible parts of
+ * `source` as up to four axis-aligned, non-overlapping fragments (top band,
+ * bottom band, left-middle, right-middle). Returns `[source]` unchanged when the
+ * rects do not overlap. Fragments thinner than {@link EPSILON} are dropped.
+ */
 function subtractRect(source: IHighlightRect, blocker: IHighlightRect): IHighlightRect[] {
     const overlap = overlapRect(source, blocker);
     if (!overlap) {
@@ -154,6 +188,15 @@ function getSvgPaint(svg: SVGElement) {
     };
 }
 
+/**
+ * Gate deciding which highlight SVGs participate in compositing. Only genuine
+ * text `Highlight` fills qualify. Excluded:
+ * - `free` — free-form (drawn) highlights, not text markup.
+ * - `pdf-layer-preserve-snapshot` — frozen layer snapshots kept for paint
+ *   stability; compositing them would double-draw.
+ * - `pdf-markup-subtype-draw-*` — underline/strikeout/squiggly strokes, which
+ *   are not fills and resolve overlap by z-order without compositing.
+ */
 export function shouldCompositeHighlightClassList(classNames: readonly string[]) {
     return classNames.includes('highlight')
         && !classNames.includes('free')
@@ -179,6 +222,20 @@ function isVisibleHighlightSvg(svg: SVGElement) {
 const HIGHLIGHT_PATH_TOKEN_PATTERN = /[a-zA-Z]|-?\d*\.?\d+(?:[eE][-+]?\d+)?/g;
 const HIGHLIGHT_PATH_CORNER_EPSILON = 1e-6;
 
+/**
+ * Parses an SVG highlight path's `d` attribute into axis-aligned rectangles.
+ *
+ * PDF.js packs a multi-line highlight into ONE path with several `M…Z` subpaths;
+ * each subpath is returned as its own rect so per-line overlaps can be
+ * subtracted independently. Returns `null` for any non-rectangular subpath
+ * (curves, diagonals, notched outlines) — the caller then falls back to the SVG
+ * bounding box.
+ *
+ * Refactor warning: multi-`M` support is required. Collapsing it back to a
+ * single bounding rect reintroduces the multi-line blending bug where a newer
+ * highlight could not cleanly cover an older overlapping one and blended into a
+ * third colour instead.
+ */
 export function extractRectsFromHighlightPath(
     pathData: string | null | undefined,
 ): IHighlightRect[] | null {
@@ -403,6 +460,11 @@ function renderCompositeOverlay(host: HTMLElement, fragments: IHighlightPaintFra
     host.append(overlay);
 }
 
+/**
+ * True only when at least two sources actually overlap. When highlights are
+ * disjoint there is nothing to deconflict, so the overlay is skipped and the
+ * native SVGs render as-is — cheaper, and avoids touching the DOM needlessly.
+ */
 export function shouldCompositeHighlightSources(sources: readonly THighlightCompositeSource[]) {
     for (let i = 0; i < sources.length; i += 1) {
         const source = sources[i];
@@ -472,6 +534,21 @@ function buildCompositePlan(host: HTMLElement): IHighlightCompositePlan {
     };
 }
 
+/**
+ * Flattens overlapping highlight rects into a non-overlapping fragment set using
+ * a painter's algorithm.
+ *
+ * Load-bearing invariant: sources are processed in **reverse order**, so the
+ * **last source in DOM order (the newest annotation) wins** — it is emitted in
+ * full and every earlier source is subtracted around it. Do not change the
+ * iteration order or remove the input `[...sources].reverse()` without
+ * intentionally flipping the "newest highlight wins the overlap" contract
+ * documented for this module. (The trailing `fragments.reverse()` only restores
+ * natural draw order and is cosmetic — fragments never overlap.)
+ *
+ * Because result fragments never overlap, painting them with any opacity/blend
+ * mode cannot double-paint or darken an intersection.
+ */
 export function composeHighlightFragments(sources: THighlightCompositeSource[]) {
     const occupied: IHighlightRect[] = [];
     const fragments: IHighlightPaintFragment[] = [];
@@ -489,6 +566,13 @@ export function composeHighlightFragments(sources: THighlightCompositeSource[]) 
     return fragments.reverse();
 }
 
+/**
+ * Rebuilds the overlay for one page: computes the composite plan, hides the
+ * source highlight SVGs that were folded into it (toggling the
+ * `pdf-highlight-composite-source` class), and renders the single overlay
+ * element. Removes the overlay entirely when nothing overlaps. Driven reactively
+ * by the MutationObserver installed via {@link observeHighlightCompositeOverlay}.
+ */
 export function refreshHighlightCompositeOverlay(pageContainer: HTMLElement) {
     const host = pageContainer.querySelector<THighlightCompositeHost>('.page_canvas, .canvasWrapper');
     if (!host) {

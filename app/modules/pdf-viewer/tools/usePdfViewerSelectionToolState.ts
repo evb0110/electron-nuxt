@@ -53,6 +53,12 @@ export function usePdfViewerSelectionToolState(options: IUsePdfViewerSelectionTo
                     opacity: settings.strikethroughOpacity,
                 };
             }
+            if (options.annotationTool.value === 'squiggly') {
+                return {
+                    color: settings.squigglyColor,
+                    opacity: settings.squigglyOpacity,
+                };
+            }
             return {
                 color: settings.highlightColor,
                 opacity: settings.highlightOpacity,

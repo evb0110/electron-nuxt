@@ -1,4 +1,4 @@
-export type TAnnotationTool = 'none' | 'select' | 'highlight' | 'underline' | 'strikethrough' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
+export type TAnnotationTool = 'none' | 'select' | 'highlight' | 'underline' | 'strikethrough' | 'squiggly' | 'text' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow' | 'stamp';
 
 export type TAnnotationCommentsStatus = 'loading' | 'ready';
 
