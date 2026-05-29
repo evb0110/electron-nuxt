@@ -1675,6 +1675,12 @@ function normalizeEditedHighlightOverlayColor(color: string, opacity: number) {
     return matchingRawSwatch ?? color;
 }
 
+/**
+ * True when a live PDF.js highlight editor (`.highlightEditor`) already covers
+ * `rect` (normalized page coords, ~1% tolerance). Used to avoid double-painting:
+ * if the live editor is already drawing this highlight, the edited-colour overlay
+ * must NOT also paint it, or the highlight renders doubled/widened.
+ */
 function hasLiveHighlightEditorMatchingRect(pageContainer: HTMLElement, rect: IAnnotationMarkerRect) {
     const editorLayer = pageContainer.querySelector<HTMLElement>('.annotationEditorLayer');
     if (!editorLayer) {
@@ -1914,6 +1920,16 @@ function suppressNativeTextMarkupAnnotationLayerVisuals(
     });
 }
 
+/**
+ * Paints an edited-colour visual overlay for a text-markup annotation whose
+ * colour was changed via the UI, suppressing the native PDF.js visual so the new
+ * colour shows immediately (before re-serialization).
+ *
+ * For `Highlight`, when a live highlight editor already covers the same rect the
+ * overlay is skipped (and any stale overlay removed): the editor paints it, and a
+ * second overlay would double-paint/widen the highlight. Other subtypes draw a
+ * stroke overlay (underline/strikeout/squiggly).
+ */
 export function applyAnnotationCommentTextMarkupVisualOverlay(
     container: HTMLElement,
     comment: IAnnotationCommentSummary,
@@ -1930,6 +1946,8 @@ export function applyAnnotationCommentTextMarkupVisualOverlay(
     let updated = false;
     findPageContainers(container, comment, []).forEach((pageContainer) => {
         suppressNativeTextMarkupAnnotationLayerVisuals(pageContainer, comment, subtype, normalizedColor);
+        // Live highlight editor already paints this rect; a second overlay would
+        // double-paint and visually widen the highlight, so skip overlay creation.
         if (subtype === 'Highlight' && hasLiveHighlightEditorMatchingRect(pageContainer, rect)) {
             const existingRoot = getEditedTextMarkupOverlayRoot(pageContainer);
             if (existingRoot) {

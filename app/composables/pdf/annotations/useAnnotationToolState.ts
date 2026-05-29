@@ -312,6 +312,9 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (subtype === 'StrikeOut') {
             return settings?.strikethroughColor ?? '#dc2626';
         }
+        if (subtype === 'Squiggly') {
+            return settings?.squigglyColor ?? '#16a34a';
+        }
         return settings?.highlightColor ?? '#ffd400';
     }
 
@@ -423,6 +426,8 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                 return settings.underlineColor;
             case 'strikethrough':
                 return settings.strikethroughColor;
+            case 'squiggly':
+                return settings.squigglyColor;
             default:
                 return settings.highlightColor;
         }
@@ -442,6 +447,8 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                 return settings.underlineOpacity;
             case 'strikethrough':
                 return settings.strikethroughOpacity;
+            case 'squiggly':
+                return settings.squigglyOpacity;
             default:
                 return OPAQUE_HIGHLIGHT_OPACITY;
         }

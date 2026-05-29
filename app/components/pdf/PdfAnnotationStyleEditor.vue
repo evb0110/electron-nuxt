@@ -211,6 +211,10 @@ const activeColorSwatch = computed(() => {
         return settings.strikethroughColor;
     }
 
+    if (tool === 'squiggly') {
+        return settings.squigglyColor;
+    }
+
     if (isShapeTool(tool)) {
         return settings.shapeColor;
     }
@@ -272,6 +276,12 @@ function handleColorInput(color: string) {
 
     if (tool === 'strikethrough') {
         updateSetting('strikethroughColor', color);
+        emit('color-selected');
+        return;
+    }
+
+    if (tool === 'squiggly') {
+        updateSetting('squigglyColor', color);
         emit('color-selected');
         return;
     }

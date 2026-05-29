@@ -59,6 +59,9 @@ const markupLabel = computed(() => {
     if (markup?.subtype === 'StrikeOut') {
         return t('annotations.strikethrough');
     }
+    if (markup?.subtype === 'Squiggly') {
+        return t('annotations.squiggly');
+    }
     return t('annotations.highlight');
 });
 

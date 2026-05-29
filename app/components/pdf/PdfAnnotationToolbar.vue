@@ -90,6 +90,12 @@ const toolItems = computed<IToolItem[]>(() => [
         hasStyleControls: true,
     },
     {
+        id: 'squiggly',
+        label: t('annotations.squiggly'),
+        icon: 'i-ph-waves',
+        hasStyleControls: true,
+    },
+    {
         id: 'rectangle',
         label: t('annotations.rectangle'),
         icon: 'i-ph-square',

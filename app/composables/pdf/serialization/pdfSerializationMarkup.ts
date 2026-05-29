@@ -4,9 +4,19 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import {
+    LineCapStyle,
     PDFArray,
     PDFName,
     PDFNumber,
+    lineTo,
+    moveTo,
+    popGraphicsState,
+    pushGraphicsState,
+    rgb,
+    setLineCap,
+    setLineWidth,
+    setStrokingColor,
+    stroke,
 } from 'pdf-lib';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type {
@@ -492,6 +502,99 @@ function toMarkupSubtypeName(name: PDFName): TMarkupSubtype | null {
     }
 }
 
+const SQUIGGLY_APPEARANCE_STROKE_WIDTH = 1;
+const SQUIGGLY_APPEARANCE_MAX_AMPLITUDE = 2;
+const SQUIGGLY_APPEARANCE_MIN_AMPLITUDE = 0.6;
+const SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO = 0.07;
+
+function buildSquigglyAppearanceOperators(values: readonly number[], color: IRgbColor) {
+    const operators = [
+        pushGraphicsState(),
+        setStrokingColor(rgb(color.r / 255, color.g / 255, color.b / 255)),
+        setLineWidth(SQUIGGLY_APPEARANCE_STROKE_WIDTH),
+        setLineCap(LineCapStyle.Round),
+    ];
+
+    let hasPath = false;
+    for (let offset = 0; offset + 8 <= values.length; offset += 8) {
+        const xs = [
+            values[offset]!,
+            values[offset + 2]!,
+            values[offset + 4]!,
+            values[offset + 6]!,
+        ];
+        const ys = [
+            values[offset + 1]!,
+            values[offset + 3]!,
+            values[offset + 5]!,
+            values[offset + 7]!,
+        ];
+        const left = Math.min(...xs);
+        const right = Math.max(...xs);
+        const bottom = Math.min(...ys);
+        const top = Math.max(...ys);
+        const height = top - bottom;
+        if (right - left <= 0 || height <= 0) {
+            continue;
+        }
+        const amplitude = Math.min(
+            SQUIGGLY_APPEARANCE_MAX_AMPLITUDE,
+            Math.max(SQUIGGLY_APPEARANCE_MIN_AMPLITUDE, height * SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO),
+        );
+        const center = bottom + amplitude;
+        const halfStep = Math.max(1.5, amplitude * 1.5);
+        operators.push(moveTo(left, center - amplitude));
+        let x = left;
+        let up = true;
+        while (x < right) {
+            x = Math.min(right, x + halfStep);
+            operators.push(lineTo(x, up ? center + amplitude : center - amplitude));
+            up = !up;
+        }
+        hasPath = true;
+    }
+    if (!hasPath) {
+        return null;
+    }
+    operators.push(stroke(), popGraphicsState());
+    return operators;
+}
+
+// Squiggly needs an explicit appearance stream. Highlight/Underline/StrikeOut are
+// re-synthesised from QuadPoints by readers (including Apple Preview / Quartz),
+// but Squiggly is not, so without an /AP the annotation renders invisibly there.
+function writeSquigglyAppearanceStream(doc: PDFDocument, dict: PDFDict, color: IRgbColor): boolean {
+    const quad = readPdfMarkupQuadPoints(dict);
+    const rect = normalizePdfRect(readPdfRectFromDict(dict) ?? []);
+    if (!quad || !rect) {
+        return false;
+    }
+    const operators = buildSquigglyAppearanceOperators(quad.values, color);
+    if (!operators) {
+        return false;
+    }
+    const appearanceRef = doc.context.register(
+        doc.context.formXObject(operators, {
+            BBox: doc.context.obj([
+                rect[0],
+                rect[1],
+                rect[2],
+                rect[3],
+            ]),
+            Matrix: doc.context.obj([
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ]),
+        }),
+    );
+    dict.set(PDFName.of('AP'), doc.context.obj({ N: appearanceRef }));
+    return true;
+}
+
 function applySubtypeRewriteToDict(
     doc: PDFDocument,
     dict: PDFDict,
@@ -515,13 +618,25 @@ function applySubtypeRewriteToDict(
         return modified;
     }
     const currentSubtype = dict.get(subtypeName);
-    if (currentSubtype instanceof PDFName && currentSubtype.toString() === `/${pdfSubtypeName}`) {
-        return ensureMarkupQuadPointsForSubtypeRewrite(doc, dict) || modified;
+    const subtypeAlreadyApplied = currentSubtype instanceof PDFName
+        && currentSubtype.toString() === `/${pdfSubtypeName}`;
+    if (subtypeAlreadyApplied) {
+        modified = ensureMarkupQuadPointsForSubtypeRewrite(doc, dict) || modified;
+    } else {
+        ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
+        dict.set(subtypeName, PDFName.of(pdfSubtypeName));
+        dict.delete(PDFName.of('AP'));
+        modified = true;
     }
-    ensureMarkupQuadPointsForSubtypeRewrite(doc, dict);
-    dict.set(subtypeName, PDFName.of(pdfSubtypeName));
-    dict.delete(PDFName.of('AP'));
-    return true;
+
+    if (targetSubtype === 'Squiggly') {
+        const appearanceColor = targetColor ?? readPdfMarkupColor(dict);
+        if (appearanceColor && writeSquigglyAppearanceStream(doc, dict, appearanceColor)) {
+            modified = true;
+        }
+    }
+
+    return modified;
 }
 
 function forEachPageAnnotationContext(
