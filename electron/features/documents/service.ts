@@ -56,7 +56,10 @@ import {
     getRecentFiles,
     removeRecentFile,
 } from '@electron/recentFiles';
-import { removeAllowedOpenPath } from '@electron/ipc/openPathCapabilities';
+import {
+    allowOpenPaths,
+    removeAllowedOpenPath,
+} from '@electron/ipc/openPathCapabilities';
 import {
     setMenuDocumentState,
     setMenuTabCount,
@@ -126,9 +129,13 @@ export function createDocumentsService(): IDocumentsService {
 
             setMenuTabCount(window.id, tabCount);
         },
-        getRecentFiles: async (_event) => {
+        getRecentFiles: async (event) => {
             const startedAt = Date.now();
             const files = await getRecentFiles();
+            // Grant reveal-in-folder capability for each recent path to the
+            // requesting webContents; without this, showItemInFolder is rejected
+            // by requireOpenPath for paths the user has not opened this session.
+            allowOpenPaths(files.map(file => file.originalPath), event.sender);
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC recentFiles:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
