@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     composeHighlightFragments,
+    extractRectsFromHighlightPath,
     isRectangularHighlightPathData,
     shouldCompositeHighlightClassList,
     shouldCompositeHighlightSources,
@@ -93,9 +94,78 @@ describe('pdfHighlightCompositeOverlay', () => {
         ])).toBe(true);
     });
 
-    it('does not treat multi-line highlight paths as rectangular overlay sources', () => {
+    it('accepts paths that decompose into axis-aligned rectangles', () => {
         expect(isRectangularHighlightPathData('M0 0 V1 H1 V0 Z')).toBe(true);
+        expect(isRectangularHighlightPathData('M0 0 V1 H1 V0 Z M2 0 V1 H3 V0 Z')).toBe(true);
         expect(isRectangularHighlightPathData('M0 0 V0.5 H1 V0.75 H0.2 V1 H0 Z')).toBe(false);
-        expect(isRectangularHighlightPathData('M0 0 V1 H1 V0 Z M2 0 V1 H3 V0 Z')).toBe(false);
+        expect(isRectangularHighlightPathData('M0 0 C 1 1 2 2 3 3 Z')).toBe(false);
+    });
+
+    it('extracts each axis-aligned subpath as its own rect', () => {
+        expect(extractRectsFromHighlightPath('M0 0 V1 H1 V0 Z')).toEqual([{
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        }]);
+        expect(extractRectsFromHighlightPath(
+            'M0.35155187337702487 0.5164319248826291 V0 H1 V0.5164319248826291 Z'
+            + ' M0 1 V0.48356807511737093 H0.2803264498577965 V1 Z',
+        )).toEqual([
+            {
+                x: 0.35155187337702487,
+                y: 0,
+                width: 1 - 0.35155187337702487,
+                height: 0.5164319248826291,
+            },
+            {
+                x: 0,
+                y: 0.48356807511737093,
+                width: 0.2803264498577965,
+                height: 1 - 0.48356807511737093,
+            },
+        ]);
+        expect(extractRectsFromHighlightPath('M0 0 V0.5 H1 V0.75 H0.2 V1 H0 Z')).toBeNull();
+    });
+
+    it('composites overlapping multi-rect highlights so the latest color wins per fragment', () => {
+        const blueSubpathA = {
+            x: 400,
+            y: 0,
+            width: 600,
+            height: 500,
+            fill: '#a6e8ff',
+            opacity: '1',
+        };
+        const blueSubpathB = {
+            x: 0,
+            y: 500,
+            width: 400,
+            height: 500,
+            fill: '#a6e8ff',
+            opacity: '1',
+        };
+        const yellowOverlap = {
+            x: 450,
+            y: 100,
+            width: 300,
+            height: 300,
+            fill: '#ffff66',
+            opacity: '1',
+        };
+        const fragments = composeHighlightFragments([
+            blueSubpathA,
+            blueSubpathB,
+            yellowOverlap,
+        ]);
+        const overlapFragments = fragments.filter(fragment => fragment.fill === '#ffff66');
+        const blueFragments = fragments.filter(fragment => fragment.fill === '#a6e8ff');
+        expect(overlapFragments).toEqual([yellowOverlap]);
+        expect(blueFragments.some(fragment => (
+            fragment.x < yellowOverlap.x + yellowOverlap.width
+            && fragment.x + fragment.width > yellowOverlap.x
+            && fragment.y < yellowOverlap.y + yellowOverlap.height
+            && fragment.y + fragment.height > yellowOverlap.y
+        ))).toBe(false);
     });
 });

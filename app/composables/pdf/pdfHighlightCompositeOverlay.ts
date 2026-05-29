@@ -124,6 +124,27 @@ function rectFromSvg(hostRect: DOMRect, svg: SVGElement): IHighlightRect | null 
     };
 }
 
+function subRectsFromSvg(hostRect: DOMRect, svg: SVGElement): IHighlightRect[] | null {
+    const path = svg.querySelector('path');
+    const normalizedRects = extractRectsFromHighlightPath(path?.getAttribute('d'));
+    if (!normalizedRects || normalizedRects.length === 0) {
+        return null;
+    }
+    const svgRect = svg.getBoundingClientRect();
+    if (svgRect.width <= EPSILON || svgRect.height <= EPSILON) {
+        return null;
+    }
+    const baseX = svgRect.left - hostRect.left;
+    const baseY = svgRect.top - hostRect.top;
+    const projected = normalizedRects.map(normalized => ({
+        x: baseX + normalized.x * svgRect.width,
+        y: baseY + normalized.y * svgRect.height,
+        width: normalized.width * svgRect.width,
+        height: normalized.height * svgRect.height,
+    })).filter(rect => rect.width > EPSILON && rect.height > EPSILON);
+    return projected.length > 0 ? projected : null;
+}
+
 function getSvgPaint(svg: SVGElement) {
     const fill = svg.getAttribute('fill') || getComputedStyle(svg).fill;
     const opacity = svg.getAttribute('fill-opacity') || getComputedStyle(svg).fillOpacity || '1';
@@ -155,17 +176,188 @@ function isVisibleHighlightSvg(svg: SVGElement) {
         && Number(style.opacity || '1') > 0;
 }
 
-export function isRectangularHighlightPathData(pathData: string | null | undefined) {
+const HIGHLIGHT_PATH_TOKEN_PATTERN = /[a-zA-Z]|-?\d*\.?\d+(?:[eE][-+]?\d+)?/g;
+const HIGHLIGHT_PATH_CORNER_EPSILON = 1e-6;
+
+export function extractRectsFromHighlightPath(
+    pathData: string | null | undefined,
+): IHighlightRect[] | null {
     const normalized = pathData?.trim();
     if (!normalized) {
-        return false;
+        return null;
     }
+    const tokens = normalized.match(HIGHLIGHT_PATH_TOKEN_PATTERN);
+    if (!tokens || tokens.length === 0) {
+        return null;
+    }
+    return parseHighlightSubpaths(tokens);
+}
 
-    const commands = normalized.match(/[a-z]/gi) ?? [];
-    const moveCommands = commands.filter(command => command.toUpperCase() === 'M');
-    return moveCommands.length === 1
-        && commands.length <= 6
-        && commands.every(command => 'MLHVZ'.includes(command.toUpperCase()));
+function parseHighlightSubpaths(tokens: string[]): IHighlightRect[] | null {
+    const rects: IHighlightRect[] = [];
+    let cursor = 0;
+    let penX = 0;
+    let penY = 0;
+    let startX = 0;
+    let startY = 0;
+    let positions: Array<{
+        x: number;
+        y: number;
+    }> = [];
+    let active = false;
+    let lastCommand: string | null = null;
+
+    const consumeNumber = (): number | null => {
+        const token = tokens[cursor];
+        if (token === undefined) {
+            return null;
+        }
+        cursor += 1;
+        const value = parseFloat(token);
+        return Number.isFinite(value) ? value : null;
+    };
+
+    const finishSubpath = (): boolean => {
+        if (!active) {
+            return true;
+        }
+        active = false;
+        if (positions.length === 0) {
+            return true;
+        }
+        let xMin = Infinity;
+        let xMax = -Infinity;
+        let yMin = Infinity;
+        let yMax = -Infinity;
+        for (const point of positions) {
+            if (point.x < xMin) xMin = point.x;
+            if (point.x > xMax) xMax = point.x;
+            if (point.y < yMin) yMin = point.y;
+            if (point.y > yMax) yMax = point.y;
+        }
+        const snapshot = positions;
+        positions = [];
+        if (xMax - xMin <= HIGHLIGHT_PATH_CORNER_EPSILON || yMax - yMin <= HIGHLIGHT_PATH_CORNER_EPSILON) {
+            return true;
+        }
+        const tolerance = HIGHLIGHT_PATH_CORNER_EPSILON;
+        for (const point of snapshot) {
+            const onLeftOrRight = Math.abs(point.x - xMin) < tolerance || Math.abs(point.x - xMax) < tolerance;
+            const onTopOrBottom = Math.abs(point.y - yMin) < tolerance || Math.abs(point.y - yMax) < tolerance;
+            if (!onLeftOrRight || !onTopOrBottom) {
+                return false;
+            }
+        }
+        rects.push({
+            x: xMin,
+            y: yMin,
+            width: xMax - xMin,
+            height: yMax - yMin,
+        });
+        return true;
+    };
+
+    while (cursor < tokens.length) {
+        let token = tokens[cursor]!;
+        const isLetter = /^[a-zA-Z]$/.test(token);
+        if (isLetter) {
+            cursor += 1;
+            lastCommand = token;
+        } else if (lastCommand) {
+            token = lastCommand === 'M'
+                ? 'L'
+                : lastCommand === 'm'
+                    ? 'l'
+                    : lastCommand;
+        } else {
+            return null;
+        }
+        const isRelative = token === token.toLowerCase();
+        const upper = token.toUpperCase();
+
+        if (upper === 'M') {
+            if (!finishSubpath()) {
+                return null;
+            }
+            const nx = consumeNumber();
+            const ny = consumeNumber();
+            if (nx === null || ny === null) {
+                return null;
+            }
+            penX = isRelative ? penX + nx : nx;
+            penY = isRelative ? penY + ny : ny;
+            startX = penX;
+            startY = penY;
+            positions = [{
+                x: penX,
+                y: penY,
+            }];
+            active = true;
+        } else if (upper === 'L') {
+            if (!active) {
+                return null;
+            }
+            const nx = consumeNumber();
+            const ny = consumeNumber();
+            if (nx === null || ny === null) {
+                return null;
+            }
+            penX = isRelative ? penX + nx : nx;
+            penY = isRelative ? penY + ny : ny;
+            positions.push({
+                x: penX,
+                y: penY,
+            });
+        } else if (upper === 'H') {
+            if (!active) {
+                return null;
+            }
+            const nx = consumeNumber();
+            if (nx === null) {
+                return null;
+            }
+            penX = isRelative ? penX + nx : nx;
+            positions.push({
+                x: penX,
+                y: penY,
+            });
+        } else if (upper === 'V') {
+            if (!active) {
+                return null;
+            }
+            const ny = consumeNumber();
+            if (ny === null) {
+                return null;
+            }
+            penY = isRelative ? penY + ny : ny;
+            positions.push({
+                x: penX,
+                y: penY,
+            });
+        } else if (upper === 'Z') {
+            if (active) {
+                penX = startX;
+                penY = startY;
+                positions.push({
+                    x: startX,
+                    y: startY,
+                });
+                if (!finishSubpath()) {
+                    return null;
+                }
+            }
+        } else {
+            return null;
+        }
+    }
+    if (!finishSubpath()) {
+        return null;
+    }
+    return rects.length > 0 ? rects : null;
+}
+
+export function isRectangularHighlightPathData(pathData: string | null | undefined) {
+    return extractRectsFromHighlightPath(pathData) !== null;
 }
 
 function isRectangularHighlightSourceSvg(svg: SVGElement) {
@@ -244,11 +436,22 @@ function buildCompositePlan(host: HTMLElement): IHighlightCompositePlan {
     const sources: IMeasuredHighlightCompositeSource[] = [];
 
     for (const svg of highlightSvgs) {
+        const paint = getSvgPaint(svg);
+        const subRects = subRectsFromSvg(hostRect, svg);
+        if (subRects && subRects.length > 0) {
+            for (const rect of subRects) {
+                sources.push({
+                    ...rect,
+                    ...paint,
+                    svg,
+                });
+            }
+            continue;
+        }
         const rect = rectFromSvg(hostRect, svg);
         if (!rect) {
             continue;
         }
-        const paint = getSvgPaint(svg);
         sources.push({
             ...rect,
             ...paint,

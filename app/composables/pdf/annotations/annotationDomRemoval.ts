@@ -1675,6 +1675,41 @@ function normalizeEditedHighlightOverlayColor(color: string, opacity: number) {
     return matchingRawSwatch ?? color;
 }
 
+function hasLiveHighlightEditorMatchingRect(pageContainer: HTMLElement, rect: IAnnotationMarkerRect) {
+    const editorLayer = pageContainer.querySelector<HTMLElement>('.annotationEditorLayer');
+    if (!editorLayer) {
+        return false;
+    }
+    const editorDivs = editorLayer.querySelectorAll<HTMLElement>(':scope > .highlightEditor');
+    if (editorDivs.length === 0) {
+        return false;
+    }
+    const layerRect = editorLayer.getBoundingClientRect();
+    if (layerRect.width <= 0 || layerRect.height <= 0) {
+        return false;
+    }
+    const tolerance = 0.01;
+    for (const div of editorDivs) {
+        const r = div.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) {
+            continue;
+        }
+        const nLeft = (r.left - layerRect.left) / layerRect.width;
+        const nTop = (r.top - layerRect.top) / layerRect.height;
+        const nWidth = r.width / layerRect.width;
+        const nHeight = r.height / layerRect.height;
+        if (
+            Math.abs(nLeft - rect.left) < tolerance
+            && Math.abs(nTop - rect.top) < tolerance
+            && Math.abs(nWidth - rect.width) < tolerance
+            && Math.abs(nHeight - rect.height) < tolerance
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function createLineOverlayPath(rect: IAnnotationMarkerRect, yRatio: number) {
     const y = rect.top + rect.height * yRatio;
     return [
@@ -1894,8 +1929,16 @@ export function applyAnnotationCommentTextMarkupVisualOverlay(
 
     let updated = false;
     findPageContainers(container, comment, []).forEach((pageContainer) => {
-        const root = ensureEditedTextMarkupOverlayRoot(pageContainer);
         suppressNativeTextMarkupAnnotationLayerVisuals(pageContainer, comment, subtype, normalizedColor);
+        if (subtype === 'Highlight' && hasLiveHighlightEditorMatchingRect(pageContainer, rect)) {
+            const existingRoot = getEditedTextMarkupOverlayRoot(pageContainer);
+            if (existingRoot) {
+                removeEditedTextMarkupOverlayVisual(existingRoot, getEditedTextMarkupVisualKey(comment));
+                removeEditedTextMarkupOverlayRootIfEmpty(existingRoot);
+            }
+            return;
+        }
+        const root = ensureEditedTextMarkupOverlayRoot(pageContainer);
         updated = appendEditedTextMarkupOverlayVisual(
             root,
             comment,
@@ -1983,8 +2026,11 @@ export function syncAnnotationCommentTextMarkupVisualOverlays(
             if (!color || !subtype || !rect) {
                 return;
             }
-            const root = ensureEditedTextMarkupOverlayRoot(pageContainer);
             suppressNativeTextMarkupAnnotationLayerVisuals(pageContainer, comment, subtype, color);
+            if (subtype === 'Highlight' && hasLiveHighlightEditorMatchingRect(pageContainer, rect)) {
+                return;
+            }
+            const root = ensureEditedTextMarkupOverlayRoot(pageContainer);
             if (appendEditedTextMarkupOverlayVisual(
                 root,
                 comment,
