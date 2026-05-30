@@ -28,6 +28,8 @@
           :to="webAppUrl"
           target="_blank"
           rel="noreferrer"
+          color="neutral"
+          variant="ghost"
           size="md"
           icon="i-ph-globe"
         />
@@ -37,7 +39,7 @@
           target="_blank"
           rel="noreferrer"
           color="neutral"
-          variant="ghost"
+          variant="outline"
           size="md"
           icon="i-simple-icons-github"
           square
@@ -49,6 +51,10 @@
     <section class="home-main">
       <div class="home-content">
         <div class="hero-copy">
+          <p class="hero-eyebrow">
+            {{ t('home.hero.badge') }}
+          </p>
+
           <h1
             id="home-title"
             class="hero-title"
@@ -95,8 +101,8 @@
                 :key="tab"
                 :label="installerPlatformLabel(tab)"
                 size="sm"
+                color="neutral"
                 :variant="selectedInstallerTab === tab ? 'solid' : 'ghost'"
-                :color="selectedInstallerTab === tab ? 'primary' : 'neutral'"
                 class="installer-platform-button"
                 @click="selectInstallerTab(tab)"
               />
@@ -122,15 +128,37 @@
                     </span>
                   </div>
                   <span class="installer-item-meta">
-                    {{ formatFileSize(installer.size) }}
+                    {{ formatInstallerMeta(installer) }}
                   </span>
                 </div>
-                <UIcon
-                  name="i-ph-download"
-                  class="installer-item-icon"
-                />
+                <span class="installer-item-chip">
+                  <UIcon
+                    name="i-ph-download"
+                    class="installer-item-icon"
+                  />
+                </span>
               </button>
             </div>
+
+            <p
+              v-if="selectedInstallerTab === 'macos' && installersForSelectedPlatform.length > 1"
+              class="installer-hint"
+            >
+              {{ t('home.installers.macArchHint') }}
+            </p>
+
+            <NuxtLink
+              class="installer-browse"
+              :to="fallbackReleaseUrl"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {{ t('home.hero.browseInstallers') }}
+              <UIcon
+                name="i-ph-arrow-right"
+                class="installer-browse-icon"
+              />
+            </NuxtLink>
           </div>
 
           <div
@@ -169,8 +197,8 @@ import { useTimeoutFn } from '@vueuse/core';
 import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
 import { selectInstallersForPlatform } from '~~/shared/releaseAssets';
 import {
-    formatFileSize,
-    formatInstallerLabel,
+    formatInstallerArchLabel,
+    formatInstallerMeta,
     formatPlatform,
     INSTALLER_PLATFORM_ORDER,
     parseArchitectureHint,
@@ -203,9 +231,12 @@ const {
     ogTitle: () => t('home.seo.ogTitle'),
 });
 
-const clientProfile = ref<IUserAgentProfile>({
-    platform: 'unknown',
-    arch: 'unknown',
+const clientProfile = useState<IUserAgentProfile>('landing-client-profile', () => {
+    const userAgent = import.meta.server
+        ? useRequestHeaders(['user-agent'])['user-agent'] ?? ''
+        : navigator.userAgent;
+
+    return buildClientProfile(userAgent);
 });
 
 const {
@@ -323,12 +354,30 @@ onBeforeUnmount(() => {
     cleanupPendingDownloadIframes();
 });
 
+function buildClientProfile(
+    userAgent: string,
+    hintedPlatform: TReleasePlatform = 'unknown',
+    hintedArch: TReleaseArch = 'unknown',
+): IUserAgentProfile {
+    const uaProfile = parseUserAgent(userAgent);
+    const platform = hintedPlatform === 'unknown' ? uaProfile.platform : hintedPlatform;
+
+    if (hintedArch !== 'unknown') {
+        return { platform, arch: hintedArch };
+    }
+
+    if (platform === 'macos') {
+        return { platform, arch: 'arm64' };
+    }
+
+    return { platform, arch: uaProfile.arch };
+}
+
 async function detectClientProfile(): Promise<IUserAgentProfile> {
-    const uaProfile = parseUserAgent(navigator.userAgent);
     const uaData = (navigator as Navigator & { userAgentData?: INavigatorUADataLike }).userAgentData;
 
     if (!uaData) {
-        return uaProfile;
+        return buildClientProfile(navigator.userAgent);
     }
 
     const hintedPlatform = parsePlatformHint(uaData.platform);
@@ -343,10 +392,7 @@ async function detectClientProfile(): Promise<IUserAgentProfile> {
         }
     }
 
-    return {
-        platform: hintedPlatform === 'unknown' ? uaProfile.platform : hintedPlatform,
-        arch: hintedArch === 'unknown' ? uaProfile.arch : hintedArch,
-    };
+    return buildClientProfile(navigator.userAgent, hintedPlatform, hintedArch);
 }
 
 function cleanupPendingDownloadIframes() {
@@ -409,7 +455,7 @@ function installerLabel(installer: IReleaseInstaller): string {
         return t('home.installers.legacy.win7Label');
     }
 
-    return formatInstallerLabel(installer);
+    return formatInstallerArchLabel(installer);
 }
 
 async function refreshReleaseData() {

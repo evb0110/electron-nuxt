@@ -405,6 +405,30 @@ export function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
     return extension;
 }
 
+export function formatInstallerArchLabel(asset: IReleaseInstaller): string {
+    if (asset.platform === 'macos') {
+        if (asset.arch === 'arm64') {
+            return 'Apple Silicon';
+        }
+
+        if (asset.arch === 'x64') {
+            return 'Intel';
+        }
+    }
+
+    return formatArch(asset.arch) || formatExtension(asset.extension);
+}
+
+export function formatInstallerMeta(asset: IReleaseInstaller): string {
+    const size = formatFileSize(asset.size);
+
+    if (!formatArch(asset.arch)) {
+        return size;
+    }
+
+    return `${formatExtension(asset.extension)} · ${size}`;
+}
+
 export function selectPreferredInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
     const first = assets[0];
     if (!first) {
