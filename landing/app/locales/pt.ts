@@ -52,6 +52,7 @@ export default {
             downloadSelected: 'Download selected installer',
             noArtifacts: 'No installer artifacts found in the latest release.',
             recommended: 'Recommended',
+            macArchHint: 'Choose Apple Silicon for newer Macs, Intel for older models.',
             legacy: {
                 win7Label: 'Windows 7 x64 legacy',
             },

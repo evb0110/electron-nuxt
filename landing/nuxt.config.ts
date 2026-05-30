@@ -16,6 +16,8 @@ export default defineNuxtConfig({
 
     devtools: { enabled: true },
 
+    devServer: { port: 3777 },
+
     css: ['~/assets/css/main.css'],
 
     alias: {
