@@ -7,7 +7,9 @@
     "dev": "nuxt dev",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "typecheck": "nuxt typecheck"
+    "typecheck": "nuxt typecheck",
+    "sync:vendor": "node scripts/vendor.mjs",
+    "check:vendor": "node scripts/vendor.mjs --check"
   },
   "dependencies": {
     "@iconify-json/circle-flags": "^1.2.10",
