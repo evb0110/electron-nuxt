@@ -114,6 +114,15 @@ const stylePopoverContent = {
     sideOffset: 4,
     collisionPadding: 12,
 };
+const colorSettingKeys = new Set<keyof IAnnotationSettings>([
+    'highlightColor',
+    'inkColor',
+    'shapeColor',
+    'squigglyColor',
+    'strikethroughColor',
+    'textColor',
+    'underlineColor',
+]);
 
 const toolLabel = computed(() => {
     switch (props.tool) {
@@ -183,7 +192,7 @@ function updateSetting(payload: {
     value: IAnnotationSettings[keyof IAnnotationSettings];
 }) {
     emit('update-setting', payload);
-    if (showStyleEditor.value) {
+    if (showStyleEditor.value && !colorSettingKeys.has(payload.key)) {
         window.setTimeout(() => {
             if (showStyleEditor.value) {
                 stylePopoverOpen.value = true;
