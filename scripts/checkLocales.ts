@@ -12,9 +12,10 @@ import {
     pathToFileURL,
 } from 'node:url';
 import desktopSchema from '../packages/i18n-app/messages/en';
-import landingSchema from '../landing/app/locales/en';
 
 interface ILocaleDefinitionLike {code: string;}
+
+type TLocaleTarget = 'app' | 'landing' | 'all';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -207,6 +208,12 @@ async function loadLocaleMessages(relativeDirectory: string): Promise<Record<str
     return Object.fromEntries(entries);
 }
 
+async function loadDefaultExport(relativePath: string): Promise<unknown> {
+    const absolutePath = path.join(projectRoot, relativePath);
+    const module = await import(pathToFileURL(absolutePath).href) as {default?: unknown;};
+    return module.default;
+}
+
 function listLocaleFileNames(relativeDirectory: string): string[] {
     const absoluteDirectory = path.join(projectRoot, relativeDirectory);
     return readdirSync(absoluteDirectory)
@@ -236,28 +243,57 @@ function assertRuntimeLocaleParity(errors: string[]) {
     }
 }
 
-async function main() {
-    const errors: string[] = [];
+function parseTarget(argv = process.argv.slice(2)): TLocaleTarget {
+    const targetArg = argv.find(argument => argument.startsWith('--target='));
+    const target = targetArg?.slice('--target='.length) ?? 'all';
 
-    assertRuntimeLocaleParity(errors);
-    const [
-        desktopLocaleMessages,
-        landingLocaleMessages,
-    ] = await Promise.all([
-        loadLocaleMessages('packages/i18n-app/messages'),
-        loadLocaleMessages('landing/app/locales'),
-    ]);
-
-    assertLocaleMetadataParity('desktop', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
-    assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
-
-    if (!hasLeafPath(desktopSchema, 'contextMenu.copySelectionToClipboard')) {
-        errors.push('Desktop schema is missing required key "contextMenu.copySelectionToClipboard"');
+    if (target === 'app' || target === 'landing' || target === 'all') {
+        return target;
     }
 
-    assertParity('desktop', desktopSchema, desktopLocaleMessages, errors);
-    assertPlaceholderParity('desktop', desktopSchema, desktopLocaleMessages, errors);
-    assertParity('landing', landingSchema, landingLocaleMessages, errors);
+    throw new Error(`Expected --target to be one of: app, landing, all. Received "${target}".`);
+}
+
+function formatTarget(target: TLocaleTarget): string {
+    if (target === 'app') {
+        return 'desktop package locales';
+    }
+    if (target === 'landing') {
+        return 'landing locales';
+    }
+    return 'desktop package locales and landing locales';
+}
+
+async function main() {
+    const target = parseTarget();
+    const errors: string[] = [];
+
+    if (target === 'app' || target === 'all') {
+        assertRuntimeLocaleParity(errors);
+        const desktopLocaleMessages = await loadLocaleMessages('packages/i18n-app/messages');
+
+        assertLocaleMetadataParity('desktop', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
+
+        if (!hasLeafPath(desktopSchema, 'contextMenu.copySelectionToClipboard')) {
+            errors.push('Desktop schema is missing required key "contextMenu.copySelectionToClipboard"');
+        }
+
+        assertParity('desktop', desktopSchema, desktopLocaleMessages, errors);
+        assertPlaceholderParity('desktop', desktopSchema, desktopLocaleMessages, errors);
+    }
+
+    if (target === 'landing' || target === 'all') {
+        const [
+            landingSchema,
+            landingLocaleMessages,
+        ] = await Promise.all([
+            loadDefaultExport('landing/app/locales/en.ts'),
+            loadLocaleMessages('landing/app/locales'),
+        ]);
+
+        assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
+        assertParity('landing', landingSchema, landingLocaleMessages, errors);
+    }
 
     if (errors.length > 0) {
         console.error('Locale parity check failed:\n');
@@ -267,7 +303,7 @@ async function main() {
         process.exit(1);
     }
 
-    console.log('Locale parity check passed for desktop package locales and landing locales.');
+    console.log(`Locale parity check passed for ${formatTarget(target)}.`);
 }
 
 main().catch((error) => {

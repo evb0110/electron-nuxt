@@ -177,7 +177,7 @@ Its runtime release API uses:
 ## Testing And Verification
 
 ```bash
-# Static checks
+# Root app static checks
 pnpm lint
 pnpm typecheck
 
@@ -200,6 +200,10 @@ pnpm run check:resources:matrix
 # Host-side release verification
 pnpm run release:verify
 ```
+
+Root app checks are intentionally scoped to the browser/Electron app and shared
+packages. The landing site is checked from `landing/` with its own dependency
+install and build commands.
 
 Release-critical checks intentionally stop at linting, typechecking, Electron
 install verification, strict artifact builds, current-platform packaging, and

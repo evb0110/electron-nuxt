@@ -48,6 +48,12 @@ const ROOT_BOUNDARY_RULES = [
         message: 'Electron code must not import landing runtime code.',
     },
     {
+        sourceRoot: 'app',
+        targetRoot: 'landing',
+        rule: 'app-to-landing',
+        message: 'App code must not import landing runtime code.',
+    },
+    {
         sourceRoot: 'packages',
         targetRoot: 'app',
         rule: 'packages-to-app',
@@ -232,8 +238,27 @@ function formatViolations(violations) {
     }).join('\n');
 }
 
+function collectRootsFromArgv(argv) {
+    const rootArg = argv.find(argument => argument.startsWith('--roots='));
+    if (!rootArg) {
+        return null;
+    }
+
+    return rootArg
+        .slice('--roots='.length)
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean)
+        .map(root => root.split(path.sep).join('/'))
+        .filter(root => !path.isAbsolute(root));
+}
+
 async function run() {
-    const graph = await buildDependencyGraph({projectRoot: process.cwd()});
+    const roots = collectRootsFromArgv(process.argv.slice(2));
+    const graph = await buildDependencyGraph({
+        projectRoot: process.cwd(),
+        ...(roots === null ? {} : {roots}),
+    });
 
     const violations = graph.edges.flatMap(checkEdge);
     const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];

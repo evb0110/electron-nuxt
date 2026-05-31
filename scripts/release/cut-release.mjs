@@ -16,6 +16,8 @@ import {
     writeVersion,
 } from './shared.mjs';
 
+const MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES = ['landing'];
+
 async function main() {
     const level = process.argv[2];
     if (!VALID_RELEASE_LEVELS.has(level)) {
@@ -26,7 +28,7 @@ async function main() {
 
     assertNodeProjectBaseline();
     assertGitHubCliReady();
-    assertCleanWorktree();
+    assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
     requireNamedBranch();
     const upstream = getUpstream();
     const currentVersion = readVersion();
@@ -54,12 +56,14 @@ async function main() {
         // Release verification should not generate any tracked diffs besides the
         // intentional version bump. If it does, fail here instead of silently
         // folding those changes into the release commit.
-        assertChangedFilesMatch([ 'package.json' ]);
+        assertChangedFilesMatch([ 'package.json' ], { ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
         stageFiles([ 'package.json' ]);
         run('git', [
             'commit',
             '-m',
             `release: ${version}`,
+            '--',
+            'package.json',
         ], {stdio: 'inherit'});
         committed = true;
         run('git', [
