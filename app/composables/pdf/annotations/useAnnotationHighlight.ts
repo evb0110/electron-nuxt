@@ -1103,6 +1103,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     }
 
     function startCommentPlacement() {
+        stopDrag();
         setCommentPlacementMode(true);
     }
 

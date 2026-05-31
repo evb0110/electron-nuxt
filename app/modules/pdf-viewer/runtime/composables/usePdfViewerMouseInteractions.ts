@@ -2,6 +2,7 @@ import type { ComputedRef } from 'vue';
 
 interface IUsePdfViewerMouseInteractionsOptions {
     isSnipActive: () => boolean;
+    isCommentPlacementActive: () => boolean;
     isViewerPanDragModeActive: ComputedRef<boolean>;
     cancelPendingSearchScroll: () => void;
     handleDragStart: (event: MouseEvent) => void;
@@ -34,6 +35,7 @@ function isCommentTarget(target: EventTarget | null) {
 export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInteractionsOptions) => {
     const {
         isSnipActive,
+        isCommentPlacementActive,
         isViewerPanDragModeActive,
         cancelPendingSearchScroll,
         handleDragStart,
@@ -47,6 +49,11 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
 
     function handleViewerMouseDown(event: MouseEvent) {
         if (isSnipActive() || isImagePlacementTarget(event.target)) {
+            return;
+        }
+        if (isCommentPlacementActive()) {
+            event.preventDefault();
+            cancelPendingSearchScroll();
             return;
         }
         if (isCommentTarget(event.target)) {
@@ -79,7 +86,7 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
     }
 
     function handleSelectStart(event: Event) {
-        if (isViewerPanDragModeActive.value) {
+        if (isViewerPanDragModeActive.value || isCommentPlacementActive()) {
             event.preventDefault();
         }
     }

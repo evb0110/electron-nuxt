@@ -1018,6 +1018,8 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
 
     function handleCommentPlacementClick(event: MouseEvent, clickTarget: HTMLElement, highlight: ICrudHighlight) {
         const attemptId = nextNotePlacementAttemptId();
+        event.preventDefault();
+        event.stopPropagation();
         runGuardedTask(
             () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY, clickTarget, {
                 attemptId,
