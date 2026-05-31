@@ -37,25 +37,17 @@
 
             <template v-if="!isCollapsed(4)">
                 <div class="toolbar-action toolbar-action--save">
-                    <ToolbarButton
+                    <ToolbarSaveSplitButton
                         v-if="isCommandInline('save')"
-                        icon="ph:floppy-disk"
-                        :tooltip="t('toolbar.save')"
-                        :shortcut="shortcutLabels.save"
-                        :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                        :loading="isSaving"
-                        @click="handleToolbarCommand('save')"
-                    />
-                </div>
-                <div class="toolbar-action toolbar-action--save-as">
-                    <ToolbarButton
-                        v-if="isCommandInline('save-as')"
-                        icon="ph:floppy-disk-back"
-                        :tooltip="t('toolbar.saveAs')"
-                        :shortcut="shortcutLabels.saveAs"
-                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                        :loading="isSavingAs"
-                        @click="handleToolbarCommand('save-as')"
+                        :save-tooltip="t('toolbar.save')"
+                        :save-shortcut="shortcutLabels.save"
+                        :save-as-shortcut="shortcutLabels.saveAs"
+                        :save-disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :save-as-disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :is-saving="isSaving"
+                        :is-saving-as="isSavingAs"
+                        @save="handleToolbarCommand('save')"
+                        @save-as="handleToolbarCommand('save-as')"
                     />
                 </div>
                 <div class="toolbar-action toolbar-action--print">
@@ -294,6 +286,7 @@
 
 <script setup lang="ts">
 import ToolbarButton from '@app/components/ToolbarButton.vue';
+import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButton.vue';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import {

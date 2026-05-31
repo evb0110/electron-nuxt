@@ -29,6 +29,7 @@ export default {
         'openPdf': 'Ouvrir un fichier',
         'save': 'Enregistrer',
         'saveAs': 'Enregistrer sous…',
+        'saveOptions': 'Options d’enregistrement',
         'print': 'Print',
         'printCurrentPage': 'Imprimer la page actuelle',
         'exportDocx': 'Exporter DOCX',

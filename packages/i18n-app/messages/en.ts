@@ -28,6 +28,7 @@ export default {
         'openPdf': 'Open File',
         'save': 'Save',
         'saveAs': 'Save As…',
+        'saveOptions': 'Save options',
         'print': 'Print',
         'printCurrentPage': 'Print Current Page',
         'exportDocx': 'Export DOCX',
