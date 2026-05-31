@@ -39,14 +39,52 @@ jobs:
       - name: Validate
         run: pnpm run validate
 
+      - name: Unit and integration tests
+        run: pnpm run test:release
+
+  landing_quality:
+    name: Landing Quality Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect landing changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- landing/ | grep -q .; then
+            echo "landing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "landing=false" >> "$GITHUB_OUTPUT"
+            echo "No landing changes detected; skipping landing checks."
+          fi
+
+      - name: Setup pnpm
+        if: steps.changes.outputs.landing == 'true'
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        if: steps.changes.outputs.landing == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: landing/pnpm-lock.yaml
+
       - name: Install landing dependencies
+        if: steps.changes.outputs.landing == 'true'
         run: pnpm --dir landing install --frozen-lockfile
 
       - name: Landing typecheck
+        if: steps.changes.outputs.landing == 'true'
         run: pnpm --dir landing run typecheck
 
       - name: Landing build
+        if: steps.changes.outputs.landing == 'true'
         run: pnpm --dir landing run build
-
-      - name: Unit and integration tests
-        run: pnpm run test:release

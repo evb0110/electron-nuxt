@@ -205,6 +205,11 @@ export default withNuxt(
                             message: 'electron/** must not import landing/**.',
                         },
                         {
+                            target: './app',
+                            from: './landing',
+                            message: 'app/** must not import landing/**.',
+                        },
+                        {
                             target: './app/services',
                             from: './app/composables',
                             message: 'app/services/** must not import app/composables/**.',

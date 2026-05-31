@@ -23,10 +23,13 @@ import {
 } from '@vue/compiler-dom';
 
 interface IProjectTarget {
-    label: string;
+    label: TProjectTargetLabel;
     configPath: string;
     sourceDirectories: string[];
 }
+
+type TProjectTargetLabel = 'app' | 'landing';
+type TProjectTargetFilter = TProjectTargetLabel | 'all';
 
 interface IQuotedTokenMatch {
     token: string;
@@ -100,6 +103,31 @@ const PROJECT_TARGETS: IProjectTarget[] = [
         sourceDirectories: [path.join(projectRoot, 'landing', 'app')],
     },
 ];
+
+function parseTarget(argv = process.argv.slice(2)): TProjectTargetFilter {
+    const targetArg = argv.find(argument => argument.startsWith('--target='));
+    const target = targetArg?.slice('--target='.length) ?? 'all';
+
+    if (target === 'app' || target === 'landing' || target === 'all') {
+        return target;
+    }
+
+    throw new Error(`Expected --target to be one of: app, landing, all. Received "${target}".`);
+}
+
+function getProjectTargets(target: TProjectTargetFilter): IProjectTarget[] {
+    return target === 'all'
+        ? PROJECT_TARGETS
+        : PROJECT_TARGETS.filter(projectTarget => projectTarget.label === target);
+}
+
+function formatTarget(target: TProjectTargetFilter): string {
+    if (target === 'all') {
+        return 'app and landing';
+    }
+
+    return target;
+}
 
 function toRelative(filePath: string): string {
     return path.relative(projectRoot, filePath);
@@ -894,12 +922,14 @@ async function checkTarget(target: IProjectTarget, installedCollections: Set<str
 }
 
 async function main() {
+    const target = parseTarget();
+    const projectTargets = getProjectTargets(target);
     const packageJsonPath = path.join(projectRoot, 'package.json');
     const packageJsonContent = await readFile(packageJsonPath, 'utf8');
     const installedCollections = extractInstalledCollections(packageJsonContent);
 
     const results = await Promise.all(
-        PROJECT_TARGETS.map(target => checkTarget(target, installedCollections)),
+        projectTargets.map(projectTarget => checkTarget(projectTarget, installedCollections)),
     );
 
     const hasMissingIcons = results.some(result => result.missingIcons.length > 0);
@@ -925,7 +955,7 @@ async function main() {
         process.exit(1);
     }
 
-    console.log('Icon bundle coverage check passed for app and landing.');
+    console.log(`Icon bundle coverage check passed for ${formatTarget(target)}.`);
 }
 
 function isDirectExecution(): boolean {

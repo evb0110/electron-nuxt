@@ -24,6 +24,7 @@ const {
     getLocalReleaseBuildCommand,
     getPackagingArgs,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
+const { filterIgnoredFiles } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
 
 describe('release policy', () => {
     it('derives local release targets from host platform and arch', () => {
@@ -210,6 +211,18 @@ describe('release policy', () => {
         ]);
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('build:strict');
+    });
+
+    it('can ignore landing-only worktree changes for main app releases', () => {
+        expect(filterIgnoredFiles([
+            'package.json',
+            'landing/vendor/contracts/index.ts',
+            'landing/package.json',
+            'app/app.vue',
+        ], [ 'landing' ])).toEqual([
+            'package.json',
+            'app/app.vue',
+        ]);
     });
 
     it('runs release checks under the supplied CI-mode environment', () => {

@@ -14,6 +14,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow and includes current-platform build and packaging verification.
 - `release:verify:checks` forces `CI=1` during linting, typechecking, Electron install verification, and the fast release-critical test lane so the local gate stays closer to the GitHub release runner.
+- Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
 - Broad maintenance checks (`typecheck:coverage`, `fallow`, and architecture graph checks) remain part of `pnpm validate` and pull-request CI, but they do not block every local release cut.
 - Release-critical tests should stay deterministic and fast. Long serial Electron E2E checks are available for manual diagnostics, but they no longer block release cutting.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](<repo-root>/pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.

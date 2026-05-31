@@ -116,12 +116,9 @@ export function getExitStatus(error) {
     return undefined;
 }
 
-export function assertCleanWorktree() {
-    const porcelain = run('git', [
-        'status',
-        '--short',
-    ]);
-    if (porcelain.length > 0) {
+export function assertCleanWorktree({ ignoredPathPrefixes = [] } = {}) {
+    const changedFiles = listChangedFiles({ ignoredPathPrefixes });
+    if (changedFiles.length > 0) {
         throw new Error('Release requires a clean worktree');
     }
 }
@@ -230,9 +227,41 @@ export function getUpstream() {
     }
 }
 
-export function listChangedFiles() {
+function normalizeGitPath(filePath) {
+    return filePath.replaceAll('\\', '/');
+}
+
+function normalizeIgnoredPathPrefixes(ignoredPathPrefixes) {
+    return ignoredPathPrefixes
+        .map(prefix => normalizeGitPath(prefix).replace(/\/+$/u, ''))
+        .filter(Boolean);
+}
+
+export function filterIgnoredFiles(files, ignoredPathPrefixes = []) {
+    const ignoredPrefixes = normalizeIgnoredPathPrefixes(ignoredPathPrefixes);
+
+    if (ignoredPrefixes.length === 0) {
+        return files;
+    }
+
+    return files.filter((file) => {
+        const normalizedFile = normalizeGitPath(file);
+        return !ignoredPrefixes.some(prefix => (
+            normalizedFile === prefix
+            || normalizedFile.startsWith(`${prefix}/`)
+        ));
+    });
+}
+
+export function listChangedFiles({ ignoredPathPrefixes = [] } = {}) {
     const trackedOutput = run('git', [
         'diff',
+        '--name-only',
+        '--diff-filter=ACDMRTUXB',
+    ]);
+    const stagedOutput = run('git', [
+        'diff',
+        '--cached',
         '--name-only',
         '--diff-filter=ACDMRTUXB',
     ]);
@@ -246,6 +275,7 @@ export function listChangedFiles() {
 
     for (const output of [
         trackedOutput,
+        stagedOutput,
         untrackedOutput,
     ]) {
         if (output.length === 0) {
@@ -260,12 +290,30 @@ export function listChangedFiles() {
         }
     }
 
-    return Array.from(files);
+    return filterIgnoredFiles(Array.from(files), ignoredPathPrefixes);
 }
 
-export function assertChangedFilesMatch(expectedFiles, context = 'Release') {
+function normalizeChangedFileAssertionOptions(contextOrOptions) {
+    if (typeof contextOrOptions === 'string') {
+        return {
+            context: contextOrOptions,
+            ignoredPathPrefixes: [],
+        };
+    }
+
+    return {
+        context: contextOrOptions?.context ?? 'Release',
+        ignoredPathPrefixes: contextOrOptions?.ignoredPathPrefixes ?? [],
+    };
+}
+
+export function assertChangedFilesMatch(expectedFiles, contextOrOptions = 'Release') {
+    const {
+        context,
+        ignoredPathPrefixes,
+    } = normalizeChangedFileAssertionOptions(contextOrOptions);
     const expected = new Set(expectedFiles);
-    const changedFiles = listChangedFiles();
+    const changedFiles = listChangedFiles({ ignoredPathPrefixes });
     const unexpected = changedFiles.filter(file => !expected.has(file));
     const missing = expectedFiles.filter(file => !changedFiles.includes(file));
 

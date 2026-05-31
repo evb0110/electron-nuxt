@@ -161,7 +161,26 @@ const collectNamingIssues = async (directory: string, issues: TNamingIssue[]): P
 
 const issues: TNamingIssue[] = [];
 
-for (const root of ROOTS) {
+function parseRoots(argv = process.argv.slice(2)): string[] {
+    const rootsArg = argv.find(argument => argument.startsWith('--roots='));
+    if (!rootsArg) {
+        return ROOTS;
+    }
+
+    const roots = rootsArg
+        .slice('--roots='.length)
+        .split(',')
+        .map(root => root.trim())
+        .filter(Boolean);
+
+    if (roots.length === 0) {
+        throw new Error('Expected --roots to include at least one root.');
+    }
+
+    return roots;
+}
+
+for (const root of parseRoots()) {
     await collectNamingIssues(root, issues);
 }
 
