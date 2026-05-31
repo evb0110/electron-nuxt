@@ -194,7 +194,7 @@ export default {rules: {
                     }
                 },
                 TSImportType(node) {
-                    reportSource(node.argument);
+                    reportSource(node.source ?? node.argument);
                 },
             };
         },

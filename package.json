@@ -151,6 +151,7 @@
     "@playwright/test": "^1.59.1",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^24.12.2",
+    "@typescript-eslint/parser": "8.59.1",
     "@vitest/coverage-v8": "4.1.5",
     "@vueuse/core": "^14.3.0",
     "@vueuse/math": "^14.3.0",
