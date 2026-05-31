@@ -449,7 +449,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 type === AnnotationEditorParamsType.HIGHLIGHT_FREE
                 && markupSubtype.shouldForceTextMarkup(annotationTool.value)
             ) {
-                // pdfjs-dist types updateParams values as any, so this boundary cannot be stronger locally.
+                // pdfjs-dist leaves updateParams values untyped, so this boundary cannot be stronger locally.
                 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 resolvedValue = toEditorParamValue(false);
             } else {

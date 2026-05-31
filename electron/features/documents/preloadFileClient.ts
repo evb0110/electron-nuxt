@@ -3,9 +3,16 @@ import type {
     IDocumentsFileCapability,
     IImageExportCapability,
 } from '@contracts/platformApi';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/index';
-import { createIpcInvoker } from '@electron/preload/ipcClient';
+import { isRecord } from '@contracts/runtimeGuards';
+import {
+    DOCUMENTS_CHANNELS,
+    type IDocumentsInvokeMap,
+} from '@electron/features/documents/contract';
+import {
+    IMAGE_EXPORT_CHANNELS,
+    type IImageExportInvokeMap,
+} from '@electron/features/image-export/index';
+import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -25,6 +32,32 @@ interface ISerializedPdfPersistencePortResult {
     validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
 }
 
+type TPdfValidationResult = ISerializedPdfPersistencePortResult['validation'];
+
+interface IPdfPersistenceResultMessage {
+    type: 'result';
+    path: string | null;
+    validation: TPdfValidationResult;
+}
+
+interface IPdfPersistenceErrorMessage {
+    type: 'error';
+    error?: string;
+}
+
+interface IPdfPersistenceReadyMessage {type: 'ready';}
+
+interface IPdfPersistenceAckMessage {
+    type: 'ack';
+    seq: number;
+}
+
+type TPdfPersistenceMessage =
+    | IPdfPersistenceResultMessage
+    | IPdfPersistenceErrorMessage
+    | IPdfPersistenceReadyMessage
+    | IPdfPersistenceAckMessage;
+
 function assertPositiveInteger(value: number, label: string) {
     if (!Number.isInteger(value) || value < 1) {
         throw new TypeError(`${label} must be a positive integer`);
@@ -42,24 +75,66 @@ function assertPersistenceData(value: unknown, fieldName: string) {
     return value;
 }
 
+function isPdfValidationResult(value: unknown): value is TPdfValidationResult {
+    return isRecord(value)
+        && typeof value.isValid === 'boolean'
+        && (value.tool === 'qpdf' || value.tool === 'browser')
+        && Array.isArray(value.errors)
+        && value.errors.every(error => typeof error === 'string')
+        && Array.isArray(value.warnings)
+        && value.warnings.every(warning => typeof warning === 'string');
+}
+
+function parsePdfPersistenceMessage(value: unknown): TPdfPersistenceMessage | null {
+    if (!isRecord(value) || typeof value.type !== 'string') {
+        return null;
+    }
+    if (value.type === 'result' && isPdfValidationResult(value.validation)) {
+        return {
+            type: 'result',
+            path: typeof value.path === 'string' ? value.path : null,
+            validation: value.validation,
+        };
+    }
+    if (value.type === 'error') {
+        const errorMessage: IPdfPersistenceErrorMessage = {type: 'error'};
+        if (typeof value.error === 'string') {
+            errorMessage.error = value.error;
+        }
+        return errorMessage;
+    }
+    if (value.type === 'ready') {
+        return {type: 'ready'};
+    }
+    if (value.type === 'ack' && typeof value.seq === 'number') {
+        return {
+            type: 'ack',
+            seq: value.seq,
+        };
+    }
+    return null;
+}
+
+function getPdfPersistenceErrorMessage(payload: IPdfPersistenceErrorMessage) {
+    return typeof payload.error === 'string' ? payload.error : 'PDF persistence failed';
+}
+
 function waitForPortStreamResult(port: MessagePort) {
     return new Promise<ISerializedPdfPersistencePortResult>((resolve, reject) => {
-        const handleMessage = (event: MessageEvent) => {
-            const payload = event.data as {
-                type?: unknown;
-                path?: unknown;
-                validation?: unknown;
-                error?: unknown;
-            };
+        const handleMessage = (event: MessageEvent<unknown>) => {
+            const payload = parsePdfPersistenceMessage(event.data);
+            if (!payload) {
+                return;
+            }
             if (payload.type === 'result') {
                 resolve({
-                    path: typeof payload.path === 'string' ? payload.path : null,
-                    validation: payload.validation as ISerializedPdfPersistencePortResult['validation'],
+                    path: payload.path,
+                    validation: payload.validation,
                 });
                 return;
             }
             if (payload.type === 'error') {
-                reject(new Error(typeof payload.error === 'string' ? payload.error : 'PDF persistence failed'));
+                reject(new Error(getPdfPersistenceErrorMessage(payload)));
             }
         };
         port.addEventListener('message', handleMessage);
@@ -72,11 +147,11 @@ function waitForPortReady(port: MessagePort) {
             port.removeEventListener('message', handleMessage);
             reject(new Error('PDF persistence port did not become ready'));
         }, PDF_PERSISTENCE_READY_TIMEOUT_MS);
-        const handleMessage = (event: MessageEvent) => {
-            const payload = event.data as {
-                type?: unknown;
-                error?: unknown;
-            };
+        const handleMessage = (event: MessageEvent<unknown>) => {
+            const payload = parsePdfPersistenceMessage(event.data);
+            if (!payload) {
+                return;
+            }
             if (payload.type === 'ready') {
                 clearTimeout(timeout);
                 port.removeEventListener('message', handleMessage);
@@ -86,7 +161,7 @@ function waitForPortReady(port: MessagePort) {
             if (payload.type === 'error') {
                 clearTimeout(timeout);
                 port.removeEventListener('message', handleMessage);
-                reject(new Error(typeof payload.error === 'string' ? payload.error : 'PDF persistence failed'));
+                reject(new Error(getPdfPersistenceErrorMessage(payload)));
             }
         };
         port.addEventListener('message', handleMessage);
@@ -99,12 +174,11 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
             port.removeEventListener('message', handleMessage);
             reject(new Error(`PDF persistence chunk ${expectedSeq} was not acknowledged`));
         }, PDF_PERSISTENCE_ACK_TIMEOUT_MS);
-        const handleMessage = (event: MessageEvent) => {
-            const payload = event.data as {
-                type?: unknown;
-                seq?: unknown;
-                error?: unknown;
-            };
+        const handleMessage = (event: MessageEvent<unknown>) => {
+            const payload = parsePdfPersistenceMessage(event.data);
+            if (!payload) {
+                return;
+            }
             if (payload.type === 'ack') {
                 if (payload.seq !== expectedSeq) {
                     clearTimeout(timeout);
@@ -120,7 +194,7 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
             if (payload.type === 'error') {
                 clearTimeout(timeout);
                 port.removeEventListener('message', handleMessage);
-                reject(new Error(typeof payload.error === 'string' ? payload.error : 'PDF persistence failed'));
+                reject(new Error(getPdfPersistenceErrorMessage(payload)));
             }
         };
         port.addEventListener('message', handleMessage);
@@ -162,7 +236,7 @@ async function streamPdfBytesToPersistencePort(
 export function createDocumentsPreloadFileClient(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage'>,
 ): TDocumentsPreloadFileClient {
-    const invoke = createIpcInvoker(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap & IImageExportInvokeMap>(ipcRenderer);
 
     return {
         openPdfDialog: () => invoke(DOCUMENTS_CHANNELS.openPdfDialog),
@@ -176,10 +250,7 @@ export function createDocumentsPreloadFileClient(
         savePdfDataAs: async (workingPath: string, data: Uint8Array) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
             const checkedData = assertPersistenceData(data, 'savePdfDataAs.data');
-            const beginResult = await invoke<{
-                sessionId: string | null;
-                path: string | null;
-            }>(
+            const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.savePdfDataAsBegin,
                 checkedWorkingPath,
                 checkedData.byteLength,
@@ -287,7 +358,7 @@ export function createDocumentsPreloadFileClient(
         savePdfData: async (path: string, data: Uint8Array) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');
-            const beginResult = await invoke<{sessionId: string}>(
+            const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
                 checkedPath,
                 checkedData.byteLength,

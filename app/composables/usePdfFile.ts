@@ -916,7 +916,7 @@ export const usePdfFile = () => {
         // Verify and read file BEFORE committing any reactive state.
         // This prevents an inconsistent UI where the tab shows metadata
         // (filename, dirty dot) but the content area shows the empty state
-        // because pdfSrc was never set due to a failed read.
+        // because pdfSrc remained unset after a failed read.
         // Only the file state is needed for rendering; conformance analysis
         // (used only for save restrictions) is deferred so it does not block
         // the initial display of the document.

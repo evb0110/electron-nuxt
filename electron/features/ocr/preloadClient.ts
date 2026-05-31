@@ -9,36 +9,20 @@ import {
 import {
     OCR_CHANNELS,
     OCR_EVENT_CHANNELS,
+    type IOcrEventMap,
+    type IOcrInvokeMap,
 } from '@electron/features/ocr/contract';
 import {
-    createIpcInvoker,
     createTypedIpcEventSubscriber,
+    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
 function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
 }
 
-interface IOcrEventMap {
-    [OCR_EVENT_CHANNELS.progress]: {
-        requestId: string;
-        currentPage: number;
-        processedCount: number;
-        totalPages: number;
-    };
-    [OCR_EVENT_CHANNELS.complete]: {
-        requestId: string;
-        success: boolean;
-        pdfPath?: TDocumentRef;
-        requiresCleanupAck?: boolean;
-        errors: string[];
-    };
-}
-
-type TOcrPreprocessing = IOcrCapability['preprocessing'];
-
 export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
-    const invoke = createIpcInvoker(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IOcrInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<IOcrEventMap>(ipcRenderer);
 
     return {
@@ -46,7 +30,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             pageNumber: number;
             imageData: Uint8Array;
             languages: string[];
-        }) => invoke<Awaited<ReturnType<IOcrCapability['recognize']>>>(OCR_CHANNELS.recognize, request),
+        }) => invoke(OCR_CHANNELS.recognize, request),
 
         recognizeBatch: (
             pages: Array<{
@@ -55,11 +39,11 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
                 languages: string[];
             }>,
             requestId: string,
-        ) => invoke<Awaited<ReturnType<IOcrCapability['recognizeBatch']>>>(OCR_CHANNELS.recognizeBatch, pages, requestId),
+        ) => invoke(OCR_CHANNELS.recognizeBatch, pages, requestId),
 
-        cancel: (requestId: string) => invoke<Awaited<ReturnType<IOcrCapability['cancel']>>>(OCR_CHANNELS.cancel, requestId),
+        cancel: (requestId: string) => invoke(OCR_CHANNELS.cancel, requestId),
 
-        getLanguages: () => invoke<Awaited<ReturnType<IOcrCapability['getLanguages']>>>(OCR_CHANNELS.getLanguages),
+        getLanguages: () => invoke(OCR_CHANNELS.getLanguages),
 
         installLanguages: (languages: string[], requestId: string) => Promise.resolve({
             started: true,
@@ -69,7 +53,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
         }),
 
         acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) =>
-            invoke<Awaited<ReturnType<IOcrCapability['acknowledgeResultFile']>>>(
+            invoke(
                 OCR_CHANNELS.acknowledgeResultFile,
                 assertRequestId(requestId, 'ocrAcknowledgeResultFile.requestId'),
                 assertOptionalAbsolutePath(pdfPath, 'ocrAcknowledgeResultFile.pdfPath'),
@@ -83,7 +67,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             }>,
             requestId: string,
             renderDpi?: number,
-        ) => invoke<Awaited<ReturnType<IOcrCapability['createSearchablePdf']>>>(
+        ) => invoke(
             OCR_CHANNELS.createSearchablePdf,
             assertAbsolutePath(sourcePdfPath, 'ocrCreateSearchablePdf.sourcePdfPath'),
             pages,
@@ -107,9 +91,9 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
         }) => void): (() => void) => eventSubscriber.onPayload(OCR_EVENT_CHANNELS.complete, callback),
 
         preprocessing: {
-            validate: () => invoke<Awaited<ReturnType<TOcrPreprocessing['validate']>>>(OCR_CHANNELS.preprocessingValidate),
+            validate: () => invoke(OCR_CHANNELS.preprocessingValidate),
             preprocessPage: (imageData: Uint8Array, usePreprocessing: boolean) =>
-                invoke<Awaited<ReturnType<TOcrPreprocessing['preprocessPage']>>>(
+                invoke(
                     OCR_CHANNELS.preprocessingPreprocessPage,
                     imageData,
                     usePreprocessing,

@@ -1,13 +1,17 @@
 import type { IpcRenderer } from 'electron';
 import type { IPageOpsCapability } from '@contracts/platformApi';
-import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/index';
-import { createIpcInvoker } from '@electron/preload/ipcClient';
+import type { TPageOpsRotationAngle } from '@contracts/electronApiPageOps';
+import {
+    PAGE_OPS_CHANNELS,
+    type IPageOpsInvokeMap,
+} from '@electron/features/page-ops/index';
+import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 import type { ICropMargins } from '@contracts/shared';
 
 export function createDocumentsPreloadPageOpsClient(
     ipcRenderer: IpcRenderer,
 ): IPageOpsCapability['pageOps'] {
-    const invoke = createIpcInvoker(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IPageOpsInvokeMap>(ipcRenderer);
 
     return {
         delete: (workingCopyPath: string, pages: number[], totalPages: number) =>
@@ -26,7 +30,7 @@ export function createDocumentsPreloadPageOpsClient(
             requestId?: string,
         ) =>
             invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths, requestId),
-        rotate: (workingCopyPath: string, pages: number[], angle: number) =>
+        rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) =>
             invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
         crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) =>
             invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, margins),

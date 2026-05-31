@@ -3,7 +3,6 @@ import {
     dialog,
     ipcMain,
 } from 'electron';
-import type { IpcMain } from 'electron';
 import { existsSync } from 'fs';
 import {
     basename,
@@ -46,6 +45,7 @@ import {
     enqueueWorkingCopyMutation,
 } from '@electron/ipc/workingCopyMutationQueue';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
+import type { IIpcMainRegistrar } from '@electron/features/page-ops/ports';
 
 type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
 const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
@@ -402,9 +402,7 @@ async function handlePageOpsGetPageGeometry(
     return getPageGeometry(normalizedWorkingCopyPath, pageNumber, event.sender?.id);
 }
 
-interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
-
-export function registerPageOpsHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
+export function registerPageOpsHandlers(registrar: IIpcMainRegistrar = ipcMain) {
     registrar.handle(PAGE_OPS_CHANNELS.delete, handlePageOpsDelete);
     registrar.handle(PAGE_OPS_CHANNELS.extract, handlePageOpsExtract);
     registrar.handle(PAGE_OPS_CHANNELS.reorder, handlePageOpsReorder);

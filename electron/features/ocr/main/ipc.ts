@@ -1,5 +1,4 @@
 import type {
-    IpcMain,
     IpcMainInvokeEvent,
     WebContents,
 } from 'electron';
@@ -8,6 +7,7 @@ import {
     ipcMain,
 } from 'electron';
 import { extname } from 'path';
+import type { IOcrRecognizeResult } from '@contracts/electronApiOcr';
 import {
     OCR_CHANNELS,
     OCR_EVENT_CHANNELS,
@@ -48,6 +48,7 @@ import {
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
+import type { IIpcMainRegistrar } from '@electron/features/ocr/ports';
 
 const log = createLogger('ocr-ipc');
 
@@ -78,7 +79,7 @@ function createSenderAbortSignal(sender: WebContents) {
 async function handleOcrRecognize(
     event: IpcMainInvokeEvent,
     requestPayload: unknown,
-) {
+): Promise<IOcrRecognizeResult> {
     let pageNumber = 0;
     const senderAbort = createSenderAbortSignal(event.sender);
 
@@ -88,12 +89,15 @@ async function handleOcrRecognize(
         const imageBuffer = Buffer.from(request.imageData);
         const result = await runOcr(imageBuffer, request.languages, {signal: senderAbort.signal});
 
-        return {
+        const response: IOcrRecognizeResult = {
             pageNumber: request.pageNumber,
             success: result.success,
             text: result.text,
-            error: result.error,
         };
+        if (typeof result.error === 'string') {
+            response.error = result.error;
+        }
+        return response;
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);
         log.warn(`ocr:recognize failed: ${envelope.message}`);
@@ -355,9 +359,7 @@ async function handleOcrAcknowledgeResultFileValidated(
     }
 }
 
-interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
-
-export function registerOcrHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
+export function registerOcrHandlers(registrar: IIpcMainRegistrar = ipcMain) {
     registrar.handle(OCR_CHANNELS.recognize, handleOcrRecognize);
     registrar.handle(OCR_CHANNELS.recognizeBatch, handleOcrRecognizeBatch);
     registrar.handle(OCR_CHANNELS.createSearchablePdf, handleOcrCreateSearchablePdf);

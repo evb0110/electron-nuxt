@@ -1,6 +1,5 @@
 import { ipcMain } from 'electron';
 import type {
-    IpcMain,
     IpcMainInvokeEvent,
     WebContents,
 } from 'electron';
@@ -32,6 +31,8 @@ import {
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
+import type { IIpcMainRegistrar } from '@electron/features/djvu/ports';
+import { DJVU_CHANNELS } from '@electron/features/djvu/contract';
 
 const logger = createLogger('djvu-ipc');
 
@@ -132,16 +133,14 @@ async function handleDjvuCleanupTemp(
     }
 }
 
-interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
-
-export function registerDjvuHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
-    registrar.handle('djvu:openForViewing', (event, djvuPath) =>
+export function registerDjvuHandlers(registrar: IIpcMainRegistrar = ipcMain) {
+    registrar.handle(DJVU_CHANNELS.openForViewing, (event, djvuPath) =>
         handleDjvuOpenForViewing(event, requireDjvuOpenPath(djvuPath, event.sender)),
     );
-    registrar.handle('djvu:releaseViewingPath', (event, djvuPath) => {
+    registrar.handle(DJVU_CHANNELS.releaseViewingPath, (event, djvuPath) => {
         releaseDjvuViewingPath(event, normalizeDjvuReleasePath(djvuPath, event.sender));
     });
-    registrar.handle('djvu:convertToPdf', (event, djvuPath, outputPath, options) =>
+    registrar.handle(DJVU_CHANNELS.convertToPdf, (event, djvuPath, outputPath, options) =>
         handleDjvuConvertToPdf(
             event,
             requireDjvuOpenPath(djvuPath, event.sender),
@@ -149,10 +148,10 @@ export function registerDjvuHandlers(registrar: IIpcMainHandleRegistrar = ipcMai
             options,
         ),
     );
-    registrar.handle('djvu:cancel', handleDjvuCancel);
-    registrar.handle('djvu:getInfo', handleDjvuGetInfo);
-    registrar.handle('djvu:estimateSizes', handleDjvuEstimateSizes);
-    registrar.handle('djvu:cleanupTemp', handleDjvuCleanupTemp);
+    registrar.handle(DJVU_CHANNELS.cancel, handleDjvuCancel);
+    registrar.handle(DJVU_CHANNELS.getInfo, handleDjvuGetInfo);
+    registrar.handle(DJVU_CHANNELS.estimateSizes, handleDjvuEstimateSizes);
+    registrar.handle(DJVU_CHANNELS.cleanupTemp, handleDjvuCleanupTemp);
 
     if (process.env.EVB_DJVU_SWEEP_STALE_TEMP !== '0') {
         void sweepStaleDjvuTempPdfs().catch((error: unknown) => {

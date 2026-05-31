@@ -1,15 +1,13 @@
-import type {
-    IpcMain,
-    IpcMainInvokeEvent,
-} from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
 import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract';
 import {createImageExportService} from '@electron/features/image-export/service';
-import type { IImageExportService } from '@electron/features/image-export/ports';
-
-interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+import type {
+    IIpcMainRegistrar,
+    IImageExportService,
+} from '@electron/features/image-export/ports';
 
 export function registerImageExportIpcAdapter(
-    registrar: IIpcMainHandleRegistrar,
+    registrar: IIpcMainRegistrar,
     service: IImageExportService = createImageExportService(),
 ) {
     registrar.handle(

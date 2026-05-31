@@ -3,13 +3,14 @@ import type { IDocumentsMenuCapability } from '@contracts/platformApi';
 import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,
+    type IDocumentsEventMap,
+    type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {
-    createIpcInvoker,
     createTypedIpcEventSubscriber,
+    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 import type {
-    IDocumentsEventMap,
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from '@electron/features/documents/preloadShared';
@@ -52,7 +53,7 @@ export function createDocumentsPreloadMenuClient(
     ipcRenderer: IpcRenderer,
 ): IDocumentsMenuCapability {
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsEventMap>(ipcRenderer);
-    const invoke = createIpcInvoker(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
     const onNoArg = (channel: TNoArgDocumentMenuChannel) =>
         (callback: IMenuEventCallback): IMenuEventUnsubscribe => eventSubscriber.onNoArg(channel, callback);
     const noArgMenuSubscriptions = {

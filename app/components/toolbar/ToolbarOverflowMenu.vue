@@ -391,6 +391,25 @@ type TMenuCommand =
     | 'print-current-page'
     | 'convert-to-pdf';
 
+const emitMenuCommand = {
+    'open-ocr': () => emit('open-ocr'),
+    'toggle-sidebar': () => emit('toggle-sidebar'),
+    'actual-size': () => emit('actual-size'),
+    'fit-width': () => emit('fit-width'),
+    'fit-height': () => emit('fit-height'),
+    'enable-drag': () => emit('enable-drag'),
+    'disable-drag': () => emit('disable-drag'),
+    'toggle-continuous-scroll': () => emit('toggle-continuous-scroll'),
+    'capture-region': () => emit('capture-region'),
+    crop: () => emit('crop'),
+    'quick-note': () => emit('quick-note'),
+    'toggle-fullscreen': () => emit('toggle-fullscreen'),
+    'open-settings': () => emit('open-settings'),
+    'combine-images': () => emit('combine-images'),
+    'print-current-page': () => emit('print-current-page'),
+    'convert-to-pdf': () => emit('convert-to-pdf'),
+} satisfies Record<TMenuCommand, () => void>;
+
 const isOpen = computed({
     get: () => open,
     set: (value: boolean) => emit('update:open', value),
@@ -442,7 +461,7 @@ function close() {
 }
 
 function handleMenuCommand(command: TMenuCommand) {
-    emit(command as never);
+    emitMenuCommand[command]();
     close();
 }
 

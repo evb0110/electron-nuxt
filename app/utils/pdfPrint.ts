@@ -85,10 +85,14 @@ interface IBrowserPrintRoot {
 interface IBrowserPrintPageContainer {
     append: (...nodes: unknown[]) => unknown;
     className: string;
-    style: Record<string, string>;
 }
 
 interface IBrowserPrintStyleElement {textContent: string;}
+
+interface IBrowserPrintElementStyle {
+    height: string;
+    width: string;
+}
 
 interface IBrowserPrintCanvas {
     getContext: (
@@ -96,7 +100,7 @@ interface IBrowserPrintCanvas {
         options?: CanvasRenderingContext2DSettings,
     ) => CanvasRenderingContext2D | null;
     height: number;
-    style: Record<string, string>;
+    style: IBrowserPrintElementStyle;
     width: number;
 }
 
@@ -296,7 +300,30 @@ function getBrowserPrintRoot(targetDocument: IBrowserPrintDocument) {
 }
 
 function createBrowserPrintPageContainer(targetDocument: IBrowserPrintDocument) {
-    return targetDocument.createElement('section') as IBrowserPrintPageContainer;
+    const element = targetDocument.createElement('section');
+    if ('append' in element && 'className' in element) {
+        return element;
+    }
+
+    throw new Error('Failed to create browser print page container');
+}
+
+function isBrowserPrintCanvas(element: unknown): element is IBrowserPrintCanvas {
+    return typeof element === 'object'
+        && element !== null
+        && 'getContext' in element
+        && typeof element.getContext === 'function'
+        && 'style' in element
+        && typeof element.style === 'object'
+        && element.style !== null;
+}
+
+function requireBrowserPrintCanvas(element: unknown) {
+    if (isBrowserPrintCanvas(element)) {
+        return element;
+    }
+
+    throw new Error('Failed to create browser print canvas');
 }
 
 function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
@@ -305,11 +332,10 @@ function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
         && document !== targetDocument
         && typeof document.createElement === 'function'
     ) {
-        // Cross-document canvas creation returns DOM Canvas; IBrowserPrintCanvas only narrows the methods used below.
-        return document.createElement('canvas') as unknown as IBrowserPrintCanvas;
+        return requireBrowserPrintCanvas(document.createElement('canvas'));
     }
 
-    return targetDocument.createElement('canvas') as IBrowserPrintCanvas;
+    return requireBrowserPrintCanvas(targetDocument.createElement('canvas'));
 }
 
 function formatPdfPointSizeAsCssInches(sizeInPoints: number) {

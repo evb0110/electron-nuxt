@@ -8,16 +8,16 @@ import type {
 import {
     SEARCH_CHANNELS,
     SEARCH_EVENT_CHANNELS,
+    type ISearchEventMap,
+    type ISearchInvokeMap,
 } from '@electron/features/search/contract';
 import {
-    createIpcInvoker,
     createTypedIpcEventSubscriber,
+    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
-interface ISearchEventMap {[SEARCH_EVENT_CHANNELS.progress]: IPdfSearchProgress;}
-
 export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPreloadClient {
-    const invoke = createIpcInvoker(ipcRenderer);
+    const invoke = createTypedIpcInvoker<ISearchInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<ISearchEventMap>(ipcRenderer);
 
     return {

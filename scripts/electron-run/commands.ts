@@ -321,13 +321,21 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
     }
 
     await page.evaluate(() => {
-        const key = '__electronRunLastClickEvent';
-        (window as any)[key] = null;
-        const previousListener = (window as any).__electronRunClickCaptureListener as EventListener | undefined;
+        interface IElectronRunClickCaptureWindow extends Window {
+            __electronRunClickCaptureListener?: EventListener;
+            __electronRunLastClickEvent?: unknown;
+        }
+
+        const automationWindow = window as IElectronRunClickCaptureWindow;
+        automationWindow.__electronRunLastClickEvent = null;
+        const previousListener = automationWindow.__electronRunClickCaptureListener;
         if (previousListener) {
             window.removeEventListener('click', previousListener, true);
         }
-        (window as any).__electronRunClickCaptureListener = function (event: MouseEvent) {
+        automationWindow.__electronRunClickCaptureListener = function (event: Event) {
+            if (!(event instanceof MouseEvent)) {
+                return;
+            }
             const target = event.target as HTMLElement | null;
             const path = typeof event.composedPath === 'function'
                 ? event.composedPath().slice(0, 8).map((node) => {
@@ -341,7 +349,7 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
                     return `${node.tagName.toLowerCase()}${id}${className}`;
                 })
                 : [];
-            (window as any)[key] = {
+            automationWindow.__electronRunLastClickEvent = {
                 type: event.type,
                 button: event.button,
                 buttons: event.buttons,
@@ -368,7 +376,7 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
                 timestamp: Date.now(),
             };
         };
-        window.addEventListener('click', (window as any).__electronRunClickCaptureListener, {
+        window.addEventListener('click', automationWindow.__electronRunClickCaptureListener, {
             capture: true,
             once: true,
         });
@@ -382,7 +390,10 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
         clicked: selector,
         target: targetInfo,
         event: await page.evaluate(() => {
-            return (window as any).__electronRunLastClickEvent ?? null;
+            interface IElectronRunClickCaptureWindow extends Window {__electronRunLastClickEvent?: unknown;}
+
+            const automationWindow = window as IElectronRunClickCaptureWindow;
+            return automationWindow.__electronRunLastClickEvent ?? null;
         }),
     };
 }
@@ -572,11 +583,16 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             return scoreViewer(viewer) > scoreViewer(best) ? viewer : best;
         }, null);
 
-        const trigger = (window as any).__electronRunOpenPdfTrigger as {
+        interface IElectronRunOpenPdfTrigger {
             token?: string;
             status?: 'pending' | 'resolved' | 'rejected';
             error?: string | null;
-        } | undefined;
+        }
+
+        interface IElectronRunOpenPdfWindow extends Window {__electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;}
+
+        const automationWindow = window as IElectronRunOpenPdfWindow;
+        const trigger = automationWindow.__electronRunOpenPdfTrigger;
         const openTrigger = (
             requestedToken
                         && trigger
@@ -631,16 +647,29 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
 
     const beforeState = await readViewerState();
     const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
+        interface IElectronRunOpenPdfTrigger {
+            token?: string;
+            status?: 'pending' | 'resolved' | 'rejected';
+            error?: string | null;
+        }
+
+        type TElectronRunOpenPdfWindow = Window & {
+            __allowRendererFileOpenForAutomation?: (path: string) => Promise<boolean>;
+            __electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;
+            __openFileDirect?: (path: string) => Promise<boolean>;
+        };
+
+        const automationWindow = window as TElectronRunOpenPdfWindow;
         const token = `open-${crypto.randomUUID()}`;
-        (window as any).__electronRunOpenPdfTrigger = {
+        automationWindow.__electronRunOpenPdfTrigger = {
             token,
             status: 'pending',
             error: null,
         };
 
-        const openFileDirect = (window as any).__openFileDirect;
+        const openFileDirect = automationWindow.__openFileDirect;
         if (typeof openFileDirect !== 'function') {
-            (window as any).__electronRunOpenPdfTrigger = {
+            automationWindow.__electronRunOpenPdfTrigger = {
                 token,
                 status: 'rejected',
                 error: 'window.__openFileDirect is not available',
@@ -650,7 +679,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
 
         Promise.resolve()
             .then(async () => {
-                const allowRendererFileOpenForAutomation = (window as any).__allowRendererFileOpenForAutomation;
+                const allowRendererFileOpenForAutomation = automationWindow.__allowRendererFileOpenForAutomation;
                 if (typeof allowRendererFileOpenForAutomation === 'function') {
                     await allowRendererFileOpenForAutomation(path);
                 }
@@ -661,7 +690,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
                         setTimeout(() => reject(new Error('openFileDirect trigger timeout')), triggerTimeoutMs);
                     }),
                 ]);
-                (window as any).__electronRunOpenPdfTrigger = {
+                automationWindow.__electronRunOpenPdfTrigger = {
                     token,
                     status: 'resolved',
                     error: null,
@@ -669,7 +698,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             })
             .catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : String(error);
-                (window as any).__electronRunOpenPdfTrigger = {
+                automationWindow.__electronRunOpenPdfTrigger = {
                     token,
                     status: 'rejected',
                     error: message,
@@ -733,12 +762,16 @@ async function handleHealthCommand(context: ICommandContext) {
         devtoolsEvents,
     } = context.sessionState;
     const health = await page.evaluate(() => {
+        const automationWindow = window as Window & {
+            __openFileDirect?: unknown;
+            electronAPI?: unknown;
+        };
         const nuxtRoot = document.querySelector('#__nuxt');
         return {
             bodyExists: document.body !== null,
             nuxtRootChildren: nuxtRoot?.children.length ?? 0,
-            openFileDirect: typeof (window as any).__openFileDirect,
-            electronAPI: typeof (window as any).electronAPI,
+            openFileDirect: typeof automationWindow.__openFileDirect,
+            electronAPI: typeof automationWindow.electronAPI,
             bodyTextLength: (document.body?.innerText ?? '').trim().length,
             title: document.title,
             url: window.location.href,

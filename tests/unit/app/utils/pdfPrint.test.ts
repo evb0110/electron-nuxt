@@ -586,7 +586,10 @@ describe('pdfPrint', () => {
         const canvas = {
             height: 0,
             width: 0,
-            style: {},
+            style: {
+                height: '',
+                width: '',
+            },
             getContext: vi.fn(),
         };
         canvas.getContext.mockReturnValue({ canvas });

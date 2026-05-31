@@ -55,11 +55,16 @@ export const useSettings = () => {
             return nextSettings;
         }
 
+        const baseSettings = previousSettings;
         const patch: Partial<ISettingsData> = {};
-        for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
-            if (nextSettings[key] !== previousSettings[key]) {
-                patch[key] = nextSettings[key] as never;
+        function assignChangedSetting<TKey extends keyof ISettingsData>(key: TKey) {
+            if (nextSettings[key] !== baseSettings[key]) {
+                patch[key] = nextSettings[key];
             }
+        }
+
+        for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
+            assignChangedSetting(key);
         }
         return patch;
     }

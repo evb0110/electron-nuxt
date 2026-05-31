@@ -1,4 +1,8 @@
 import type { IpcMainInvokeEvent } from 'electron';
+import type { IIpcMainRegistrar as IContractIpcMainRegistrar } from '@contracts/ipcMain';
+import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
+
+export type IIpcMainRegistrar = IContractIpcMainRegistrar<IImageExportInvokeMap>;
 
 export interface IImageExportService {
     exportImages: (
