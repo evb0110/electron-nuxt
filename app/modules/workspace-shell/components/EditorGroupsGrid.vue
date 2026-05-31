@@ -464,17 +464,10 @@ function handleGroupPointerDown(groupId: string) {
 
 let moveListener: ((event: PointerEvent) => void) | null = null;
 let upListener: ((event: PointerEvent) => void) | null = null;
-let stopMoveListener: (() => void) | null = null;
-let stopUpListener: (() => void) | null = null;
-let stopCancelListener: (() => void) | null = null;
+const resizeWindowTarget = shallowRef<Window | undefined>();
 
 function clearResizeListeners() {
-    stopMoveListener?.();
-    stopMoveListener = null;
-    stopUpListener?.();
-    stopUpListener = null;
-    stopCancelListener?.();
-    stopCancelListener = null;
+    resizeWindowTarget.value = undefined;
     moveListener = null;
     upListener = null;
 }
@@ -502,9 +495,7 @@ function startResize(event: PointerEvent, splitId: string, orientation: TGroupOr
         clearResizeListeners();
     };
 
-    stopMoveListener = useEventListener(window, 'pointermove', moveListener);
-    stopUpListener = useEventListener(window, 'pointerup', upListener);
-    stopCancelListener = useEventListener(window, 'pointercancel', upListener);
+    resizeWindowTarget.value = window;
 
     const sash = event.currentTarget;
     if (sash instanceof Element && 'setPointerCapture' in sash) {
@@ -520,6 +511,16 @@ function handleSplitResizePointerDown(event: PointerEvent) {
     }
     startResize(event, split.id, split.orientation);
 }
+
+useEventListener(resizeWindowTarget, 'pointermove', (event: PointerEvent) => {
+    moveListener?.(event);
+});
+useEventListener(resizeWindowTarget, 'pointerup', (event: PointerEvent) => {
+    upListener?.(event);
+});
+useEventListener(resizeWindowTarget, 'pointercancel', (event: PointerEvent) => {
+    upListener?.(event);
+});
 
 onUnmounted(() => {
     clearResizeListeners();
