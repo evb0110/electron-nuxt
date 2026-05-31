@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer-core';
-import type { IPoint } from './viewerDom';
-import { waitForActiveWorkspaceHost } from './viewerDom';
+import type { IPoint } from '@tests/e2e/electron/helpers/viewerDom';
+import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 
 export interface IMarkerInfo {
     key: string;

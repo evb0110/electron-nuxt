@@ -1,5 +1,5 @@
-import type { TDocumentRef } from './document';
-import type { IOcrLanguage } from './shared';
+import type { TDocumentRef } from '@contracts/document';
+import type { IOcrLanguage } from '@contracts/shared';
 
 export type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'

@@ -1,8 +1,8 @@
-import { BROWSER_MAX_FULL_READ_BYTES } from './browserDocumentConstants';
+import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import type {
     IBrowserDocumentEntry,
     TBrowserDocumentStorageMode,
-} from './browserDocumentTypes';
+} from '@app/platform/browser/browserDocumentTypes';
 
 const BROWSER_INLINE_FILE_THRESHOLD_BYTES = 16 * 1024 * 1024;
 

@@ -1,4 +1,4 @@
-export { usePdfAnnotationColorCommands } from './usePdfAnnotationColorCommands';
-export { usePdfAnnotationCommentActions } from './usePdfAnnotationCommentActions';
-export { usePdfAnnotationCommentModel } from './usePdfAnnotationCommentModel';
+export { usePdfAnnotationColorCommands } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+export { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions';
+export { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 

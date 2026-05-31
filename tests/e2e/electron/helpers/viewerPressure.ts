@@ -3,8 +3,8 @@ import { sumBy } from 'es-toolkit/math';
 import {
     evaluateInPage,
     waitForFunctionInPage,
-} from './pageRuntime';
-import { DEFAULT_TIMEOUT_MS } from './viewerDom';
+} from '@tests/e2e/electron/helpers/pageRuntime';
+import { DEFAULT_TIMEOUT_MS } from '@tests/e2e/electron/helpers/viewerDom';
 
 export interface IWorkspacePressureSnapshot {
     index: number;

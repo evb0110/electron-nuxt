@@ -10,7 +10,7 @@ import {
     FakeIndexedDbFactory,
     MemoryStorage,
     cast,
-} from './browserPlatformTestDoubles';
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const browserPdfCombineWorkerMock = vi.hoisted(() => ({
     canUse: vi.fn(() => false),

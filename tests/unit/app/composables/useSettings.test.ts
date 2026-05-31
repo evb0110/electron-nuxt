@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import type { Ref } from 'vue';
 import type { ISettingsData } from '@contracts/shared';
-import { installNuxtStateTestStubs } from './nuxtStateTestStubs';
+import { installNuxtStateTestStubs } from '@tests/unit/app/composables/nuxtStateTestStubs';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: ISettingsData) => Promise<void>>();

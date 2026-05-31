@@ -251,13 +251,27 @@ const PACKAGE_ALIAS_RULES = [
         prefix: '@electron/',
         prefixTarget: 'electron/',
     },
+    {
+        prefix: '@scripts/',
+        prefixTarget: 'scripts/',
+    },
+    {
+        prefix: '@server/',
+        prefixTarget: 'server/',
+    },
+    {
+        prefix: '@tests/',
+        prefixTarget: 'tests/',
+    },
 ];
 
 const ROOT_SPECIFIER_PREFIXES = [
     'app/',
     'electron/',
     'landing/',
+    'scripts/',
     'server/',
+    'tests/',
     'packages/contracts/',
     'packages/pdf-core/',
     'packages/electron-worker-bundles/',

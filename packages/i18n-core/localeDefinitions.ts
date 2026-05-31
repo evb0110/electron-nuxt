@@ -1,4 +1,4 @@
-import type { TLocale } from './localeCodes';
+import type { TLocale } from '@evb/i18n-core/localeCodes';
 
 interface ILocaleDefinition<TLocaleCode extends string = string> {
     code: TLocaleCode;

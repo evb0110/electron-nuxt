@@ -6,8 +6,8 @@ import {
 import { join } from 'node:path';
 import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
-import { sendCommand } from './client';
-import { COMMAND_EXECUTION_TIMEOUT_MS } from './electronRunTimeouts';
+import { sendCommand } from '@scripts/electron-run/client';
+import { COMMAND_EXECUTION_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
 import {
     cleanupStaleSessionArtifacts,
     clearSessionStarting,
@@ -15,20 +15,20 @@ import {
     getSessionStartingInfo,
     isSessionRunning,
     listAllSessionNames,
-} from './electronRunSessionArtifacts';
+} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     getCurrentSessionName,
     sessionFilePath,
     setCurrentSessionName,
-} from './electronRunSessionPaths';
-import { isProcessAlive } from './electronRunProcessTree';
-import { projectRoot } from './electronRunProjectPaths';
+} from '@scripts/electron-run/electronRunSessionPaths';
+import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
+import { projectRoot } from '@scripts/electron-run/electronRunProjectPaths';
 import {
     startSession,
     startSessionDetached,
     stopSession,
     stopSingleSession,
-} from './sessionManager';
+} from '@scripts/electron-run/sessionManager';
 
 const CLI_COMMANDS = [
     'start',

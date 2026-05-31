@@ -3,12 +3,12 @@ import { clamp } from 'es-toolkit/math';
 import {
     DEFAULT_TIMEOUT_MS,
     findVisiblePointInActiveHost,
-} from './viewerDom';
+} from '@tests/e2e/electron/helpers/viewerDom';
 import {
     clickToolbarButtonWhenEnabled,
     openAnnotationsTab,
     waitForViewerInteractive,
-} from './viewerCore';
+} from '@tests/e2e/electron/helpers/viewerCore';
 
 const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Draw': 'draw',

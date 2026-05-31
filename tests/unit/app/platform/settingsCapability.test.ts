@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { MemoryStorage } from './browserPlatformTestDoubles';
+import { MemoryStorage } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 describe('browserSettingsCapability', () => {
     beforeEach(() => {

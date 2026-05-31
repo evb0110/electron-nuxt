@@ -8,7 +8,7 @@ import {
 import { ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
-import { cast } from '../../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),

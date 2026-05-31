@@ -3,11 +3,11 @@ import { delay } from 'es-toolkit/promise';
 import {
     evaluateInPage,
     waitForFunctionInPage,
-} from './pageRuntime';
+} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     DEFAULT_TIMEOUT_MS,
     waitForActiveWorkspaceHost,
-} from './viewerDom';
+} from '@tests/e2e/electron/helpers/viewerDom';
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     'Toggle Sidebar': [

@@ -99,6 +99,15 @@ const FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS = [
     './public/index.mjs',
 ];
 
+const ABSOLUTE_IMPORT_SOURCE_FILES = [
+    'app/**/*.{ts,vue}',
+    'electron/**/*.ts',
+    'packages/**/*.ts',
+    'scripts/**/*.ts',
+    'server/**/*.ts',
+    'tests/**/*.ts',
+];
+
 function readFeatureDirectories(relativeRoot) {
     const absoluteRoot = path.join(import.meta.dirname, relativeRoot);
     if (!fs.existsSync(absoluteRoot)) {
@@ -171,7 +180,6 @@ export default withNuxt(
             '@typescript-eslint/explicit-module-boundary-types': 'off',
             '@typescript-eslint/no-inferrable-types': 'error',
             'no-return-await': 'error',
-            'import/no-relative-parent-imports': 'error',
             'import/no-cycle': [
                 'error',
                 {
@@ -243,10 +251,6 @@ export default withNuxt(
                 'error',
                 {patterns: [
                     {
-                        group: ['./*'],
-                        message: 'Use absolute imports with @app/ or @electron/ prefix instead of relative imports',
-                    },
-                    {
                         group: [
                             '@i18n-core/*',
                             '@i18n-app/*',
@@ -273,6 +277,12 @@ export default withNuxt(
             'custom/destructuring-property-newline': 'error',
             'custom/app-tooltip-only': 'error',
             ...stylisticRules,
+        },
+    },
+    {
+        files: ABSOLUTE_IMPORT_SOURCE_FILES,
+        rules: {
+            'custom/no-relative-imports': 'error',
         },
     },
     {

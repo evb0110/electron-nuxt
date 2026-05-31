@@ -5,11 +5,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createMultiPageTextFixturePdf } from './helpers/fixtures';
+import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     openPdfInApp,
     getToolbarCurrentPage,
@@ -18,7 +18,7 @@ import {
     scrollViewerToPage,
     waitForPdfLoaded,
     waitForTabCount,
-} from './helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerHelpers';
 
 interface IWorkspaceHostPressure {
     index: number;

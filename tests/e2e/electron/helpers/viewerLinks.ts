@@ -1,5 +1,5 @@
 import type { Page } from 'puppeteer-core';
-import { waitForActiveWorkspaceHost } from './viewerDom';
+import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 
 export async function getLinkOverlayCount(page: Page) {
     await waitForActiveWorkspaceHost(page);

@@ -1,4 +1,4 @@
-import { cast } from '../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 export { cast };
 

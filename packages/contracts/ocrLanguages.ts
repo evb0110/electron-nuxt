@@ -1,4 +1,4 @@
-import type { IOcrLanguage } from './shared';
+import type { IOcrLanguage } from '@contracts/shared';
 
 export const AVAILABLE_OCR_LANGUAGES: IOcrLanguage[] = [
     {

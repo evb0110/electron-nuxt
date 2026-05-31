@@ -21,7 +21,7 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { cast } from '../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     DISABLE: -1,

@@ -1,11 +1,11 @@
-import de from './messages/de';
-import en from './messages/en';
-import es from './messages/es';
-import fr from './messages/fr';
-import it from './messages/it';
-import nl from './messages/nl';
-import pt from './messages/pt';
-import ru from './messages/ru';
+import de from '@evb/i18n-app/messages/de';
+import en from '@evb/i18n-app/messages/en';
+import es from '@evb/i18n-app/messages/es';
+import fr from '@evb/i18n-app/messages/fr';
+import it from '@evb/i18n-app/messages/it';
+import nl from '@evb/i18n-app/messages/nl';
+import pt from '@evb/i18n-app/messages/pt';
+import ru from '@evb/i18n-app/messages/ru';
 import {
     DEFAULT_LOCALE,
     type TLocaleMessagesShapeFrom,

@@ -3,8 +3,8 @@ export {
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from './pdfConformanceHelpers';
-export { loadPdfStructure } from './pdfConformanceLoad';
+} from '@pdf-core/pdfConformanceHelpers';
+export { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
 export {
     arePdfPageBoxesEqual,
     fromPdfRect,
@@ -14,12 +14,12 @@ export {
     resolvePdfLibMediaBox,
     resolvePdfLibPageView,
     toPdfRect,
-} from './pdfPageBoxes';
-export { writePdfBookmarkOutlines } from './pdfBookmarks';
-export { iterateDecodedTiffFrames } from './tiffDecode';
+} from '@pdf-core/pdfPageBoxes';
+export { writePdfBookmarkOutlines } from '@pdf-core/pdfBookmarks';
+export { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
 export {
     buildTiffImageIfd,
     encodeTiffIfds,
     getTiffValueCount,
     measureTiffIfdSize,
-} from './tiffEncoding';
+} from '@pdf-core/tiffEncoding';

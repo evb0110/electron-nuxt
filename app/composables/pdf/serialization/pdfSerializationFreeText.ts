@@ -36,9 +36,9 @@ import {
     appendAnnotationRefToPage,
     isAnnotationMarkerRect,
     toFreeTextNoteMarkerRect,
-} from './pdfSerializationShared';
-import { setRgbColor } from './pdfSerializationColors';
-import { resolveShapePageContext } from './pdfSerializationGeometry';
+} from '@app/composables/pdf/serialization/pdfSerializationShared';
+import { setRgbColor } from '@app/composables/pdf/serialization/pdfSerializationColors';
+import { resolveShapePageContext } from '@app/composables/pdf/serialization/pdfSerializationGeometry';
 
 function forEachPageAnnotationContext(
     doc: PDFDocument,

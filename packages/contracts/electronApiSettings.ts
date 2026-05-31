@@ -1,10 +1,10 @@
-import type { ISettingsData } from './shared';
+import type { ISettingsData } from '@contracts/shared';
 import type {
     IDebugLogEntry,
     IMenuEventCallback,
     IMenuEventUnsubscribe,
     IRendererLogEntry,
-} from './electronApiCommon';
+} from '@contracts/electronApiCommon';
 
 export interface ISettingsCapability {
     get: () => Promise<ISettingsData>;

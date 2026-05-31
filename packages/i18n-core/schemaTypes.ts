@@ -1,7 +1,7 @@
 import type {
     IPluralMessage,
     TTranslationLeaf,
-} from './messageFormat';
+} from '@evb/i18n-core/messageFormat';
 
 export type TLocaleSchemaFrom<TNode> = {
     [TKey in keyof TNode]: TNode[TKey] extends TTranslationLeaf

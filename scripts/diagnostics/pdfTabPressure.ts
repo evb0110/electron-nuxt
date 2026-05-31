@@ -7,8 +7,8 @@ import {
     resolve,
 } from 'node:path';
 import { sumBy } from 'es-toolkit/math';
-import { sendCommand } from '../electron-run/client';
-import { setCurrentSessionName } from '../electron-run/electronRunSessionPaths';
+import { sendCommand } from '@scripts/electron-run/client';
+import { setCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 
 interface IOptions {
     fixture: string;

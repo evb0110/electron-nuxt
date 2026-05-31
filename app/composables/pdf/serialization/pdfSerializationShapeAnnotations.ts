@@ -30,19 +30,19 @@ import { lookupAnnotationRefDict } from '@app/composables/pdf/pdfPageAnnotationI
 import {
     appendAnnotationRefToPage,
     refToTag,
-} from './pdfSerializationShared';
+} from '@app/composables/pdf/serialization/pdfSerializationShared';
 import {
     setBorderWidth,
     setOpacity,
     setRgbColor,
-} from './pdfSerializationColors';
+} from '@app/composables/pdf/serialization/pdfSerializationColors';
 import {
     resolveShapePageContext,
     toPdfBoundsRect,
     toPdfInkList,
     toPdfLinePoints,
     toPdfVertexPoints,
-} from './pdfSerializationGeometry';
+} from '@app/composables/pdf/serialization/pdfSerializationGeometry';
 
 function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnnotation) {
     setRgbColor(annotDict, doc, 'C', shape.color);

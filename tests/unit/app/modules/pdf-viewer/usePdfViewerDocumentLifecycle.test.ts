@@ -15,7 +15,7 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from '@app/types/pdf';
-import { cast } from '../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 function flushLifecycleTasks() {
     return Promise.resolve()

@@ -8,8 +8,8 @@ import {
     isString,
 } from 'es-toolkit/predicate';
 import { trim } from 'es-toolkit/string';
-import type { ISettingsData } from './shared';
-import { isRecord } from './runtimeGuards';
+import type { ISettingsData } from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
 const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<ISettingsData['defaultZoomPreset']>([

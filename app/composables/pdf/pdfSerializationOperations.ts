@@ -25,23 +25,23 @@ import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
 import {
     applyEmbeddedAnnotationDeletes,
     applyEmbeddedNoteTextUpdates,
-} from './serialization/pdfSerializationEmbeddedNotes';
+} from '@app/composables/pdf/serialization/pdfSerializationEmbeddedNotes';
 import {
     applyFreeTextNoteRects,
     applyNewFreeTextNoteAnnotations,
-} from './serialization/pdfSerializationFreeText';
-import { applyMarkupSubtypeRewrites } from './serialization/pdfSerializationMarkup';
+} from '@app/composables/pdf/serialization/pdfSerializationFreeText';
+import { applyMarkupSubtypeRewrites } from '@app/composables/pdf/serialization/pdfSerializationMarkup';
 import {
     applyBookmarks,
     applyPageLabels,
-} from './serialization/pdfSerializationOutline';
+} from '@app/composables/pdf/serialization/pdfSerializationOutline';
 import {
     applyPlacedImage,
     type IPdfSerializedPlacedImagePayload,
-} from './serialization/pdfSerializationPlacedImages';
-import { applyShapeAnnotations } from './serialization/pdfSerializationShapeAnnotations';
+} from '@app/composables/pdf/serialization/pdfSerializationPlacedImages';
+import { applyShapeAnnotations } from '@app/composables/pdf/serialization/pdfSerializationShapeAnnotations';
 
-export type { IPdfSerializedPlacedImagePayload } from './serialization/pdfSerializationPlacedImages';
+export type { IPdfSerializedPlacedImagePayload } from '@app/composables/pdf/serialization/pdfSerializationPlacedImages';
 
 export interface IPdfSerializationSavePayload {
     markupSubtypeOverrides: Array<readonly [string, TMarkupSubtype]>;

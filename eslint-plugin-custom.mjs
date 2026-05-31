@@ -145,7 +145,60 @@ function createThreeLineReturnBlockFix(sourceCode, node, returnNode) {
     };
 }
 
+function isRelativeImportSpecifier(value) {
+    return value === '.'
+        || value === '..'
+        || value.startsWith('./')
+        || value.startsWith('../');
+}
+
 export default {rules: {
+    'no-relative-imports': {
+        meta: {
+            type: 'problem',
+            docs: {
+                description: 'Require absolute aliases instead of relative imports',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            function reportSource(source) {
+                const value = getLiteralValue(source);
+                if (!value || !isRelativeImportSpecifier(value)) {
+                    return;
+                }
+
+                context.report({
+                    node: source,
+                    message: 'Use an absolute alias import instead of a relative import.',
+                });
+            }
+
+            return {
+                ImportDeclaration(node) {
+                    reportSource(node.source);
+                },
+                ExportNamedDeclaration(node) {
+                    reportSource(node.source);
+                },
+                ExportAllDeclaration(node) {
+                    reportSource(node.source);
+                },
+                ImportExpression(node) {
+                    reportSource(node.source);
+                },
+                CallExpression(node) {
+                    if (node.callee?.type === 'Import') {
+                        reportSource(node.arguments?.[0]);
+                    }
+                },
+                TSImportType(node) {
+                    reportSource(node.argument);
+                },
+            };
+        },
+    },
     'import-specifier-newline': {
         meta: {
             type: 'layout',

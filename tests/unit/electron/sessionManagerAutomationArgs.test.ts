@@ -14,13 +14,13 @@ import {
     shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
-} from '../../../scripts/electron-run/electronRunLaunchConfig';
-import { isReusableNuxtResponse } from '../../../scripts/electron-run/electronRunNuxtServerResponse';
+} from '@scripts/electron-run/electronRunLaunchConfig';
+import { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
 import {
     selectOrphanedProjectNuxtRootCleanupTargets,
     selectStaleNuxtPortOwnerCleanupTargets,
-} from '../../../scripts/electron-run/sessionManager';
-import { shouldWaitForExternalDevServer } from '../../../electron/server';
+} from '@scripts/electron-run/sessionManager';
+import { shouldWaitForExternalDevServer } from '@electron/server';
 
 describe('sessionManager automation launch args', () => {
     it('disables the Electron sandbox on Linux CI by default', () => {

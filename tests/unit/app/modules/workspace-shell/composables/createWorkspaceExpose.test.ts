@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/composables/createWorkspaceExpose';
-import { cast } from '../../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
     return cast<Parameters<typeof createWorkspaceExpose>[0]>({

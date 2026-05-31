@@ -1,13 +1,13 @@
-import type { TDocumentRef } from './document';
-import type { IRecentFile } from './shared';
+import type { TDocumentRef } from '@contracts/document';
+import type { IRecentFile } from '@contracts/shared';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
-} from './pdfConformance';
+} from '@contracts/pdfConformance';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-} from './electronApiCommon';
+} from '@contracts/electronApiCommon';
 
 export interface IOpenPdfDirectBatchProgress {
     requestId: string;

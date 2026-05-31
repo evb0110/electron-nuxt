@@ -9,7 +9,7 @@ import { delay } from 'es-toolkit/promise';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 
 interface IConsoleCommandResult { messages: Array<{
     type: string;

@@ -22,7 +22,7 @@ import type {
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { cast } from '../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const annotationUiManagerInstances: FakeAnnotationEditorUIManager[] = [];
 

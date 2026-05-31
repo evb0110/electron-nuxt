@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { cast } from '../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 import { toMarkerRectFromEditor } from '@app/composables/pdf/pdfAnnotationEditorUtils';
 import type { IPdfjsEditor } from '@app/types/pdfjs';

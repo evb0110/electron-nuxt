@@ -2,14 +2,14 @@ import { delay } from 'es-toolkit/promise';
 import {
     COMMAND_REQUEST_TIMEOUT_MS,
     SESSION_WAIT_TIMEOUT_MS,
-} from './electronRunTimeouts';
-import { getCurrentSessionName } from './electronRunSessionPaths';
-import { getSessionInfo } from './electronRunSessionArtifacts';
+} from '@scripts/electron-run/electronRunTimeouts';
+import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     parseElectronRunCommandResponse,
     type TElectronRunCommand,
-} from './electronRunProtocol';
-import type { ISessionInfo } from './electronRunSessionTypes';
+} from '@scripts/electron-run/electronRunProtocol';
+import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
 
 class ElectronRunCommandError extends Error {
     constructor(message: string) {

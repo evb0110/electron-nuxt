@@ -1,4 +1,4 @@
-import type { IMenuEventUnsubscribe } from './electronApiCommon';
+import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 
 export type THostPlatform = 'darwin' | 'win32' | 'linux';
 

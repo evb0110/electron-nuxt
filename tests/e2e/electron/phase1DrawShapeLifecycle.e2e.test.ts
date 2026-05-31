@@ -10,15 +10,15 @@ import { delay } from 'es-toolkit/promise';
 import {
     createBlankFixturePdf,
     readPdfAnnotationSummary,
-} from './helpers/fixtures';
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     evaluateInPage,
     waitForFunctionInPage,
-} from './helpers/pageRuntime';
+} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     clickAnnotationTool,
     clickToolbarButtonWhenEnabled,
@@ -27,7 +27,7 @@ import {
     setAnnotationColor,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from './helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerHelpers';
 
 const runExtendedDrawShapeLifecycle = process.env.EVB_E2E_DRAW_SHAPES_EXTENDED === '1';
 const extendedIt = runExtendedDrawShapeLifecycle ? it : it.skip;

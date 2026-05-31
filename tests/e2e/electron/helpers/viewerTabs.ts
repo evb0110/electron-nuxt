@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import { DEFAULT_TIMEOUT_MS } from './viewerDom';
+import { DEFAULT_TIMEOUT_MS } from '@tests/e2e/electron/helpers/viewerDom';
 
 export interface ITabSnapshot {
     id: string;

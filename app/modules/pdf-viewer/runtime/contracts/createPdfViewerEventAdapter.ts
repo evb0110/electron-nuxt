@@ -11,7 +11,7 @@ import type {
     TFitMode,
     TZoomMode,
 } from '@app/types/pdf';
-import type { TPdfViewerEmit } from './pdfViewerComponent.types';
+import type { TPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
 export interface IPdfViewerEventAdapter {
     updateZoom(value: number): void;

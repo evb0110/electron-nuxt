@@ -1,18 +1,18 @@
-import { BROWSER_DOCUMENT_CHUNK_SIZE } from './browserDocumentConstants';
+import { BROWSER_DOCUMENT_CHUNK_SIZE } from '@app/platform/browser/browserDocumentConstants';
 import { groupBy } from 'es-toolkit/array';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     cloneBytes,
     normalizePersistedBytes,
-} from './browserDocumentBytes';
-import { defaultRetentionForKind } from './browserDocumentStoragePolicy';
+} from '@app/platform/browser/browserDocumentBytes';
+import { defaultRetentionForKind } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
     IBrowserDocumentEntry,
     IBrowserDocumentEntryInput,
     IBrowserPersistedDocumentRecord,
     IChunkKeyRecord,
     TBrowserDocumentStorageMode,
-} from './browserDocumentTypes';
+} from '@app/platform/browser/browserDocumentTypes';
 
 type TPersistedDocumentKind = IBrowserPersistedDocumentRecord['kind'];
 

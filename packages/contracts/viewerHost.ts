@@ -1,20 +1,20 @@
-import type { TDocumentRef } from './document';
+import type { TDocumentRef } from '@contracts/document';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
     TOpenFileResult,
-} from './electronApi';
+} from '@contracts/electronApi';
 import type {
     IPdfSearchProgress,
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
-} from './search';
-import type { ISettingsData } from './shared';
+} from '@contracts/search';
+import type { ISettingsData } from '@contracts/shared';
 import type {
     IWindowTabTargetWindow,
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
-} from './windowTabs';
+} from '@contracts/windowTabs';
 
 export type TViewerHostKind = 'electron' | 'browser' | 'rn-webview';
 

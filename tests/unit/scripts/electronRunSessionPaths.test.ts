@@ -7,7 +7,7 @@ import {
     sessionDir,
     setCurrentSessionName,
     validateSessionName,
-} from '../../../scripts/electron-run/electronRunSessionPaths';
+} from '@scripts/electron-run/electronRunSessionPaths';
 
 describe('electron run session paths', () => {
     it('allows simple session names', () => {

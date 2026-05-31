@@ -9,11 +9,11 @@ import type { Page } from 'puppeteer-core';
 import {
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
-} from './helpers/fixtures';
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     clickAnnotationTool,
     getHighlightEditorCount,
@@ -22,7 +22,7 @@ import {
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from './helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerHelpers';
 
 async function dragOverFirstTwoSpans(page: Page) {
     const dragPoints = await page.evaluate(() => {

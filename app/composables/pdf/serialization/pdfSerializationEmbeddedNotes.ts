@@ -12,7 +12,7 @@ import {
     parsePdfJsAnnotationRef,
     resolveCommentPdfRefInDocument,
 } from '@app/composables/pdf/pdfSerializationRefs';
-import { refToTag } from './pdfSerializationShared';
+import { refToTag } from '@app/composables/pdf/serialization/pdfSerializationShared';
 
 export function applyEmbeddedAnnotationDeletes(
     doc: PDFDocument,

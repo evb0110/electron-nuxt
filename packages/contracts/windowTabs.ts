@@ -1,4 +1,4 @@
-import type { TDocumentRef } from './document';
+import type { TDocumentRef } from '@contracts/document';
 
 export interface IEmptySplitPayload {kind: 'empty';}
 

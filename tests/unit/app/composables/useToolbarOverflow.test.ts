@@ -12,7 +12,7 @@ import {
     ref,
     watch,
 } from 'vue';
-import { cast } from '../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const resizeObserverCallbacks: Array<() => void> = [];
 

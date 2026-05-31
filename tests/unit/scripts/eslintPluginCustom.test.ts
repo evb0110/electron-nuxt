@@ -15,6 +15,40 @@ const tester = new RuleTester({languageOptions: {
 
 const rules = (customPlugin as { rules: Record<string, unknown> }).rules;
 
+describe('no-relative-imports rule', () => {
+    it('rejects static, dynamic, re-export, and type import sources', () => {
+        tester.run(
+            'no-relative-imports',
+            rules['no-relative-imports'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    { code: 'import { value } from \'@app/utils/value\';' },
+                    { code: 'const module = import(\'@scripts/task\');' },
+                    { code: 'type TModule = typeof import(\'@contracts\');' },
+                ],
+                invalid: [
+                    {
+                        code: 'import { value } from \'./value\';',
+                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
+                    },
+                    {
+                        code: 'export { value } from \'../value\';',
+                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
+                    },
+                    {
+                        code: 'const module = import(\'./value\');',
+                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
+                    },
+                    {
+                        code: 'type TModule = typeof import(\'../value\');',
+                        errors: [{ message: 'Use an absolute alias import instead of a relative import.' }],
+                    },
+                ],
+            },
+        );
+    });
+});
+
 describe('nuxt-ui-semantic-utilities rule', () => {
     it('passes RuleTester valid/invalid scenarios', () => {
         tester.run(

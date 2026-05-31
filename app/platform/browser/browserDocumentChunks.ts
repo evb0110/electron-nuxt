@@ -1,11 +1,11 @@
-import { DOCUMENT_CHUNKS_STORE } from './browserDocumentConstants';
-import { normalizePersistedBytes } from './browserDocumentBytes';
-import { isRecord } from './browserDocumentRecords';
+import { DOCUMENT_CHUNKS_STORE } from '@app/platform/browser/browserDocumentConstants';
+import { normalizePersistedBytes } from '@app/platform/browser/browserDocumentBytes';
+import { isRecord } from '@app/platform/browser/browserDocumentRecords';
 import type {
     IBrowserDocumentChunkRecord,
     IChunkKeyRecord,
-} from './browserDocumentTypes';
-import { withObjectStore } from './browserDocumentIdb';
+} from '@app/platform/browser/browserDocumentTypes';
+import { withObjectStore } from '@app/platform/browser/browserDocumentIdb';
 
 export function createChunkKey(ref: string, index: number, generation?: string) {
     return generation

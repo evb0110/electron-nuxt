@@ -2,7 +2,7 @@ import {
     type H3Event,
     getRequestURL,
 } from 'h3';
-import { getRuntimeEnv } from '../utils/runtimeEnv';
+import { getRuntimeEnv } from '@server/utils/runtimeEnv';
 
 const DEFAULT_PRODUCTION_SITE_URL = 'https://evb-viewer-web.vercel.app';
 

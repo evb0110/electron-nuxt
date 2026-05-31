@@ -13,14 +13,14 @@ import {
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
 import { isRecord } from '@contracts/runtimeGuards';
-import { getAnalyticsDb } from '../../db';
-import { viewerAnalyticsEvent } from '../../db/schema';
+import { getAnalyticsDb } from '@server/db';
+import { viewerAnalyticsEvent } from '@server/db/schema';
 import {
     extractGeo,
     getAnalyticsRequestHost,
     hashVisitorIdentity,
     isAnalyticsWriteAllowed,
-} from '../../utils/analytics';
+} from '@server/utils/analytics';
 
 const VALID_EVENT_NAMES: ReadonlySet<string> = new Set<TAnalyticsEventName>(ANALYTICS_EVENT_NAMES);
 const MAX_EVENT_COUNT = 20;
