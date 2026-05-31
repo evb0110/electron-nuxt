@@ -5,6 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import { basename } from 'node:path';
 import { stopSingleSession } from '@scripts/electron-run/sessionManager';
 import {
@@ -41,12 +42,6 @@ interface IRecentOpenDomState {
     recentRowVisible: boolean;
     visibleRecentRows: number;
     visibleText: string;
-}
-
-function delay(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
 }
 
 async function readRecentOpenDomState(

@@ -11,6 +11,8 @@ import {
     resolve,
     sep,
 } from 'path';
+import { sortBy } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
 import { isOcrWord } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { IOcrWord } from '@contracts/shared';
@@ -364,8 +366,7 @@ function parseSearchIndexPages(pages: unknown[]): IPageIndex[] | null {
         }
         normalizedPages.push(normalizedPage);
     }
-    normalizedPages.sort((a, b) => a.pageNumber - b.pageNumber);
-    return normalizedPages;
+    return sortBy(normalizedPages, ['pageNumber']);
 }
 
 function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
@@ -422,8 +423,7 @@ function pagesFromOcrTexts(
             text,
         });
     }
-    pages.sort((a, b) => a.pageNumber - b.pageNumber);
-    return pages;
+    return sortBy(pages, ['pageNumber']);
 }
 
 async function persistIndex(
@@ -662,22 +662,18 @@ function padMissingPages(
     if (!isPositiveInteger(expectedCount)) {
         return pagesByNumber;
     }
-    return Array.from({ length: expectedCount }, (_, index) => index + 1).reduce((nextPages, pageNumber) => {
+    const nextPages = new Map(pagesByNumber);
+    for (const pageNumber of range(1, expectedCount + 1)) {
         throwIfAborted(signal);
         if (nextPages.has(pageNumber)) {
-            return nextPages;
+            continue;
         }
-        return new Map([
-            ...nextPages,
-            [
-                pageNumber,
-                {
-                    pageNumber,
-                    text: '',
-                },
-            ],
-        ]);
-    }, pagesByNumber);
+        nextPages.set(pageNumber, {
+            pageNumber,
+            text: '',
+        });
+    }
+    return nextPages;
 }
 
 function mergePageData(
@@ -689,7 +685,8 @@ function mergePageData(
     if (!pageData?.length) {
         return pagesByNumber;
     }
-    return pageData.reduce((nextPages, page) => {
+    const nextPages = new Map(pagesByNumber);
+    for (const page of pageData) {
         throwIfAborted(signal);
         const textFromWords = page.words.length > 0
             ? buildOcrTextLayerIndexText(page.words)
@@ -711,14 +708,9 @@ function mergePageData(
             indexedPage.words = page.words;
         }
         onPageIndexed?.(indexedPage);
-        return new Map([
-            ...nextPages,
-            [
-                page.pageNumber,
-                indexedPage,
-            ],
-        ]);
-    }, pagesByNumber);
+        nextPages.set(page.pageNumber, indexedPage);
+    }
+    return nextPages;
 }
 
 function assembleIndex(
@@ -727,7 +719,7 @@ function assembleIndex(
     expectedCount: number | undefined,
     existing: IPdfSearchIndex | null,
 ): IPdfSearchIndex {
-    const pages = Array.from(pagesByNumber.values()).sort((a, b) => a.pageNumber - b.pageNumber);
+    const pages = sortBy(Array.from(pagesByNumber.values()), ['pageNumber']);
     const index: IPdfSearchIndex = {
         schemaVersion: SEARCH_INDEX_SCHEMA_VERSION,
         pdfPath,

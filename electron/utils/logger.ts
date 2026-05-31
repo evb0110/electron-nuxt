@@ -14,6 +14,8 @@ import {
     dirname,
     join,
 } from 'path';
+import { sortBy } from 'es-toolkit/array';
+import { sumBy } from 'es-toolkit/math';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
 
 interface ILogMessage {
@@ -226,8 +228,6 @@ async function pruneLogDirectory(force = false) {
         }
 
         const files: IFileEntry[] = [];
-        let totalBytes = 0;
-
         for (const entry of entries) {
             const filePath = join(LOG_DIR, entry);
             try {
@@ -240,18 +240,17 @@ async function pruneLogDirectory(force = false) {
                     size: fileStat.size,
                     mtimeMs: fileStat.mtimeMs,
                 });
-                totalBytes += fileStat.size;
             } catch {
                 // Ignore files disappearing while pruning.
             }
         }
 
+        let totalBytes = sumBy(files, file => file.size);
         if (totalBytes <= LOG_DIR_MAX_BYTES) {
             return;
         }
 
-        files.sort((left, right) => left.mtimeMs - right.mtimeMs);
-        for (const file of files) {
+        for (const file of sortBy(files, ['mtimeMs'])) {
             if (totalBytes <= LOG_DIR_MAX_BYTES) {
                 break;
             }

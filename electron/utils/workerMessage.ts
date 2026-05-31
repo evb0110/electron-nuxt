@@ -1,5 +1,7 @@
+import { isPlainObject } from 'es-toolkit/predicate';
+
 export function isWorkerMessageRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
+    return isPlainObject(value);
 }
 
 export function isFiniteWorkerMessageNumber(value: unknown): value is number {

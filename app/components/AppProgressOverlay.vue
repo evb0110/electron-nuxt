@@ -30,6 +30,7 @@
 </template>
 
 <script setup lang="ts">
+import { clamp } from 'es-toolkit/math';
 import AppSpinner from '@app/components/AppSpinner.vue';
 
 interface IAppProgressOverlayProps {
@@ -46,7 +47,7 @@ const {
 
 const emit = defineEmits<{cancel: [];}>();
 
-const formattedPercent = computed(() => `${Math.max(0, Math.min(100, Math.round(value)))}%`);
+const formattedPercent = computed(() => `${clamp(Math.round(value), 0, 100)}%`);
 </script>
 
 <style scoped>

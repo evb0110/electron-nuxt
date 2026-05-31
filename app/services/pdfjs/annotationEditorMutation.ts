@@ -1,4 +1,5 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { setSelectedEditor } from '@app/services/pdfjs/annotationEditorAdapter';
@@ -88,22 +89,17 @@ export async function waitForAnnotationEditorsRendered(
     uiManager: AnnotationEditorUIManager,
     pageNumber: number,
 ) {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-            reject(new Error(`Timed out waiting for annotation editors on page ${pageNumber}`));
-        }, ANNOTATION_EDITOR_RENDER_WAIT_TIMEOUT_MS);
-    });
+    const timeoutController = new AbortController();
 
     // PDF.js private waitForEditorsRendered gates mutations until editor layers exist.
     try {
         await Promise.race([
             uiManager.waitForEditorsRendered(pageNumber),
-            timeout,
+            delay(ANNOTATION_EDITOR_RENDER_WAIT_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => {
+                throw new Error(`Timed out waiting for annotation editors on page ${pageNumber}`);
+            }),
         ]);
     } finally {
-        if (timeoutId) {
-            clearTimeout(timeoutId);
-        }
+        timeoutController.abort();
     }
 }

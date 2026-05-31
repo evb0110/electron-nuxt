@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
+import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
 
@@ -68,21 +69,16 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             const matchedDoc = doc;
             const viewer = options.pdfViewerRef.value;
             if (viewer?.waitForViewerLoadSettled) {
-                let settleTimer: ReturnType<typeof setTimeout> | null = null;
+                const timeoutController = new AbortController();
                 try {
                     await Promise.race([
                         viewer.waitForViewerLoadSettled(),
-                        new Promise<never>((_resolve, reject) => {
-                            settleTimer = setTimeout(() => {
-                                settleTimer = null;
-                                reject(new Error('Timed out waiting for viewer load to settle after PDF reload'));
-                            }, PDF_RELOAD_TIMEOUT_MS);
+                        delay(PDF_RELOAD_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => {
+                            throw new Error('Timed out waiting for viewer load to settle after PDF reload');
                         }),
                     ]);
                 } finally {
-                    if (settleTimer) {
-                        clearTimeout(settleTimer);
-                    }
+                    timeoutController.abort();
                 }
             }
             if (isCancelled.value) {

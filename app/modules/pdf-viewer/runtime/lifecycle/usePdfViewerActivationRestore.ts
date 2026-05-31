@@ -3,6 +3,7 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
+import { delay } from 'es-toolkit/promise';
 import type {
     PDFDocumentProxy,
     TPdfViewMode,
@@ -120,13 +121,13 @@ export function usePdfViewerActivationRestore(options: IUsePdfViewerActivationRe
 
     async function waitForActivationRenderFrame() {
         await nextTick();
-        await new Promise<void>((resolve) => {
-            if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            await new Promise<void>((resolve) => {
                 window.requestAnimationFrame(() => resolve());
-                return;
-            }
-            setTimeout(resolve, 0);
-        });
+            });
+            return;
+        }
+        await delay(0);
     }
 
     function hasMeasurableViewerContainer() {

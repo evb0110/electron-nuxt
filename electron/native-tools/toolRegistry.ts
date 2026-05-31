@@ -1,4 +1,5 @@
 import { dirname } from 'path';
+import { compact } from 'es-toolkit/array';
 
 function hasDirectoryInPath(command: string) {
     return command.includes('/') || command.includes('\\');
@@ -27,10 +28,9 @@ export function prependDirectoryToPath(commandDir: string, env: NodeJS.ProcessEn
     const pathKey = resolvePathKey(env);
     const delimiter = process.platform === 'win32' ? ';' : ':';
     const currentPath = env[pathKey] ?? '';
-    const normalizedExisting = currentPath
+    const normalizedExisting = compact(currentPath
         .split(delimiter)
-        .map(entry => entry.trim())
-        .filter(Boolean);
+        .map(entry => entry.trim()));
 
     if (normalizedExisting.includes(commandDir)) {
         return env;

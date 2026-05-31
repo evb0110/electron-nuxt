@@ -7,6 +7,7 @@ import {
     useDebounceFn,
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
+import { delay } from 'es-toolkit/promise';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -399,17 +400,16 @@ export const usePdfSinglePageScroll = (
     }
 
     function waitForContinuousRenderFrame() {
-        return new Promise<void>((resolve) => {
-            if (
-                typeof window !== 'undefined'
-                && typeof window.requestAnimationFrame === 'function'
-            ) {
+        if (
+            typeof window !== 'undefined'
+            && typeof window.requestAnimationFrame === 'function'
+        ) {
+            return new Promise<void>((resolve) => {
                 window.requestAnimationFrame(() => resolve());
-                return;
-            }
+            });
+        }
 
-            setTimeout(resolve, 0);
-        });
+        return delay(0);
     }
 
     function markProgrammaticNavigation(ms: number) {

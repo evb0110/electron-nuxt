@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import {
     existsSync,
     mkdtempSync,
@@ -411,7 +412,7 @@ async function waitForCondition(assertion: () => void) {
             return;
         } catch (error) {
             lastError = error;
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await delay(10);
         }
     }
 
@@ -434,5 +435,5 @@ function deferred<T>() {
 }
 
 async function waitForSettledQueueTurn() {
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await delay(20);
 }

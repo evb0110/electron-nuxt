@@ -20,6 +20,7 @@ import {
     bucketPageCount,
     bucketQueryLength,
 } from '@app/utils/analytics';
+import { groupBy } from 'es-toolkit/array';
 import { getSearchCapability } from '@app/utils/platformSearch';
 
 export type {
@@ -138,23 +139,22 @@ export const usePdfSearch = () => {
             };
         });
 
-        const pageResults = response.results.reduce<Map<number, typeof response.results>>((map, result) => {
-            const pageIndex = result.pageNumber - 1;
-            const existing = map.get(pageIndex) ?? [];
-            if (existing.length === 0) {
-                BrowserLogger.debug('pdf-search', `Created pageMatches for page ${result.pageNumber}`, { searchId });
+        const pageResults = new Map(Object.entries(groupBy(
+            response.results,
+            result => result.pageNumber - 1,
+        )).map(([
+            pageIndex,
+            pageSearchResults,
+        ]) => {
+            const firstPageResult = pageSearchResults[0];
+            if (firstPageResult) {
+                BrowserLogger.debug('pdf-search', `Created pageMatches for page ${firstPageResult.pageNumber}`, { searchId });
             }
-            return new Map([
-                ...map,
-                [
-                    pageIndex,
-                    [
-                        ...existing,
-                        result,
-                    ],
-                ],
-            ]);
-        }, new Map());
+            return [
+                Number(pageIndex),
+                pageSearchResults,
+            ];
+        }));
 
         const matchesMap = new Map(Array.from(pageResults.entries()).map(([
             pageIndex,

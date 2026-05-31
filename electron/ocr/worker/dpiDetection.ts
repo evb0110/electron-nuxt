@@ -3,6 +3,7 @@ import {
     runOcrCommand,
     type IOcrRunCommandOptions,
 } from '@electron/ocr/worker/runCommand';
+import { compact } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -15,7 +16,7 @@ export interface ISourceDpiDetectionResult {
 
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     const pageDpiByNumber = new Map<number, number>();
-    const lines = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const lines = compact(output.split(/\r?\n/).map(line => line.trim()));
     let documentDpi = 0;
 
     for (const line of lines) {

@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import {
     mkdtempSync,
     readFileSync,
@@ -135,5 +136,5 @@ function deferred<T>() {
 }
 
 async function waitForSettledQueueTurn() {
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await delay(20);
 }

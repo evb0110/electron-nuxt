@@ -2,6 +2,7 @@ import {
     type H3Event,
     getRequestURL,
 } from 'h3';
+import { compact } from 'es-toolkit/array';
 import { getRuntimeEnv } from '@server/utils/runtimeEnv';
 
 const DEFAULT_PRODUCTION_SITE_URL = 'https://evb-viewer-web.vercel.app';
@@ -21,10 +22,9 @@ export function resolveSiteUrl(event: H3Event): string {
         return normalizeSiteUrl(configuredSiteUrl);
     }
 
-    const allowedSiteHosts = (env.SITE_URL_ALLOWED_HOSTS || '')
+    const allowedSiteHosts = compact((env.SITE_URL_ALLOWED_HOSTS || '')
         .split(',')
-        .map(host => host.trim().toLowerCase())
-        .filter(Boolean);
+        .map(host => host.trim().toLowerCase()));
 
     if (env.NODE_ENV !== 'production') {
         return normalizeSiteUrl(`${requestUrl.protocol}//${requestUrl.host}`);

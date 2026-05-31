@@ -5,8 +5,12 @@ import {
     unlink,
 } from 'fs/promises';
 import type { Worker } from 'worker_threads';
+import { remove } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
-import { withTimeout } from 'es-toolkit/promise';
+import {
+    delay,
+    withTimeout,
+} from 'es-toolkit/promise';
 import {
     OCR_JOB_IDLE_TIMEOUT_MS,
     OCR_MODEL_PREP_TIMEOUT_MS,
@@ -202,17 +206,10 @@ function abortPreparingJob(
 }
 
 function removeQueuedJob(scopedJobId: string) {
-    const index = queuedJobs.findIndex(job => job.scopedJobId === scopedJobId);
-    if (index === -1) {
+    const [job = null] = remove(queuedJobs, candidate => candidate.scopedJobId === scopedJobId);
+    if (!job) {
         return null;
     }
-
-    const job = queuedJobs[index] ?? null;
-    queuedJobs.splice(
-        0,
-        queuedJobs.length,
-        ...queuedJobs.filter(candidate => candidate.scopedJobId !== scopedJobId),
-    );
     queuedJobIds.delete(scopedJobId);
     return job;
 }
@@ -262,7 +259,7 @@ async function terminateWorkerSafely(
             jobId: requestId ?? activeJobs.get(scopedJobId)?.requestId ?? scopedJobId,
         });
         if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
-            await new Promise(resolve => setTimeout(resolve, OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS));
+            await delay(OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS);
         }
         await withTimeout(() => worker.terminate(), OCR_WORKER_TERMINATE_TIMEOUT_MS);
     } catch (error) {

@@ -10,6 +10,7 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
+import { isPlainObject } from 'es-toolkit/predicate';
 import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
@@ -33,7 +34,7 @@ function cloneSettings(settings: ISettingsData): ISettingsData {
 }
 
 function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return isPlainObject(value);
 }
 
 function parseSettingsPatch(content: string): Partial<ISettingsData> | null {

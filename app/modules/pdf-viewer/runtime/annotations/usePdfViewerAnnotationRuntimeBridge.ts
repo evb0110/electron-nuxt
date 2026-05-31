@@ -6,6 +6,7 @@ import type {
 import {
     tryOnScopeDispose,
     useEventListener,
+    useMutationObserver,
 } from '@vueuse/core';
 import { PixelsPerInch } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
@@ -61,7 +62,6 @@ export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnota
     } = annotations;
     const pendingTextMarkupColorSyncTimers = new Set<ReturnType<typeof setTimeout>>();
     let pendingTextMarkupColorSyncFrame: number | null = null;
-    let textMarkupColorMutationObserver: MutationObserver | null = null;
 
     function scheduleSetAnnotationTool(tool: TAnnotationTool, stage: string) {
         runGuardedTask(() => editor.setAnnotationTool(tool), {
@@ -136,11 +136,6 @@ export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnota
         pendingTextMarkupColorSyncFrame = null;
         pendingTextMarkupColorSyncTimers.forEach(timer => clearTimeout(timer));
         pendingTextMarkupColorSyncTimers.clear();
-    }
-
-    function disconnectTextMarkupColorMutationObserver() {
-        textMarkupColorMutationObserver?.disconnect();
-        textMarkupColorMutationObserver = null;
     }
 
     function scheduleEditedTextMarkupColorSync(stage: string) {
@@ -252,33 +247,26 @@ export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnota
         },
     );
 
-    watch(
+    useMutationObserver(
         viewerContainer,
-        (container) => {
-            disconnectTextMarkupColorMutationObserver();
-            if (!container || typeof MutationObserver === 'undefined') {
-                return;
+        (mutations) => {
+            const shouldSync = mutations.some(mutation => (
+                mutation.type === 'childList'
+                && (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
+                && !isEditedTextMarkupOverlayMutationNode(mutation.target)
+                && [
+                    ...Array.from(mutation.addedNodes),
+                    ...Array.from(mutation.removedNodes),
+                ].some(node => !isEditedTextMarkupOverlayMutationNode(node))
+            ));
+            if (shouldSync) {
+                scheduleEditedTextMarkupColorSync('dom');
             }
-            textMarkupColorMutationObserver = new MutationObserver((mutations) => {
-                const shouldSync = mutations.some(mutation => (
-                    mutation.type === 'childList'
-                    && (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0)
-                    && !isEditedTextMarkupOverlayMutationNode(mutation.target)
-                    && [
-                        ...Array.from(mutation.addedNodes),
-                        ...Array.from(mutation.removedNodes),
-                    ].some(node => !isEditedTextMarkupOverlayMutationNode(node))
-                ));
-                if (shouldSync) {
-                    scheduleEditedTextMarkupColorSync('dom');
-                }
-            });
-            textMarkupColorMutationObserver.observe(container, {
-                childList: true,
-                subtree: true,
-            });
         },
-        { immediate: true },
+        {
+            childList: true,
+            subtree: true,
+        },
     );
 
     watch(currentPage, (page) => {
@@ -332,7 +320,6 @@ export function usePdfViewerAnnotationRuntimeBridge(options: IUsePdfViewerAnnota
 
     tryOnScopeDispose(() => {
         cancelPendingTextMarkupColorSync();
-        disconnectTextMarkupColorMutationObserver();
     });
 
     return {scheduleSetAnnotationTool};

@@ -102,6 +102,7 @@
 
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
+import { delay } from 'es-toolkit/promise';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -662,9 +663,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
             if (remainingMs > 0) {
                 await Promise.race([
                     workspace.waitForDocumentOpenSettled(),
-                    new Promise<void>((resolve) => {
-                        setTimeout(resolve, remainingMs);
-                    }),
+                    delay(remainingMs),
                 ]);
             }
 
@@ -672,9 +671,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
                 return;
             }
         } else {
-            await new Promise<void>((resolve) => {
-                setTimeout(resolve, 25);
-            });
+            await delay(25);
         }
     }
 
@@ -996,9 +993,7 @@ async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
             return mountedWorkspace.value;
         }
 
-        await new Promise<void>((resolve) => {
-            setTimeout(resolve, 25);
-        });
+        await delay(25);
     }
     return null;
 }

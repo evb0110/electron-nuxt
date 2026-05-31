@@ -1,3 +1,5 @@
+import { range } from 'es-toolkit/math';
+
 export type TOcrPageRange = 'all' | 'current' | 'custom';
 
 export interface IOcrSettings {
@@ -46,7 +48,7 @@ export function parsePageRange(
     }
 
     if (rangeType === 'all') {
-        return Array.from({ length: totalPages }, (_, i) => i + 1);
+        return range(1, totalPages + 1);
     }
 
     const pages = new Set<number>();
@@ -61,9 +63,8 @@ export function parsePageRange(
                 const start = parseInt(startStr.trim(), 10);
                 const end = parseInt(endStr.trim(), 10);
                 if (!isNaN(start) && !isNaN(end)) {
-                    for (let i = Math.max(1, start); i <= Math.min(totalPages, end); i++) {
-                        pages.add(i);
-                    }
+                    range(Math.max(1, start), Math.min(totalPages, end) + 1)
+                        .forEach(page => pages.add(page));
                 }
             }
         } else {

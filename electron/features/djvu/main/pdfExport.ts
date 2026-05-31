@@ -5,7 +5,10 @@ import type {
     WebContents,
 } from 'electron';
 import type { Worker } from 'worker_threads';
-import { uniq } from 'es-toolkit/array';
+import {
+    remove,
+    uniq,
+} from 'es-toolkit/array';
 import {
     rm,
     stat,
@@ -106,16 +109,11 @@ function throwIfCanceled(jobId: string) {
 }
 
 function removeQueuedConversionJob(jobId: string) {
-    const queueIndex = queuedConversionJobIds.indexOf(jobId);
-    if (queueIndex === -1) {
+    const removedJobIds = remove(queuedConversionJobIds, candidate => candidate === jobId);
+    if (removedJobIds.length === 0) {
         return false;
     }
 
-    queuedConversionJobIds.splice(
-        0,
-        queuedConversionJobIds.length,
-        ...queuedConversionJobIds.filter(candidate => candidate !== jobId),
-    );
     const resolver = queuedConversionResolvers.get(jobId);
     queuedConversionResolvers.delete(jobId);
     if (resolver) {

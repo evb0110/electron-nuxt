@@ -5,6 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
     createMultiPageTextFixturePdf,
@@ -58,7 +59,7 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
         if ((lastSummary.bySubtype[subtype] ?? 0) === expectedCount) {
             return lastSummary;
         }
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await delay(150);
         lastSummary = await readPdfAnnotationSummary(filePath);
     }
     throw new Error(

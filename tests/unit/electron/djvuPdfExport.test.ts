@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const mocks = vi.hoisted(() => {
@@ -233,7 +234,7 @@ describe('handleDjvuConvertToPdf', () => {
         );
 
         for (let attempt = 0; attempt < 50 && mocks.createDjvuPdfBookmarkTask.mock.calls.length === 0; attempt += 1) {
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await delay(0);
         }
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
         const cancelResult = await handleDjvuCancel(

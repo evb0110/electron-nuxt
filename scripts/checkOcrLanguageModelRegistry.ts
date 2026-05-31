@@ -4,6 +4,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { difference } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -12,12 +13,6 @@ const tessdataDirectory = path.join(projectRoot, 'resources', 'tesseract', 'tess
 
 function formatList(values: readonly string[]): string {
     return values.length > 0 ? values.join(', ') : '(none)';
-}
-
-function diff(left: readonly string[], right: readonly string[]): string[] {
-    const rightValues = new Set(right);
-
-    return left.filter(value => !rightValues.has(value));
 }
 
 function getRegistryCodes(): string[] {
@@ -39,8 +34,8 @@ function getTessdataCodes(): string[] {
 
 const registryCodes = getRegistryCodes();
 const tessdataCodes = getTessdataCodes();
-const missingModels = diff(registryCodes, tessdataCodes);
-const unregisteredModels = diff(tessdataCodes, registryCodes);
+const missingModels = difference(registryCodes, tessdataCodes);
+const unregisteredModels = difference(tessdataCodes, registryCodes);
 
 if (missingModels.length > 0 || unregisteredModels.length > 0) {
     console.error('OCR language registry and bundled tessdata are out of sync.');

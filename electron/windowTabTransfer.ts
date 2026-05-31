@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { remove } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type {
     IWindowTabIncomingTransfer,
@@ -223,13 +224,11 @@ export class WindowTabTransferBroker {
             return;
         }
 
-        const next = queued.filter(candidate => candidate !== transferId);
-        if (next.length === 0) {
+        remove(queued, candidate => candidate === transferId);
+        if (queued.length === 0) {
             this.queuedTransfersByWindow.delete(windowId);
             return;
         }
-
-        this.queuedTransfersByWindow.set(windowId, next);
     }
 }
 

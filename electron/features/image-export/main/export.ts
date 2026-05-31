@@ -23,6 +23,7 @@ import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
@@ -443,17 +444,11 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
 }
 
 function createPageRanges(pageCount: number) {
-    const ranges: Array<{
-        firstPage: number;
-        lastPage: number;
-    }> = [];
-    for (let firstPage = 1; firstPage <= pageCount; firstPage += PDF_EXPORT_RENDER_CHUNK_PAGES) {
-        ranges.push({
+    return range(1, pageCount + 1, PDF_EXPORT_RENDER_CHUNK_PAGES)
+        .map(firstPage => ({
             firstPage,
             lastPage: Math.min(pageCount, firstPage + PDF_EXPORT_RENDER_CHUNK_PAGES - 1),
-        });
-    }
-    return ranges;
+        }));
 }
 
 export async function exportPdfPagesAsImages(

@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import {
     isSelectionInteractionTool,
@@ -64,7 +65,7 @@ export function usePdfViewerSelectionToolState(options: IUsePdfViewerSelectionTo
                 opacity: settings.highlightOpacity,
             };
         })();
-        const opacityPercent = Math.round(Math.max(0, Math.min(1, opacity)) * 100);
+        const opacityPercent = Math.round(clamp(opacity, 0, 1) * 100);
         return { '--app-pdf-text-selection-bg': `color-mix(in srgb, ${color} ${opacityPercent}%, transparent)` };
     });
 

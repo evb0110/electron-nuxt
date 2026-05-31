@@ -131,6 +131,7 @@
 </template>
 
 <script setup lang="ts">
+import { clamp } from 'es-toolkit/math';
 import type {
     IAnnotationCommentSummary,
     TAnnotationCommentsStatus,
@@ -276,7 +277,7 @@ function shapeOpacity(comment: IAnnotationCommentSummary) {
         return '1';
     }
 
-    return Math.min(Math.max(comment.opacity, 0), 1).toString();
+    return clamp(comment.opacity, 0, 1).toString();
 }
 
 function shapePreviewColor(comment: IAnnotationCommentSummary) {
