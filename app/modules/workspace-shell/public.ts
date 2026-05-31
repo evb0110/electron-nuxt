@@ -1,5 +1,5 @@
 export type {
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from './composables/workspaceOrchestration.types';
+} from '@app/modules/pdf-viewer/public';
 export type { TWorkspaceUndoSource } from './composables/useWorkspaceUndoTimeline';

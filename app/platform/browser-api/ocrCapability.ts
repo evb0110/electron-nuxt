@@ -289,6 +289,40 @@ export const browserOcrCapability: IOcrCapability = {
         return Promise.resolve({ canceled: false });
     },
     getLanguages: getBrowserOcrLanguages,
+    validateTools() {
+        const workerAvailable = typeof Worker === 'function';
+        return Promise.resolve({
+            valid: workerAvailable,
+            tools: {
+                tesseract: {
+                    found: workerAvailable,
+                    path: 'browser:tesseract.js',
+                },
+                tessdata: {
+                    found: workerAvailable,
+                    path: 'browser:indexeddb',
+                    languages: Array.from(installedBrowserOcrLanguages),
+                },
+                pdftoppm: {
+                    found: false,
+                    path: 'browser:unavailable',
+                },
+                pdftotext: {
+                    found: false,
+                    path: 'browser:unavailable',
+                },
+                popplerRuntime: {
+                    dataDirFound: false,
+                    fontConfigDirFound: false,
+                },
+                qpdf: {
+                    found: false,
+                    path: 'browser:unavailable',
+                },
+            },
+            errors: workerAvailable ? [] : ['Browser workers are unavailable'],
+        });
+    },
     installLanguages,
     acknowledgeResultFile(_requestId, _pdfPath) {
         return Promise.resolve({ cleaned: true });

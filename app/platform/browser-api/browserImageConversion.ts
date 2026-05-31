@@ -1,5 +1,5 @@
 import type { PDFDocument } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@contracts/tiffDecode';
+import { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
 import { getExtension } from '@app/platform/browser-api/browserFileName';
 import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { appendPdfImagePage } from '@app/platform/browser-api/pdfImagePages';

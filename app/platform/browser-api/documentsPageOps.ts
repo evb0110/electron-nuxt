@@ -99,7 +99,7 @@ function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
 
 export function createBrowserPageOps(
     options: ICreateBrowserPageOpsOptions,
-): IPageOpsCapability['pageOps'] {
+): IPageOpsCapability {
     const workingCopyMutationQueues = new Map<string, Promise<unknown>>();
 
     async function serializeWorkingCopyMutation<T>(
@@ -260,7 +260,7 @@ export function createBrowserPageOps(
         };
     }
 
-    const pageOps: IPageOpsCapability['pageOps'] = {
+    const pageOps: IPageOpsCapability = {
         async delete(workingCopyPath, pages) {
             return serializeWorkingCopyMutation(workingCopyPath, async () => {
                 const result = await runWorkerBackedPdfOperation({

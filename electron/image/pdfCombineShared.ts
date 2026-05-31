@@ -5,7 +5,7 @@ import {
     PDFDocument,
     type PDFImage,
 } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@contracts/tiffDecode';
+import { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
 import {
     pixelsToPdfPoints,
     readImageDpi,

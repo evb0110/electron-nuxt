@@ -22,7 +22,7 @@ import {
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-} from '@contracts/tiffEncoding';
+} from '@pdf-core/tiffEncoding';
 
 interface IRenderedPdfPage {
     pageNumber: number;

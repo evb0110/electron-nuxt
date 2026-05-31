@@ -3,7 +3,10 @@ import type { TDocumentRef } from '@contracts/platformApi';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentsCapability,
+    getImageExportCapability,
+} from '@app/utils/platformDocuments';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 type TExportOverlayKind = 'images' | 'multipage-tiff';
@@ -114,7 +117,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
     async function handleImageExportResult(
         documents: ReturnType<typeof getDocumentsCapability>,
-        result: Awaited<ReturnType<ReturnType<typeof getDocumentsCapability>['exportPdfToImages']>>,
+        result: Awaited<ReturnType<ReturnType<typeof getImageExportCapability>['exportPdfToImages']>>,
         selectedPageCount: number,
     ) {
         if (!result.success) {
@@ -190,8 +193,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
             showExportRunning('images', selectedPageCount);
             const documents = getDocumentsCapability();
+            const imageExport = getImageExportCapability();
             const startedAt = Date.now();
-            const result = await documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
+            const result = await imageExport.exportPdfToImages(workingCopyPath.value, pageNumbers);
             if (result.success || result.canceled) {
                 trackExportCompleted({
                     startedAt,
@@ -228,8 +232,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
             showExportRunning('multipage-tiff', selectedPageCount);
             const documents = getDocumentsCapability();
+            const imageExport = getImageExportCapability();
             const startedAt = Date.now();
-            const result = await documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
+            const result = await imageExport.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
             if (result.success || result.canceled) {
                 trackExportCompleted({
                     startedAt,

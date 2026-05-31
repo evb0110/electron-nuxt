@@ -2,7 +2,7 @@ import type {
     IPdfConformanceProfile,
     TPdfConformanceProfileBase,
     TPdfaLevel,
-} from './pdfConformance';
+} from '@contracts/pdfConformance';
 
 const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
 const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;

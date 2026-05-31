@@ -11,6 +11,7 @@ import {
 import type { ICropMargins } from '@contracts/shared';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
+import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
 import { te } from '@electron/i18n';
 import { SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfConversion';
 import {
@@ -48,14 +49,13 @@ import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConver
 import type { IIpcMainRegistrar } from '@electron/features/page-ops/ports';
 
 type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
-const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
 
 function sendOpenBatchProgress(
     event: Electron.IpcMainInvokeEvent,
     payload: TOpenBatchProgressPayload,
 ) {
     try {
-        event.sender.send(OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL, payload);
+        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress, payload);
     } catch {
         // Progress is best effort; the page operation result remains authoritative.
     }

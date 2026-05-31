@@ -10,7 +10,7 @@ import {
     PDFNumber,
     PDFString,
 } from 'pdf-lib';
-import type { IPdfBookmarkEntry } from './pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdf';
 
 interface IBookmarkOutlineNode {
     ref: PDFRef;

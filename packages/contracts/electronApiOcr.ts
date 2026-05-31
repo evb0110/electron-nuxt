@@ -76,6 +76,41 @@ export interface IPreprocessingValidationResult {
     missing: string[];
 }
 
+export interface IOcrToolValidationResult extends IOcrErrorEnvelopeCarrier {
+    valid: boolean;
+    tools: {
+        tesseract: {
+            found: boolean;
+            path: string;
+            version?: string;
+        };
+        tessdata: {
+            found: boolean;
+            path: string;
+            languages?: string[];
+        };
+        pdftoppm: {
+            found: boolean;
+            path: string;
+        };
+        pdftotext: {
+            found: boolean;
+            path: string;
+        };
+        popplerRuntime: {
+            dataDirFound: boolean;
+            dataDir?: string;
+            fontConfigDirFound: boolean;
+            fontConfigDir?: string;
+        };
+        qpdf: {
+            found: boolean;
+            path: string;
+        };
+    };
+    errors: string[];
+}
+
 export interface IPreprocessPageResult {
     success: boolean;
     imageData: Uint8Array;
@@ -91,6 +126,7 @@ export interface IOcrCapability {
     ) => Promise<IOcrRecognizeBatchResult>;
     cancel: (requestId: string) => Promise<{ canceled: boolean }>;
     getLanguages: () => Promise<IOcrLanguage[]>;
+    validateTools: () => Promise<IOcrToolValidationResult>;
     installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;
     acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) => Promise<IOcrResultFileAckResult>;
     createSearchablePdf: (

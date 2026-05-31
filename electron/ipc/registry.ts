@@ -34,7 +34,7 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import { attachSerializedPdfPersistencePort } from '@electron/features/documents/main/serializedPdfPersistence';
+import { attachSerializedPdfPersistencePort } from '@electron/features/documents/public';
 import {registerImageExportIpcAdapter} from '@electron/features/image-export/ipcAdapter';
 import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
 import {registerOcrIpcAdapter} from '@electron/features/ocr/ipcAdapter';
@@ -164,11 +164,13 @@ function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: s
     return isTrustedWebContentsSender(event.sender, event.senderFrame, channel);
 }
 
-function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar): IIpcMainRegistrar;
+function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>): IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>;
 function createValidatedIpcMainRegistrar<
     TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
->(registrar: IIpcMainRegistrar): IIpcMainRegistrar<TMap>;
-function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar): IIpcMainRegistrar {
+>(registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>): IIpcMainRegistrar<TMap, Electron.IpcMainInvokeEvent>;
+function createValidatedIpcMainRegistrar(
+    registrar: IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent>,
+): IIpcMainRegistrar<never, Electron.IpcMainInvokeEvent> {
     return {handle: <TArgs extends unknown[], TResult>(
         channel: string,
         handler: (

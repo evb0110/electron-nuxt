@@ -1,4 +1,8 @@
-import type { IDocumentsCapability } from '@contracts/platformApi';
+import type {
+    IDocumentsCapability,
+    IImageExportCapability,
+    IPageOpsCapability,
+} from '@contracts/platformApi';
 import {
     OPEN_PDF_IMAGE_ACCEPT,
     buildOpenPdfImagePickerTypes,
@@ -30,6 +34,12 @@ import {
 } from '@i18n-core';
 
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void;}
+
+export interface IBrowserDocumentCapabilities {
+    documents: IDocumentsCapability;
+    imageExport: IImageExportCapability;
+    pageOps: IPageOpsCapability;
+}
 
 function getBrowserLocale(): TLocale {
     const cookieMatch = typeof document !== 'undefined'
@@ -65,7 +75,7 @@ const translateBrowserMessage: TTranslateFn = (key, ...args) => {
 
 export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
-): IDocumentsCapability {
+): IBrowserDocumentCapabilities {
     const errorMessageProvider = { largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint') };
     configureBrowserFilePickerMessages(errorMessageProvider);
     const fileCapability = createBrowserDocumentsFileCapability({
@@ -73,20 +83,24 @@ export function createBrowserDocumentsCapability(
         errorMessageProvider,
     });
     const imageExportCapability = createBrowserImageExportCapability();
+    const pageOpsCapability = createBrowserPageOps({
+        clearSearchCaches: options.clearSearchCaches,
+        openInputAccept: OPEN_PDF_IMAGE_ACCEPT,
+        pickFiles,
+        buildOpenPdfPickerTypes: buildOpenPdfImagePickerTypes,
+        createCombinedPdfFromPaths,
+        pickSaveTarget,
+        saveBytesToPickerOrDownload,
+        writeBytesToHandle,
+    });
+    const documentsCapability = {
+        ...fileCapability,
+        ...browserDocumentsMenuCapability,
+    };
 
     return {
-        ...fileCapability,
-        ...imageExportCapability,
-        ...browserDocumentsMenuCapability,
-        pageOps: createBrowserPageOps({
-            clearSearchCaches: options.clearSearchCaches,
-            openInputAccept: OPEN_PDF_IMAGE_ACCEPT,
-            pickFiles,
-            buildOpenPdfPickerTypes: buildOpenPdfImagePickerTypes,
-            createCombinedPdfFromPaths,
-            pickSaveTarget,
-            saveBytesToPickerOrDownload,
-            writeBytesToHandle,
-        }),
+        documents: documentsCapability,
+        imageExport: imageExportCapability,
+        pageOps: pageOpsCapability,
     };
 }

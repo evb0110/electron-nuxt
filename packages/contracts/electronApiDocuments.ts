@@ -8,7 +8,6 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from './electronApiCommon';
-import type { IPageOpsCapability } from './electronApiPageOps';
 
 export interface IOpenPdfDirectBatchProgress {
     requestId: string;
@@ -146,6 +145,4 @@ export interface IDocumentsFileCapability {
 
 export interface IDocumentsCapability extends
     IDocumentsFileCapability,
-    IDocumentsMenuCapability,
-    IImageExportCapability,
-    IPageOpsCapability {}
+    IDocumentsMenuCapability {}

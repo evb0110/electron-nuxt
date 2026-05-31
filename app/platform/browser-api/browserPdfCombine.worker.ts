@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@contracts/tiffDecode';
+import { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
 import type {
     IBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequest,

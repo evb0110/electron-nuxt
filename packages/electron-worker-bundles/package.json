@@ -1,0 +1,8 @@
+{
+  "name": "@evb/electron-worker-bundles",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./electronWorkerBundles.js": "./electronWorkerBundles.js"
+  }
+}

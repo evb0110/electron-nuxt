@@ -16,13 +16,16 @@ const trackMock = vi.hoisted(() => vi.fn());
 const exportImagesMock = vi.hoisted(() => vi.fn());
 const exportTiffMock = vi.hoisted(() => vi.fn());
 const cleanupFileMock = vi.hoisted(() => vi.fn(async () => {}));
-const mockDocumentsCapability = {
+const mockDocumentsCapability = {cleanupFile: cleanupFileMock};
+const mockImageExportCapability = {
     exportPdfToImages: exportImagesMock,
     exportPdfToMultiPageTiff: exportTiffMock,
-    cleanupFile: cleanupFileMock,
 };
 
-vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockDocumentsCapability }));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentsCapability: () => mockDocumentsCapability,
+    getImageExportCapability: () => mockImageExportCapability,
+}));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 
 function createComposable(options: {ensureWorkingCopyFreshForRead?: () => Promise<boolean>;} = {}) {

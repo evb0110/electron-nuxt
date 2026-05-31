@@ -21,6 +21,7 @@ import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
+import {DOCUMENTS_EVENT_CHANNELS} from '@electron/features/documents/contract';
 import {
     openInputPaths,
     type IOpenFileResult,
@@ -34,14 +35,13 @@ import {
 const logger = createLogger('documents-dialogs');
 
 type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
-const OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL = 'dialog:openPdfDirectBatch:progress';
 
 function sendOpenBatchProgress(
     event: Electron.IpcMainInvokeEvent,
     payload: TOpenBatchProgressPayload,
 ) {
     try {
-        event.sender.send(OPEN_PDF_DIRECT_BATCH_PROGRESS_CHANNEL, payload);
+        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress, payload);
     } catch (error) {
         logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
     }

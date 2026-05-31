@@ -8,7 +8,7 @@ import {
     PDFName,
 } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
-import { writePdfBookmarkOutlines } from '@contracts/pdfBookmarks';
+import { writePdfBookmarkOutlines } from '@pdf-core/pdfBookmarks';
 
 function createBookmark(title: string, pageIndex: number): IPdfBookmarkEntry {
     return {

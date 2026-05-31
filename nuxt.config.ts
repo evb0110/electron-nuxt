@@ -464,6 +464,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     alias: {
         '@app': appDir,
         '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
+        '@pdf-core': fileURLToPath(new URL('./packages/pdf-core', import.meta.url)),
         '@i18n-core': fileURLToPath(new URL('./packages/i18n-core', import.meta.url)),
         '@i18n-app': fileURLToPath(new URL('./packages/i18n-app', import.meta.url)),
         '@releaseSelection': fileURLToPath(new URL('./packages/release-selection', import.meta.url)),

@@ -37,7 +37,7 @@ import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import {
     atomicReplace,
     makeSiblingTempPath,

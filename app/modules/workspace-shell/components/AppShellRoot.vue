@@ -204,7 +204,10 @@ import type { TStartSection } from '@app/types/startPage';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
 import type { TOpenFileResult } from '@contracts/platformApi';
-import { getPlatformAPI } from '@app/utils/platform';
+import {
+    getPlatformAPI,
+    waitForDesktopPlatformBridge,
+} from '@app/utils/platform';
 
 traceRendererStartup('index.vue script setup start');
 
@@ -563,13 +566,16 @@ let unsubscribeZenModeChange: (() => void) | null = null;
 
 onMounted(() => {
     guardAsync(
-        getPlatformAPI().host.getZenModeState().then(applyZenModeState),
+        (async () => {
+            await waitForDesktopPlatformBridge({ shouldWait: !isBrowserRuntime.value });
+            await getPlatformAPI().host.getZenModeState().then(applyZenModeState);
+            unsubscribeZenModeChange = getPlatformAPI().host.onZenModeChange(applyZenModeState);
+        })(),
         {
             scope: 'shell',
             message: 'Failed to read zen mode state',
         },
     );
-    unsubscribeZenModeChange = getPlatformAPI().host.onZenModeChange(applyZenModeState);
 
     if (import.meta.dev) {
         (window as Window & {__setTabMemoryPolicyForE2E?: (policy: TTabMemoryPolicy) => void;}).__setTabMemoryPolicyForE2E = (policy) => updateSetting('tabMemoryPolicy', policy);
@@ -886,7 +892,10 @@ watch(windowTitle, (nextTitle) => {
         return;
     }
 
-    guardAsync(getPlatformAPI().documents.setWindowTitle(nextTitle), {
+    guardAsync((async () => {
+        await waitForDesktopPlatformBridge({ shouldWait: true });
+        await getPlatformAPI().documents.setWindowTitle(nextTitle);
+    })(), {
         scope: 'window-title',
         message: 'Failed to sync window title',
     });

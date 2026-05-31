@@ -264,9 +264,20 @@ importers:
 
   packages/contracts: {}
 
+  packages/electron-worker-bundles: {}
+
   packages/i18n-app: {}
 
   packages/i18n-core: {}
+
+  packages/pdf-core:
+    dependencies:
+      pdf-lib:
+        specifier: ^1.17.1
+        version: 1.17.1
+      utif:
+        specifier: ^3.1.0
+        version: 3.1.0
 
   packages/release-selection: {}
 

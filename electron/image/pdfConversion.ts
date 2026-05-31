@@ -22,13 +22,13 @@ import {
     isImagePath,
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdfCombineShared';
-import { convertDjvuToPdfFile } from '@electron/features/djvu/main/ddjvuConversion';
+import { convertDjvuToPdfFile } from '@electron/features/djvu/public';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;

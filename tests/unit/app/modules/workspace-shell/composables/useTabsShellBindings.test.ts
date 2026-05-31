@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
     shouldHandleRendererMenuAccelerators: vi.fn(),
     registerTabsMenuBindings: vi.fn(() => []),
     getPlatformAPI: vi.fn(() => ({})),
+    shouldPreferDesktopPlatform: vi.fn(() => false),
+    waitForDesktopPlatformBridge: vi.fn(async () => true),
     claimPendingExternalOpenPaths: vi.fn(async (): Promise<string[]> => []),
     notifyRendererReady: vi.fn(),
 }));
@@ -28,7 +30,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
 vi.mock('@app/utils/platformShortcuts', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
 vi.mock('@app/modules/workspace-shell/composables/tabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
-vi.mock('@app/utils/platform', () => ({getPlatformAPI: mocks.getPlatformAPI}));
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: mocks.getPlatformAPI,
+    shouldPreferDesktopPlatform: mocks.shouldPreferDesktopPlatform,
+    waitForDesktopPlatformBridge: mocks.waitForDesktopPlatformBridge,
+}));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
     claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
     notifyRendererReady: mocks.notifyRendererReady,
@@ -118,6 +124,8 @@ describe('useTabsShellBindings', () => {
         vi.clearAllMocks();
         capturedKeydown = undefined;
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        mocks.shouldPreferDesktopPlatform.mockReturnValue(false);
+        mocks.waitForDesktopPlatformBridge.mockResolvedValue(true);
         mocks.claimPendingExternalOpenPaths.mockResolvedValue([]);
         mocks.useEventListener.mockImplementation((_target, event, listener) => {
             if (event === 'keydown') {
@@ -148,9 +156,7 @@ describe('useTabsShellBindings', () => {
         mocks.claimPendingExternalOpenPaths.mockResolvedValue(['/tmp/startup.pdf']);
 
         const unmount = await mountBindingsClient(options);
-        await Promise.resolve();
-        await Promise.resolve();
-        await nextTick();
+        await flushMountedStartupClaim();
 
         expect(options.beginOpenPathsInAppropriateTab).toHaveBeenCalledWith(['/tmp/startup.pdf']);
         expect(options.isStartupOpenClaimPending.value).toBe(true);

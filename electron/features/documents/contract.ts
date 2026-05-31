@@ -6,7 +6,7 @@ import type {
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
-} from '@electron/features/documents/main/serializedPdfPersistence';
+} from '@electron/features/documents/serializedPdfPersistenceContract';
 
 export const DOCUMENTS_CHANNELS = {
     openPdfDialog: 'dialog:openPdf',
@@ -84,8 +84,6 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuClearRecentFiles: 'menu:clearRecentFiles',
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
-
-export type TDocumentsEventChannels = typeof DOCUMENTS_EVENT_CHANNELS;
 
 export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.openPdfDialog]: {

@@ -208,6 +208,10 @@ describe('release policy', () => {
                 'run',
                 'test:release',
             ],
+            [
+                'run',
+                'test:bundle-integrity',
+            ],
         ]);
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('build:strict');
@@ -246,7 +250,7 @@ describe('release policy', () => {
             },
         });
 
-        expect(calls).toHaveLength(5);
+        expect(calls).toHaveLength(6);
         expect(calls.every(call => call.command === 'pnpm')).toBe(true);
         expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
         expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);

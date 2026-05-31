@@ -1,1 +1,1 @@
-export * from '@electron/features/djvu/main/viewing';
+export * from '@electron/features/djvu/public';

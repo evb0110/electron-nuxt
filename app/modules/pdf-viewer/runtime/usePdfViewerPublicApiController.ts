@@ -8,7 +8,7 @@ import {
     type TPdfViewerPublicApiSource,
 } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
+import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;

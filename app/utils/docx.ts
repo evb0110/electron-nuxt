@@ -1,5 +1,5 @@
 import { sumBy } from 'es-toolkit/math';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 
 const CRC_TABLE = (() => {
     const table = new Uint32Array(256);

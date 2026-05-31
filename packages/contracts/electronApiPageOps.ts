@@ -22,7 +22,7 @@ export interface IPageOpsInsertResult {
     canceled?: boolean;
 }
 
-export interface IPageOpsAPI {
+export interface IPageOpsCapability {
     delete: (workingCopyPath: TDocumentRef, pages: number[], totalPages: number) => Promise<IPageOpsResult>;
     extract: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsExtractResult>;
     reorder: (workingCopyPath: TDocumentRef, newOrder: number[]) => Promise<IPageOpsResult>;
@@ -39,5 +39,3 @@ export interface IPageOpsAPI {
     removeCrop: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsResult>;
     getPageGeometry: (workingCopyPath: TDocumentRef, pageNumber: number) => Promise<IPageGeometry>;
 }
-
-export interface IPageOpsCapability {pageOps: IPageOpsAPI;}

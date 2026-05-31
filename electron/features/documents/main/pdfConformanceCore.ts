@@ -4,10 +4,10 @@ import {
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@contracts/pdfConformanceHelpers';
+} from '@pdf-core/pdfConformanceHelpers';
 import type { IPdfConformanceProfile } from '@contracts/pdfConformance';
 import { createLogger } from '@electron/utils/logger';
-import { loadPdfStructure } from '@contracts/pdfConformanceLoad';
+import { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-pdfConformance');

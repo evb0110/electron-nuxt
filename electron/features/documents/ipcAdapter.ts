@@ -21,7 +21,7 @@ import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
-type TDocumentsIpcRegistrar = IIpcMainRegistrar<IDocumentsInvokeMap>;
+type TDocumentsIpcRegistrar = IIpcMainRegistrar<IDocumentsInvokeMap, IpcMainInvokeEvent>;
 type TDocumentsIpcChannel = Extract<keyof IDocumentsInvokeMap, string>;
 
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
@@ -102,7 +102,8 @@ function registerDocumentHandler<TChannel extends TDocumentsIpcChannel>(
     channel: TChannel,
     handler: TIpcMainInvokeHandler<
         IDocumentsInvokeMap[TChannel]['args'],
-        IDocumentsInvokeMap[TChannel]['result']
+        IDocumentsInvokeMap[TChannel]['result'],
+        IpcMainInvokeEvent
     >,
 ) {
     registrar.handle(channel, handler);
@@ -116,7 +117,8 @@ export function registerDocumentsIpcAdapter(
         channel: TChannel,
         handler: TIpcMainInvokeHandler<
             IDocumentsInvokeMap[TChannel]['args'],
-            IDocumentsInvokeMap[TChannel]['result']
+            IDocumentsInvokeMap[TChannel]['result'],
+            IpcMainInvokeEvent
         >,
     ) => registerDocumentHandler(registrar, channel, handler);
 

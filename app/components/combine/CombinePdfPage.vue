@@ -191,10 +191,10 @@ import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';
 import { getErrorMessage } from '@app/utils/error';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
-import { hasElectronAPI } from '@app/utils/platform';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/documentsFileCapability';
+import {
+    combinePdfFiles as combinePdfInputFiles,
+    type ICombinePdfProgress,
+} from '@app/services/pdf/combinePdfFiles';
 import {
     getDocumentKindFromPath,
     isSupportedWorkspaceDocumentPath,
@@ -210,14 +210,6 @@ interface ICombineFile {
     size: number;
     signature: string;
     kind: TCombineFileKind;
-}
-
-interface ICombineProgress {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
 }
 
 const emit = defineEmits<{
@@ -244,7 +236,7 @@ const files = ref<ICombineFile[]>([]);
 const isDraggingOver = ref(false);
 const dragDepth = ref(0);
 const isCombining = ref(false);
-const progress = ref<ICombineProgress | null>(null);
+const progress = ref<ICombinePdfProgress | null>(null);
 const combineError = ref<string | null>(null);
 const lastRejectedCount = ref(0);
 const COMBINE_FILE_ACCEPT = WORKSPACE_DOCUMENT_EXTENSIONS.join(',');
@@ -403,101 +395,8 @@ function buildOutputName() {
     return `combined-${Date.now()}.pdf`;
 }
 
-async function registerCombineInputFiles() {
-    const refs: string[] = [];
-    for (const entry of files.value) {
-        const ref = await browserDocumentStore.registerFile(entry.file, {
-            kind: 'source',
-            retention: 'transient',
-            saveKind: 'generic',
-            saveHandle: null,
-        });
-        refs.push(ref);
-    }
-    return refs;
-}
-
-async function cleanupRegisteredRefs(refs: string[]) {
-    await Promise.allSettled(refs.map(ref => browserDocumentStore.remove(ref)));
-}
-
-function handleCombineProgress(nextProgress: ICombineProgress) {
+function handleCombineProgress(nextProgress: ICombinePdfProgress) {
     progress.value = nextProgress;
-}
-
-async function combineElectronFiles() {
-    const documents = getDocumentsCapability();
-    const inputPaths = files.value
-        .map(entry => documents.getPathForFile(entry.file).trim())
-        .filter(path => path.length > 0);
-
-    if (inputPaths.length !== files.value.length) {
-        throw new Error(t('errors.file.open'));
-    }
-
-    const requestId = crypto.randomUUID();
-    const stopProgress = documents.onOpenPdfDirectBatchProgress((nextProgress) => {
-        if (nextProgress.requestId !== requestId) {
-            return;
-        }
-
-        handleCombineProgress({
-            processed: nextProgress.processed,
-            total: nextProgress.total,
-            percent: nextProgress.percent,
-            elapsedMs: nextProgress.elapsedMs,
-            estimatedRemainingMs: nextProgress.estimatedRemainingMs,
-        });
-    });
-
-    try {
-        const result = await documents.openPdfDirectBatch(inputPaths, requestId);
-        if (!result) {
-            throw new Error(t('errors.file.open'));
-        }
-
-        progress.value = {
-            processed: files.value.length,
-            total: files.value.length,
-            percent: 100,
-            elapsedMs: progress.value?.elapsedMs ?? 0,
-            estimatedRemainingMs: null,
-        };
-        emit('open-result', result);
-        clearFiles();
-    } finally {
-        stopProgress();
-    }
-}
-
-async function combineBrowserFiles() {
-    let refs: string[] = [];
-    try {
-        refs = await registerCombineInputFiles();
-        const combinedPdf = await createCombinedPdfFromPaths(refs, {onProgress: handleCombineProgress});
-        const workingPath = await getDocumentsCapability().createWorkingCopyFromData(
-            buildOutputName(),
-            combinedPdf,
-        );
-        progress.value = {
-            processed: files.value.length,
-            total: files.value.length,
-            percent: 100,
-            elapsedMs: progress.value?.elapsedMs ?? 0,
-            estimatedRemainingMs: null,
-        };
-        emit('open-result', {
-            kind: 'pdf',
-            workingPath,
-            originalPath: workingPath,
-            isGenerated: true,
-        });
-        clearFiles();
-    } finally {
-        if (refs.length > 0) {
-            void cleanupRegisteredRefs(refs);
-        }
-    }
 }
 
 async function combineFiles() {
@@ -517,11 +416,14 @@ async function combineFiles() {
     };
 
     try {
-        if (hasElectronAPI()) {
-            await combineElectronFiles();
-        } else {
-            await combineBrowserFiles();
-        }
+        const result = await combinePdfInputFiles({
+            files: files.value,
+            outputName: buildOutputName(),
+            openErrorMessage: t('errors.file.open'),
+            onProgress: handleCombineProgress,
+        });
+        emit('open-result', result);
+        clearFiles();
     } catch (error) {
         combineError.value = getErrorMessage(error) || t('errors.file.open');
     } finally {

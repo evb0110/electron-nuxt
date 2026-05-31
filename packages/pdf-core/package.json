@@ -1,0 +1,13 @@
+{
+  "name": "@evb/pdf-core",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "utif": "^3.1.0"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}

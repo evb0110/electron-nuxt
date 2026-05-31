@@ -7,7 +7,7 @@ import * as utifModule from 'utif';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-} from '@contracts/tiffEncoding';
+} from '@pdf-core/tiffEncoding';
 
 interface IUtifEncoderModule {
     _binBE: {

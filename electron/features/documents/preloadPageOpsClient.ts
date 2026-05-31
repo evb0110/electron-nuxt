@@ -10,7 +10,7 @@ import type { ICropMargins } from '@contracts/shared';
 
 export function createDocumentsPreloadPageOpsClient(
     ipcRenderer: IpcRenderer,
-): IPageOpsCapability['pageOps'] {
+): IPageOpsCapability {
     const invoke = createTypedIpcInvoker<IPageOpsInvokeMap>(ipcRenderer);
 
     return {

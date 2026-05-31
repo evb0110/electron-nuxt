@@ -2,7 +2,9 @@ import type {
     IDjvuCapability,
     IDocumentsCapability,
     IHostCapability,
+    IImageExportCapability,
     IOcrCapability,
+    IPageOpsCapability,
     IPlatformApi,
     ISearchCapability,
     ISettingsCapability,
@@ -399,61 +401,56 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'onOpenPdfDirectBatchProgress',
     ]),
-    exportPdfToImages: lazyAsync<IDocumentsCapability['exportPdfToImages']>([
-        'documents',
+};
+
+const lazyImageExportCapability: IImageExportCapability = {
+    exportPdfToImages: lazyAsync<IImageExportCapability['exportPdfToImages']>([
+        'imageExport',
         'exportPdfToImages',
     ]),
-    exportPdfToMultiPageTiff: lazyAsync<IDocumentsCapability['exportPdfToMultiPageTiff']>([
-        'documents',
+    exportPdfToMultiPageTiff: lazyAsync<IImageExportCapability['exportPdfToMultiPageTiff']>([
+        'imageExport',
         'exportPdfToMultiPageTiff',
     ]),
-    pageOps: {
-        delete: lazyAsync<IDocumentsCapability['pageOps']['delete']>([
-            'documents',
-            'pageOps',
-            'delete',
-        ]),
-        extract: lazyAsync<IDocumentsCapability['pageOps']['extract']>([
-            'documents',
-            'pageOps',
-            'extract',
-        ]),
-        reorder: lazyAsync<IDocumentsCapability['pageOps']['reorder']>([
-            'documents',
-            'pageOps',
-            'reorder',
-        ]),
-        insert: lazyAsync<IDocumentsCapability['pageOps']['insert']>([
-            'documents',
-            'pageOps',
-            'insert',
-        ]),
-        insertFile: lazyAsync<IDocumentsCapability['pageOps']['insertFile']>([
-            'documents',
-            'pageOps',
-            'insertFile',
-        ]),
-        rotate: lazyAsync<IDocumentsCapability['pageOps']['rotate']>([
-            'documents',
-            'pageOps',
-            'rotate',
-        ]),
-        crop: lazyAsync<IDocumentsCapability['pageOps']['crop']>([
-            'documents',
-            'pageOps',
-            'crop',
-        ]),
-        removeCrop: lazyAsync<IDocumentsCapability['pageOps']['removeCrop']>([
-            'documents',
-            'pageOps',
-            'removeCrop',
-        ]),
-        getPageGeometry: lazyAsync<IDocumentsCapability['pageOps']['getPageGeometry']>([
-            'documents',
-            'pageOps',
-            'getPageGeometry',
-        ]),
-    },
+};
+
+const lazyPageOpsCapability: IPageOpsCapability = {
+    delete: lazyAsync<IPageOpsCapability['delete']>([
+        'pageOps',
+        'delete',
+    ]),
+    extract: lazyAsync<IPageOpsCapability['extract']>([
+        'pageOps',
+        'extract',
+    ]),
+    reorder: lazyAsync<IPageOpsCapability['reorder']>([
+        'pageOps',
+        'reorder',
+    ]),
+    insert: lazyAsync<IPageOpsCapability['insert']>([
+        'pageOps',
+        'insert',
+    ]),
+    insertFile: lazyAsync<IPageOpsCapability['insertFile']>([
+        'pageOps',
+        'insertFile',
+    ]),
+    rotate: lazyAsync<IPageOpsCapability['rotate']>([
+        'pageOps',
+        'rotate',
+    ]),
+    crop: lazyAsync<IPageOpsCapability['crop']>([
+        'pageOps',
+        'crop',
+    ]),
+    removeCrop: lazyAsync<IPageOpsCapability['removeCrop']>([
+        'pageOps',
+        'removeCrop',
+    ]),
+    getPageGeometry: lazyAsync<IPageOpsCapability['getPageGeometry']>([
+        'pageOps',
+        'getPageGeometry',
+    ]),
 };
 
 const lazyOcrCapability: IOcrCapability = {
@@ -472,6 +469,10 @@ const lazyOcrCapability: IOcrCapability = {
     getLanguages: lazyAsync<IOcrCapability['getLanguages']>([
         'ocr',
         'getLanguages',
+    ]),
+    validateTools: lazyAsync<IOcrCapability['validateTools']>([
+        'ocr',
+        'validateTools',
     ]),
     installLanguages: lazyAsync<IOcrCapability['installLanguages']>([
         'ocr',
@@ -728,6 +729,8 @@ const lazyHostCapability: IHostCapability = {
 
 export const lazyBrowserPlatformApi = {
     documents: lazyDocumentsCapability,
+    pageOps: lazyPageOpsCapability,
+    imageExport: lazyImageExportCapability,
     ocr: lazyOcrCapability,
     search: lazySearchCapability,
     djvu: lazyDjvuCapability,
