@@ -16,10 +16,10 @@ function isUiReportableLog(entry: IDebugLogEntry) {
     return entry.message.startsWith('[ERROR]');
 }
 
-function createPluginTranslate(): TTranslateFn {
+function createPluginTranslate(getLocale: () => TLocale | null | undefined): TTranslateFn {
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
-        const locale = useCookie<TLocale>('i18n_redirected').value ?? DEFAULT_LOCALE;
+        const locale = getLocale() ?? DEFAULT_LOCALE;
         const messages = LOCALE_MESSAGES[locale] ?? LOCALE_MESSAGES[DEFAULT_LOCALE];
         const fallbackMessages = LOCALE_MESSAGES[DEFAULT_LOCALE];
         const leaf = getNestedTranslationLeaf(messages, key)
@@ -38,7 +38,8 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
 
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const t = createPluginTranslate();
+    const localeCookie = useCookie<TLocale>('i18n_redirected');
+    const t = createPluginTranslate(() => localeCookie.value);
 
     nuxtApp.hook('app:mounted', () => {
         getSettingsCapability().onDebugLog((entry) => {

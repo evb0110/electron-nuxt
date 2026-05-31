@@ -151,9 +151,7 @@ interface IActiveInteraction {
 }
 
 let activeInteraction: IActiveInteraction | null = null;
-let stopPointerMoveListener: (() => void) | null = null;
-let stopPointerUpListener: (() => void) | null = null;
-let stopPointerCancelListener: (() => void) | null = null;
+const interactionWindowTarget = shallowRef<Window | undefined>();
 
 function setGlobalInteractionCursor(cursor: string) {
     const root = document.documentElement;
@@ -331,10 +329,7 @@ function startInteraction(
     setGlobalInteractionCursor('none');
     createVirtualCursor(buildVirtualCursorSvg(mode, handle));
     updateVirtualCursorPosition(event.clientX, event.clientY);
-
-    stopPointerMoveListener = useEventListener(window, 'pointermove', handleWindowPointerMove);
-    stopPointerUpListener = useEventListener(window, 'pointerup', handleWindowPointerUp);
-    stopPointerCancelListener = useEventListener(window, 'pointercancel', handleWindowPointerUp);
+    interactionWindowTarget.value = window;
 }
 
 function stopInteraction() {
@@ -347,14 +342,9 @@ function stopInteraction() {
     }
 
     activeInteraction = null;
+    interactionWindowTarget.value = undefined;
     clearGlobalInteractionCursor();
     removeVirtualCursor();
-    stopPointerMoveListener?.();
-    stopPointerMoveListener = null;
-    stopPointerUpListener?.();
-    stopPointerUpListener = null;
-    stopPointerCancelListener?.();
-    stopPointerCancelListener = null;
 }
 
 function handleMovePointerDown(event: PointerEvent) {
@@ -471,6 +461,10 @@ function handleWindowPointerUp(event: PointerEvent) {
     }
     stopInteraction();
 }
+
+useEventListener(interactionWindowTarget, 'pointermove', handleWindowPointerMove);
+useEventListener(interactionWindowTarget, 'pointerup', handleWindowPointerUp);
+useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerUp);
 
 function isEditableTarget(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) {

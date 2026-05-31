@@ -120,8 +120,7 @@ const frameStartY = ref(0);
 const isDragging = ref(false);
 let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
 let focusGuardToken = 0;
-let stopDragMoveListener: (() => void) | null = null;
-let stopDragUpListener: (() => void) | null = null;
+const dragWindowTarget = shallowRef<Window | undefined>();
 
 function focusNote() {
     emit('focus');
@@ -360,20 +359,13 @@ function handlePointerMove(event: MouseEvent) {
     emitPositionUpdate();
 }
 
-function cleanupDragListeners() {
-    stopDragMoveListener?.();
-    stopDragMoveListener = null;
-    stopDragUpListener?.();
-    stopDragUpListener = null;
-}
-
 function stopDrag() {
     if (!isDragging.value) {
         return;
     }
 
     isDragging.value = false;
-    cleanupDragListeners();
+    dragWindowTarget.value = undefined;
     emitPositionUpdate();
 }
 
@@ -385,13 +377,11 @@ function startDrag(event: MouseEvent) {
     frameStartX.value = offsetX.value;
     frameStartY.value = offsetY.value;
 
-    cleanupDragListeners();
     isDragging.value = true;
     if (typeof window === 'undefined') {
         return;
     }
-    stopDragMoveListener = useEventListener(window, 'mousemove', handlePointerMove);
-    stopDragUpListener = useEventListener(window, 'mouseup', stopDrag);
+    dragWindowTarget.value = window;
 }
 
 function handleViewportResize() {
@@ -427,6 +417,8 @@ useEventListener(
     'resize',
     handleViewportResize,
 );
+useEventListener(dragWindowTarget, 'mousemove', handlePointerMove);
+useEventListener(dragWindowTarget, 'mouseup', stopDrag);
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];
