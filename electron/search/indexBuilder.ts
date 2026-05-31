@@ -11,6 +11,8 @@ import {
     resolve,
     sep,
 } from 'path';
+import { isOcrWord } from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
 import type { IOcrWord } from '@contracts/shared';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
@@ -94,10 +96,6 @@ interface IPageDataInput {
     pageHeight?: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
@@ -117,6 +115,12 @@ function isExpectedPageNumber(
 
 function finiteNumberOrUndefined(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : undefined;
+}
+
+function ocrWordsOrUndefined(value: unknown) {
+    return Array.isArray(value) && value.every(isOcrWord)
         ? value
         : undefined;
 }
@@ -211,8 +215,9 @@ function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
         pageNumber: isPositiveInteger(payload.pageNumber) ? payload.pageNumber : 0,
         text: typeof payload.text === 'string' ? payload.text : '',
     };
-    if (Array.isArray(payload.words)) {
-        page.words = payload.words as IOcrWord[];
+    const words = ocrWordsOrUndefined(payload.words);
+    if (words) {
+        page.words = words;
     }
     return page;
 }
@@ -335,8 +340,9 @@ function parseSearchIndexPage(page: unknown): IPageIndex | null {
         pageNumber: page.pageNumber,
         text: page.text,
     };
-    if (Array.isArray(page.words)) {
-        normalizedPage.words = page.words as IOcrWord[];
+    const words = ocrWordsOrUndefined(page.words);
+    if (words) {
+        normalizedPage.words = words;
     }
     const pageWidth = finiteNumberOrUndefined(page.pageWidth);
     if (pageWidth !== undefined) {

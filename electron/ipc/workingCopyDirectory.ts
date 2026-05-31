@@ -9,6 +9,7 @@ import {
     rm,
 } from 'fs/promises';
 import {join} from 'path';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 
 export function createWorkingDirectory() {
@@ -43,11 +44,13 @@ export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string
         await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE_FORCE);
         return;
     } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        const shouldFallback = err.code === 'ENOTSUP'
-            || err.code === 'ENOSYS'
-            || err.code === 'EINVAL'
-            || err.code === 'EXDEV';
+        const shouldFallback = isErrnoException(error)
+            && (
+                error.code === 'ENOTSUP'
+                || error.code === 'ENOSYS'
+                || error.code === 'EINVAL'
+                || error.code === 'EXDEV'
+            );
         if (!shouldFallback) {
             throw error;
         }

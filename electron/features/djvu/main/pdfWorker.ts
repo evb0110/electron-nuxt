@@ -8,11 +8,8 @@ import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
 } from '@electron/features/djvu/main/pdfWorkerProtocol';
+import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');

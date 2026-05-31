@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { cast } from '../../../../helpers/cast';
 
 import { toMarkerRectFromEditor } from '@app/composables/pdf/pdfAnnotationEditorUtils';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
@@ -35,10 +36,6 @@ interface IFakeDivOptions {
     boundingRect?: IFakeRect;
     pageContainer?: HTMLElement | null;
     editorLayerByClass?: Record<string, HTMLElement | null>;
-}
-
-function cast<T>(value: unknown): T {
-    return value as T;
 }
 
 function createDiv(options: IFakeDivOptions): HTMLElement {

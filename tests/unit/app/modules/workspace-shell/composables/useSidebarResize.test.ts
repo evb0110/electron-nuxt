@@ -10,15 +10,12 @@ import {
     ref,
 } from 'vue';
 import { SIDEBAR } from '@app/constants/pdfLayout';
+import { cast } from '../../../../../helpers/cast';
 
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
 
 describe('useSidebarResize', () => {
     beforeEach(() => {

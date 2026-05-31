@@ -8,10 +8,7 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
+import { cast } from '../../../../../helpers/cast';
 
 type TCapturedListener = (event: DragEvent) => void;
 

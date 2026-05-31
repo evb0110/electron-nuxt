@@ -7,10 +7,7 @@ import {
 } from 'vitest';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     ENABLE: 1,

@@ -9,6 +9,7 @@ import {
     dirname,
     join,
 } from 'path';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -23,8 +24,11 @@ async function fsyncPath(filePath: string) {
     try {
         await handle.sync();
     } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (process.platform === 'win32' && (err.code === 'EPERM' || err.code === 'EINVAL')) {
+        if (
+            process.platform === 'win32'
+            && isErrnoException(error)
+            && (error.code === 'EPERM' || error.code === 'EINVAL')
+        ) {
             logger.debug(`Skipping temp-file fsync for "${filePath}": ${getErrorMessage(error)}`);
             return;
         }
@@ -70,8 +74,8 @@ export async function atomicReplace(srcTemp: string, dst: string): Promise<void>
         await rename(dst, backupPath);
         hasBackup = true;
     } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+        const code = isErrnoException(error) ? error.code : undefined;
+        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
             throw error;
         }
     }

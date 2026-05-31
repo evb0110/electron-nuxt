@@ -61,10 +61,10 @@ function readAllKeysForDocument(
     });
 }
 
-export async function readBrowserOcrArtifactJson<T>(
+export async function readBrowserOcrArtifactJson(
     workingCopyPath: TDocumentRef,
     relativePath: string,
-): Promise<T | null> {
+): Promise<unknown | null> {
     const db = await openBrowserOcrArtifactDb();
     if (!db) {
         return null;
@@ -82,7 +82,7 @@ export async function readBrowserOcrArtifactJson<T>(
             return null;
         }
 
-        return JSON.parse(record.json) as T;
+        return JSON.parse(record.json);
     } finally {
         db.close();
     }

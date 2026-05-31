@@ -7,10 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatchScroller';
-
-function cast<T>(value: unknown) {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 function createContainerWithMountedPage(pageNumber: number): HTMLElement {
     const pageContainer = cast<HTMLElement>({dataset: {page: String(pageNumber)}});

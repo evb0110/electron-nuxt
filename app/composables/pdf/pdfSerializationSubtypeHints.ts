@@ -4,6 +4,7 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import { groupBy } from 'es-toolkit/array';
+import { isRecord } from '@contracts/runtimeGuards';
 
 export type TMarkupSubtypeHintSource = 'editor-live' | IAnnotationCommentSummary['source'];
 
@@ -43,10 +44,6 @@ function toMarkupSubtype(value: unknown): TMarkupSubtype | null {
         return 'Squiggly';
     }
     return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
 }
 
 function isValidMarkerRect(value: unknown): value is IAnnotationMarkerRect {

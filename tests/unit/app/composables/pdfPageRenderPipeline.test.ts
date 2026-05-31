@@ -7,10 +7,7 @@ import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 interface IPageStub {
     page: number;

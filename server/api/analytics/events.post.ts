@@ -12,6 +12,7 @@ import {
     type TAnalyticsScreenCategory,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
+import { isRecord } from '@contracts/runtimeGuards';
 import { getAnalyticsDb } from '../../db';
 import { viewerAnalyticsEvent } from '../../db/schema';
 import {
@@ -29,11 +30,6 @@ const MAX_ARRAY_ITEMS = 25;
 const MAX_NORMALIZE_DEPTH = 4;
 
 type TViewerAnalyticsInsert = typeof viewerAnalyticsEvent.$inferInsert;
-type TSanitizedPayloadEntry = [string, unknown];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isAnalyticsEventName(value: string): value is TAnalyticsEventName {
     return VALID_EVENT_NAMES.has(value);
@@ -55,25 +51,25 @@ function sanitizePayloadScalar(value: unknown) {
     });
 }
 
-function sanitizePayloadArray(value: unknown[], depth: number) {
+function sanitizePayloadArray(value: unknown[], depth: number): TAnalyticsPayloadValue[] {
     return value
         .slice(0, MAX_ARRAY_ITEMS)
         .map(item => sanitizePayloadValue(item, depth + 1));
 }
 
-function sanitizePayloadObject(value: Record<string, unknown>, depth: number) {
-    const normalizedEntries: TSanitizedPayloadEntry[] = [];
+function sanitizePayloadObject(
+    value: Record<string, unknown>,
+    depth: number,
+): Record<string, TAnalyticsPayloadValue> {
+    const normalizedPayload: Record<string, TAnalyticsPayloadValue> = {};
     for (const [
         key,
         entryValue,
     ] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-        normalizedEntries.push([
-            key.slice(0, 64),
-            sanitizePayloadValue(entryValue, depth + 1),
-        ]);
+        normalizedPayload[key.slice(0, 64)] = sanitizePayloadValue(entryValue, depth + 1);
     }
 
-    return Object.fromEntries(normalizedEntries);
+    return normalizedPayload;
 }
 
 function sanitizePayloadContainer(value: unknown, depth: number) {
@@ -92,7 +88,7 @@ function sanitizePayloadContainer(value: unknown, depth: number) {
     return sanitizePayloadObject(value, depth);
 }
 
-function sanitizePayloadValue(value: unknown, depth = 0): unknown {
+function sanitizePayloadValue(value: unknown, depth = 0): TAnalyticsPayloadValue {
     const scalar = sanitizePayloadScalar(value);
     return scalar === undefined
         ? sanitizePayloadContainer(value, depth)
@@ -100,8 +96,7 @@ function sanitizePayloadValue(value: unknown, depth = 0): unknown {
 }
 
 function sanitizePayload(value: unknown) {
-    const normalized = sanitizePayloadValue(value);
-    return (isRecord(normalized) ? normalized : {}) as Record<string, TAnalyticsPayloadValue>;
+    return isRecord(value) ? sanitizePayloadObject(value, 0) : {};
 }
 
 function parseOccurredAt(value: unknown) {
@@ -174,7 +169,7 @@ export default defineEventHandler(async (event) => {
 
     const parsedEvents = rawEvents
         .map(entry => parseEventEnvelope(entry))
-        .filter(entry => entry !== null);
+        .filter((entry): entry is IAnalyticsEventEnvelope => entry !== null);
     if (parsedEvents.length === 0) {
         return {
             ok: true,

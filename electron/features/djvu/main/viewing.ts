@@ -13,6 +13,7 @@ import { getDjvuPageCount } from '@electron/djvu/metadata';
 import { isAllowedDjvuTempPdfPath } from '@electron/djvu/tempPath';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const logger = createLogger('djvu-viewing');
@@ -66,8 +67,7 @@ async function safeDeleteDjvuTempPdf(tempPdfPath: string) {
     try {
         await unlink(normalizedPath);
     } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (err.code !== 'ENOENT') {
+        if (!isErrnoException(error) || error.code !== 'ENOENT') {
             logger.warn(`Failed to remove DjVu temp PDF "${normalizedPath}": ${String(error)}`);
         }
     }

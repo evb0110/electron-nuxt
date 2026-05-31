@@ -11,14 +11,11 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useFileOperations } from '@app/composables/useFileOperations';
+import { cast } from '../../helpers/cast';
 
 const toastAddMock = vi.fn();
 
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
 
 function createDeps() {
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({annotationStorage: {resetModified: vi.fn()}}));

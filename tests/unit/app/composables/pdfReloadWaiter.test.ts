@@ -13,10 +13,7 @@ import {
     createPdfReloadWaiter,
 } from '@app/composables/pdf/pdfReloadWaiter';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 describe('capturePdfReloadSnapshot', () => {
     it('prefers the captured anchor page over the fallback page', () => {

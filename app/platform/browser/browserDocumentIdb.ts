@@ -112,14 +112,6 @@ export async function loadRecord(ref: string) {
     );
 }
 
-export async function loadAllRecords() {
-    return withObjectStore<unknown[]>(
-        DOCUMENTS_STORE,
-        'readonly',
-        (store) => store.getAll() as IDBRequest<unknown[]>,
-    );
-}
-
 export async function loadAllRecordKeys() {
     return withObjectStore<IDBValidKey[]>(
         DOCUMENTS_STORE,

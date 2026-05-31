@@ -3,15 +3,12 @@ import {
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
+import { isRecord } from '@contracts/runtimeGuards';
 
 export {
     createAbortError,
     isAbortError,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');
@@ -80,7 +77,10 @@ function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorke
     };
 }
 
-function parseSuccessfulCompleteResult(result: Record<string, unknown>) {
+function parseSuccessfulCompleteResult(
+    result: Record<string, unknown>,
+    errors: string[],
+) {
     const normalizedPdfPath = typeof result.pdfPath === 'string'
         ? result.pdfPath.trim()
         : '';
@@ -92,25 +92,29 @@ function parseSuccessfulCompleteResult(result: Record<string, unknown>) {
         success: true as const,
         pdfPath: normalizedPdfPath,
         requiresCleanupAck: result.requiresCleanupAck,
-        errors: result.errors as string[],
+        errors,
     };
 }
 
-function parseFailedCompleteResult(result: Record<string, unknown>) {
+function parseFailedCompleteResult(errors: string[]) {
     return {
         success: false as const,
-        errors: result.errors as string[],
+        errors,
     };
 }
 
 function parseWorkerCompleteResult(result: unknown) {
-    if (!isRecord(result) || typeof result.success !== 'boolean' || !isStringArray(result.errors)) {
+    if (!isRecord(result) || typeof result.success !== 'boolean') {
+        return null;
+    }
+    const errors = result.errors;
+    if (!isStringArray(errors)) {
         return null;
     }
 
     return result.success
-        ? parseSuccessfulCompleteResult(result)
-        : parseFailedCompleteResult(result);
+        ? parseSuccessfulCompleteResult(result, errors)
+        : parseFailedCompleteResult(errors);
 }
 
 function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {

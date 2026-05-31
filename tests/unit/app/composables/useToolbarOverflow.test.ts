@@ -12,6 +12,7 @@ import {
     ref,
     watch,
 } from 'vue';
+import { cast } from '../../../helpers/cast';
 
 const resizeObserverCallbacks: Array<() => void> = [];
 
@@ -105,10 +106,6 @@ class FakeElement {
             width: this.clientWidth,
         };
     }
-}
-
-function cast<T>(value: unknown): T {
-    return value as T;
 }
 
 function stubGlobals() {

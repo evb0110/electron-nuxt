@@ -83,7 +83,7 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
 
     return value
         .map(normalizeOutlineItem)
-        .filter(item => item !== null);
+        .filter((item): item is IOutlineItemRaw => item !== null);
 }
 
 export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {

@@ -22,6 +22,7 @@ import type {
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { cast } from '../../../../helpers/cast';
 
 const annotationUiManagerInstances: FakeAnnotationEditorUIManager[] = [];
 
@@ -61,10 +62,6 @@ class FakeAnnotationEditorUIManager {
     constructor(..._args: unknown[]) {
         annotationUiManagerInstances.push(this);
     }
-}
-
-function cast<T>(value: unknown): T {
-    return value as T;
 }
 
 function asAnnotationEditorUIManager(uiManager: FakeAnnotationEditorUIManager) {

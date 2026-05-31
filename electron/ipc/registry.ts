@@ -8,7 +8,8 @@ import {
     sortBy,
 } from 'es-toolkit/array';
 import type { IIpcMainRegistrar } from '@contracts/ipcMain';
-import type { ISettingsData } from '@contracts/shared';
+import { isRecord } from '@contracts/runtimeGuards';
+import { sanitizeSettings } from '@contracts/settings';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type {
     IWindowTabTransferAck,
@@ -69,10 +70,6 @@ interface ICoreIpcHandlerOptions {
 
 const logger = createLogger('ipc');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function getTargetWindowIdFromTransferRequest(request: unknown) {
     if (!isRecord(request) || !isRecord(request.target)) {
@@ -300,9 +297,11 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         }
 
         await updateSettings((currentSettings) => {
-            const incoming = settingsPayload as Partial<ISettingsData>;
-            return {
+            const incoming = sanitizeSettings({
                 ...currentSettings,
+                ...settingsPayload,
+            });
+            return {
                 ...incoming,
                 // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
                 skippedUpdateVersion: currentSettings.skippedUpdateVersion,

@@ -15,10 +15,7 @@ import {
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../../../helpers/cast';
 
 function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWorkspaceToolbarSnapshot {
     return {

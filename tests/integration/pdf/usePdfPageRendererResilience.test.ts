@@ -11,10 +11,7 @@ import {
     shallowRef,
     type Ref,
 } from 'vue';
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
+import { cast } from '../../helpers/cast';
 
 const loggerError = vi.fn();
 

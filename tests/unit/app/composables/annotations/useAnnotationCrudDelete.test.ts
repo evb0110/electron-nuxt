@@ -21,6 +21,7 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
+import { cast } from '../../../../helpers/cast';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     DISABLE: -1,
@@ -48,10 +49,6 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warn: vi.fn(),
     error: vi.fn(),
 }}));
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
 
 interface IFakeEditor {
     id: string;

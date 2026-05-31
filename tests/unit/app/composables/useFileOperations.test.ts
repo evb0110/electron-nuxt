@@ -13,15 +13,12 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperations } from '@app/composables/useFileOperations';
+import { cast } from '../../../helpers/cast';
 
 const toastAddMock = vi.fn();
 
 vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
 
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;

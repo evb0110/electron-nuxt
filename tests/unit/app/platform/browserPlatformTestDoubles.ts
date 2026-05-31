@@ -1,6 +1,6 @@
-export function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
+
+export { cast };
 
 export class MemoryStorage {
     private readonly data = new Map<string, string>();

@@ -7,10 +7,7 @@ import {
 import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/composables/workspaceHostOpen';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TOpenFileResult } from '@contracts/platformApi';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../../../helpers/cast';
 
 function createOpenResult(): TOpenFileResult {
     return {

@@ -8,6 +8,7 @@ import {
     type TAnalyticsScreenCategory,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
+import { isRecord } from '@contracts/runtimeGuards';
 
 const ANALYTICS_SESSION_STORAGE_KEY = 'evb-viewer:analytics-session-id';
 const MAX_BATCH_SIZE = 20;
@@ -47,10 +48,6 @@ function isTruthyFlag(value: unknown) {
         || value === 1
         || value === '1'
         || value === 'true';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

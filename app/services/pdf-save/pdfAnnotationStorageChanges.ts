@@ -3,6 +3,7 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
+import { isRecord } from '@contracts/runtimeGuards';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 export interface IPdfLiveAnnotationChangeSummary {
@@ -16,10 +17,6 @@ export interface IPdfLiveAnnotationChangeSummary {
 const PDFJS_FREETEXT_ANNOTATION_EDITOR_TYPE = 3;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function getExistingPdfAnnotationIdFromStorageValue(value: unknown) {
     if (!isRecord(value)) {

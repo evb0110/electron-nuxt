@@ -6,10 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 const highlightPageMock = vi.fn(() => ({
     elements: [],

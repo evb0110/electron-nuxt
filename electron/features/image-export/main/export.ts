@@ -23,6 +23,7 @@ import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
@@ -163,8 +164,7 @@ async function moveFile(sourcePath: string, targetPath: string) {
     try {
         await rename(sourcePath, targetPath);
     } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (err.code !== 'EXDEV') {
+        if (!isErrnoException(error) || error.code !== 'EXDEV') {
             throw error;
         }
 

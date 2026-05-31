@@ -81,6 +81,7 @@ export function ensurePdfjsSsrGlobals() {
     const globalScope = globalThis as typeof globalThis & { DOMMatrix?: typeof DOMMatrix };
 
     if (typeof globalScope.DOMMatrix === 'undefined') {
+        // The SSR stub implements the DOMMatrix members pdfjs touches during server import.
         globalScope.DOMMatrix = DOMMatrixSsrStub as unknown as typeof DOMMatrix;
     }
 }

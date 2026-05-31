@@ -14,6 +14,7 @@ import {
 } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { cast } from '../../../../../helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
@@ -32,10 +33,6 @@ vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => 
     claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
     notifyRendererReady: mocks.notifyRendererReady,
 })}));
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
 
 function createOptions() {
     const workspace = {

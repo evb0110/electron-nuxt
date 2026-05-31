@@ -1,9 +1,9 @@
-import { sanitizeSettings } from '@contracts/settings';
-import type {
-    ISettingsData,
-    TAppLocale,
-    TAppTheme,
-} from '@contracts/shared';
+import {
+    normalizeLocale,
+    normalizeTheme,
+    sanitizeSettings,
+} from '@contracts/settings';
+import type { ISettingsData } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
@@ -31,11 +31,11 @@ export const useSettings = () => {
             || themeCookie.value != null,
     );
     const fallbackSettings: Partial<ISettingsData> = {};
-    if (localeCookie.value !== null && localeCookie.value !== undefined) {
-        fallbackSettings.locale = localeCookie.value as TAppLocale;
+    if (localeCookie.value != null) {
+        fallbackSettings.locale = normalizeLocale(localeCookie.value);
     }
-    if (themeCookie.value !== null && themeCookie.value !== undefined) {
-        fallbackSettings.theme = themeCookie.value as TAppTheme;
+    if (themeCookie.value != null) {
+        fallbackSettings.theme = normalizeTheme(themeCookie.value);
     }
     const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, fallbackSettings);
 

@@ -7,6 +7,7 @@ import type {
     IWorkspaceUiPort,
     IWorkspaceViewPort,
 } from '@app/types/workspaceExpose';
+import { isRecord } from '@contracts/runtimeGuards';
 
 const FILE_PORT_METHODS = [
     'handleSave',
@@ -76,10 +77,6 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
     ...SPLIT_TRANSFER_METHODS,
     ...UI_METHODS,
 ] as const satisfies readonly TWorkspaceExposeMethod[];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function isHasPdfField(value: unknown): value is IWorkspaceExpose['hasPdf'] {
     if (typeof value === 'boolean') {

@@ -1,3 +1,5 @@
+import { isRecord } from '@contracts/runtimeGuards';
+
 interface IReloadEvent {
     timestamp: number;
     reason: string;
@@ -33,10 +35,6 @@ type TDevRecoveryLogger = (
 ) => void;
 
 interface IInstallDevRecoveryOptions { log?: TDevRecoveryLogger; }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function isReloadEvent(value: unknown): value is IReloadEvent {
     return isRecord(value)

@@ -21,10 +21,7 @@ import {
     type TWheelDirection,
 } from '@app/composables/pdf/usePdfSinglePageScroll';
 import type { TPdfViewMode } from '@contracts/shared';
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
+import { cast } from '../../../helpers/cast';
 
 interface ITestPageGeometry {
     offsetTop: number;

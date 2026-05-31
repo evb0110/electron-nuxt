@@ -13,6 +13,7 @@ import {
 import { fileURLToPath } from 'url';
 import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
+import { isRecord } from '@contracts/runtimeGuards';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
 import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
@@ -39,10 +40,6 @@ const SEARCH_PAGE_COUNT_MAX = (() => {
     }
     return Math.min(parsed, 1_000_000);
 })();
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
 function parseOptionalPageCount(raw: unknown) {
     if (raw === undefined) {
         return undefined;
