@@ -45,8 +45,16 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
             return false;
         }
 
+        const capturedWorkingCopy = deps.workingCopyPath.value;
+        const isCapturedWorkingCopyActive = () => (
+            deps.workingCopyPath.value === capturedWorkingCopy
+            && Boolean(deps.pdfViewerRef.value)
+        );
         const rawData = await deps.pdfViewerRef.value.saveDocument();
         if (!rawData) {
+            return false;
+        }
+        if (!isCapturedWorkingCopyActive()) {
             return false;
         }
 
@@ -54,9 +62,16 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
         const restorePromise = deps.waitForPdfReload(pageToRestore);
         await deps.loadPdfFromData(rawData, {
             pushHistory: true,
-            persistWorkingCopy: !!deps.workingCopyPath.value,
+            persistWorkingCopy: !!capturedWorkingCopy,
         });
+        if (!isCapturedWorkingCopyActive()) {
+            void restorePromise.catch(() => {});
+            return false;
+        }
         await restorePromise;
+        if (!isCapturedWorkingCopyActive()) {
+            return false;
+        }
         return true;
     };
 }

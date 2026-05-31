@@ -28,6 +28,7 @@ const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
 const PRINT_LOAD_SETTLE_DELAY_MS = 2_000;
 const PRINT_JOB_RESOURCE_RETENTION_MS = 30_000;
+const PRINT_DIALOG_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_DIALOG_TIMEOUT_MS', 5 * 60 * 1000, 5_000);
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
@@ -293,35 +294,82 @@ async function runNativePrintDialog(
     printOptions: WebContentsPrintOptions = {},
 ): Promise<IPrintPdfResult> {
     return new Promise((resolve) => {
-        printWindow.webContents.print(
-            {
-                silent: false,
-                printBackground: true,
-                margins: { marginType: 'printableArea' },
-                ...printOptions,
-            },
-            (success, failureReason) => {
-                if (success) {
-                    resolve({ success: true });
-                    return;
-                }
+        let settled = false;
+        const timeout = setTimeout(() => {
+            finish({
+                success: false,
+                error: `Print dialog timed out after ${PRINT_DIALOG_TIMEOUT_MS}ms`,
+            });
+        }, PRINT_DIALOG_TIMEOUT_MS);
+        timeout.unref?.();
 
-                const normalizedReason = (failureReason ?? '').trim();
-                if (normalizedReason.toLowerCase().includes('cancel')) {
-                    resolve({
+        const handleClosed = () => {
+            finish({
+                success: false,
+                error: 'Print window closed before the native dialog completed',
+            });
+        };
+        const handleRendererGone = () => {
+            finish({
+                success: false,
+                error: 'Print renderer exited before the native dialog completed',
+            });
+        };
+        const cleanup = () => {
+            clearTimeout(timeout);
+            printWindow.removeListener('closed', handleClosed);
+            printWindow.webContents.removeListener('render-process-gone', handleRendererGone);
+            printWindow.webContents.removeListener('destroyed', handleClosed);
+        };
+        function finish(result: IPrintPdfResult) {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve(result);
+        }
+
+        printWindow.once('closed', handleClosed);
+        printWindow.webContents.once('render-process-gone', handleRendererGone);
+        printWindow.webContents.once('destroyed', handleClosed);
+
+        try {
+            printWindow.webContents.print(
+                {
+                    silent: false,
+                    printBackground: true,
+                    margins: { marginType: 'printableArea' },
+                    ...printOptions,
+                },
+                (success, failureReason) => {
+                    if (success) {
+                        finish({ success: true });
+                        return;
+                    }
+
+                    const normalizedReason = (failureReason ?? '').trim();
+                    if (normalizedReason.toLowerCase().includes('cancel')) {
+                        finish({
+                            success: false,
+                            canceled: true,
+                            ...(normalizedReason ? { error: normalizedReason } : {}),
+                        });
+                        return;
+                    }
+
+                    finish({
                         success: false,
-                        canceled: true,
-                        ...(normalizedReason ? { error: normalizedReason } : {}),
+                        error: normalizedReason || 'Print failed',
                     });
-                    return;
-                }
-
-                resolve({
-                    success: false,
-                    error: normalizedReason || 'Print failed',
-                });
-            },
-        );
+                },
+            );
+        } catch (error) {
+            finish({
+                success: false,
+                error: getErrorMessage(error),
+            });
+        }
     });
 }
 

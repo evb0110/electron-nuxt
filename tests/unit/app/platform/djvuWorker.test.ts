@@ -87,4 +87,25 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.terminate).toHaveBeenCalledTimes(1);
         expect(mocks.unload).toHaveBeenCalledWith(ref);
     });
+
+    it('aborts browser DjVu reads before creating the worker document', async () => {
+        const { createDjvuWorkerFromPath } =
+            await import('@app/platform/browser-api/djvuWorker');
+        const ref = 'browser://documents/source/large.djvu';
+        const controller = new AbortController();
+        mocks.stat.mockResolvedValue({size: (4 * 1024 * 1024) + 1});
+        mocks.readRange.mockImplementation(async () => {
+            controller.abort();
+            return new Uint8Array([1]);
+        });
+
+        await expect(createDjvuWorkerFromPath(ref, { signal: controller.signal }))
+            .rejects
+            .toThrow('DjVu conversion canceled');
+
+        expect(mocks.readRange).toHaveBeenCalledTimes(1);
+        expect(mocks.createDocument).not.toHaveBeenCalled();
+        expect(mocks.terminate).toHaveBeenCalled();
+        expect(mocks.unload).toHaveBeenCalledWith(ref);
+    });
 });

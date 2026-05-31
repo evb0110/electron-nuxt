@@ -311,6 +311,14 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 pushHistory: true,
                 persistWorkingCopy: true,
             });
+            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+                BrowserLogger.debug('ocr', 'Skipped stale OCR reload wait after document switch', {
+                    sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                    currentWorkingCopyPath: workingCopyPath.value,
+                });
+                void restorePromise;
+                return;
+            }
 
         } catch (error) {
             void restorePromise;
@@ -318,6 +326,13 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         }
 
         await restorePromise;
+        if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+            BrowserLogger.debug('ocr', 'Skipped stale OCR completion after document switch', {
+                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                currentWorkingCopyPath: workingCopyPath.value,
+            });
+            return;
+        }
         if (restoreError) {
             throw restoreError instanceof Error
                 ? restoreError

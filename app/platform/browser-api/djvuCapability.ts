@@ -46,7 +46,7 @@ class DjvuCanceledError extends Error {
 }
 
 interface IDjvuJobRecord {
-    worker: IDjvuWorker;
+    worker: IDjvuWorker | null;
     abortController: AbortController;
 }
 
@@ -71,13 +71,26 @@ function emitProgress(progress: IDjvuProgress) {
     });
 }
 
-function createDjvuJob(jobId: string, worker: IDjvuWorker) {
+function createDjvuJob(jobId: string, worker: IDjvuWorker | null = null) {
     const abortController = new AbortController();
     activeJobs.set(jobId, {
         worker,
         abortController,
     });
     return abortController;
+}
+
+function attachDjvuJobWorker(jobId: string, worker: IDjvuWorker) {
+    const job = activeJobs.get(jobId);
+    if (!job) {
+        worker.terminate();
+        throw new DjvuCanceledError();
+    }
+    if (job.abortController.signal.aborted) {
+        worker.terminate();
+        throw new DjvuCanceledError();
+    }
+    job.worker = worker;
 }
 
 function cleanupDjvuJob(jobId: string) {
@@ -87,13 +100,15 @@ function cleanupDjvuJob(jobId: string) {
     }
 
     activeJobs.delete(jobId);
-    try {
-        job.worker.terminate();
-    } catch (error) {
-        BrowserLogger.warn('djvu-browser', 'Failed to terminate DjVu worker', {
-            jobId,
-            error,
-        });
+    if (job.worker) {
+        try {
+            job.worker.terminate();
+        } catch (error) {
+            BrowserLogger.warn('djvu-browser', 'Failed to terminate DjVu worker', {
+                jobId,
+                error,
+            });
+        }
     }
 }
 
@@ -216,6 +231,7 @@ async function renderDjvuPageFromImageData(
 ): Promise<IRenderedDjvuPage> {
     throwIfCanceled(signal);
     const imageData = await worker.doc.getPage(pageNumber).getImageData().run();
+    throwIfCanceled(signal);
     const targetWidth = Math.max(1, Math.round(imageData.width / Math.max(1, subsample)));
     const targetHeight = Math.max(1, Math.round(imageData.height / Math.max(1, subsample)));
     const sourceCanvas = createCanvas(imageData.width, imageData.height);
@@ -248,12 +264,15 @@ async function renderDjvuPageFromImageData(
             );
         }
 
+        const bytes = await canvasToImageBytes(
+            targetCanvas,
+            'image/jpeg',
+            DJVU_BROWSER_PDF_JPEG_QUALITY,
+        );
+        throwIfCanceled(signal);
+
         return {
-            bytes: await canvasToImageBytes(
-                targetCanvas,
-                'image/jpeg',
-                DJVU_BROWSER_PDF_JPEG_QUALITY,
-            ),
+            bytes,
             width: targetWidth,
             height: targetHeight,
             dpi: Math.max(1, Math.round(pageDpi / subsample)),
@@ -275,6 +294,7 @@ async function renderDjvuPageFromPngObject(
 ): Promise<IRenderedDjvuPage> {
     throwIfCanceled(signal);
     const pngObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+    throwIfCanceled(signal);
     const targetWidth = Math.max(1, Math.round(pngObject.width / Math.max(1, subsample)));
     const targetHeight = Math.max(1, Math.round(pngObject.height / Math.max(1, subsample)));
     const canvas = createCanvas(targetWidth, targetHeight);
@@ -285,7 +305,10 @@ async function renderDjvuPageFromPngObject(
             throw new Error('Canvas 2D context is unavailable');
         }
 
-        const bitmap = await loadBitmapFromBytes(await fetchObjectUrlBytes(pngObject.url));
+        const pngBytes = await fetchObjectUrlBytes(pngObject.url);
+        throwIfCanceled(signal);
+        const bitmap = await loadBitmapFromBytes(pngBytes);
+        throwIfCanceled(signal);
         try {
             context.fillStyle = '#ffffff';
             context.fillRect(0, 0, targetWidth, targetHeight);
@@ -296,12 +319,15 @@ async function renderDjvuPageFromPngObject(
             }
         }
 
+        const bytes = await canvasToImageBytes(
+            canvas,
+            'image/jpeg',
+            DJVU_BROWSER_PDF_JPEG_QUALITY,
+        );
+        throwIfCanceled(signal);
+
         return {
-            bytes: await canvasToImageBytes(
-                canvas,
-                'image/jpeg',
-                DJVU_BROWSER_PDF_JPEG_QUALITY,
-            ),
+            bytes,
             width: targetWidth,
             height: targetHeight,
             dpi: Math.max(1, Math.round(pageDpi / subsample)),
@@ -735,11 +761,19 @@ export const browserDjvuCapability: IDjvuCapability = {
         }
 
         const jobId = `djvu-convert-${crypto.randomUUID()}`;
-        const worker = await createDjvuWorkerFromPath(djvuPath);
-        const abortController = createDjvuJob(jobId, worker);
+        const abortController = createDjvuJob(jobId);
 
         try {
+            emitProgress({
+                jobId,
+                phase: 'loading',
+                percent: 0,
+            });
+            const worker = await createDjvuWorkerFromPath(djvuPath, { signal: abortController.signal });
+            attachDjvuJobWorker(jobId, worker);
+            throwIfCanceled(abortController.signal);
             const pageSizes = await worker.doc.getPagesSizes().run();
+            throwIfCanceled(abortController.signal);
             const pageCount = pageSizes.length;
 
             if (pageCount <= 0) {

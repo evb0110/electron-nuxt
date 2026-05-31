@@ -14,6 +14,7 @@ export interface IBrowserPersistedDocumentRecord {
     data: Uint8Array;
     fileSize: number;
     updatedAt: number;
+    contentToken?: string;
     saveName?: string;
     saveKind?: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
@@ -33,6 +34,10 @@ export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
     chunkCount: number;
     chunkSize: number;
     chunkGeneration?: string;
+    pendingChunkGeneration?: string;
+    pendingChunkCount?: number;
+    pendingChunkSize?: number;
+    pendingFileSize?: number;
 }
 
 export interface IRegisterFileOptions {
@@ -81,6 +86,7 @@ export interface IBrowserDocumentEntryInput {
     sourceRef?: string;
     data: Uint8Array;
     fileSize: number;
+    contentToken?: string;
     saveKind: IBrowserDocumentEntry['saveKind'];
     saveHandle: FileSystemFileHandle | null;
     storageMode: TBrowserDocumentStorageMode;

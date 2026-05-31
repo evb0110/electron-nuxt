@@ -1173,13 +1173,17 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
         imageFinalizeInFlight = true;
         try {
+            const capturedWorkingCopy = captureActiveWorkingCopy();
             const rawData = await getEmbeddedMutationBaseData();
             if (!rawData) {
                 pdfViewerRef.value.restorePendingImagePlacement?.();
                 return false;
             }
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                pdfViewerRef.value?.clearPendingImagePlacement?.();
+                return false;
+            }
 
-            const capturedWorkingCopy = captureActiveWorkingCopy();
             const embeddedData = await embedPlacedImageToPage(rawData, placement);
             if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
                 pdfViewerRef.value?.clearPendingImagePlacement?.();
@@ -1191,7 +1195,16 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 pushHistory: true,
                 persistWorkingCopy: !!capturedWorkingCopy,
             });
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                void restorePromise.catch(() => {});
+                pdfViewerRef.value?.clearPendingImagePlacement?.();
+                return false;
+            }
             await restorePromise;
+            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+                pdfViewerRef.value?.clearPendingImagePlacement?.();
+                return false;
+            }
             pdfViewerRef.value?.clearPendingImagePlacement?.();
             return true;
         } catch (error) {
@@ -1323,8 +1336,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return false;
         }
 
+        const capturedWorkingCopy = captureActiveWorkingCopy();
         const rawData = await pdfViewerRef.value.saveDocument();
         if (!rawData) {
+            return false;
+        }
+        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
             return false;
         }
 
@@ -1332,9 +1349,16 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const restorePromise = waitForPdfReload(pageToRestore);
         await loadPdfFromData(rawData, {
             pushHistory: true,
-            persistWorkingCopy: !!workingCopyPath.value,
+            persistWorkingCopy: !!capturedWorkingCopy,
         });
+        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+            void restorePromise.catch(() => {});
+            return false;
+        }
         await restorePromise;
+        if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
+            return false;
+        }
         return true;
     }
 

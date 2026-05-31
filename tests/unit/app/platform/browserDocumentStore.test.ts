@@ -301,7 +301,7 @@ describe('BrowserDocumentStore', () => {
             {
                 mimeType: 'application/pdf',
                 kind: 'output',
-                retention: 'transient',
+                retention: 'durable',
                 saveKind: 'pdf',
             },
         );
@@ -574,7 +574,7 @@ describe('BrowserDocumentStore', () => {
             {
                 mimeType: 'application/pdf',
                 kind: 'output',
-                retention: 'transient',
+                retention: 'durable',
                 saveKind: 'pdf',
             },
         );
@@ -938,6 +938,96 @@ describe('BrowserDocumentStore', () => {
         await expect(store.readRange(ref, secondBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([4]));
     });
 
+    it('keeps the previous chunk generation readable when a large rewrite is interrupted', async () => {
+        const store = new BrowserDocumentStore();
+        const firstBytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        firstBytes[0] = 1;
+        firstBytes[firstBytes.byteLength - 1] = 2;
+        const ref = await store.createStoredDocument('interrupted-rewrite.pdf', firstBytes, {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+        });
+        const secondBytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        secondBytes[0] = 8;
+        secondBytes[secondBytes.byteLength - 1] = 9;
+
+        vi.stubGlobal('indexedDB', undefined);
+        await expect(store.write(ref, secondBytes)).rejects.toThrow('IndexedDB document chunk write did not commit');
+        vi.stubGlobal('indexedDB', indexedDbFactory);
+
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([1]));
+        await expect(store.readRange(ref, firstBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([2]));
+
+        store.unload(ref);
+
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([1]));
+        await expect(store.readRange(ref, firstBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([2]));
+    });
+
+    it('does not publish manually written chunks until finalize succeeds', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'manual-output.pdf',
+            new Uint8Array([
+                9,
+                9,
+                9,
+                9,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'durable',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
+            9,
+            9,
+            9,
+            9,
+        ]));
+        await store.touchRecentFile(ref);
+
+        const rehydratedStore = new BrowserDocumentStore();
+        await expect(rehydratedStore.read(ref)).resolves.toEqual(new Uint8Array([
+            9,
+            9,
+            9,
+            9,
+        ]));
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        await store.finalizeChunkedDocument(ref, {
+            fileSize: 4,
+            chunkCount: 1,
+            chunkSize: 4,
+        });
+
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+    });
+
     it('rejects full reads for browser documents above the in-memory safety limit', async () => {
         const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         bytes[0] = 5;
@@ -1057,8 +1147,7 @@ describe('BrowserDocumentStore', () => {
         const ref = store.getRefForFile(file);
 
         await vi.waitFor(() => {
-            const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
-            expect(database?.getStoreRecords('documents').has(ref)).toBe(true);
+            expect(file.slice).toHaveBeenCalled();
         });
 
         await store.createStoredDocument('maintenance-trigger.pdf', new Uint8Array([1]), {

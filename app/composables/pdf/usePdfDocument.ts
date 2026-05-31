@@ -16,6 +16,7 @@ import {
     getPdfjsAssetDir,
     getPdfjsWorkerUrl,
 } from '@app/utils/viewerAssets';
+import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getPdfjsWorkerUrl();
 
@@ -643,10 +644,31 @@ export const usePdfDocument = () => {
     }
 
     async function saveDocument(): Promise<Uint8Array | null> {
-        if (!pdfDocument.value) {
+        const document = pdfDocument.value;
+        const version = renderVersion;
+        if (!document || !isPdfDocumentUsable(document)) {
             return null;
         }
-        return pdfDocument.value.saveDocument();
+        try {
+            const savedBytes = await document.saveDocument();
+            if (
+                document !== pdfDocument.value
+                || version !== renderVersion
+                || !isPdfDocumentUsable(document)
+            ) {
+                return null;
+            }
+            return savedBytes;
+        } catch (error) {
+            if (
+                document !== pdfDocument.value
+                || version !== renderVersion
+                || !isPdfDocumentUsable(document)
+            ) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     function cleanup() {

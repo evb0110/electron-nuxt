@@ -118,9 +118,15 @@ export const usePageOperations = (deps: {
 
             if (options.shouldReload) {
                 invalidateCaches(path);
-                await reloadWorkingCopyIntoHistory({ markDirty: true });
+                const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
+                if (!didReload || workingCopyPath.value !== path) {
+                    return false;
+                }
             }
 
+            if (workingCopyPath.value !== path) {
+                return false;
+            }
             await options.onSuccess?.(result);
 
             return true;

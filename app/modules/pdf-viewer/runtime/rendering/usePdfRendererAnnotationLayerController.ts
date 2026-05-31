@@ -74,6 +74,7 @@ export function usePdfRendererAnnotationLayerController(options: IUsePdfRenderer
                         viewport,
                         pageNumber,
                         annotationCanvasMap,
+                        { shouldContinue },
                     );
             } catch (annotationError) {
                 logNonCriticalStageError(
@@ -113,6 +114,7 @@ export function usePdfRendererAnnotationLayerController(options: IUsePdfRenderer
                     viewport,
                     pageNumber,
                     annotationLayerInstance,
+                    { shouldContinue },
                 );
             } catch (annotationEditorError) {
                 logNonCriticalStageError(
@@ -140,6 +142,13 @@ export function usePdfRendererAnnotationLayerController(options: IUsePdfRenderer
                 'annotation color sync',
                 error,
             );
+        }
+        if (getRenderVersion() !== version || !shouldContinue()) {
+            cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            return {
+                shouldContinue: false,
+                annotationLayerInstance: null,
+            };
         }
 
         return {

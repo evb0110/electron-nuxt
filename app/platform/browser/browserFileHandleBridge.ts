@@ -34,18 +34,23 @@ export async function readFileHandleBytes(
         const end = Math.max(start, start + Math.max(0, length));
         return {
             size: file.size,
+            lastModified: file.lastModified,
             bytes: new Uint8Array(await file.slice(start, end).arrayBuffer()),
         };
     }
 
     return {
         size: file.size,
+        lastModified: file.lastModified,
         bytes: new Uint8Array(await file.arrayBuffer()),
     };
 }
 
-export async function readFileHandleSize(handle: FileSystemFileHandle) {
+export async function readFileHandleMetadata(handle: FileSystemFileHandle) {
     await ensureFileHandleReadPermission(handle);
     const file = await handle.getFile();
-    return file.size;
+    return {
+        size: file.size,
+        lastModified: file.lastModified,
+    };
 }

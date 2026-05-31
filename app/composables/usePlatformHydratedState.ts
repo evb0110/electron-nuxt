@@ -13,7 +13,6 @@ interface IUsePlatformHydratedStateOptions<T> {
 }
 
 const loadPromises = new Map<string, Promise<unknown>>();
-const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export const usePlatformHydratedState = <T>(
     options: IUsePlatformHydratedStateOptions<T>,
@@ -23,35 +22,34 @@ export const usePlatformHydratedState = <T>(
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
     const error = useState<string | null>(`${options.key}:error`, () => null);
     let isDisposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     function clearRetryTimer() {
-        const existingTimer = retryTimers.get(options.key);
-        if (!existingTimer) {
+        if (!retryTimer) {
             return;
         }
 
-        clearTimeout(existingTimer);
-        retryTimers.delete(options.key);
+        clearTimeout(retryTimer);
+        retryTimer = null;
     }
 
     function scheduleRetry() {
         if (
             isDisposed
-            || retryTimers.has(options.key)
+            || retryTimer
             || typeof options.retryDelayMs !== 'number'
             || options.retryDelayMs <= 0
         ) {
             return;
         }
 
-        const timer = setTimeout(() => {
-            retryTimers.delete(options.key);
+        retryTimer = setTimeout(() => {
+            retryTimer = null;
             if (isDisposed) {
                 return;
             }
             void load();
         }, options.retryDelayMs);
-        retryTimers.set(options.key, timer);
     }
 
     async function load() {

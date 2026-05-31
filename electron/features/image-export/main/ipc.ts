@@ -79,6 +79,43 @@ function buildMultiPageTiffSuggestedName(pageNumbers: number[] | undefined): str
     return 'document-pages.tiff';
 }
 
+function createRendererLifecycleAbortController(sender: Electron.WebContents) {
+    const abortController = new AbortController();
+    const abort = () => {
+        abortController.abort(new Error('Renderer lifecycle ended'));
+    };
+    const cleanup = () => {
+        sender.removeListener('destroyed', abort);
+        sender.removeListener('render-process-gone', abort);
+    };
+
+    if (sender.isDestroyed()) {
+        abort();
+        return {
+            signal: abortController.signal,
+            cleanup: () => {},
+        };
+    }
+
+    sender.once('destroyed', abort);
+    sender.once('render-process-gone', abort);
+
+    return {
+        signal: abortController.signal,
+        cleanup,
+    };
+}
+
+function isExportAborted(error: unknown) {
+    return error instanceof Error
+        && (
+            error.name === 'AbortError'
+            || error.message === 'The operation was aborted'
+            || error.message === 'This operation was aborted'
+            || error.message === 'Renderer lifecycle ended'
+        );
+}
+
 async function showExportImageDialog(parentWindow: BrowserWindow | null, defaultName: string) {
     const dialogOptions = {
         title: te('dialogs.exportImages'),
@@ -140,22 +177,44 @@ export async function handlePdfExportImages(
     const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
+    const lifecycle = createRendererLifecycleAbortController(event.sender);
 
-    const result = await showExportImageDialog(parentWindow, buildImageSuggestedName(normalizedPageNumbers));
-    if (result.canceled || !result.filePath) {
+    try {
+        const result = await showExportImageDialog(parentWindow, buildImageSuggestedName(normalizedPageNumbers));
+        if (result.canceled || !result.filePath || lifecycle.signal.aborted) {
+            return {
+                success: false,
+                canceled: true,
+            };
+        }
+
+        const { normalizedPath } = normalizeImageExportPath(result.filePath, 'png');
+        const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
+            ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
+            signal: lifecycle.signal,
+        });
+        if (lifecycle.signal.aborted) {
+            return {
+                success: false,
+                canceled: true,
+            };
+        }
+
         return {
-            success: false,
-            canceled: true,
+            success: true,
+            outputPaths,
         };
+    } catch (error) {
+        if (isExportAborted(error)) {
+            return {
+                success: false,
+                canceled: true,
+            };
+        }
+        throw error;
+    } finally {
+        lifecycle.cleanup();
     }
-
-    const { normalizedPath } = normalizeImageExportPath(result.filePath, 'png');
-    const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
-
-    return {
-        success: true,
-        outputPaths,
-    };
 }
 
 export async function handlePdfExportMultiPageTiff(
@@ -170,19 +229,41 @@ export async function handlePdfExportMultiPageTiff(
     const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
+    const lifecycle = createRendererLifecycleAbortController(event.sender);
 
-    const result = await showMultiPageTiffDialog(parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
-    if (result.canceled || !result.filePath) {
+    try {
+        const result = await showMultiPageTiffDialog(parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
+        if (result.canceled || !result.filePath || lifecycle.signal.aborted) {
+            return {
+                success: false,
+                canceled: true,
+            };
+        }
+
+        const outputPath = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
+            ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
+            signal: lifecycle.signal,
+        });
+        if (lifecycle.signal.aborted) {
+            return {
+                success: false,
+                canceled: true,
+            };
+        }
+
         return {
-            success: false,
-            canceled: true,
+            success: true,
+            outputPath,
         };
+    } catch (error) {
+        if (isExportAborted(error)) {
+            return {
+                success: false,
+                canceled: true,
+            };
+        }
+        throw error;
+    } finally {
+        lifecycle.cleanup();
     }
-
-    const outputPath = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {})});
-
-    return {
-        success: true,
-        outputPath,
-    };
 }

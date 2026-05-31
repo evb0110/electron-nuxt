@@ -1048,6 +1048,30 @@ describe('usePdfFile', () => {
             expect(file.lastSaveMode.value).toBe('rewrite');
         });
 
+        it('does not write serialized bytes when the expected working copy is no longer active', async () => {
+            const pdfBytes = new Uint8Array([1]);
+            const savedBytes = new Uint8Array([9]);
+
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+
+            const file = usePdfFile();
+            await file.loadPdfFromPath('/tmp/active.pdf');
+
+            const result = await file.saveFile(savedBytes, { expectedWorkingPath: '/tmp/stale.pdf' });
+
+            expect(result).toEqual({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            });
+            expect(mockDocuments.writeFile).not.toHaveBeenCalledWith('/tmp/active.pdf', expect.any(Uint8Array));
+            expect(file.workingCopyPath.value).toBe('/tmp/active.pdf');
+            expect(file.pdfData.value).toEqual(pdfBytes);
+        });
+
         it('does not apply Save As completion state after another document opens', async () => {
             const firstBytes = new Uint8Array([1]);
             const secondBytes = new Uint8Array([2]);

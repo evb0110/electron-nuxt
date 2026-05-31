@@ -7,6 +7,7 @@ import AppShellRoot from '@app/modules/workspace-shell/components/AppShellRoot.v
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
+const isDesktopRuntime = useState('runtime:is-desktop', () => false);
 
 definePageMeta({ preloadWorkspaceShell: false });
 useServerSeoMeta({ robots: 'noindex, nofollow' });
@@ -16,6 +17,7 @@ onMounted(async () => {
     const hasDesktopBridge = await waitForDesktopPlatformBridge({ shouldWait: true });
 
     if (!hasDesktopBridge) {
+        isDesktopRuntime.value = false;
         await navigateTo('/', { replace: true });
     }
 });

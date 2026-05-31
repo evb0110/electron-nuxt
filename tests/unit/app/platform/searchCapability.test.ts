@@ -163,6 +163,7 @@ class FakeIndexedDbFactory {
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
+    getContentSignature: vi.fn(),
     readRange: vi.fn(),
 }));
 const browserSearchWorkerClientMock = vi.hoisted(() => ({
@@ -208,6 +209,8 @@ describe('createBrowserSearchCapability', () => {
         vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         yieldToBrowserMock.mockClear();
         browserDocumentStoreMock.stat.mockReset();
+        browserDocumentStoreMock.getContentSignature.mockReset();
+        browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-1');
         browserDocumentStoreMock.readRange.mockReset();
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReset();
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(false);
@@ -257,6 +260,54 @@ describe('createBrowserSearchCapability', () => {
         expect(getPage).toHaveBeenCalledTimes(30);
         expect(destroy).toHaveBeenCalledTimes(1);
         expect(cleanup).toHaveBeenCalledTimes(30);
+    });
+
+    it('invalidates browser page text caches when same-size document content changes', async () => {
+        const firstDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
+                cleanup: vi.fn(async () => {}),
+            })),
+            destroy: vi.fn(async () => {}),
+        };
+        const secondDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
+                cleanup: vi.fn(async () => {}),
+            })),
+            destroy: vi.fn(async () => {}),
+        };
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserDocumentStoreMock.getContentSignature
+            .mockResolvedValueOnce('content-token-1')
+            .mockResolvedValueOnce('content-token-2');
+        pdfjsModule.getDocument
+            .mockReturnValueOnce({promise: Promise.resolve(firstDocument)})
+            .mockReturnValueOnce({promise: Promise.resolve(secondDocument)});
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.run('/tmp/test.pdf', 'foo')).resolves.toEqual({
+            results: [expect.objectContaining({ pageNumber: 1 })],
+            truncated: false,
+        });
+        await expect(capability.run('/tmp/test.pdf', 'bar')).resolves.toEqual({
+            results: [expect.objectContaining({ pageNumber: 1 })],
+            truncated: false,
+        });
+
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
+        expect(firstDocument.getPage).toHaveBeenCalledTimes(1);
+        expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
     });
 
     it('clears persisted browser page text indexes on resetCache', async () => {
