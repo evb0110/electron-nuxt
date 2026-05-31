@@ -4,6 +4,7 @@ export type {
 } from './i18n';
 
 export type {
+    IIpcInvokeSpec,
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
 } from './ipcMain';

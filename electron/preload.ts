@@ -4,10 +4,19 @@ import {
     ipcRenderer,
     webUtils,
 } from 'electron';
+import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/devRecovery';
 import { createElectronApi } from '@electron/preload/createElectronApi';
 import { pushDebugLogMessage } from '@electron/preload/debugLogBuffer';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_CHANNELS,
+    type IDocumentsInvokeMap,
+} from '@electron/features/documents/contract';
+import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
+import {
+    CORE_IPC_EVENT_CHANNELS,
+    CORE_IPC_SEND_CHANNELS,
+} from '@electron/ipc/coreContract';
 
 const PRELOAD_INSTALL_FLAG = '__preloadInstalled';
 const PRELOAD_DEBUG_LOG_LISTENER_FLAG = '__preloadDebugLogListenerInstalled';
@@ -60,7 +69,7 @@ function forwardPreloadLogToMain(
     data?: Record<string, unknown>,
 ) {
     try {
-        ipcRenderer.send('renderer:log', {
+        ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, {
             level,
             section,
             message,
@@ -433,11 +442,7 @@ tracePreload('preload installation started');
 
 if (preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] !== true) {
     preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] = true;
-    ipcRenderer.on('debug:log', (_event: IpcRendererEvent, data: {
-        source: string;
-        message: string;
-        timestamp: string;
-    }) => {
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.debugLog, (_event: IpcRendererEvent, data: IDebugLogEntry) => {
         pushDebugLogMessage(data);
         console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
     });
@@ -485,13 +490,14 @@ contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 
 if (isRendererAutomationFileOpenHelperEnabled()) {
+    const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
     contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
         const path = typeof filePath === 'string' ? filePath : '';
         const automationFileOpenToken = globalThis.crypto.randomUUID();
-        return ipcRenderer.invoke(
+        return invokeDocuments(
             DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
             automationFileOpenToken,
-        ).then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+        ).then(() => invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
             filePath: path,
             token: automationFileOpenToken,
         }));

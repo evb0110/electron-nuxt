@@ -1,15 +1,9 @@
 import { ipcMain } from 'electron';
 import { clamp } from 'es-toolkit/math';
+import type { IRendererLogEntry } from '@contracts/electronApiCommon';
 import { isRecord } from '@contracts/runtimeGuards';
+import { CORE_IPC_SEND_CHANNELS } from '@electron/ipc/coreContract';
 import { createLogger } from '@electron/utils/logger';
-
-interface IRendererLogEntry {
-    level: 'debug' | 'info' | 'warn' | 'error';
-    section: string;
-    message: string;
-    timestamp: string;
-    data?: unknown;
-}
 
 interface IRendererLogRateState {
     tokens: number;
@@ -416,7 +410,7 @@ export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
 
     function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEntry) {
         const webContentsId = event.sender.id;
-        if (!isTrustedSender(event.sender, event.senderFrame, 'renderer:log')) {
+        if (!isTrustedSender(event.sender, event.senderFrame, CORE_IPC_SEND_CHANNELS.rendererLog)) {
             return;
         }
         registerRendererLogSenderCleanup(event.sender);
@@ -428,5 +422,5 @@ export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
         dispatchRendererLogLine(entry.level, formatRendererLogLine(webContentsId, entry));
     }
 
-    ipcMain.on('renderer:log', handleRendererLog);
+    ipcMain.on(CORE_IPC_SEND_CHANNELS.rendererLog, handleRendererLog);
 }

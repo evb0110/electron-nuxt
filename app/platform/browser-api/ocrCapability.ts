@@ -148,11 +148,11 @@ async function runRecognitionJobs(
             try {
                 const result = await scheduler.addJob(
                     'recognize',
-                    page.imageData as never,
+                    createTesseractImageInput(page.imageData),
                     {},
                     {},
                     String(page.pageNumber),
-                ) as { data?: { text?: string } };
+                );
                 results[page.pageNumber] = result.data?.text ?? '';
             } catch (error) {
                 errors.push(getErrorMessage(error));
@@ -181,6 +181,12 @@ async function runRecognitionJobs(
         results,
         errors,
     };
+}
+
+function createTesseractImageInput(imageData: Uint8Array) {
+    const imageBytes: Uint8Array<ArrayBuffer> = new Uint8Array(imageData.byteLength);
+    imageBytes.set(imageData);
+    return new Blob([imageBytes], {type: 'image/png'});
 }
 
 export async function getBrowserOcrLanguages(): Promise<Array<IOcrLanguage & { installed: boolean }>> {

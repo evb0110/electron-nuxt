@@ -8,6 +8,7 @@ import type {
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
+    TSplitPayload,
 } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -92,6 +93,123 @@ type TBrowserWindowTabsMessageHandlers = {
         >,
     ) => void;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPositiveWindowId(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isOptionalPositiveInteger(value: unknown): value is number | undefined {
+    return value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+}
+
+function isNullableString(value: unknown): value is string | null {
+    return value === null || typeof value === 'string';
+}
+
+function isTransferredTabState(value: unknown): value is IWindowTabIncomingTransfer['tab'] {
+    return isRecord(value)
+        && isNullableString(value.fileName)
+        && isNullableString(value.originalPath)
+        && typeof value.isDirty === 'boolean'
+        && typeof value.isDjvu === 'boolean';
+}
+
+function isSplitPayload(value: unknown): value is TSplitPayload {
+    if (!isRecord(value) || typeof value.kind !== 'string') {
+        return false;
+    }
+
+    if (value.kind === 'empty') {
+        return true;
+    }
+
+    if (value.kind === 'djvu') {
+        return typeof value.sourcePath === 'string';
+    }
+
+    return value.kind === 'pdfSnapshot'
+        && typeof value.fileName === 'string'
+        && isNullableString(value.originalPath)
+        && typeof value.snapshotPath === 'string'
+        && typeof value.isDirty === 'boolean'
+        && isOptionalPositiveInteger(value.currentPage)
+        && isOptionalPositiveInteger(value.totalPages);
+}
+
+function isBrowserTransferEnvelope(value: unknown): value is TBrowserTransferEnvelope {
+    return isRecord(value)
+        && value.schemaVersion === TRANSFER_MESSAGE_SCHEMA_VERSION
+        && typeof value.nonce === 'string'
+        && typeof value.transferId === 'string'
+        && isPositiveWindowId(value.sourceWindowId)
+        && isPositiveWindowId(value.targetWindowId)
+        && isTransferredTabState(value.tab)
+        && isSplitPayload(value.payload);
+}
+
+function isBrowserTransferAckEnvelope(value: unknown): value is TBrowserTransferAckEnvelope {
+    return isRecord(value)
+        && value.schemaVersion === TRANSFER_MESSAGE_SCHEMA_VERSION
+        && typeof value.nonce === 'string'
+        && typeof value.transferId === 'string'
+        && typeof value.success === 'boolean'
+        && (value.error === undefined || typeof value.error === 'string');
+}
+
+function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage | null {
+    if (!isRecord(data) || typeof data.type !== 'string') {
+        return null;
+    }
+
+    switch (data.type) {
+        case 'discover':
+            return isPositiveWindowId(data.windowId)
+                ? {
+                    type: 'discover',
+                    windowId: data.windowId,
+                }
+                : null;
+        case 'announce':
+            return isPositiveWindowId(data.windowId)
+                && typeof data.label === 'string'
+                && typeof data.ready === 'boolean'
+                ? {
+                    type: 'announce',
+                    windowId: data.windowId,
+                    label: data.label,
+                    ready: data.ready,
+                }
+                : null;
+        case 'unregister':
+            return isPositiveWindowId(data.windowId)
+                ? {
+                    type: 'unregister',
+                    windowId: data.windowId,
+                }
+                : null;
+        case 'transfer':
+            return isBrowserTransferEnvelope(data.transfer)
+                ? {
+                    type: 'transfer',
+                    transfer: data.transfer,
+                }
+                : null;
+        case 'ack':
+            return isPositiveWindowId(data.windowId) && isBrowserTransferAckEnvelope(data.ack)
+                ? {
+                    type: 'ack',
+                    windowId: data.windowId,
+                    ack: data.ack,
+                }
+                : null;
+        default:
+            return null;
+    }
+}
 
 function noopUnsubscribe(): IMenuEventUnsubscribe {
     return () => {};
@@ -405,22 +523,31 @@ const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
 };
 
 function handleMessage(data: unknown) {
-    if (!data || typeof data !== 'object' || !('type' in data)) {
+    const message = parseBrowserWindowTabsMessage(data);
+    if (!message) {
         return;
     }
-
-    const message = data as TBrowserWindowTabsMessage;
     if (shouldIgnoreBrowserWindowTabsMessage(message)) {
         return;
     }
 
-    const messageType = message.type;
-    const messageHandler = browserWindowTabsMessageHandlers[messageType];
-    if (!messageHandler) {
-        return;
+    switch (message.type) {
+        case 'discover':
+            browserWindowTabsMessageHandlers.discover(message);
+            break;
+        case 'announce':
+            browserWindowTabsMessageHandlers.announce(message);
+            break;
+        case 'unregister':
+            browserWindowTabsMessageHandlers.unregister(message);
+            break;
+        case 'transfer':
+            browserWindowTabsMessageHandlers.transfer(message);
+            break;
+        case 'ack':
+            browserWindowTabsMessageHandlers.ack(message);
+            break;
     }
-
-    messageHandler(message as never);
 }
 
 function registerCleanupHandlers() {

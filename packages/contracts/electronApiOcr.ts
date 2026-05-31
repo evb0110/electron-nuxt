@@ -1,6 +1,23 @@
 import type { TDocumentRef } from './document';
 import type { IOcrLanguage } from './shared';
 
+export type TOcrErrorCode =
+    | 'OCR_INVALID_PAYLOAD'
+    | 'OCR_INTERNAL_ERROR'
+    | 'OCR_QUEUE_BACKPRESSURE'
+    | 'OCR_WORKER_UNAVAILABLE'
+    | 'OCR_TOOLS_VALIDATION_FAILED';
+
+export interface IOcrErrorEnvelope {
+    code: TOcrErrorCode;
+    message: string;
+    retryable: boolean;
+    timestamp: number;
+    details?: string;
+}
+
+export interface IOcrErrorEnvelopeCarrier {errorEnvelope?: IOcrErrorEnvelope;}
+
 export interface IOcrRecognizeRequest {
     pageNumber: number;
     imageData: Uint8Array;
@@ -9,7 +26,7 @@ export interface IOcrRecognizeRequest {
     imageHeight?: number;
 }
 
-export interface IOcrRecognizeResult {
+export interface IOcrRecognizeResult extends IOcrErrorEnvelopeCarrier {
     pageNumber: number;
     success: boolean;
     text: string;
@@ -27,7 +44,7 @@ export interface IOcrProgress {
     languageCode?: string;
 }
 
-export interface IOcrJobStartResult {
+export interface IOcrJobStartResult extends IOcrErrorEnvelopeCarrier {
     started: boolean;
     jobId: string;
     error?: string;
@@ -35,9 +52,14 @@ export interface IOcrJobStartResult {
     errors?: string[];
 }
 
-export interface IOcrResultFileAckResult {
+export interface IOcrResultFileAckResult extends IOcrErrorEnvelopeCarrier {
     cleaned: boolean;
     error?: string;
+}
+
+export interface IOcrRecognizeBatchResult extends IOcrErrorEnvelopeCarrier {
+    results: Record<number, string>;
+    errors: string[];
 }
 
 export interface IOcrCompleteResult {
@@ -66,10 +88,7 @@ export interface IOcrCapability {
     recognizeBatch: (
         pages: IOcrRecognizeRequest[],
         requestId: string,
-    ) => Promise<{
-        results: Record<number, string>;
-        errors: string[];
-    }>;
+    ) => Promise<IOcrRecognizeBatchResult>;
     cancel: (requestId: string) => Promise<{ canceled: boolean }>;
     getLanguages: () => Promise<IOcrLanguage[]>;
     installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;

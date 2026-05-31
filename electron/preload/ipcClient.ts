@@ -3,11 +3,7 @@ import type {
     IpcRendererEvent,
 } from 'electron';
 import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
-
-interface IInvokeSpec<TArgs extends unknown[] = unknown[], TResult = unknown> {
-    args: TArgs;
-    result: TResult;
-}
+import type { IIpcInvokeSpec } from '@contracts/ipcMain';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
     [TChannel in keyof TEventMap]: TEventMap[TChannel] extends undefined ? TChannel : never;
@@ -18,13 +14,7 @@ type TPayloadEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unkn
     TNoArgEventChannel<TEventMap>
 >;
 
-export function createIpcInvoker(ipcRenderer: Pick<IpcRenderer, 'invoke'>) {
-    return function invoke<TResult = unknown>(channel: string, ...args: unknown[]) {
-        return ipcRenderer.invoke(channel, ...args) as Promise<TResult>;
-    };
-}
-
-export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IInvokeSpec}>(
+export function createTypedIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
 ) {
     return function invoke<TChannel extends Extract<keyof TMap, string>>(

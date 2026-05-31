@@ -209,9 +209,10 @@ const showRuntimeErrorDetails = ref(false);
 const route = useRoute();
 const colorMode = useColorMode();
 const localeHead = useLocaleHead({
-    identifierAttribute: 'id',
-    addSeoAttributes: true,
-} as never);
+    dir: true,
+    lang: true,
+    seo: true,
+});
 const localeCookie = useCookie<string | null | undefined>(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
 const themeCookie = useCookie<string | null | undefined>(BROWSER_THEME_COOKIE_KEY, { watch: false });
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';

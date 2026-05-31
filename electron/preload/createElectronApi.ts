@@ -4,25 +4,20 @@ import type {
 } from 'electron';
 import type { ISettingsData } from '@contracts/shared';
 import type { IElectronAPI } from '@contracts/electronApi';
-import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
 import type {
-    IDebugLogEntry,
     IMenuEventUnsubscribe,
     IRendererLogEntry,
 } from '@contracts/electronApiCommon';
 import type {
-    IHostEnvironmentSnapshot,
-    IHostZenModeState,
-} from '@contracts/electronApiHost';
-import type {
-    IWindowTabIncomingTransfer,
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
-    TWindowTabsAction,
 } from '@contracts/windowTabs';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadClient} from '@electron/features/documents/preloadClient';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_CHANNELS,
+    type IDocumentsInvokeMap,
+} from '@electron/features/documents/contract';
 import {createOcrPreloadClient} from '@electron/features/ocr/preloadClient';
 import {createSearchPreloadClient} from '@electron/features/search/preloadClient';
 import {createDjvuPreloadClient} from '@electron/features/djvu/preloadClient';
@@ -31,97 +26,16 @@ import {
     createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    CORE_IPC_CHANNELS,
+    CORE_IPC_EVENT_CHANNELS,
+    CORE_IPC_SEND_CHANNELS,
+    type ICoreEventMap,
+    type ICoreInvokeMap,
+} from '@electron/ipc/coreContract';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-
-interface ICoreInvokeMap {
-    'settings:get': {
-        args: [];
-        result: ISettingsData;
-    };
-    'settings:save': {
-        args: [settings: Partial<ISettingsData>];
-        result: undefined;
-    };
-    'updates:getState': {
-        args: [];
-        result: IAppUpdateStatus;
-    };
-    'updates:check': {
-        args: [];
-        result: { started: boolean };
-    };
-    'updates:install': {
-        args: [];
-        result: { started: boolean };
-    };
-    'updates:defer': {
-        args: [];
-        result: undefined;
-    };
-    'updates:skipVersion': {
-        args: [version: string];
-        result: undefined;
-    };
-    'shell:openExternal': {
-        args: [url: string];
-        result: undefined;
-    };
-    'window:closeCurrent': {
-        args: [];
-        result: boolean;
-    };
-    'app:claimPendingExternalOpenPaths': {
-        args: [];
-        result: string[];
-    };
-    'tabs:transfer': {
-        args: [request: IWindowTabTransferRequest];
-        result: Awaited<ReturnType<IElectronAPI['windowTabs']['transfer']>>;
-    };
-    'tabs:transferAck': {
-        args: [ack: IWindowTabTransferAck];
-        result: boolean;
-    };
-    'tabs:listTargets': {
-        args: [];
-        result: Awaited<ReturnType<IElectronAPI['windowTabs']['listTargetWindows']>>;
-    };
-    'tabs:showContextMenu': {
-        args: [tabId: string];
-        result: undefined;
-    };
-    'host:getEnvironment': {
-        args: [];
-        result: IHostEnvironmentSnapshot;
-    };
-    'host:getZenModeState': {
-        args: [];
-        result: IHostZenModeState;
-    };
-    'host:setZenMode': {
-        args: [active: boolean];
-        result: IHostZenModeState;
-    };
-}
-
-interface ICoreEventMap {
-    'menu:openSettings': undefined;
-    'updates:status': IAppUpdateStatus;
-    'menu:checkForUpdates': undefined;
-    'tabs:incomingTransfer': IWindowTabIncomingTransfer;
-    'menu:windowTabsAction': TWindowTabsAction;
-    'menu:newTab': undefined;
-    'menu:closeTab': undefined;
-    'menu:splitEditor': 'left' | 'right' | 'up' | 'down';
-    'menu:focusEditorGroup': 'left' | 'right' | 'up' | 'down';
-    'menu:moveTabToGroup': 'left' | 'right' | 'up' | 'down';
-    'menu:copyTabToGroup': 'left' | 'right' | 'up' | 'down';
-    'debug:log': IDebugLogEntry;
-    'host:environmentChanged': IHostEnvironmentSnapshot;
-    'host:zenModeChanged': IHostZenModeState;
-}
 
 function stringifyDetails(details?: Record<string, unknown>) {
     if (!details) {
@@ -166,17 +80,18 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
 
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
     const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
+    const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pendingRendererFileOpenAllows = new Map<string, Promise<unknown>>();
 
     function allowRendererFileOpen(filePath: string) {
         const rendererFileOpenToken = globalThis.crypto.randomUUID();
-        const allowPromise = ipcRenderer.invoke(
+        const allowPromise = invokeDocuments(
             DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
             rendererFileOpenToken,
         )
-            .then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+            .then(() => invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
                 filePath,
                 token: rendererFileOpenToken,
             }))
@@ -221,70 +136,70 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         djvu: createDjvuPreloadClient(ipcRenderer),
 
         settings: {
-            get: () => invokeWithStartupTrace('settings:get', () => invokeCore('settings:get')),
-            save: (settings: Partial<ISettingsData>) => invokeCore('settings:save', settings),
+            get: () => invokeWithStartupTrace('settings:get', () => invokeCore(CORE_IPC_CHANNELS.settingsGet)),
+            save: (settings: Partial<ISettingsData>) => invokeCore(CORE_IPC_CHANNELS.settingsSave, settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
             onDebugLog: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('debug:log', callback),
-            rendererLog: (entry: IRendererLogEntry) => ipcRenderer.send('renderer:log', entry),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.debugLog, callback),
+            rendererLog: (entry: IRendererLogEntry) => ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, entry),
             onMenuOpenSettings: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg('menu:openSettings', callback),
+                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuOpenSettings, callback),
         },
 
         updates: {
-            getState: () => invokeCore('updates:getState'),
-            check: () => invokeCore('updates:check'),
-            install: () => invokeCore('updates:install'),
-            defer: () => invokeCore('updates:defer'),
-            skipVersion: (version: string) => invokeCore('updates:skipVersion', version),
+            getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),
+            check: () => invokeCore(CORE_IPC_CHANNELS.updatesCheck),
+            install: () => invokeCore(CORE_IPC_CHANNELS.updatesInstall),
+            defer: () => invokeCore(CORE_IPC_CHANNELS.updatesDefer),
+            skipVersion: (version: string) => invokeCore(CORE_IPC_CHANNELS.updatesSkipVersion, version),
             onStatus: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('updates:status', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.updatesStatus, callback),
             onMenuCheckForUpdates: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg('menu:checkForUpdates', callback),
+                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates, callback),
         },
 
-        shell: {openExternal: (url: string) => invokeCore('shell:openExternal', url)},
+        shell: {openExternal: (url: string) => invokeCore(CORE_IPC_CHANNELS.shellOpenExternal, url)},
 
         host: {
-            getEnvironment: () => invokeCore('host:getEnvironment'),
+            getEnvironment: () => invokeCore(CORE_IPC_CHANNELS.hostGetEnvironment),
             onEnvironmentChange: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('host:environmentChanged', callback),
-            getZenModeState: () => invokeCore('host:getZenModeState'),
-            setZenMode: (active: boolean) => invokeCore('host:setZenMode', active),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged, callback),
+            getZenModeState: () => invokeCore(CORE_IPC_CHANNELS.hostGetZenModeState),
+            setZenMode: (active: boolean) => invokeCore(CORE_IPC_CHANNELS.hostSetZenMode, active),
             onZenModeChange: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('host:zenModeChanged', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
         },
 
         windowTabs: {
-            closeCurrentWindow: () => invokeCore('window:closeCurrent'),
+            closeCurrentWindow: () => invokeCore(CORE_IPC_CHANNELS.windowCloseCurrent),
             notifyRendererReady: () => {
                 tracePreloadStartup('app:rendererReady dispatched');
-                ipcRenderer.send('app:rendererReady');
+                ipcRenderer.send(CORE_IPC_CHANNELS.rendererReady);
             },
             claimPendingExternalOpenPaths: () => invokeWithStartupTrace(
                 'app:claimPendingExternalOpenPaths',
-                () => invokeCore('app:claimPendingExternalOpenPaths'),
+                () => invokeCore(CORE_IPC_CHANNELS.claimPendingExternalOpenPaths),
             ),
-            transfer: (request: IWindowTabTransferRequest) => invokeCore('tabs:transfer', request),
-            transferAck: (ack: IWindowTabTransferAck) => invokeCore('tabs:transferAck', ack),
-            listTargetWindows: () => invokeCore('tabs:listTargets'),
-            showContextMenu: (tabId: string) => invokeCore('tabs:showContextMenu', tabId),
+            transfer: (request: IWindowTabTransferRequest) => invokeCore(CORE_IPC_CHANNELS.tabsTransfer, request),
+            transferAck: (ack: IWindowTabTransferAck) => invokeCore(CORE_IPC_CHANNELS.tabsTransferAck, ack),
+            listTargetWindows: () => invokeCore(CORE_IPC_CHANNELS.tabsListTargets),
+            showContextMenu: (tabId: string) => invokeCore(CORE_IPC_CHANNELS.tabsShowContextMenu, tabId),
             onIncomingTransfer: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('tabs:incomingTransfer', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer, callback),
             onWindowAction: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('menu:windowTabsAction', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction, callback),
             onMenuNewTab: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg('menu:newTab', callback),
+                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuNewTab, callback),
             onMenuCloseTab: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg('menu:closeTab', callback),
+                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCloseTab, callback),
             onMenuSplitEditor: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('menu:splitEditor', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuSplitEditor, callback),
             onMenuFocusEditorGroup: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('menu:focusEditorGroup', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuFocusEditorGroup, callback),
             onMenuMoveTabToGroup: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('menu:moveTabToGroup', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuMoveTabToGroup, callback),
             onMenuCopyTabToGroup: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload('menu:copyTabToGroup', callback),
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuCopyTabToGroup, callback),
         },
     } satisfies IElectronAPI;
 

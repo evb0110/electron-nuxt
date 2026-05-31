@@ -227,6 +227,23 @@ type TMenuCommand =
     | 'insert-image-from-file'
     | 'paste-image-from-clipboard';
 
+const emitMenuCommand = {
+    'open-file': () => emit('open-file'),
+    save: () => emit('save'),
+    'save-as': () => emit('save-as'),
+    print: () => emit('print'),
+    'print-current-page': () => emit('print-current-page'),
+    'combine-images': () => emit('combine-images'),
+    'export-docx': () => emit('export-docx'),
+    'export-images': () => emit('export-images'),
+    'export-multi-page-tiff': () => emit('export-multi-page-tiff'),
+    'convert-to-pdf': () => emit('convert-to-pdf'),
+    undo: () => emit('undo'),
+    redo: () => emit('redo'),
+    'insert-image-from-file': () => emit('insert-image-from-file'),
+    'paste-image-from-clipboard': () => emit('paste-image-from-clipboard'),
+} satisfies Record<TMenuCommand, () => void>;
+
 const shortcutLabels = getShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && documentBusy !== true);
 const menuContentOptions = {
@@ -246,7 +263,7 @@ function close() {
 }
 
 function handleMenuCommand(command: TMenuCommand) {
-    emit(command as never);
+    emitMenuCommand[command]();
     close();
 }
 </script>

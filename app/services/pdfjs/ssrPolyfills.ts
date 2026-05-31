@@ -73,15 +73,16 @@ class DOMMatrixSsrStub {
     }
 }
 
+interface IPdfjsSsrGlobalScope {DOMMatrix?: new () => DOMMatrixSsrStub;}
+
 export function ensurePdfjsSsrGlobals() {
     if (!import.meta.server) {
         return;
     }
 
-    const globalScope = globalThis as typeof globalThis & { DOMMatrix?: typeof DOMMatrix };
+    const globalScope = globalThis as IPdfjsSsrGlobalScope;
 
     if (typeof globalScope.DOMMatrix === 'undefined') {
-        // The SSR stub implements the DOMMatrix members pdfjs touches during server import.
-        globalScope.DOMMatrix = DOMMatrixSsrStub as unknown as typeof DOMMatrix;
+        globalScope.DOMMatrix = DOMMatrixSsrStub;
     }
 }

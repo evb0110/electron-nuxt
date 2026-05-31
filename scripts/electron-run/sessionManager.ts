@@ -1008,9 +1008,10 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
 async function checkHydration(page: Page): Promise<boolean> {
     try {
         return await page.evaluate(() => {
+            const automationWindow = window as Window & {__appReady?: boolean;};
             const nuxtEl = document.querySelector('#__nuxt');
             return !!(
-                (window as any).__appReady
+                automationWindow.__appReady
                 || (nuxtEl && nuxtEl.children.length > 0)
             );
         });
@@ -1031,11 +1032,15 @@ interface IRendererState {
 
 function readRendererState(page: Page): Promise<IRendererState> {
     return page.evaluate(() => {
+        const automationWindow = window as Window & {
+            __openFileDirect?: unknown;
+            electronAPI?: unknown;
+        };
         const nuxtEl = document.querySelector('#__nuxt');
         return {
             bodyExists: document.body !== null,
-            openFileDirect: typeof (window as any).__openFileDirect,
-            electronAPI: typeof (window as any).electronAPI,
+            openFileDirect: typeof automationWindow.__openFileDirect,
+            electronAPI: typeof automationWindow.electronAPI,
             nuxtRootChildren: nuxtEl?.children.length ?? 0,
             bodyTextLength: (document.body?.innerText ?? '').trim().length,
             bodyTextSnippet: (document.body?.innerText ?? '').trim().replace(/\s+/g, ' ').slice(0, 240),

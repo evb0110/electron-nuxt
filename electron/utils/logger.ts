@@ -14,6 +14,7 @@ import {
     dirname,
     join,
 } from 'path';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
 
 interface ILogMessage {
     source: string;
@@ -124,7 +125,7 @@ async function broadcastToRenderers(data: ILogMessage) {
         const windows = BrowserWindow.getAllWindows();
         for (const win of windows) {
             if (!win.isDestroyed() && win.webContents) {
-                win.webContents.send('debug:log', data);
+                win.webContents.send(CORE_IPC_EVENT_CHANNELS.debugLog, data);
             }
         }
     } catch {

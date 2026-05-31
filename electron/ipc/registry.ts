@@ -7,7 +7,10 @@ import {
     countBy,
     sortBy,
 } from 'es-toolkit/array';
-import type { IIpcMainRegistrar } from '@contracts/ipcMain';
+import type {
+    IIpcInvokeSpec,
+    IIpcMainRegistrar,
+} from '@contracts/ipcMain';
 import { isRecord } from '@contracts/runtimeGuards';
 import { sanitizeSettings } from '@contracts/settings';
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
@@ -27,13 +30,21 @@ import {
 } from '@electron/windowTabTransfer';
 import { getAllAppWindows } from '@electron/window';
 import {registerDocumentsIpcAdapter} from '@electron/features/documents/ipcAdapter';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_CHANNELS,
+    type IDocumentsInvokeMap,
+} from '@electron/features/documents/contract';
 import { attachSerializedPdfPersistencePort } from '@electron/features/documents/main/serializedPdfPersistence';
 import {registerImageExportIpcAdapter} from '@electron/features/image-export/ipcAdapter';
+import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
 import {registerOcrIpcAdapter} from '@electron/features/ocr/ipcAdapter';
+import type { IOcrInvokeMap } from '@electron/features/ocr/contract';
 import {registerSearchIpcAdapter} from '@electron/features/search/ipcAdapter';
+import type { ISearchInvokeMap } from '@electron/features/search/contract';
 import {registerDjvuIpcAdapter} from '@electron/features/djvu/ipcAdapter';
+import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
 import {registerPageOpsIpcAdapter} from '@electron/features/page-ops/ipcAdapter';
+import type { IPageOpsInvokeMap } from '@electron/features/page-ops/contract';
 import {
     loadSettings,
     updateSettings,
@@ -55,13 +66,12 @@ import {
     snapshotHostEnvironmentForWindow,
     snapshotHostZenModeForWindow,
 } from '@electron/hostEnvironment';
+import {
+    CORE_IPC_CHANNELS,
+    type ICoreInvokeMap,
+} from '@electron/ipc/coreContract';
 
 export { normalizeRendererLogEntry } from '@electron/ipc/rendererLogBridge';
-
-const CORE_APP_CHANNELS = {
-    rendererReady: 'app:rendererReady',
-    claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
-} as const;
 
 interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
@@ -154,6 +164,10 @@ function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: s
     return isTrustedWebContentsSender(event.sender, event.senderFrame, channel);
 }
 
+function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar): IIpcMainRegistrar;
+function createValidatedIpcMainRegistrar<
+    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
+>(registrar: IIpcMainRegistrar): IIpcMainRegistrar<TMap>;
 function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar): IIpcMainRegistrar {
     return {handle: <TArgs extends unknown[], TResult>(
         channel: string,
@@ -189,7 +203,7 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 }
 
 function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
-    const registrar = createValidatedIpcMainRegistrar(ipcMain);
+    const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain);
     registerRendererLogBridge({isTrustedSender: isTrustedWebContentsSender});
     ipcMain.on(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event, sessionId: unknown) => {
         if (!isTrustedWebContentsSender(event.sender, event.senderFrame, DOCUMENTS_CHANNELS.fileSavePdfDataPort)) {
@@ -202,18 +216,18 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
             logger.warn(`[ipc] rejected ${DOCUMENTS_CHANNELS.fileSavePdfDataPort}: ${getErrorMessage(error)}`);
         }
     });
-    ipcMain.on(CORE_APP_CHANNELS.rendererReady, (event) => {
-        if (!isTrustedWebContentsSender(event.sender, event.senderFrame, CORE_APP_CHANNELS.rendererReady)) {
+    ipcMain.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
+        if (!isTrustedWebContentsSender(event.sender, event.senderFrame, CORE_IPC_CHANNELS.rendererReady)) {
             return;
         }
         options.onRendererReady?.(event);
     });
 
-    registrar.handle(CORE_APP_CHANNELS.claimPendingExternalOpenPaths, (event) =>
+    registrar.handle(CORE_IPC_CHANNELS.claimPendingExternalOpenPaths, (event) =>
         options.claimPendingExternalOpenPaths?.(event) ?? [],
     );
 
-    registrar.handle('tabs:transfer', async (event, request: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.tabsTransfer, async (event, request: unknown) => {
         if (!isValidTransferRequest(request)) {
             return {
                 transferId: '',
@@ -236,7 +250,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return requestWindowTabTransfer(sourceWindow.id, request);
     });
 
-    registrar.handle('tabs:transferAck', (event, ack: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.tabsTransferAck, (event, ack: unknown) => {
         if (!isValidTransferAck(ack)) {
             return false;
         }
@@ -249,7 +263,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return acknowledgeWindowTabTransfer(window.id, ack);
     });
 
-    registrar.handle('tabs:listTargets', (event): IWindowTabTargetWindow[] => {
+    registrar.handle(CORE_IPC_CHANNELS.tabsListTargets, (event): IWindowTabTargetWindow[] => {
         const sourceWindow = BrowserWindow.fromWebContents(event.sender);
         if (!sourceWindow) {
             return [];
@@ -258,7 +272,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return buildTabTransferTargetLabels(sourceWindow.id);
     });
 
-    registrar.handle('tabs:showContextMenu', (event, tabId: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.tabsShowContextMenu, (event, tabId: unknown) => {
         const normalizedTabId = typeof tabId === 'string' ? tabId.trim() : '';
         if (!normalizedTabId) {
             return;
@@ -272,7 +286,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         showTabContextMenu(window, normalizedTabId);
     });
 
-    registrar.handle('window:closeCurrent', (event) => {
+    registrar.handle(CORE_IPC_CHANNELS.windowCloseCurrent, (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window || window.isDestroyed()) {
             return false;
@@ -282,7 +296,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return true;
     });
 
-    registrar.handle('settings:get', async () => {
+    registrar.handle(CORE_IPC_CHANNELS.settingsGet, async () => {
         const startedAt = Date.now();
         const settings = await loadSettings();
         if (STARTUP_TRACE_ENABLED) {
@@ -291,7 +305,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return settings;
     });
 
-    registrar.handle('settings:save', async (_event, settingsPayload: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.settingsSave, async (_event, settingsPayload: unknown) => {
         if (!isRecord(settingsPayload)) {
             throw new Error('Invalid settings payload');
         }
@@ -310,31 +324,31 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         updateRecentFilesMenu();
     });
 
-    registrar.handle('updates:getState', () => getUpdateStatus());
-    registrar.handle('updates:check', () => triggerManualUpdateCheck());
-    registrar.handle('updates:install', () => installDownloadedUpdate());
-    registrar.handle('updates:defer', () => deferDownloadedUpdate());
-    registrar.handle('updates:skipVersion', (_event, version: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.updatesGetState, () => getUpdateStatus());
+    registrar.handle(CORE_IPC_CHANNELS.updatesCheck, () => triggerManualUpdateCheck());
+    registrar.handle(CORE_IPC_CHANNELS.updatesInstall, () => installDownloadedUpdate());
+    registrar.handle(CORE_IPC_CHANNELS.updatesDefer, () => deferDownloadedUpdate());
+    registrar.handle(CORE_IPC_CHANNELS.updatesSkipVersion, (_event, version: unknown) => {
         const normalizedVersion = typeof version === 'string' ? version.trim() : '';
         return skipUpdateVersion(normalizedVersion);
     });
 
-    registrar.handle('shell:openExternal', async (_event, url: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (_event, url: unknown) => {
         const sanitizedUrl = sanitizeExternalUrl(url);
         await shell.openExternal(sanitizedUrl);
     });
 
-    registrar.handle('host:getEnvironment', (event) => {
+    registrar.handle(CORE_IPC_CHANNELS.hostGetEnvironment, (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         return snapshotHostEnvironmentForWindow(window);
     });
 
-    registrar.handle('host:getZenModeState', (event) => {
+    registrar.handle(CORE_IPC_CHANNELS.hostGetZenModeState, (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         return snapshotHostZenModeForWindow(window);
     });
 
-    registrar.handle('host:setZenMode', (event, active: unknown) => {
+    registrar.handle(CORE_IPC_CHANNELS.hostSetZenMode, (event, active: unknown) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         return setHostZenModeForWindow(window, active === true);
     });
@@ -342,11 +356,10 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
 
 export function registerIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     registerCoreIpcHandlers(options);
-    const validatedRegistrar = createValidatedIpcMainRegistrar(ipcMain);
-    registerDocumentsIpcAdapter(validatedRegistrar);
-    registerImageExportIpcAdapter(validatedRegistrar);
-    registerPageOpsIpcAdapter(validatedRegistrar);
-    registerOcrIpcAdapter(validatedRegistrar);
-    registerSearchIpcAdapter(validatedRegistrar);
-    registerDjvuIpcAdapter(validatedRegistrar);
+    registerDocumentsIpcAdapter(createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain));
+    registerImageExportIpcAdapter(createValidatedIpcMainRegistrar<IImageExportInvokeMap>(ipcMain));
+    registerPageOpsIpcAdapter(createValidatedIpcMainRegistrar<IPageOpsInvokeMap>(ipcMain));
+    registerOcrIpcAdapter(createValidatedIpcMainRegistrar<IOcrInvokeMap>(ipcMain));
+    registerSearchIpcAdapter(createValidatedIpcMainRegistrar<ISearchInvokeMap>(ipcMain));
+    registerDjvuIpcAdapter(createValidatedIpcMainRegistrar<IDjvuInvokeMap>(ipcMain));
 }

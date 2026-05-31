@@ -7,54 +7,36 @@ import type {
 import {
     DJVU_CHANNELS,
     DJVU_EVENT_CHANNELS,
+    type IDjvuEventMap,
+    type IDjvuInvokeMap,
 } from '@electron/features/djvu/contract';
 import {
-    createIpcInvoker,
     createTypedIpcEventSubscriber,
+    createTypedIpcInvoker,
 } from '@electron/preload/ipcClient';
 
-interface IDjvuEventMap {
-    [DJVU_EVENT_CHANNELS.progress]: {
-        jobId: string;
-        phase: 'converting' | 'bookmarks' | 'loading';
-        current?: number;
-        total?: number;
-        percent: number;
-    };
-    [DJVU_EVENT_CHANNELS.viewingReady]: {
-        pdfPath: string;
-        isPartial: boolean;
-        jobId?: string;
-    };
-    [DJVU_EVENT_CHANNELS.viewingError]: {
-        error: string;
-        jobId?: string;
-    };
-    [DJVU_EVENT_CHANNELS.menuConvertToPdf]: undefined;
-}
-
 export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapability {
-    const invoke = createIpcInvoker(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IDjvuInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
 
     return {
         openForViewing: (djvuPath: string) =>
-            invoke<Awaited<ReturnType<IDjvuCapability['openForViewing']>>>(DJVU_CHANNELS.openForViewing, djvuPath),
+            invoke(DJVU_CHANNELS.openForViewing, djvuPath),
         releaseViewingPath: (djvuPath: string) =>
-            invoke<Awaited<ReturnType<IDjvuCapability['releaseViewingPath']>>>(DJVU_CHANNELS.releaseViewingPath, djvuPath),
+            invoke(DJVU_CHANNELS.releaseViewingPath, djvuPath),
         convertToPdf: (djvuPath: string, outputPath: string, options: {
             subsample?: number;
             preserveBookmarks?: boolean;
-        }) => invoke<Awaited<ReturnType<IDjvuCapability['convertToPdf']>>>(
+        }) => invoke(
             DJVU_CHANNELS.convertToPdf,
             djvuPath,
             outputPath,
             options,
         ),
-        cancel: (jobId: string) => invoke<Awaited<ReturnType<IDjvuCapability['cancel']>>>(DJVU_CHANNELS.cancel, jobId),
-        getInfo: (djvuPath: string) => invoke<Awaited<ReturnType<IDjvuCapability['getInfo']>>>(DJVU_CHANNELS.getInfo, djvuPath),
-        estimateSizes: (djvuPath: string) => invoke<Awaited<ReturnType<IDjvuCapability['estimateSizes']>>>(DJVU_CHANNELS.estimateSizes, djvuPath),
-        cleanupTemp: (tempPdfPath: string) => invoke<Awaited<ReturnType<IDjvuCapability['cleanupTemp']>>>(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
+        cancel: (jobId: string) => invoke(DJVU_CHANNELS.cancel, jobId),
+        getInfo: (djvuPath: string) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
+        estimateSizes: (djvuPath: string) => invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
+        cleanupTemp: (tempPdfPath: string) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: {
             jobId: string;
             phase: 'converting' | 'bookmarks' | 'loading';

@@ -30,8 +30,7 @@ async function getPdfjsLib() {
 }
 
 function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
-    // pdfjs expects a wide init union; this object is the browser byte-data branch.
-    return {
+    const init = {
         data: toUint8Array(data),
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
         standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
@@ -40,21 +39,9 @@ function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
         wasmUrl: getPdfjsAssetDir('wasm'),
         iccUrl: getPdfjsAssetDir('iccs'),
         useSystemFonts: false,
-    } as unknown as TPdfJsDocumentInit;
+    } satisfies TPdfJsDocumentInit;
+    return init;
 }
-
-type TPdfDataRangeTransportConstructor = new (
-    length: number,
-    initialData: Uint8Array | null,
-    progressiveDone?: boolean,
-    contentDispositionFilename?: string,
-) => {
-    length: number;
-    onDataRange: (begin: number, chunk: Uint8Array | null) => void;
-    onDataProgress: (loaded: number, total?: number) => void;
-    requestDataRange: (begin: number, end: number) => void;
-    abort: () => void;
-};
 
 async function createPdfjsDocumentInitFromBrowserDocument(
     pdfjsLib: TPdfJsLib,
@@ -71,11 +58,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         return createPdfjsDocumentInit(pdfjsLib, initialData);
     }
 
-    const RangeTransportBase =
-        // pdfjs exposes the constructor with broader internal typing than the range transport API used here.
-        pdfjsLib.PDFDataRangeTransport as unknown as TPdfDataRangeTransportConstructor;
-
-    class BrowserDocumentRangeTransport extends RangeTransportBase {
+    class BrowserDocumentRangeTransport extends pdfjsLib.PDFDataRangeTransport {
         private aborted = false;
         private loadedBytes = initialData.byteLength;
 
@@ -121,8 +104,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         }
     }
 
-    // pdfjs expects a wide init union; this object is the browser range-transport branch.
-    return {
+    const init = {
         length: size,
         range: new BrowserDocumentRangeTransport(),
         rangeChunkSize: PDFJS_RANGE_CHUNK_SIZE,
@@ -135,7 +117,8 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         wasmUrl: getPdfjsAssetDir('wasm'),
         iccUrl: getPdfjsAssetDir('iccs'),
         useSystemFonts: false,
-    } as unknown as TPdfJsDocumentInit;
+    } satisfies TPdfJsDocumentInit;
+    return init;
 }
 
 export {

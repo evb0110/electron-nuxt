@@ -1,5 +1,6 @@
-import type { IpcMain } from 'electron';
+import type { IIpcMainRegistrar as IContractIpcMainRegistrar } from '@contracts/ipcMain';
+import type { IPageOpsInvokeMap } from '@electron/features/page-ops/contract';
 
-export interface IIpcMainRegistrar {handle: IpcMain['handle'];}
+export type IIpcMainRegistrar = IContractIpcMainRegistrar<IPageOpsInvokeMap>;
 
 export interface IPageOpsService {registerHandlers: (registrar: IIpcMainRegistrar) => void;}
