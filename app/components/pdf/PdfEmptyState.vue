@@ -1120,16 +1120,29 @@ watch(() => startSection, (section) => {
 @container (max-width: 880px) {
     .start-shell {
         grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
         gap: 0.75rem;
     }
 
     .start-rail {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 0.5rem 1rem;
+        flex-flow: row wrap;
+        align-items: center;
+        gap: 0.4rem;
         padding: 0.25rem 0;
     }
 
+    .rail-section {
+        flex: 0 0 auto;
+    }
+
+    .rail-item {
+        width: auto;
+    }
+
+    .rail-count,
+    .rail-shortcut {
+        margin-left: 0.4rem;
+    }
 }
 
 @container (max-width: 640px) {
