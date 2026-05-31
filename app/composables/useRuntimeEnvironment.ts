@@ -13,16 +13,20 @@ export const useRuntimeEnvironment = () => {
         : ref(initialDesktopRuntime);
 
     if (getCurrentInstance()) {
-        onMounted(() => {
+        const updateRuntimeState = (path: string | null | undefined) => {
             if (!import.meta.client) {
                 return;
             }
             isDesktopRuntime.value = shouldPreferDesktopPlatform(
-                routePath,
-                isDesktopRuntime.value,
+                path,
+                false,
                 isDesktopPlatformActive(),
             );
+        };
+        onMounted(() => {
+            updateRuntimeState(route.path);
         });
+        watch(() => route.path, updateRuntimeState);
     }
 
     return {

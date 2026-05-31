@@ -29,6 +29,7 @@ const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 interface IPersistSerializedOptions {
     saveMode: TPdfSaveMode;
     preserveLoadedSource?: boolean;
+    expectedWorkingPath?: TDocumentRef | null;
 }
 
 class SaveDocumentTimeoutError extends Error {
@@ -59,9 +60,16 @@ export interface IFileOperationsDeps {
     saveFile: (data: Uint8Array, opts?: {
         saveMode?: TPdfSaveMode;
         preserveLoadedSource?: boolean;
+        expectedWorkingPath?: TDocumentRef | null;
     }) => Promise<IPdfPersistResult>;
-    saveWorkingCopy: (opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
-    saveWorkingCopyAs: (data?: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+    saveWorkingCopy: (opts?: {
+        saveMode?: TPdfSaveMode;
+        expectedWorkingPath?: TDocumentRef | null;
+    }) => Promise<IPdfPersistResult>;
+    saveWorkingCopyAs: (data?: Uint8Array, opts?: {
+        saveMode?: TPdfSaveMode;
+        expectedWorkingPath?: TDocumentRef | null;
+    }) => Promise<IPdfPersistResult>;
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
@@ -296,12 +304,21 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             });
             return null;
         }
+        if (workingCopyPath.value !== path) {
+            BrowserLogger.debug('workspace', 'Skipped stale PDF validation result', {
+                validatedPath: path,
+                currentWorkingPath: workingCopyPath.value,
+                saveMode,
+            });
+            return null;
+        }
 
         return {
             finalBytes: new Uint8Array(),
             saveMode,
             warnings: validation.warnings,
             validation,
+            workingPath: path,
         };
     }
 
@@ -651,6 +668,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             opts: IPersistSerializedOptions,
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource: boolean,
+        expectedWorkingPath: TDocumentRef | null = null,
     ) {
         let preparedShapeStateSnapshot: unknown = null;
         try {
@@ -664,6 +682,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 () => persist(saveResult.finalBytes, {
                     saveMode: saveResult.saveMode,
                     preserveLoadedSource,
+                    expectedWorkingPath,
                 }),
                 result => ({
                     bytes: saveResult.finalBytes.byteLength,
@@ -725,7 +744,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 data: Uint8Array,
                 opts: IPersistSerializedOptions,
             ) => Promise<IPdfPersistResult>;
-            persistUnserialized: (opts: { saveMode: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+            persistUnserialized: (opts: {
+                saveMode: TPdfSaveMode;
+                expectedWorkingPath?: TDocumentRef | null;
+            }) => Promise<IPdfPersistResult>;
             shouldPreferWorkingCopy: boolean;
         },
     ) {
@@ -740,6 +762,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         let finalizedReloadWaiter = false;
         let pendingTexts: Map<string, string> | null = null;
         let pendingDeletes: IAnnotationCommentSummary[] | null = null;
+        const expectedWorkingPath = workingCopyPath.value;
         try {
             if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
                 return false;
@@ -803,6 +826,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     reloadWaiter,
                     config.mode,
                     config.persistUnserialized,
+                    expectedWorkingPath,
                 );
                 clearSaveIndicator(config.mode);
                 await finalizeSaveReload(reloadWaiter, saveSucceeded, {
@@ -818,6 +842,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     reloadWaiter,
                     config.mode,
                     config.persistUnserialized,
+                    expectedWorkingPath,
                 );
                 clearSaveIndicator(config.mode);
                 await finalizeSaveReload(reloadWaiter, saveSucceeded, {
@@ -843,6 +868,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     config.persistSerialized,
                     preserveLivePdfjsAnnotationSession,
                     includeManagedShapesForLiveSource,
+                    expectedWorkingPath,
                     () => clearSaveIndicator(config.mode),
                 );
                 finalizedReloadWaiter = true;
@@ -906,6 +932,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             opts: IPersistSerializedOptions,
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource = false,
+        expectedWorkingPath: TDocumentRef | null = null,
     ) {
         if (!rawData) {
             return false;
@@ -927,6 +954,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             mode,
             persist,
             preserveLoadedSource,
+            expectedWorkingPath,
         );
     }
 
@@ -935,17 +963,33 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         shapeStateDirty: boolean,
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         mode: 'save' | 'save_as',
-        persist: (opts: { saveMode: TPdfSaveMode }) => Promise<IPdfPersistResult>,
+        persist: (opts: {
+            saveMode: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        }) => Promise<IPdfPersistResult>,
+        expectedWorkingPath: TDocumentRef | null,
     ) {
         const saveResult = await validateWorkingCopySnapshot(saveMode);
         if (!saveResult) {
+            return false;
+        }
+        if (saveResult.workingPath !== expectedWorkingPath) {
+            BrowserLogger.debug('workspace', 'Skipped stale working-copy persistence after validation', {
+                expectedWorkingPath,
+                validatedPath: saveResult.workingPath,
+                currentWorkingPath: workingCopyPath.value,
+                saveMode,
+            });
             return false;
         }
 
         armPersistedShapeStateAdoption(shapeStateDirty);
         const persisted = await timedSavePhase(
             `persist-${mode}-working-copy`,
-            () => persist({ saveMode: saveResult.saveMode }),
+            () => persist({
+                saveMode: saveResult.saveMode,
+                expectedWorkingPath,
+            }),
             result => ({
                 saveMode: saveResult.saveMode,
                 success: result.success,
@@ -1019,6 +1063,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource = false,
         includeManagedShapesForLiveSource = false,
+        expectedWorkingPath: TDocumentRef | null,
         onPersistenceSettled?: () => void,
     ) {
         const saveSucceeded = await saveSerializedChanges(
@@ -1032,6 +1077,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode,
             persist,
             preserveLoadedSource,
+            expectedWorkingPath,
         );
         onPersistenceSettled?.();
         await finalizeSaveReload(reloadWaiter, saveSucceeded, {

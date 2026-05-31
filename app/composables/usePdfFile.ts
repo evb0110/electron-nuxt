@@ -968,6 +968,9 @@ export const usePdfFile = () => {
         }
 
         const nextState = await readPdfStateFromPath(path);
+        if (!isActiveWorkingCopy(path)) {
+            return false;
+        }
         if (nextState.pdfData) {
             resetHistory(nextState.pdfData, { reuseSnapshot: true });
             syncDirtyFromHistory();
@@ -975,6 +978,10 @@ export const usePdfFile = () => {
         }
 
         const entry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
+        if (!isActiveWorkingCopy(path)) {
+            void getDocumentsCapability().cleanupFile(entry.path);
+            return false;
+        }
         replaceHistory([entry], 0, 0);
         syncDirtyFromHistory();
         return true;
@@ -987,13 +994,22 @@ export const usePdfFile = () => {
         }
 
         const nextState = await readPdfStateFromPath(path);
-        pdfData.value = nextState.pdfData;
-        pdfSrc.value = nextState.pdfSrc;
+        if (!isActiveWorkingCopy(path)) {
+            return false;
+        }
 
         if (nextState.pdfData) {
+            pdfData.value = nextState.pdfData;
+            pdfSrc.value = nextState.pdfSrc;
             pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
         } else {
             const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
+            if (!isActiveWorkingCopy(path)) {
+                void getDocumentsCapability().cleanupFile(snapshotEntry.path);
+                return false;
+            }
+            pdfData.value = nextState.pdfData;
+            pdfSrc.value = nextState.pdfSrc;
             pushHistoryEntry(snapshotEntry);
         }
 
@@ -1023,13 +1039,24 @@ export const usePdfFile = () => {
         pushHistoryEntry(createByteHistoryEntry(snapshot, options));
     }
 
-    async function applySnapshot(snapshot: Uint8Array, persist = false) {
+    async function applySnapshot(
+        snapshot: Uint8Array,
+        persist = false,
+        expectedWorkingPath: TDocumentRef | null = workingCopyPath.value,
+    ) {
+        if (expectedWorkingPath !== workingCopyPath.value) {
+            return false;
+        }
+        if (persist && expectedWorkingPath) {
+            await getDocumentsCapability().writeFile(expectedWorkingPath, snapshot);
+            if (!isActiveWorkingCopy(expectedWorkingPath)) {
+                return false;
+            }
+        }
+
         pdfData.value = snapshot;
         pdfSrc.value = toPdfBlob(snapshot);
-
-        if (persist && workingCopyPath.value) {
-            await getDocumentsCapability().writeFile(workingCopyPath.value, snapshot);
-        }
+        return true;
     }
 
     async function loadPdfFromData(
@@ -1040,17 +1067,24 @@ export const usePdfFile = () => {
         },
     ) {
         const requestId = ++latestLoadRequestId;
+        const expectedWorkingPath = workingCopyPath.value;
         const snapshot = data.slice();
         assertPdfHasBytes(snapshot.byteLength);
         if (requestId !== latestLoadRequestId) {
             return;
         }
-        await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
-        if (requestId !== latestLoadRequestId) {
+        const didApplySnapshot = await applySnapshot(
+            snapshot,
+            opts?.persistWorkingCopy ?? false,
+            expectedWorkingPath,
+        );
+        if (!didApplySnapshot || requestId !== latestLoadRequestId) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF data load result', {
                 requestId,
                 latestLoadRequestId,
                 bytes: snapshot.byteLength,
+                expectedWorkingPath,
+                currentWorkingPath: workingCopyPath.value,
             });
             return;
         }
@@ -1061,21 +1095,35 @@ export const usePdfFile = () => {
             isDirty.value = true;
         }
 
-        if (opts?.persistWorkingCopy && workingCopyPath.value) {
-            deferPdfConformanceProfile(workingCopyPath.value);
+        if (opts?.persistWorkingCopy && expectedWorkingPath && isActiveWorkingCopy(expectedWorkingPath)) {
+            deferPdfConformanceProfile(expectedWorkingPath);
         }
     }
 
     async function persistPdfDataSilently(data: Uint8Array) {
+        const expectedWorkingPath = workingCopyPath.value;
         const snapshot = data.slice();
+        if (expectedWorkingPath) {
+            await getDocumentsCapability().writeFile(expectedWorkingPath, snapshot);
+            if (!isActiveWorkingCopy(expectedWorkingPath)) {
+                BrowserLogger.debug('pdf-file', 'Skipped stale silent PDF data persistence', {
+                    expectedWorkingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                });
+                return false;
+            }
+        } else if (workingCopyPath.value !== null) {
+            return false;
+        }
+
         pdfData.value = snapshot;
         pdfSrc.value = toPdfBlob(snapshot);
         pushHistorySnapshot(snapshot, { reuseSnapshot: true });
 
-        if (workingCopyPath.value) {
-            await getDocumentsCapability().writeFile(workingCopyPath.value, snapshot);
-            deferPdfConformanceProfile(workingCopyPath.value);
+        if (expectedWorkingPath) {
+            deferPdfConformanceProfile(expectedWorkingPath);
         }
+        return true;
     }
 
     async function readWorkingCopyBytes() {
@@ -1085,8 +1133,12 @@ export const usePdfFile = () => {
         }
 
         try {
-            return await readDocumentBytes(path);
+            const bytes = await readDocumentBytes(path);
+            return isActiveWorkingCopy(path) ? bytes : null;
         } catch (readError) {
+            if (!isActiveWorkingCopy(path)) {
+                return null;
+            }
             error.value = readError instanceof Error ? readError.message : t('errors.file.save');
             return null;
         }
@@ -1117,10 +1169,22 @@ export const usePdfFile = () => {
         saveMode: TPdfSaveMode,
         didSaveAs: boolean,
         operation: (workingPath: TDocumentRef) => Promise<IPdfPersistResult>,
+        expectedWorkingPath?: TDocumentRef | null,
     ): Promise<IPdfPersistResult> {
         const workingPath = workingCopyPath.value;
         if (!workingPath) {
             return createFailedPersistResult(saveMode, didSaveAs);
+        }
+        if (
+            expectedWorkingPath !== undefined
+            && workingPath !== expectedWorkingPath
+        ) {
+            BrowserLogger.debug('workspace', 'Skipped stale PDF persistence request', {
+                expectedWorkingPath,
+                currentWorkingPath: workingPath,
+                saveMode,
+            });
+            return createStalePersistResult(saveMode, didSaveAs);
         }
 
         try {
@@ -1177,12 +1241,25 @@ export const usePdfFile = () => {
         opts?: {
             saveMode?: TPdfSaveMode;
             preserveLoadedSource?: boolean;
+            expectedWorkingPath?: TDocumentRef | null;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
-            if (await shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath)) {
-                return saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
+            const forceSaveAs = await shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
+            if (!isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale PDF save before write', {
+                    workingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (forceSaveAs) {
+                return saveWorkingCopyAs(data, {
+                    saveMode: 'save_as_rewrite',
+                    expectedWorkingPath: workingPath,
+                });
             }
 
             const validation = await savePdfBytesToWorkingCopy(workingPath, data);
@@ -1206,16 +1283,31 @@ export const usePdfFile = () => {
             }
             lastSaveMode.value = requestedSaveMode;
             return createPersistResult(true, requestedSaveMode, false);
-        });
+        }, opts?.expectedWorkingPath);
     }
 
     async function saveWorkingCopy(
-        opts?: { saveMode?: TPdfSaveMode },
+        opts?: {
+            saveMode?: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
-            if (await shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath)) {
-                return saveWorkingCopyAs(undefined, { saveMode: 'save_as_rewrite' });
+            const forceSaveAs = await shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath);
+            if (!isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale working-copy save before write', {
+                    workingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (forceSaveAs) {
+                return saveWorkingCopyAs(undefined, {
+                    saveMode: 'save_as_rewrite',
+                    expectedWorkingPath: workingPath,
+                });
             }
 
             await getDocumentsCapability().saveFile(workingPath);
@@ -1232,12 +1324,15 @@ export const usePdfFile = () => {
             }
             lastSaveMode.value = requestedSaveMode;
             return createPersistResult(true, requestedSaveMode, false);
-        });
+        }, opts?.expectedWorkingPath);
     }
 
     async function saveWorkingCopyAs(
         data?: Uint8Array,
-        opts?: { saveMode?: TPdfSaveMode },
+        opts?: {
+            saveMode?: TPdfSaveMode;
+            expectedWorkingPath?: TDocumentRef | null;
+        },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
@@ -1303,7 +1398,7 @@ export const usePdfFile = () => {
                 lastSaveMode.value = requestedSaveMode;
             }
             return createPersistResult(Boolean(savedPath), requestedSaveMode, true, savedPath);
-        });
+        }, opts?.expectedWorkingPath);
     }
 
     function closeFile() {

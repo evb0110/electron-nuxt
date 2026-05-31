@@ -44,6 +44,7 @@ interface IPersistedSearchDocumentCacheRecord {
     version?: number;
     pdfPath: string;
     fileSize: number;
+    contentSignature?: string;
     pageCount: number;
     pageTexts: string[];
     textBytes?: number;
@@ -79,7 +80,7 @@ const SEARCH_PERSISTED_CACHE_MAX_RECORDS = 12;
 const SEARCH_PERSISTED_CACHE_MAX_BYTES = 48 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
 const SEARCH_CACHE_DB_VERSION = 1;
-const SEARCH_CACHE_RECORD_VERSION = 4;
+const SEARCH_CACHE_RECORD_VERSION = 5;
 const SEARCH_CACHE_STORE = 'document-text';
 let searchCacheAccessSequence = 0;
 
@@ -299,6 +300,7 @@ async function clearPersistedSearchCacheForDocument(pdfPath: string) {
 function createPersistedSearchCacheRecord(
     pdfPath: string,
     fileSize: number,
+    contentSignature: string,
     pageCount: number,
     pageTexts: string[],
 ): IPersistedSearchDocumentCacheRecord {
@@ -306,6 +308,7 @@ function createPersistedSearchCacheRecord(
         version: SEARCH_CACHE_RECORD_VERSION,
         pdfPath,
         fileSize,
+        contentSignature,
         pageCount,
         pageTexts,
         textBytes: estimatePageTextBytes(pageTexts),
@@ -393,8 +396,22 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     const canceledSearchRequests = new Set<string>();
     const activeWorkerSearchRequests = new Map<string, number>();
 
-    function getDocumentCache(pdfPath: string) {
-        let cache = searchDocumentCache.get(pdfPath);
+    function getMemoryCacheKey(pdfPath: string, contentSignature: string) {
+        return `${pdfPath}\0${contentSignature}`;
+    }
+
+    function deleteDocumentMemoryCaches(pdfPath: string) {
+        searchDocumentCache.delete(pdfPath);
+        const prefix = `${pdfPath}\0`;
+        for (const key of Array.from(searchDocumentCache.keys())) {
+            if (key.startsWith(prefix)) {
+                searchDocumentCache.delete(key);
+            }
+        }
+    }
+
+    function getDocumentCache(cacheKey: string) {
+        let cache = searchDocumentCache.get(cacheKey);
         if (!cache) {
             while (searchDocumentCache.size >= SEARCH_DOCUMENT_CACHE_LIMIT) {
                 const oldestKey = searchDocumentCache.keys().next().value;
@@ -404,14 +421,14 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 searchDocumentCache.delete(oldestKey);
             }
             cache = createDocumentCache();
-            searchDocumentCache.set(pdfPath, cache);
+            searchDocumentCache.set(cacheKey, cache);
         }
         return cache;
     }
 
     function clearSearchCaches(pdfPath?: string) {
         if (pdfPath) {
-            searchDocumentCache.delete(pdfPath);
+            deleteDocumentMemoryCaches(pdfPath);
             void clearPersistedSearchCacheForDocument(pdfPath);
             return;
         }
@@ -468,6 +485,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     function pickValidPersistedRecord(
         record: IPersistedSearchDocumentCacheRecord | null,
         fileSize: number,
+        contentSignature: string,
     ) {
         if (!record) {
             return null;
@@ -476,6 +494,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             return null;
         }
         if (record.fileSize !== fileSize) {
+            return null;
+        }
+        if (record.contentSignature !== contentSignature) {
             return null;
         }
         if (record.pageCount !== record.pageTexts.length) {
@@ -607,9 +628,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     async function iterateSearchPages(
         pdfPath: string,
         fileSize: number,
+        contentSignature: string,
         options: IIterateSearchPagesOptions,
     ) {
-        let cache = getDocumentCache(pdfPath);
+        const memoryCacheKey = getMemoryCacheKey(pdfPath, contentSignature);
+        let cache = getDocumentCache(memoryCacheKey);
         const cachedPageCount = cache.pageCount;
 
         if (isRecordCacheReady(cache) && cachedPageCount) {
@@ -619,12 +642,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             ) {
                 return iterateCachedDocumentPages(cache, cachedPageCount, options);
             }
-            searchDocumentCache.delete(pdfPath);
-            cache = getDocumentCache(pdfPath);
+            searchDocumentCache.delete(memoryCacheKey);
+            cache = getDocumentCache(memoryCacheKey);
         }
 
         const persistedRecord = await loadPersistedSearchCacheRecord(pdfPath);
-        const validPersistedRecord = pickValidPersistedRecord(persistedRecord, fileSize);
+        const validPersistedRecord = pickValidPersistedRecord(persistedRecord, fileSize, contentSignature);
         if (
             validPersistedRecord
             && (
@@ -678,6 +701,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 await persistSearchCacheRecord(createPersistedSearchCacheRecord(
                     pdfPath,
                     fileSize,
+                    contentSignature,
                     pageCount,
                     pageTexts,
                 ));
@@ -697,6 +721,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             await persistSearchCacheRecord(createPersistedSearchCacheRecord(
                 pdfPath,
                 fileSize,
+                contentSignature,
                 extractedDocumentText.pageCount,
                 extractedDocumentText.pageTexts,
             ));
@@ -716,6 +741,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
             await assertSearchWithinBrowserBudget(pdfPath);
             const { size } = await browserDocumentStore.stat(pdfPath);
+            const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
             const requestId = options.requestId ?? crypto.randomUUID();
             const results: IPdfSearchResult[] = [];
             const pageMatchCounts = new Map<number, number>();
@@ -726,7 +752,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             });
 
             try {
-                await iterateSearchPages(pdfPath, size, {
+                await iterateSearchPages(pdfPath, size, contentSignature, {
                     requestId,
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
                     streamDirectExtraction: true,
@@ -788,9 +814,10 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         async warmIndex(pdfPath, options = {}) {
             await assertSearchWithinBrowserBudget(pdfPath);
             const { size } = await browserDocumentStore.stat(pdfPath);
+            const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
             const requestId = options.requestId;
             try {
-                const completed = await iterateSearchPages(pdfPath, size, {
+                const completed = await iterateSearchPages(pdfPath, size, contentSignature, {
                     ...(requestId !== undefined ? {requestId} : {}),
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
                     onPage: async () => {

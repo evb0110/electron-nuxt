@@ -100,9 +100,25 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
     }
 
     ownerCleanupRegistered.add(ownerId);
-    owner.once('destroyed', () => {
+    const cleanup = () => {
+        owner.removeListener?.('destroyed', cleanup);
+        owner.removeListener?.('render-process-gone', cleanup);
+        owner.removeListener?.('did-start-navigation', handleNavigation);
         removeAllowedOpenPathsForOwner(ownerId);
-    });
+    };
+    const handleNavigation = (
+        _event: unknown,
+        _url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        if (isMainFrame && !isInPlace) {
+            cleanup();
+        }
+    };
+    owner.once('destroyed', cleanup);
+    owner.once('render-process-gone', cleanup);
+    owner.on?.('did-start-navigation', handleNavigation);
 }
 
 function isDestroyedOwner(owner: number | WebContents) {

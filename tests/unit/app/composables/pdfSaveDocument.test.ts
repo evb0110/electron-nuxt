@@ -89,4 +89,65 @@ describe('savePdfDocumentWithCommittedEditors', () => {
         expect(result).toBeNull();
         expect(commitOrRemove).not.toHaveBeenCalled();
     });
+
+    it('aborts when the active PDF document changes while editor commits settle', async () => {
+        const firstDocument = cast<PDFDocumentProxy>({ saveDocument: vi.fn(async () => new Uint8Array([1])) });
+        const secondDocument = cast<PDFDocumentProxy>({ saveDocument: vi.fn(async () => new Uint8Array([2])) });
+        let activeDocument: PDFDocumentProxy | null = firstDocument;
+        const commitOrRemove = vi.fn(() => {
+            activeDocument = secondDocument;
+        });
+
+        const result = await savePdfDocumentWithCommittedEditors({
+            pdfDocument: firstDocument,
+            annotationUiManager: cast<AnnotationEditorUIManager>({ commitOrRemove }),
+            getCurrentPdfDocument: () => activeDocument,
+        });
+
+        expect(result).toBeNull();
+        expect(commitOrRemove).toHaveBeenCalledOnce();
+        expect(firstDocument.saveDocument).not.toHaveBeenCalled();
+        expect(secondDocument.saveDocument).not.toHaveBeenCalled();
+    });
+
+    it('drops bytes when the PDF document changes before saveDocument resolves', async () => {
+        const saveState: {resolveSave?: (data: Uint8Array) => void} = {};
+        const saveDocument = vi.fn(() => new Promise<Uint8Array>((resolve) => {
+            saveState.resolveSave = resolve;
+        }));
+        const firstDocument = cast<PDFDocumentProxy>({ saveDocument });
+        const secondDocument = cast<PDFDocumentProxy>({ saveDocument: vi.fn(async () => new Uint8Array([9])) });
+        let activeDocument: PDFDocumentProxy | null = firstDocument;
+
+        const savePromise = savePdfDocumentWithCommittedEditors({
+            pdfDocument: firstDocument,
+            annotationUiManager: null,
+            getCurrentPdfDocument: () => activeDocument,
+        });
+
+        await vi.waitFor(() => {
+            expect(saveDocument).toHaveBeenCalledOnce();
+        });
+
+        activeDocument = secondDocument;
+        saveState.resolveSave?.(new Uint8Array([7]));
+
+        await expect(savePromise).resolves.toBeNull();
+    });
+
+    it('aborts when the PDF document is destroyed before saving', async () => {
+        const saveDocument = vi.fn(async () => new Uint8Array([5]));
+        const pdfDocument = cast<PDFDocumentProxy>({
+            destroyed: true,
+            saveDocument,
+        });
+
+        const result = await savePdfDocumentWithCommittedEditors({
+            pdfDocument,
+            annotationUiManager: null,
+        });
+
+        expect(result).toBeNull();
+        expect(saveDocument).not.toHaveBeenCalled();
+    });
 });

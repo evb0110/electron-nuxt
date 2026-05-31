@@ -83,6 +83,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {ensureWo
 
     return {
         pageOps,
+        workingCopyPath,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -174,6 +175,24 @@ describe('usePageOperations', () => {
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();
         expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
+    });
+
+    it('does not report success when a mutating operation reload becomes stale', async () => {
+        const {
+            pageOps,
+            workingCopyPath,
+            reloadWorkingCopyIntoHistory,
+        } = createHarness();
+        pageOpsApi.rotate.mockResolvedValueOnce({ success: true });
+        reloadWorkingCopyIntoHistory.mockImplementationOnce(async () => {
+            workingCopyPath.value = '/tmp/other.pdf';
+            return false;
+        });
+
+        await expect(pageOps.rotatePages([1], 90)).resolves.toBe(false);
+
+        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 90);
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
     });
 
     it('persists pending changes before extracting pages from the working copy', async () => {

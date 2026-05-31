@@ -18,6 +18,8 @@ interface ITestOwner {
     id: number;
     destroyed: boolean;
     once: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+    removeListener: ReturnType<typeof vi.fn>;
     isDestroyed: () => boolean;
 }
 
@@ -26,6 +28,8 @@ function createOwner(id: number): ITestOwner {
         id,
         destroyed: false,
         once: vi.fn(),
+        on: vi.fn(),
+        removeListener: vi.fn(),
         isDestroyed: () => owner.destroyed,
     };
 
@@ -36,6 +40,23 @@ function triggerDestroyed(owner: ITestOwner) {
     const destroyedHandler = owner.once.mock.calls
         .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
     destroyedHandler?.();
+}
+
+function triggerRenderProcessGone(owner: ITestOwner) {
+    const handler = owner.once.mock.calls
+        .find(call => call[0] === 'render-process-gone')?.[1] as (() => void) | undefined;
+    handler?.();
+}
+
+function triggerMainFrameNavigation(owner: ITestOwner) {
+    const handler = owner.on.mock.calls
+        .find(call => call[0] === 'did-start-navigation')?.[1] as ((
+            event: unknown,
+            url: string,
+            isInPlace: boolean,
+            isMainFrame: boolean,
+        ) => void) | undefined;
+    handler?.({}, 'app://reload', false, true);
 }
 
 describe('open path capabilities', () => {
@@ -100,6 +121,38 @@ describe('open path capabilities', () => {
         expect(() => requireOpenPath(filePath, owner as never)).toThrow('Path not allowed');
     });
 
+    it('clears grants when the owning renderer process crashes', async () => {
+        const filePath = join(tempRoot, 'crashed.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const owner = createOwner(43);
+        const {
+            allowOpenPath,
+            requireOpenPath,
+        } = await import('@electron/ipc/openPathCapabilities');
+
+        expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
+        triggerRenderProcessGone(owner);
+
+        expect(() => requireOpenPath(filePath, owner as never)).toThrow('Path not allowed');
+    });
+
+    it('clears grants when the owning renderer reloads', async () => {
+        const filePath = join(tempRoot, 'reloaded.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const owner = createOwner(44);
+        const {
+            allowOpenPath,
+            requireOpenPath,
+        } = await import('@electron/ipc/openPathCapabilities');
+
+        expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
+        triggerMainFrameNavigation(owner);
+
+        expect(() => requireOpenPath(filePath, owner as never)).toThrow('Path not allowed');
+    });
+
     it('registers one cleanup listener per owner', async () => {
         const firstPath = join(tempRoot, 'first.pdf');
         const secondPath = join(tempRoot, 'second.pdf');
@@ -112,7 +165,9 @@ describe('open path capabilities', () => {
         allowOpenPath(firstPath, owner as never);
         allowOpenPath(secondPath, owner as never);
 
-        expect(owner.once).toHaveBeenCalledTimes(1);
+        expect(owner.once).toHaveBeenCalledTimes(2);
         expect(owner.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+        expect(owner.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+        expect(owner.on).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
     });
 });

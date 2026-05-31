@@ -19,7 +19,13 @@ const mocks = vi.hoisted(() => {
         public readonly close = vi.fn();
         public readonly isDestroyed = vi.fn(() => false);
         public readonly loadURL = vi.fn(async () => {});
-        public readonly webContents = { print: vi.fn(printHandler) };
+        public readonly once = vi.fn();
+        public readonly removeListener = vi.fn();
+        public readonly webContents = {
+            print: vi.fn(printHandler),
+            once: vi.fn(),
+            removeListener: vi.fn(),
+        };
 
         public constructor(public readonly options: Record<string, unknown>) {
             browserWindowInstances.push(this);
@@ -226,6 +232,31 @@ describe('documents print', () => {
         expect(result).toEqual({
             success: false,
             error: 'printer unavailable',
+        });
+        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
+    });
+
+    it('fails and cleans up when the native print callback never arrives', async () => {
+        vi.useFakeTimers();
+        mocks.printHandler.mockImplementationOnce(() => undefined);
+
+        const resultPromise = handlePrintPdfData(
+            { sender: {} } as never,
+            validPdfBytes,
+            'document.pdf',
+        );
+        for (let index = 0; index < 12; index += 1) {
+            await Promise.resolve();
+        }
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync((5 * 60 * 1000) + 1);
+        const result = await resultPromise;
+
+        expect(result).toEqual({
+            success: false,
+            error: 'Print dialog timed out after 300000ms',
         });
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
         expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);

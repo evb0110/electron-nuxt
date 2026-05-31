@@ -114,6 +114,7 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult> {
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         pageNumber: number,
         annotationLayerInstance: null,
+        options?: { shouldContinue?: () => boolean },
     ) => Promise<unknown>;
     getViewportForAnnotationEditorLayer: (pdfPage: PDFPageProxy, scale: number) => ReturnType<PDFPageProxy['getViewport']>;
     scheduleOcrDebugForPage: (pageNumber: number, context: IRenderPageContext<TRenderResult>) => void;
@@ -159,6 +160,16 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         onRenderedPageStateChanged,
         logNonCriticalStageError,
     } = options;
+
+    function cleanupStaleMountedPageRender(
+        pageNumber: number,
+        version: number,
+        requestId: number,
+        pdfPage: PDFPageProxy,
+    ) {
+        cleanupPageIfCurrentRender(pageNumber, version, requestId);
+        releasePageResources(pageNumber, pdfPage);
+    }
 
     function finalizePageRender(
         pageNumber: number,
@@ -293,10 +304,11 @@ export function usePdfRendererSinglePageController<TRenderResult>(
             shouldContinue,
         );
         if (!shouldContinueAfterTextLayer) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
             return;
         }
         if (!shouldContinue()) {
-            releasePageResources(pageNumber, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
             return;
         }
 
@@ -308,10 +320,11 @@ export function usePdfRendererSinglePageController<TRenderResult>(
             shouldContinue,
         );
         if (!annotationRenderResult.shouldContinue) {
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
             return;
         }
         if (!shouldContinue()) {
-            releasePageResources(pageNumber, pdfPage);
+            cleanupStaleMountedPageRender(pageNumber, version, requestId, pdfPage);
             return;
         }
 
@@ -489,6 +502,10 @@ export function usePdfRendererSinglePageController<TRenderResult>(
             if (!pdfPage) {
                 return;
             }
+            if (!shouldContinuePage()) {
+                releasePageResources(pageNumber, pdfPage);
+                return;
+            }
             const renderResult = await prepareCanvasForRender(
                 pdfPage,
                 pageNumber,
@@ -544,6 +561,16 @@ export function usePdfRendererSinglePageController<TRenderResult>(
                 return false;
             }
             try {
+                const shouldContinueEditorLayerRender = () => (
+                    getRenderVersion() === version
+                    && toValue(isActive)
+                    && target.container.isConnected !== false
+                    && target.canvasHost.isConnected !== false
+                    && target.container.dataset.page === String(pageNumber)
+                );
+                if (!shouldContinueEditorLayerRender()) {
+                    return false;
+                }
                 const textLayerDiv =
                     target.container.querySelector<HTMLDivElement>('.text-layer');
                 const annotationEditorLayerDiv =
@@ -559,8 +586,9 @@ export function usePdfRendererSinglePageController<TRenderResult>(
                     viewport,
                     pageNumber,
                     null,
+                    { shouldContinue: shouldContinueEditorLayerRender },
                 );
-                return getRenderVersion() === version;
+                return shouldContinueEditorLayerRender();
             } catch (error) {
                 logNonCriticalStageError(
                     pageNumber,

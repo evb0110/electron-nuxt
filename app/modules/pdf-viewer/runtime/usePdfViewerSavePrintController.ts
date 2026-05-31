@@ -18,6 +18,7 @@ export function usePdfViewerSavePrintController(options: IUsePdfViewerSavePrintC
         return savePdfDocumentWithCommittedEditors({
             pdfDocument: options.getPdfDocument(),
             annotationUiManager: options.getAnnotationUiManager(),
+            getCurrentPdfDocument: options.getPdfDocument,
         });
     }
 

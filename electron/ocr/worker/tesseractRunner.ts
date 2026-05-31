@@ -234,6 +234,11 @@ export async function runOcrFileBased(
             abortHandler?.();
         }
 
+        // File-output Tesseract jobs should not produce meaningful stdout, but
+        // some builds still write progress text there. Drain it so the child
+        // cannot block on a full pipe while stderr is the only captured stream.
+        proc.stdout?.resume();
+
         proc.stderr?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
             stderr = appended.text;

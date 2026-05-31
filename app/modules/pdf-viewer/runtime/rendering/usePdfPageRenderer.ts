@@ -446,7 +446,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         ensurePageMetricsInRange,
         setupPagePlaceholders,
         cleanupPage,
-        cancelObsoleteInFlightRenders,
+        cancelObsoleteInFlightRenders: (pagesToKeepRendering, requestId) => {
+            cancelObsoleteInFlightRenders(
+                pagesToKeepRendering,
+                requestId,
+                cleanupPageIfCurrentRender,
+            );
+        },
         renderSingleVisiblePage,
         scheduleMissingRenderTargetRetry,
         throttleMs: RERENDER_LOG_THROTTLE_MS,

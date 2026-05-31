@@ -120,6 +120,14 @@ export async function loadAllRecords() {
     );
 }
 
+export async function loadAllRecordKeys() {
+    return withObjectStore<IDBValidKey[]>(
+        DOCUMENTS_STORE,
+        'readonly',
+        (store) => store.getAllKeys(),
+    );
+}
+
 export async function deleteRecord(ref: string) {
     const result = await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.delete(ref));
     assertWriteCommitted(result, 'document delete');

@@ -160,6 +160,10 @@ export function toPersistedDocumentRecord(
     const retention = value.retention;
     const sourceRef =
         typeof value.sourceRef === 'string' ? value.sourceRef : undefined;
+    const contentToken =
+        typeof value.contentToken === 'string' && value.contentToken.length > 0
+            ? value.contentToken
+            : undefined;
     const saveTarget = normalizePersistedSaveTarget(value);
     const storageMode = normalizeStorageMode(value.storageMode);
     const chunkLayout = normalizePersistedChunkLayout(value);
@@ -168,6 +172,7 @@ export function toPersistedDocumentRecord(
         ...requiredFields,
         retention: retention === 'transient' ? 'transient' : 'durable',
         ...(sourceRef ? { sourceRef } : {}),
+        ...(contentToken ? { contentToken } : {}),
         ...saveTarget,
         storageMode,
         ...chunkLayout,
@@ -282,6 +287,7 @@ export function createBrowserDocumentEntry(
         data: input.data,
         fileSize: input.fileSize,
         updatedAt: Date.now(),
+        ...(input.contentToken ? { contentToken: input.contentToken } : {}),
         pendingLoad: null,
         saveName: input.fileName,
         saveKind: input.saveKind,

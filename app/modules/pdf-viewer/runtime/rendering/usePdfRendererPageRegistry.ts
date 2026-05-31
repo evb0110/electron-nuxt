@@ -93,6 +93,7 @@ export function usePdfRendererPageRegistry() {
     function cancelObsoleteInFlightRenders(
         pagesToKeepRendering: Set<number>,
         requestId: number,
+        cleanupCancelledPage?: (pageNumber: number, version: number, requestId?: number) => void,
     ) {
         const cancelledPages: number[] = [];
 
@@ -101,10 +102,17 @@ export function usePdfRendererPageRegistry() {
                 continue;
             }
 
+            const renderingVersion = renderingPages.get(pageNumber);
+            const renderingRequestId = renderingPageRequestIds.get(pageNumber);
             cancelActiveRenderTask(pageNumber);
             cancelActiveTextLayerRender(pageNumber);
-            renderingPages.delete(pageNumber);
-            renderingPageRequestIds.delete(pageNumber);
+            if (typeof renderingVersion === 'number') {
+                cleanupCancelledPage?.(pageNumber, renderingVersion, renderingRequestId);
+            }
+            if (renderingPages.get(pageNumber) === renderingVersion) {
+                renderingPages.delete(pageNumber);
+                renderingPageRequestIds.delete(pageNumber);
+            }
             missingRenderTargetRetries.delete(pageNumber);
             cancelledPages.push(pageNumber);
         }
