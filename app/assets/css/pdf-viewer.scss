@@ -229,10 +229,6 @@
         place-content: flex-start center;
     }
 
-    &.is-placing-comment {
-        cursor: crosshair;
-    }
-
     &.pdfViewer--fit-height {
         overflow-x: auto;
     }
@@ -338,6 +334,39 @@
         pointer-events: none !important;
     }
     /* stylelint-enable no-descending-specificity */
+}
+
+/* ── Note Placement Cursor Overrides ───────────────────────────────── */
+
+.pdfViewer.is-placing-comment {
+    cursor: crosshair !important;
+    user-select: none;
+
+    *,
+    .text-layer,
+    .text-layer *,
+    .textLayer,
+    .textLayer *,
+    .annotation-layer,
+    .annotation-layer *,
+    .annotation-editor-layer,
+    .annotation-editor-layer *,
+    .annotationEditorLayer,
+    .annotationEditorLayer *,
+    .page_container,
+    .page_container canvas,
+    .pdf-link-overlay-layer,
+    .pdf-link-overlay-layer *,
+    .pdf-comment-marker-layer-vue,
+    .pdf-comment-marker-layer-vue *,
+    .pdf-shape-overlay,
+    .pdf-shape-overlay *,
+    .annotationLayer,
+    .annotationLayer *,
+    .canvasWrapper {
+        cursor: crosshair !important;
+        user-select: none !important;
+    }
 }
 
 /* ── Markup Subtype Visual Overrides (underline / strikethrough / squiggly) ──── */

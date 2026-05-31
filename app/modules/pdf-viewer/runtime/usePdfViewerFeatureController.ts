@@ -375,6 +375,15 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         annotationSettings,
         pendingImagePlacement,
     });
+    const isPlacementInactivePanDragModeActive = computed(() =>
+        isViewerPanDragModeActive.value && !highlightComposable.isPlacingComment.value,
+    );
+    const isPlacementInactiveSelectionMarkupToolActive = computed(() =>
+        isSelectionMarkupToolActive.value && !highlightComposable.isPlacingComment.value,
+    );
+    const isPlacementInactiveTextSelectionModeActive = computed(() =>
+        isTextSelectionModeActive.value && !highlightComposable.isPlacingComment.value,
+    );
     const zoomSnapSuppressedForClass = ref(false);
     const {
         pageLayout,
@@ -413,10 +422,10 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         classState: {
             isAnySaving,
             isDragging,
-            isViewerPanDragModeActive,
+            isViewerPanDragModeActive: isPlacementInactivePanDragModeActive,
             isPlacingComment: highlightComposable.isPlacingComment,
-            isSelectionMarkupToolActive,
-            isTextSelectionModeActive,
+            isSelectionMarkupToolActive: isPlacementInactiveSelectionMarkupToolActive,
+            isTextSelectionModeActive: isPlacementInactiveTextSelectionModeActive,
             fitMode,
             zoomMode,
             resizeTransitionVisible,
@@ -594,6 +603,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         handleViewerContextMenu,
     } = usePdfViewerMouseInteractions({
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
+        isCommentPlacementActive: () => highlightComposable.isPlacingComment.value,
         isViewerPanDragModeActive,
         cancelPendingSearchScroll,
         handleDragStart,
