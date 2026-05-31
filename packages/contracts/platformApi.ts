@@ -1,16 +1,16 @@
-import type { IDjvuCapability } from './electronApiDjvu';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
     IImageExportCapability,
-} from './electronApiDocuments';
-import type { IHostCapability } from './electronApiHost';
-import type { IOcrCapability } from './electronApiOcr';
-import type { IPageOpsCapability } from './electronApiPageOps';
-import type { ISearchCapability } from './electronApiSearch';
-import type { ISettingsCapability } from './electronApiSettings';
-import type { IShellCapability } from './electronApiShell';
-import type { IUpdatesCapability } from './electronApiUpdates';
-import type { IWindowTabsCapability } from './electronApiWindowTabs';
+} from '@contracts/electronApiDocuments';
+import type { IHostCapability } from '@contracts/electronApiHost';
+import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { ISearchCapability } from '@contracts/electronApiSearch';
+import type { ISettingsCapability } from '@contracts/electronApiSettings';
+import type { IShellCapability } from '@contracts/electronApiShell';
+import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 
 export interface IPlatformApi {
     documents: IDocumentsCapability;
@@ -26,7 +26,7 @@ export interface IPlatformApi {
     host: IHostCapability;
 }
 
-export type { TDocumentRef } from './document';
+export type { TDocumentRef } from '@contracts/document';
 export type {
     IDesktopMenuCapability,
     IDesktopWindowCapability,
@@ -40,7 +40,7 @@ export type {
     IViewerSearchCapability,
     IViewerSettingsCapability,
     TViewerHostKind,
-} from './viewerHost';
+} from '@contracts/viewerHost';
 
 export type {
     IAppUpdateStatus,
@@ -73,4 +73,4 @@ export type {
     TPdfSaveMode,
     IPdfConformanceProfile,
     IPdfValidationResult,
-} from './electronApi';
+} from '@contracts/electronApi';

@@ -8,7 +8,7 @@ import {
     extractIconsFromScriptContent,
     extractIconsFromTemplateContent,
     extractIconsFromVueSfcContent,
-} from '../../../scripts/checkIconBundle';
+} from '@scripts/checkIconBundle';
 
 const COLLECTION_HINTS = createCollectionHints(['ph']);
 

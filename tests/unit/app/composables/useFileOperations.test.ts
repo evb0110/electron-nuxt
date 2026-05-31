@@ -13,7 +13,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperations } from '@app/composables/useFileOperations';
-import { cast } from '../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
 

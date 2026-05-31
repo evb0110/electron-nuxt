@@ -13,7 +13,7 @@ import { usePageFileOperations } from '@app/modules/workspace-shell/composables/
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdf';
-import { cast } from '../../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const {
     mockHasElectronAPI,

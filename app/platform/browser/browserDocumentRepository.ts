@@ -2,15 +2,15 @@ import {
     BROWSER_CHUNK_WRITE_YIELD_EVERY,
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
-} from './browserDocumentConstants';
+} from '@app/platform/browser/browserDocumentConstants';
 import { uniq } from 'es-toolkit/array';
 import {
     cloneBytes,
     normalizePersistedWriteBytes,
     normalizeReadRange,
     toUint8Array,
-} from './browserDocumentBytes';
-import { buildRecentFilesFromPersistedRecords } from './browserDocumentRecentFiles';
+} from '@app/platform/browser/browserDocumentBytes';
+import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/browserDocumentRecentFiles';
 import {
     collectChunkIndicesByRef,
     countNonWorkingDependents,
@@ -19,15 +19,15 @@ import {
     isChunkedRecordMissingChunks,
     shouldRemovePersistedRecord,
     toPersistedDocumentRecord,
-} from './browserDocumentRecords';
-import { createBrowserDocumentRef } from './browserDocumentRefs';
+} from '@app/platform/browser/browserDocumentRecords';
+import { createBrowserDocumentRef } from '@app/platform/browser/browserDocumentRefs';
 import {
     buildBrowserDocumentFullReadError,
     defaultRetentionForKind,
     resolveByteBackedStorageMode,
     resolveStoredDocumentStorageMode,
     shouldInlineFileBytes,
-} from './browserDocumentStoragePolicy';
+} from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
     IBrowserDocumentEntry,
     IBrowserPersistedDocumentRecord,
@@ -35,7 +35,7 @@ import type {
     ICreateStoredDocumentOptions,
     IRegisterFileOptions,
     IWriteDocumentOptions,
-} from './browserDocumentTypes';
+} from '@app/platform/browser/browserDocumentTypes';
 import {
     deleteRecord,
     loadAllRecordKeys,

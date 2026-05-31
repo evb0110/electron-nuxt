@@ -1,8 +1,8 @@
-import type { TDocumentRef } from './document';
+import type { TDocumentRef } from '@contracts/document';
 import type {
     ICropMargins,
     IPageGeometry,
-} from './shared';
+} from '@contracts/shared';
 
 export type TPageOpsRotationAngle = 90 | 180 | 270;
 

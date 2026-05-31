@@ -2,7 +2,7 @@ import {
     defineEventHandler,
     setHeader,
 } from 'h3';
-import { resolveSiteUrl } from '../utils/normalizeSiteUrl';
+import { resolveSiteUrl } from '@server/utils/normalizeSiteUrl';
 
 const BUILD_TIMESTAMP = new Date().toISOString();
 const SEO_IMAGE_PATH = '/evb-viewer-seo.png';

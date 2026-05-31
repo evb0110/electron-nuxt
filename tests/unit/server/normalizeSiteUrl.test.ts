@@ -20,7 +20,7 @@ describe('resolveSiteUrl', () => {
     it('prefers a configured canonical site URL over the request host', async () => {
         vi.stubGlobal('process', {env: { NUXT_PUBLIC_SITE_URL: 'https://canonical.example' }});
         requestUrlMock.value = new URL('https://hostile.example/sitemap.xml');
-        const { resolveSiteUrl } = await import('../../../server/utils/normalizeSiteUrl');
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
 
         expect(resolveSiteUrl({} as H3Event)).toBe('https://canonical.example/');
     });
@@ -31,7 +31,7 @@ describe('resolveSiteUrl', () => {
             SITE_URL_ALLOWED_HOSTS: 'example.test',
         } });
         requestUrlMock.value = new URL('https://hostile.example/sitemap.xml');
-        const { resolveSiteUrl } = await import('../../../server/utils/normalizeSiteUrl');
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
 
         expect(() => resolveSiteUrl({} as H3Event)).toThrow(
             /configured canonical URL or allowed request host/u,
@@ -43,7 +43,7 @@ describe('resolveSiteUrl', () => {
             NODE_ENV: 'production',
             SITE_URL_ALLOWED_HOSTS: 'example.test, www.example.test',
         }});
-        const { resolveSiteUrl } = await import('../../../server/utils/normalizeSiteUrl');
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
 
         expect(resolveSiteUrl({} as H3Event)).toBe('https://example.test/');
     });
@@ -51,7 +51,7 @@ describe('resolveSiteUrl', () => {
     it('uses the canonical production default during local prerender', async () => {
         vi.stubGlobal('process', {env: { NODE_ENV: 'production' }});
         requestUrlMock.value = new URL('http://localhost/sitemap.xml');
-        const { resolveSiteUrl } = await import('../../../server/utils/normalizeSiteUrl');
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
 
         expect(resolveSiteUrl({} as H3Event)).toBe('https://evb-viewer-web.vercel.app/');
     });

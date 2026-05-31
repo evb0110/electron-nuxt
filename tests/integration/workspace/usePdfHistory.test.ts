@@ -14,7 +14,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
-import { cast } from '../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> = {}) {
     return cast<Parameters<typeof usePdfHistory>[0]>({

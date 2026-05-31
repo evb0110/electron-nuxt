@@ -13,7 +13,7 @@ import {
 import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator';
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { cast } from '../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 function createResizeAnchor(page: number): IResizeAnchorContext {
     return {

@@ -18,7 +18,7 @@ import type {
 import type {
     IPdfAnnotationCommentModel,
     IPendingAnnotationMarkerMove,
-} from './pdfAnnotationCommentModel.types';
+} from '@app/modules/pdf-viewer/annotations/pdfAnnotationCommentModel.types';
 
 interface IUsePdfAnnotationCommentModelOptions {
     isAnySaving: Ref<boolean>;

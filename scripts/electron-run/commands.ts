@@ -13,13 +13,13 @@ import {
     COMMAND_EXECUTION_TIMEOUT_MS,
     OPEN_PDF_READY_TIMEOUT_MS,
     OPEN_PDF_TRIGGER_TIMEOUT_MS,
-} from './electronRunTimeouts';
-import { screenshotDirPath } from './electronRunSessionPaths';
+} from '@scripts/electron-run/electronRunTimeouts';
+import { screenshotDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 import type {
     ISessionState,
     TDevtoolsEvent,
-} from './electronRunSessionTypes';
-import type { TElectronRunCommand } from './electronRunProtocol';
+} from '@scripts/electron-run/electronRunSessionTypes';
+import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
 
 const DEFAULT_CONSOLE_LIMIT = 50;
 const DEFAULT_DEVTOOLS_LIMIT = 120;

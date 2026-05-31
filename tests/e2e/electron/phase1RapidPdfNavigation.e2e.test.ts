@@ -18,8 +18,8 @@ import { delay } from 'es-toolkit/promise';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
-import { openPdfInApp } from './helpers/viewerCore';
+} from '@tests/e2e/electron/helpers/sessionHarness';
+import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 
 const PAGE_JUMP_PDF_PATH = '.devkit/manual-pdf-fixtures/History of Ancient Rome_2005.pdf';
 const TARGET_PAGE = 100;

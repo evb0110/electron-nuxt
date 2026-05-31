@@ -13,7 +13,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import { cast } from '../../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const fileOperationMocks = vi.hoisted((): {
     capturedDeps: unknown;

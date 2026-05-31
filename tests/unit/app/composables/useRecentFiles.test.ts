@@ -10,7 +10,7 @@ import {
     ref,
 } from 'vue';
 import type { IRecentFile } from '@contracts/shared';
-import { installNuxtStateTestStubs } from './nuxtStateTestStubs';
+import { installNuxtStateTestStubs } from '@tests/unit/app/composables/nuxtStateTestStubs';
 
 const cookieStore = new Map<string, ReturnType<typeof ref>>();
 const stateStore = new Map<string, ReturnType<typeof ref>>();

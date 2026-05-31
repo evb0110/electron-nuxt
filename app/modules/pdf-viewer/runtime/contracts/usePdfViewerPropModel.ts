@@ -11,7 +11,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
-import type { IPdfViewerProps } from './pdfViewerComponent.types';
+import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
 export interface IPdfViewerPropModel {
     src: ComputedRef<TPdfSource | null>;

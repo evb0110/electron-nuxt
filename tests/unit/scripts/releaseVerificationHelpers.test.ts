@@ -8,7 +8,7 @@ import {
     isAllowedPackagedToolExitCode,
     isPackagedStartupReady,
     parseAllowedToolExitCodes,
-} from '../../../scripts/releaseVerificationHelpers';
+} from '@scripts/releaseVerificationHelpers';
 
 describe('release verification helpers', () => {
     it('exposes a stable packaged-startup ready marker token', () => {

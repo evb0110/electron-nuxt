@@ -14,7 +14,7 @@ import {
 } from 'vue';
 import { renderToString } from '@vue/server-renderer';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { cast } from '../../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),

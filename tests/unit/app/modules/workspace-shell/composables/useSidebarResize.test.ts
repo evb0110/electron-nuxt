@@ -10,7 +10,7 @@ import {
     ref,
 } from 'vue';
 import { SIDEBAR } from '@app/constants/pdfLayout';
-import { cast } from '../../../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
 

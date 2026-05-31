@@ -22,8 +22,8 @@ import puppeteer, {
 import { safeDestr } from 'destr';
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
-import { createCommandHandler } from './commands';
-import { isReusableNuxtResponse } from './electronRunNuxtServerResponse';
+import { createCommandHandler } from '@scripts/electron-run/commands';
+import { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
 import {
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
@@ -34,12 +34,12 @@ import {
     sanitizeElectronLaunchEnv,
     shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
-} from './electronRunLaunchConfig';
+} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     DEFAULT_NUXT_PORT,
     getNuxtPort,
     setNuxtPort,
-} from './electronRunPortConfig';
+} from '@scripts/electron-run/electronRunPortConfig';
 import {
     collectDescendantPidsUnix,
     findFreePort,
@@ -48,9 +48,9 @@ import {
     isProcessAlive,
     killPids,
     killProcessTree,
-} from './electronRunProcessTree';
-import { projectRoot } from './electronRunProjectPaths';
-import { parseElectronRunCommandRequest } from './electronRunProtocol';
+} from '@scripts/electron-run/electronRunProcessTree';
+import { projectRoot } from '@scripts/electron-run/electronRunProjectPaths';
+import { parseElectronRunCommandRequest } from '@scripts/electron-run/electronRunProtocol';
 import {
     cleanupStaleSessionArtifacts,
     clearSessionStarting,
@@ -62,22 +62,22 @@ import {
     listRunningSessions,
     markSessionStarting,
     readSessionLogTail,
-} from './electronRunSessionArtifacts';
+} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     electronUserDataPath,
     getCurrentSessionName,
     sessionDir,
     sessionFilePath,
     sessionLogFilePath,
-} from './electronRunSessionPaths';
+} from '@scripts/electron-run/electronRunSessionPaths';
 import type {
     ISessionInfo,
     ISessionState,
-} from './electronRunSessionTypes';
-import { SESSION_WAIT_TIMEOUT_MS } from './electronRunTimeouts';
+} from '@scripts/electron-run/electronRunSessionTypes';
+import { SESSION_WAIT_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
 
-export * from './electronRunLaunchConfig';
-export { isReusableNuxtResponse } from './electronRunNuxtServerResponse';
+export * from '@scripts/electron-run/electronRunLaunchConfig';
+export { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
 
 let sessionState: ISessionState | null = null;
 

@@ -20,7 +20,7 @@ export {
     parseUserAgent,
     recommendInstaller,
     selectPreferredInstallers,
-} from './releaseSelection';
+} from '@evb/releaseSelection/releaseSelection';
 
 export type {
     ILatestReleaseResponse,

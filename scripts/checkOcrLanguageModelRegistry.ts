@@ -4,7 +4,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AVAILABLE_OCR_LANGUAGES } from '../packages/contracts/ocrLanguages';
+import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');

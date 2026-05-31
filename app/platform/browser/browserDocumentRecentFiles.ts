@@ -1,6 +1,6 @@
 import type { IRecentFile } from '@contracts/shared';
-import { defaultRetentionForKind } from './browserDocumentStoragePolicy';
-import type { IBrowserPersistedDocumentRecord } from './browserDocumentTypes';
+import { defaultRetentionForKind } from '@app/platform/browser/browserDocumentStoragePolicy';
+import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
 
 export function buildRecentFilesFromPersistedRecords(
     records: IBrowserPersistedDocumentRecord[],

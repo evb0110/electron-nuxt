@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import { cast } from '../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const highlightPageMock = vi.fn(() => ({
     elements: [],

@@ -4,7 +4,7 @@ import {
     getRequestIP,
     getRequestURL,
 } from 'h3';
-import { getRuntimeEnv } from '../utils/runtimeEnv';
+import { getRuntimeEnv } from '@server/utils/runtimeEnv';
 
 interface IGeoData {
     country: string | null;

@@ -11,7 +11,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useFileOperations } from '@app/composables/useFileOperations';
-import { cast } from '../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
 

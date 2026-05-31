@@ -1,13 +1,13 @@
 export type {
     ILocaleDefinition,
     TLocaleFile,
-} from './i18n';
+} from '@contracts/i18n';
 
 export type {
     IIpcInvokeSpec,
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
-} from './ipcMain';
+} from '@contracts/ipcMain';
 
 export type {
     IAppUpdateStatus,
@@ -30,8 +30,8 @@ export type {
     TAppUpdateCheckOrigin,
     TAppUpdatePhase,
     TOpenFileResult,
-} from './platformApi';
-export type { IElectronAPI } from './electronApi';
+} from '@contracts/platformApi';
+export type { IElectronAPI } from '@contracts/electronApi';
 
 export type {
     IDesktopMenuCapability,
@@ -46,13 +46,13 @@ export type {
     IViewerSearchCapability,
     IViewerSettingsCapability,
     TViewerHostKind,
-} from './viewerHost';
+} from '@contracts/viewerHost';
 
 export {
     READER_COMMAND_CATEGORIES,
     READER_COMMAND_DESCRIPTORS,
     READER_COMMANDS,
-} from './readerCommands';
+} from '@contracts/readerCommands';
 export type {
     IReaderCommandDescriptor,
     IReaderCommandRequest,
@@ -63,9 +63,9 @@ export type {
     TReaderCommandId,
     TReaderCommandMap,
     TReaderCommandPlacement,
-} from './readerCommands';
+} from '@contracts/readerCommands';
 
-export type { TDocumentRef } from './document';
+export type { TDocumentRef } from '@contracts/document';
 
 export type {
     IEditorGroupRect,
@@ -75,7 +75,7 @@ export type {
     TEditorLayoutNode,
     TGroupDirection,
     TGroupOrientation,
-} from './editorGroups';
+} from '@contracts/editorGroups';
 
 export {
     MAX_IPC_PATH_LENGTH,
@@ -83,7 +83,7 @@ export {
     assertNonEmptyString,
     assertOptionalAbsolutePath,
     isLikelyAbsolutePath,
-} from './ipcAssertions';
+} from '@contracts/ipcAssertions';
 
 export {
     ALLOWED_EXTERNAL_PROTOCOLS,
@@ -91,9 +91,9 @@ export {
     normalizeAllowedExternalUrl,
     parseAllowedExternalUrl,
     sanitizeAllowedExternalUrl,
-} from './externalUrl';
+} from '@contracts/externalUrl';
 
-export type {IPdfBookmarkEntry} from './pdf';
+export type {IPdfBookmarkEntry} from '@contracts/pdf';
 
 export type {
     IPdfSearchExcerpt,
@@ -102,7 +102,7 @@ export type {
     IPdfSearchResponse,
     IPdfSearchResult,
     ISearchPreloadClient,
-} from './search';
+} from '@contracts/search';
 
 export type {
     ILatestReleaseResponse,
@@ -111,34 +111,34 @@ export type {
     IUserAgentProfile,
     TReleaseArch,
     TReleasePlatform,
-} from './release';
+} from '@contracts/release';
 
 export {
     AVAILABLE_OCR_LANGUAGES,
     AVAILABLE_OCR_LANGUAGE_CODES,
-} from './ocrLanguages';
+} from '@contracts/ocrLanguages';
 
 export {
     DEFAULT_SETTINGS,
     normalizeLocale,
     normalizeTheme,
     sanitizeSettings,
-} from './settings';
+} from '@contracts/settings';
 
 export {
     isErrnoException,
     isRecord,
-} from './runtimeGuards';
+} from '@contracts/runtimeGuards';
 
-export { isTimeoutError } from './timeoutError';
+export { isTimeoutError } from '@contracts/timeoutError';
 
-export { normalizeAnalyticsScalar } from './analytics';
+export { normalizeAnalyticsScalar } from '@contracts/analytics';
 export type {
     INormalizeAnalyticsScalarOptions,
     TAnalyticsScalarResult,
-} from './analytics';
+} from '@contracts/analytics';
 
-export { getErrorMessage } from './error';
+export { getErrorMessage } from '@contracts/error';
 
 export type {
     IRecentFile,
@@ -150,8 +150,8 @@ export type {
     TFitMode,
     TZoomMode,
     TPdfViewMode,
-} from './shared';
-export { isOcrWord } from './shared';
+} from '@contracts/shared';
+export { isOcrWord } from '@contracts/shared';
 
 export {
     OCR_TEXT_LAYER_INDEX_SOURCE,
@@ -159,7 +159,7 @@ export {
     buildOcrTextLayerIndexText,
     buildOcrTextLayerItemText,
     isLastOcrWordInLine,
-} from './ocrText';
+} from '@contracts/ocrText';
 
 export type {
     IDjvuSplitPayload,
@@ -174,4 +174,4 @@ export type {
     TSplitPayload,
     TWindowTabsAction,
     TWindowTabTransferTarget,
-} from './windowTabs';
+} from '@contracts/windowTabs';

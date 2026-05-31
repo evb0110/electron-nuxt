@@ -12,7 +12,7 @@ import {
     toPdfRectFromMarkerRect,
 } from '@app/composables/pdf/annotationGeometry';
 import { resolvePdfPageView } from '@app/composables/pdf/pdfPageBoxes';
-import { appendAnnotationRefToPage } from './pdfSerializationShared';
+import { appendAnnotationRefToPage } from '@app/composables/pdf/serialization/pdfSerializationShared';
 
 export interface IPdfSerializedPlacedImagePayload extends Omit<IPdfPlacedImageFinalizePayload, 'mimeType'> {mimeType: 'image/png' | 'image/jpeg';}
 

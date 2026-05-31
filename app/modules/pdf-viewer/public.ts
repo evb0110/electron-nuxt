@@ -1,10 +1,10 @@
 export type {
     IPdfViewerProps,
     TPdfViewerEmit,
-} from './runtime/contracts/pdfViewerComponent.types';
+} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 export type {
     IDocumentViewerExpose,
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from './runtime/contracts/pdfViewerExpose.types';
-export { usePdfViewerController } from './runtime/usePdfViewerController';
+} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+export { usePdfViewerController } from '@app/modules/pdf-viewer/runtime/usePdfViewerController';

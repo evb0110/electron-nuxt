@@ -2,7 +2,7 @@ import type { Page } from 'puppeteer-core';
 import {
     evaluateInPage,
     waitForFunctionInPage,
-} from './pageRuntime';
+} from '@tests/e2e/electron/helpers/pageRuntime';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 const MIN_HOST_SIZE_PX = 100;

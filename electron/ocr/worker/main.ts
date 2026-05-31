@@ -33,7 +33,7 @@ import {
     getOcrConcurrency,
     getSequentialProgressPage,
     getTesseractThreadLimit,
-} from '../../utils/concurrency';
+} from '@electron/utils/concurrency';
 import type {
     TOcrWorkerCompleteResult,
     IOcrWorkerLogMessage,

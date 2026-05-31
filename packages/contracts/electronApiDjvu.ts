@@ -1,8 +1,8 @@
-import type { TDocumentRef } from './document';
+import type { TDocumentRef } from '@contracts/document';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-} from './electronApiCommon';
+} from '@contracts/electronApiCommon';
 
 export interface IDjvuProgress {
     jobId: string;

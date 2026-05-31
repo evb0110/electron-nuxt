@@ -11,7 +11,7 @@ import {
     fileURLToPath,
     pathToFileURL,
 } from 'node:url';
-import desktopSchema from '../packages/i18n-app/messages/en';
+import desktopSchema from '@i18n-app/messages/en';
 
 interface ILocaleDefinitionLike {code: string;}
 

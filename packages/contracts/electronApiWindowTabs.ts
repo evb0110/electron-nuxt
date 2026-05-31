@@ -1,5 +1,5 @@
-import type { TGroupDirection } from './editorGroups';
-import type { TDocumentRef } from './document';
+import type { TGroupDirection } from '@contracts/editorGroups';
+import type { TDocumentRef } from '@contracts/document';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,
@@ -7,11 +7,11 @@ import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
     TWindowTabsAction,
-} from './windowTabs';
+} from '@contracts/windowTabs';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-} from './electronApiCommon';
+} from '@contracts/electronApiCommon';
 
 export interface IWindowTabsApi {
     transfer: (request: IWindowTabTransferRequest) => Promise<IWindowTabTransferResult>;

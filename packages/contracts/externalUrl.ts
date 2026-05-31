@@ -1,4 +1,4 @@
-import { assertNonEmptyString } from './ipcAssertions';
+import { assertNonEmptyString } from '@contracts/ipcAssertions';
 
 export const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
     'http:',

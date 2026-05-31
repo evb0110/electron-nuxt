@@ -1,7 +1,7 @@
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-} from './electronApiCommon';
+} from '@contracts/electronApiCommon';
 
 export type TAppUpdateCheckOrigin = 'auto' | 'manual';
 export type TAppUpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'no-update' | 'error' | 'unsupported';

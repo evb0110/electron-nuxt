@@ -2,9 +2,9 @@ export {
     DEFAULT_LOCALE,
     LOCALE_CODES,
     type TLocale,
-} from './localeCodes';
+} from '@evb/i18n-core/localeCodes';
 
-export { LOCALE_DEFINITIONS } from './localeDefinitions';
+export { LOCALE_DEFINITIONS } from '@evb/i18n-core/localeDefinitions';
 
 export {
     formatTranslationLeaf,
@@ -18,7 +18,7 @@ export {
     type TPluralCategory,
     type IPluralForms,
     type TTranslationLeaf,
-} from './messageFormat';
+} from '@evb/i18n-core/messageFormat';
 
 export type {
     TLocaleMessagesShapeFrom,
@@ -27,11 +27,11 @@ export type {
     TTranslationKeyFromNode,
     TTranslationMessageFromSchema,
     TTranslationParamsFromSchema,
-} from './schemaTypes';
+} from '@evb/i18n-core/schemaTypes';
 
 export type {
     ILocaleComposerMethods,
     TTypedI18nComposer,
-} from './typedComposer';
+} from '@evb/i18n-core/typedComposer';
 
-export { createTypedI18nComposer } from './typedComposer';
+export { createTypedI18nComposer } from '@evb/i18n-core/typedComposer';

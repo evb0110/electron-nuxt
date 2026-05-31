@@ -6,26 +6,26 @@ import {
     it,
 } from 'vitest';
 import { basename } from 'node:path';
-import { stopSingleSession } from '../../../scripts/electron-run/sessionManager';
+import { stopSingleSession } from '@scripts/electron-run/sessionManager';
 import {
     createMultiPageTextFixturePdf,
     isDjvuFixtureRequired,
     resolveDjvuFixturePath,
-} from './helpers/fixtures';
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     openDjvuInApp,
     openPdfInApp,
     waitForDjvuLoaded,
     waitForPdfLoaded,
-} from './helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerHelpers';
 import {
     evaluateInPage,
     waitForFunctionInPage,
-} from './helpers/pageRuntime';
+} from '@tests/e2e/electron/helpers/pageRuntime';
 
 const RECENT_ROW_TIMEOUT_MS = 15_000;
 const RECENT_OPEN_TIMEOUT_MS = 12_000;

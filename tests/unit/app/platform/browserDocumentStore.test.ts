@@ -14,7 +14,7 @@ import {
     FakeIndexedDbFactory,
     MemoryStorage,
     cast,
-} from './browserPlatformTestDoubles';
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 describe('BrowserDocumentStore', () => {
     let indexedDbFactory: FakeIndexedDbFactory;

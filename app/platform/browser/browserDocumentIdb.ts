@@ -3,8 +3,8 @@ import {
     DB_VERSION,
     DOCUMENT_CHUNKS_STORE,
     DOCUMENTS_STORE,
-} from './browserDocumentConstants';
-import type { IBrowserPersistedDocumentRecord } from './browserDocumentTypes';
+} from '@app/platform/browser/browserDocumentConstants';
+import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
 
 type TIndexedDbFactory = typeof indexedDB;
 

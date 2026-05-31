@@ -14,7 +14,7 @@ import {
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
-import { cast } from '../../../helpers/cast';
+import { cast } from '@tests/helpers/cast';
 
 vi.mock('pdfjs-dist', () => ({
     AnnotationEditorType: {

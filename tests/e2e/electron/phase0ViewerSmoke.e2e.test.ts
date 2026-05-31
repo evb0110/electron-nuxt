@@ -8,17 +8,17 @@ import {
 import {
     createMultiPageTextFixturePdf,
     createPngFixture,
-} from './helpers/fixtures';
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     clickVisibleToolbarButton,
     openPdfInApp,
     waitForPdfLoaded,
-} from './helpers/viewerHelpers';
-import { waitForFunctionInPage } from './helpers/pageRuntime';
+} from '@tests/e2e/electron/helpers/viewerHelpers';
+import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;

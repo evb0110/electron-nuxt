@@ -18,8 +18,8 @@ import { delay } from 'es-toolkit/promise';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
-import { openPdfInApp } from './helpers/viewerCore';
+} from '@tests/e2e/electron/helpers/sessionHarness';
+import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 
 const TARGET_PDF_PATH = '.devkit/manual-pdf-fixtures/Гиргас - Словарь к арабской хрестоматии и Корану_oo.pdf';
 const DIAGNOSTIC_OUTPUT_PATH = resolve(

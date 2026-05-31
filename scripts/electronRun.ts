@@ -2,6 +2,6 @@
  * Electron Puppeteer Control - Persistent Session Server
  */
 
-import { runCli } from './electron-run/cli';
+import { runCli } from '@scripts/electron-run/cli';
 
 void runCli();

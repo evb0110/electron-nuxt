@@ -4,26 +4,26 @@ import puppeteer, {
     type Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import { sendCommand } from '../../../../scripts/electron-run/client';
-import { DEFAULT_NUXT_PORT } from '../../../../scripts/electron-run/electronRunPortConfig';
-import { isProcessAlive } from '../../../../scripts/electron-run/electronRunProcessTree';
+import { sendCommand } from '@scripts/electron-run/client';
+import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
+import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import {
     getSessionInfo,
     getSessionStartingInfo,
     readSessionLogTail,
-} from '../../../../scripts/electron-run/electronRunSessionArtifacts';
+} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     sessionDir,
     setCurrentSessionName,
-} from '../../../../scripts/electron-run/electronRunSessionPaths';
-import type { TElectronRunCommand } from '../../../../scripts/electron-run/electronRunProtocol';
+} from '@scripts/electron-run/electronRunSessionPaths';
+import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
 import {
     startSessionDetached,
     stopSingleSession,
     waitForSessionReady,
-} from '../../../../scripts/electron-run/sessionManager';
-import { cleanupSessionFixtures } from './fixtures';
-import { waitForFunctionInPage } from './pageRuntime';
+} from '@scripts/electron-run/sessionManager';
+import { cleanupSessionFixtures } from '@tests/e2e/electron/helpers/fixtures';
+import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 const SESSION_READY_TIMEOUT_MS = 75_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;

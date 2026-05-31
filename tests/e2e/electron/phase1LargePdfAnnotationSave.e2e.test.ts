@@ -22,17 +22,17 @@ import type { Page } from 'puppeteer-core';
 import {
     copyLargePdfFixture,
     resolveLargePdfFixturePath,
-} from './helpers/fixtures';
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
-} from './helpers/sessionHarness';
+} from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     openPdfInApp,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from './helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerHelpers';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;

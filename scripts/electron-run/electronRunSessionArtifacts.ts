@@ -7,11 +7,11 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { safeDestr } from 'destr';
-import { DEFAULT_NUXT_PORT } from './electronRunPortConfig';
+import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import {
     parseElectronRunCommandResponse,
     type TElectronRunCommand,
-} from './electronRunProtocol';
+} from '@scripts/electron-run/electronRunProtocol';
 import {
     getCurrentSessionName,
     sessionDir,
@@ -19,15 +19,15 @@ import {
     sessionLogFilePath,
     sessionStartingFilePath,
     sessionsBaseDir,
-} from './electronRunSessionPaths';
+} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     isProcessAlive,
     killProcessTree,
-} from './electronRunProcessTree';
+} from '@scripts/electron-run/electronRunProcessTree';
 import type {
     ISessionInfo,
     ISessionStartingInfo,
-} from './electronRunSessionTypes';
+} from '@scripts/electron-run/electronRunSessionTypes';
 
 type TJsonRecord = Record<string, unknown>;
 

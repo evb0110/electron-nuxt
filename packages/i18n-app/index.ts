@@ -8,4 +8,4 @@ export {
     type TTranslateFn,
     type TTranslationKey,
     type TTranslationParams,
-} from './locales';
+} from '@evb/i18n-app/locales';
