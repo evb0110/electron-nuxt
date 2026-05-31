@@ -765,14 +765,12 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         reason: string,
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const timeoutController = new AbortController();
         try {
             await Promise.race([
                 uiManager.waitForEditorsRendered(pageNumber),
-                new Promise<never>((_, reject) => {
-                    timeoutId = setTimeout(() => {
-                        reject(new Error(`Timed out waiting for PDF.js editor layer (${reason})`));
-                    }, EDITOR_RENDER_WAIT_TIMEOUT_MS);
+                delay(EDITOR_RENDER_WAIT_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => {
+                    throw new Error(`Timed out waiting for PDF.js editor layer (${reason})`);
                 }),
             ]);
             return true;
@@ -785,9 +783,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             });
             return false;
         } finally {
-            if (timeoutId !== null) {
-                clearTimeout(timeoutId);
-            }
+            timeoutController.abort();
         }
     }
 

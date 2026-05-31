@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import {
     effectScope,
     ref,
@@ -82,9 +83,7 @@ vi.mock('@app/utils/platform', () => ({
         }
 
         for (let attempt = 0; attempt < attempts; attempt += 1) {
-            await new Promise<void>((resolve) => {
-                setTimeout(resolve, retryDelayMs);
-            });
+            await delay(retryDelayMs);
 
             if (electronBridgeReady.value) {
                 return true;

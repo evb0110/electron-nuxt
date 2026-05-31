@@ -72,7 +72,10 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type {
     IAnnotationCommentSummary,
@@ -461,7 +464,7 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         return;
     }
 
-    const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
+    const allPages = range(1, totalPages + 1);
     multiSelection.toggle(page, allPages, {
         shift: event.shiftKey,
         meta: event.metaKey || event.ctrlKey,
@@ -895,7 +898,7 @@ function handleContainerKeyDown(event: KeyboardEvent) {
     const basePage = getKeyboardSelectionBasePage();
     const nextFocusPage = clampPage(basePage + direction);
     const anchorPage = getKeyboardSelectionAnchorPage(basePage);
-    const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
+    const allPages = range(1, totalPages + 1);
 
     multiSelection.anchor.value = anchorPage;
     multiSelection.toggle(nextFocusPage, allPages, {shift: true});

@@ -1,3 +1,4 @@
+import { useTimeoutFn } from '@vueuse/core';
 import { getErrorMessage } from '@app/utils/error';
 interface IUsePlatformHydratedStateOptions<T> {
     key: string;
@@ -22,34 +23,28 @@ export const usePlatformHydratedState = <T>(
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
     const error = useState<string | null>(`${options.key}:error`, () => null);
     let isDisposed = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function clearRetryTimer() {
-        if (!retryTimer) {
+    const retry = useTimeoutFn(() => {
+        if (isDisposed) {
             return;
         }
+        void load();
+    }, () => options.retryDelayMs ?? 0, { immediate: false });
 
-        clearTimeout(retryTimer);
-        retryTimer = null;
+    function clearRetryTimer() {
+        retry.stop();
     }
 
     function scheduleRetry() {
         if (
             isDisposed
-            || retryTimer
+            || retry.isPending.value
             || typeof options.retryDelayMs !== 'number'
             || options.retryDelayMs <= 0
         ) {
             return;
         }
 
-        retryTimer = setTimeout(() => {
-            retryTimer = null;
-            if (isDisposed) {
-                return;
-            }
-            void load();
-        }, options.retryDelayMs);
+        retry.start();
     }
 
     async function load() {

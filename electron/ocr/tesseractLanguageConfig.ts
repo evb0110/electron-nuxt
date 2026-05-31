@@ -1,4 +1,5 @@
 import {
+    compact,
     partition,
     uniq,
 } from 'es-toolkit/array';
@@ -43,7 +44,7 @@ function isRtlOcrLanguage(code: string): boolean {
 }
 
 export function resolveTesseractLanguageConfig(languages: string[]): ITesseractLanguageConfig {
-    const deduped = uniq(languages.filter(Boolean));
+    const deduped = uniq(compact(languages));
     const hasRtl = deduped.some(isRtlOcrLanguage);
 
     if (!hasRtl) {

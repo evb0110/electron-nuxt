@@ -4,6 +4,7 @@ import {
 } from 'electron';
 import type { WebContentsPrintOptions } from 'electron';
 import { uniq } from 'es-toolkit/array';
+import { delay } from 'es-toolkit/promise';
 import {
     readdir,
     stat,
@@ -383,7 +384,7 @@ async function openNativePrintDialogForPath(
 
     try {
         await printWindow.loadURL(pathToFileURL(path).toString());
-        await new Promise(resolve => setTimeout(resolve, PRINT_LOAD_SETTLE_DELAY_MS));
+        await delay(PRINT_LOAD_SETTLE_DELAY_MS);
         const result = await runNativePrintDialog(printWindow, printOptions);
         if (result.success) {
             shouldRetainPrintWindow = true;

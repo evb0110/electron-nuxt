@@ -6,6 +6,7 @@ import {
 import type { BrowserWindow } from 'electron';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import { isPlainObject } from 'es-toolkit/predicate';
 import type { ISettingsData } from '@contracts/shared';
 import {
     loadSettings,
@@ -23,7 +24,7 @@ const KNOWN_USER_DATA_DIR_NAMES = [
 ] as const;
 
 function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return isPlainObject(value);
 }
 
 function parseSettingsPatch(raw: string): Partial<ISettingsData> | null {

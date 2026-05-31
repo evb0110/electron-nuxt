@@ -1,3 +1,4 @@
+import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function isRgbObject(value: unknown): value is {
@@ -17,7 +18,7 @@ function isRgbObject(value: unknown): value is {
 
 function clampOpacity(value: number) {
     return Number.isFinite(value)
-        ? Math.max(0, Math.min(1, value))
+        ? clamp(value, 0, 1)
         : 1;
 }
 

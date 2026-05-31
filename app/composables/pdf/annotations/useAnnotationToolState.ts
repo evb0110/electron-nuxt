@@ -7,6 +7,8 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
+import { delay } from 'es-toolkit/promise';
+import { range } from 'es-toolkit/math';
 import type {
     IAnnotationMarkerRect,
     IAnnotationSettings,
@@ -530,20 +532,16 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         uiManager: AnnotationEditorUIManager,
         pageNumber: number,
     ) {
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const timeoutController = new AbortController();
         try {
             await Promise.race([
                 uiManager.waitForEditorsRendered(Math.max(1, pageNumber)),
-                new Promise<never>((_, reject) => {
-                    timeoutId = setTimeout(() => {
-                        reject(new Error('Timed out waiting for editors before annotation mode retry'));
-                    }, ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS);
+                delay(ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => {
+                    throw new Error('Timed out waiting for editors before annotation mode retry');
                 }),
             ]);
         } finally {
-            if (timeoutId !== null) {
-                clearTimeout(timeoutId);
-            }
+            timeoutController.abort();
         }
     }
 
@@ -750,7 +748,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         const activeEditor = getActiveEditor(uiManager);
         const candidates = activeEditor
             ? [activeEditor]
-            : Array.from({ length: numPages.value }, (_, pageIndex) => getEditorsOnPage(uiManager, pageIndex)).flat();
+            : range(numPages.value).flatMap(pageIndex => getEditorsOnPage(uiManager, pageIndex));
 
         for (const editor of candidates) {
             const pageIndex = Number.isFinite(editor.parentPageIndex)

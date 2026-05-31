@@ -17,7 +17,10 @@ import {
 import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
-import { clamp } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
@@ -123,8 +126,8 @@ async function _convertDjvuToPdfWithRanges(
     }
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-pages-'));
-    const chunkPaths = Array.from({ length: totalPages }, (_, index) => join(tempDir, `page-${index + 1}.pdf`));
-    const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1);
+    const pageNumbers = range(1, totalPages + 1);
+    const chunkPaths = pageNumbers.map(pageNumber => join(tempDir, `page-${pageNumber}.pdf`));
     let completedPageCount = 0;
     let firstError: string | null = null;
 

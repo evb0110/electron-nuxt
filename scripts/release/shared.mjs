@@ -4,6 +4,11 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+    compact,
+    difference,
+} from 'es-toolkit/array';
+import { delay } from 'es-toolkit/promise';
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
 
@@ -91,9 +96,7 @@ export function run(command, args, options = {}) {
     return String(output).trim();
 }
 
-export function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+export const sleep = delay;
 
 export function errorMessage(error) {
     if (error instanceof Error) {
@@ -232,9 +235,7 @@ function normalizeGitPath(filePath) {
 }
 
 function normalizeIgnoredPathPrefixes(ignoredPathPrefixes) {
-    return ignoredPathPrefixes
-        .map(prefix => normalizeGitPath(prefix).replace(/\/+$/u, ''))
-        .filter(Boolean);
+    return compact(ignoredPathPrefixes.map(prefix => normalizeGitPath(prefix).replace(/\/+$/u, '')));
 }
 
 export function filterIgnoredFiles(files, ignoredPathPrefixes = []) {
@@ -282,11 +283,8 @@ export function listChangedFiles({ ignoredPathPrefixes = [] } = {}) {
             continue;
         }
 
-        for (const file of output.split('\n')) {
-            const normalizedFile = file.trim();
-            if (normalizedFile.length > 0) {
-                files.add(normalizedFile);
-            }
+        for (const normalizedFile of compact(output.split('\n').map(file => file.trim()))) {
+            files.add(normalizedFile);
         }
     }
 
@@ -312,23 +310,22 @@ export function assertChangedFilesMatch(expectedFiles, contextOrOptions = 'Relea
         context,
         ignoredPathPrefixes,
     } = normalizeChangedFileAssertionOptions(contextOrOptions);
-    const expected = new Set(expectedFiles);
     const changedFiles = listChangedFiles({ ignoredPathPrefixes });
-    const unexpected = changedFiles.filter(file => !expected.has(file));
-    const missing = expectedFiles.filter(file => !changedFiles.includes(file));
+    const unexpected = difference(changedFiles, expectedFiles);
+    const missing = difference(expectedFiles, changedFiles);
 
     if (unexpected.length === 0 && missing.length === 0) {
         return;
     }
 
-    const details = [
+    const details = compact([
         unexpected.length > 0
             ? `unexpected changes: ${unexpected.join(', ')}`
             : '',
         missing.length > 0
             ? `missing changes: ${missing.join(', ')}`
             : '',
-    ].filter(Boolean).join('; ');
+    ]).join('; ');
 
     throw new Error(
         `${context} verification must leave only the expected release file set changed (${expectedFiles.join(', ')}); ${details}`,

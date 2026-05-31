@@ -1,3 +1,5 @@
+import { sumBy } from 'es-toolkit/math';
+
 export interface ITiffEncoderBinaryWriter {
     writeUint(buffer: Uint8Array, offset: number, value: number): void;
     writeUshort(buffer: Uint8Array, offset: number, value: number): void;
@@ -104,7 +106,7 @@ export function encodeTiffIfds(
     ifds: Array<Record<string, unknown>>,
     encoder: ITiffEncoderModule,
 ) {
-    const capacity = ifds.reduce((total, ifd) => total + measureTiffIfdSize(ifd, encoder.ttypes), 8);
+    const capacity = 8 + sumBy(ifds, ifd => measureTiffIfdSize(ifd, encoder.ttypes));
     const data = new Uint8Array(capacity);
     const bin = encoder._binBE;
 

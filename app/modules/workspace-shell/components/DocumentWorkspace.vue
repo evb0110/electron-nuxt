@@ -510,6 +510,8 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.css';
 import '@app/assets/css/pdf-debug-overlays.css';
+import { useMutationObserver } from '@vueuse/core';
+import { delay } from 'es-toolkit/promise';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfSidebar from '@app/components/pdf/PdfSidebar.vue';
@@ -591,22 +593,16 @@ function refreshTeleportHosts() {
     canTeleportStatus.value = Boolean(document.getElementById('editor-global-status-host'));
 }
 
-let teleportHostObserver: MutationObserver | null = null;
+onMounted(refreshTeleportHosts);
 
-onMounted(() => {
-    refreshTeleportHosts();
-
-    teleportHostObserver = new MutationObserver(refreshTeleportHosts);
-    teleportHostObserver.observe(document.body, {
+useMutationObserver(
+    () => import.meta.client ? document.body : null,
+    refreshTeleportHosts,
+    {
         childList: true,
         subtree: true,
-    });
-});
-
-onUnmounted(() => {
-    teleportHostObserver?.disconnect();
-    teleportHostObserver = null;
-});
+    },
+);
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;
@@ -1283,11 +1279,7 @@ function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
 }
 
 function waitForDocumentOpenVisualSettleTimeout() {
-    return new Promise<'timeout'>((resolve) => {
-        setTimeout(() => {
-            resolve('timeout');
-        }, DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS);
-    });
+    return delay(DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS).then(() => 'timeout' as const);
 }
 
 async function waitForDocumentOpenSettled() {

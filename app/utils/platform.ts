@@ -1,4 +1,5 @@
 import type { IPlatformApi } from '@contracts/platformApi';
+import { delay } from 'es-toolkit/promise';
 import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserApi';
 
 interface IWindowWithPlatformApi extends Window {electronAPI?: IPlatformApi;}
@@ -55,9 +56,7 @@ export async function waitForDesktopPlatformBridge({
     }
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-        await new Promise<void>((resolve) => {
-            setTimeout(resolve, retryDelayMs);
-        });
+        await delay(retryDelayMs);
 
         if (hasElectronAPI()) {
             return true;

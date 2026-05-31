@@ -194,6 +194,7 @@
 
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
+import { partition } from 'es-toolkit/array';
 import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
 import { selectInstallersForPlatform } from '~~/shared/releaseAssets';
 import {
@@ -247,8 +248,19 @@ const {
 } = await useFetch('/api/releases/latest', { key: 'latest-release-data' });
 
 const releaseAssets = computed(() => releaseData.value?.assets || []);
-const installers = computed(() => releaseAssets.value.filter(asset => !asset.isLegacy));
-const legacyInstallers = computed(() => releaseAssets.value.filter(asset => asset.isLegacy));
+const releaseAssetGroups = computed(() => {
+    const [
+        legacyInstallers,
+        installers,
+    ] = partition(releaseAssets.value, asset => asset.isLegacy);
+
+    return {
+        installers,
+        legacyInstallers,
+    };
+});
+const installers = computed(() => releaseAssetGroups.value.installers);
+const legacyInstallers = computed(() => releaseAssetGroups.value.legacyInstallers);
 
 const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
     platform => installers.value.some(asset => asset.platform === platform)

@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     ref,
@@ -928,9 +929,7 @@ describe('usePdfPageRenderer resilience', () => {
         };
 
         canvasRendererMock.prepareCanvasRender.mockImplementationOnce(async () => {
-            await new Promise<void>((resolve) => {
-                setTimeout(resolve, 16_000);
-            });
+            await delay(16_000);
 
             return {
                 ...createRenderResult(),

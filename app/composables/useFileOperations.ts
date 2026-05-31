@@ -11,7 +11,10 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { withTimeout } from 'es-toolkit/promise';
+import {
+    delay,
+    withTimeout,
+} from 'es-toolkit/promise';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -423,9 +426,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 }
 
                 if (retryDelayMs > 0) {
-                    await new Promise<void>((resolve) => {
-                        setTimeout(resolve, retryDelayMs);
-                    });
+                    await delay(retryDelayMs);
                 }
             }
         }

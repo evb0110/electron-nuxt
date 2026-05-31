@@ -2,6 +2,7 @@ import {
     availableParallelism,
     totalmem,
 } from 'os';
+import { partition } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/logger';
 
@@ -46,16 +47,6 @@ function removeLease(
         token,
         lease,
     ]) => !predicate(token, lease)));
-}
-
-function partitionQueuedRequests(
-    queue: readonly IQueuedResourceRequest[],
-    predicate: (item: IQueuedResourceRequest) => boolean,
-) {
-    return {
-        matching: queue.filter(predicate),
-        remaining: queue.filter(item => !predicate(item)),
-    };
 }
 
 function parsePositiveInt(value: string | undefined): number | null {
@@ -227,9 +218,12 @@ class OcrResourceGovernor {
         predicate: (item: IQueuedResourceRequest) => boolean,
         reason: string,
     ) {
-        const partitioned = partitionQueuedRequests(this.queue, predicate);
-        partitioned.matching.forEach(item => item.reject(new Error(reason)));
-        this.queue = partitioned.remaining;
+        const [
+            matching,
+            remaining,
+        ] = partition(this.queue, predicate);
+        matching.forEach(item => item.reject(new Error(reason)));
+        this.queue = remaining;
     }
 }
 

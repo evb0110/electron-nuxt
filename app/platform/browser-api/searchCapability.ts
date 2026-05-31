@@ -1,3 +1,5 @@
+import { orderBy } from 'es-toolkit/array';
+import { sumBy } from 'es-toolkit/math';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
@@ -261,18 +263,13 @@ async function clearPersistedSearchCaches() {
 async function prunePersistedSearchCaches() {
     const records = await loadAllPersistedSearchCacheRecords();
     if (records.length <= SEARCH_PERSISTED_CACHE_MAX_RECORDS) {
-        const totalBytes = records.reduce(
-            (total, record) => total + getPersistedRecordBytes(record),
-            0,
-        );
+        const totalBytes = sumBy(records, getPersistedRecordBytes);
         if (totalBytes <= SEARCH_PERSISTED_CACHE_MAX_BYTES) {
             return;
         }
     }
 
-    const newestFirst = [...records].sort((left, right) => (
-        (right.lastAccessedAt ?? 0) - (left.lastAccessedAt ?? 0)
-    ));
+    const newestFirst = orderBy(records, [record => record.lastAccessedAt ?? 0], ['desc']);
     let keptRecords = 0;
     let keptBytes = 0;
     const deleteKeys: string[] = [];

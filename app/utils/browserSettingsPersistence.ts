@@ -1,3 +1,4 @@
+import { omit } from 'es-toolkit/object';
 import { sanitizeSettings } from '@contracts/settings';
 import type {
     ISettingsData,
@@ -54,12 +55,10 @@ function omitCookieBackedSettingsFields<T extends Partial<ISettingsData> | null>
         return null;
     }
 
-    const {
-        theme: _theme,
-        locale: _locale,
-        ...rest
-    } = settings;
-    return rest;
+    return omit(settings, [
+        'theme',
+        'locale',
+    ]);
 }
 
 export function parseBrowserSettingsPayload(

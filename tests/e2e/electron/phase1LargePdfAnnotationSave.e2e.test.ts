@@ -9,6 +9,7 @@ import {
     copyFileSync,
     readFileSync,
 } from 'node:fs';
+import { delay } from 'es-toolkit/promise';
 import {
     PDFArray,
     PDFDict,
@@ -485,7 +486,7 @@ async function placePageNote(page: Page, text: string) {
         if (typedState.includesText) {
             return;
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await delay(100);
     }
     if (!typedState?.includesText) {
         const debugState = await collectLargePdfAnnotationDebugState(page);

@@ -4,6 +4,7 @@ import {
     readBody,
     setHeader,
 } from 'h3';
+import { isNotNil } from 'es-toolkit/predicate';
 import {
     ANALYTICS_EVENT_NAMES,
     type IAnalyticsEventEnvelope,
@@ -169,7 +170,7 @@ export default defineEventHandler(async (event) => {
 
     const parsedEvents = rawEvents
         .map(entry => parseEventEnvelope(entry))
-        .filter((entry): entry is IAnalyticsEventEnvelope => entry !== null);
+        .filter(isNotNil);
     if (parsedEvents.length === 0) {
         return {
             ok: true,

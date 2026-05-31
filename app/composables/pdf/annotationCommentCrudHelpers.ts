@@ -1,5 +1,8 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import { clamp } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
@@ -19,7 +22,7 @@ function getPreferredPageScanOrder(pageIndex: number, numPages: number) {
     const preferredPage = clamp(pageIndex, 0, Math.max(0, numPages - 1));
     return [
         preferredPage,
-        ...Array.from({ length: numPages }, (_, index) => index).filter(index => index !== preferredPage),
+        ...range(numPages).filter(index => index !== preferredPage),
     ];
 }
 

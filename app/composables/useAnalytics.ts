@@ -1,4 +1,8 @@
-import { tryOnScopeDispose } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useEventListener,
+} from '@vueuse/core';
+import { isPlainObject as isToolkitPlainObject } from 'es-toolkit/predicate';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {
     type IAnalyticsDocumentContext,
@@ -8,7 +12,6 @@ import {
     type TAnalyticsScreenCategory,
     normalizeAnalyticsScalar,
 } from '@contracts/analytics';
-import { isRecord } from '@contracts/runtimeGuards';
 
 const ANALYTICS_SESSION_STORAGE_KEY = 'evb-viewer:analytics-session-id';
 const MAX_BATCH_SIZE = 20;
@@ -51,16 +54,7 @@ function isTruthyFlag(value: unknown) {
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-    if (!isRecord(value)) {
-        return false;
-    }
-
-    if (Object.prototype.toString.call(value) !== '[object Object]') {
-        return false;
-    }
-
-    const constructor = Reflect.get(value, 'constructor');
-    return constructor === undefined || constructor === Object;
+    return isToolkitPlainObject(value);
 }
 
 function normalizePayloadValue(
@@ -278,11 +272,13 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
         }
     };
 
-    window.addEventListener('pagehide', flushWithBeacon);
-    document.addEventListener('visibilitychange', flushWhenHidden);
+    const lifecycleScope = effectScope(true);
+    lifecycleScope.run(() => {
+        useEventListener(window, 'pagehide', flushWithBeacon);
+        useEventListener(document, 'visibilitychange', flushWhenHidden);
+    });
     analyticsBrowserState.lifecycleCleanup = () => {
-        window.removeEventListener('pagehide', flushWithBeacon);
-        document.removeEventListener('visibilitychange', flushWhenHidden);
+        lifecycleScope.stop();
         analyticsBrowserState.lifecycleCleanup = null;
         analyticsBrowserState.lifecycleInstalled = false;
     };

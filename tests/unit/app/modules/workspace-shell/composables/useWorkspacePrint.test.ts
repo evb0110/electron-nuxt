@@ -9,6 +9,8 @@ import {
     effectScope,
     ref,
 } from 'vue';
+import { uniq } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
@@ -54,10 +56,10 @@ vi.mock('@app/utils/pdfPrint', () => ({
     ),
     normalizePrintPageNumbers: (pageNumbers: number[] | undefined, totalPages: number) => {
         if (!pageNumbers?.length) {
-            return Array.from({ length: totalPages }, (_, index) => index + 1);
+            return range(1, totalPages + 1);
         }
 
-        return [...new Set(pageNumbers)]
+        return uniq(pageNumbers)
             .filter(pageNumber => Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= totalPages)
             .sort((left, right) => left - right);
     },

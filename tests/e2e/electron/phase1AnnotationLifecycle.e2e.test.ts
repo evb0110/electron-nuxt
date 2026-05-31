@@ -5,6 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import type {Page} from 'puppeteer-core';
 import {
     copyProjectFixture,
@@ -68,7 +69,7 @@ async function waitForHighlightEditorCount(page: Page, expectedCount: number) {
         ) {
             return;
         }
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await delay(150);
         counts = await getVisibleHighlightEditorCounts(page);
     }
     const details = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.highlightEditor, .highlightAnnotation'))
@@ -123,7 +124,7 @@ async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
         if (actualDirty === expectedDirty) {
             return;
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await delay(100);
         actualDirty = await page.evaluate(() => (
             document.querySelector<HTMLElement>('.tab.is-active')?.classList.contains('is-dirty') ?? false
         ));
@@ -138,7 +139,7 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
         if ((lastSummary.bySubtype[subtype] ?? 0) === expectedCount) {
             return lastSummary;
         }
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await delay(150);
         lastSummary = await readPdfAnnotationSummary(filePath);
     }
     throw new Error(`Expected ${expectedCount} ${subtype} annotations on disk, got ${lastSummary.bySubtype[subtype] ?? 0}`);
@@ -278,7 +279,7 @@ async function createHighlightWithPdfjsManager(page: Page) {
             return 'issued-highlight';
         }, before);
         if (result !== 'ok' && result !== 'issued-highlight') {
-            await new Promise(resolve => setTimeout(resolve, 150));
+            await delay(150);
         }
     }
 
@@ -843,7 +844,7 @@ async function waitForActiveThumbnailYellowPixelCount(
         if (typeof count === 'number' && predicate(count)) {
             return count;
         }
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await delay(200);
         count = await getActiveThumbnailYellowPixelCount(page);
     }
     const debug = await page.evaluate(() => {

@@ -1,4 +1,5 @@
 import { uniq } from 'es-toolkit/array';
+import { range as createRange } from 'es-toolkit/math';
 import type { IPdfPageRange } from '@app/types/pdf';
 
 export interface IPageThumbnailClickModifiers {
@@ -42,13 +43,9 @@ export function expandPageRange(range: IPdfPageRange | null): number[] | null {
         return null;
     }
 
-    const pages: number[] = [];
-    for (let page = range.startPage; page <= range.endPage; page += 1) {
-        pages.push(page);
-    }
-    return pages;
+    return createRange(range.startPage, range.endPage + 1);
 }
 
 export function createAllPageNumbers(totalPages: number): number[] {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
+    return createRange(1, totalPages + 1);
 }

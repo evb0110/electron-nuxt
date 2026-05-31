@@ -4,6 +4,7 @@ import {
     getRequestIP,
     getRequestURL,
 } from 'h3';
+import { compact } from 'es-toolkit/array';
 import { getRuntimeEnv } from '@server/utils/runtimeEnv';
 
 interface IGeoData {
@@ -21,19 +22,16 @@ function isTruthyFlag(value: unknown) {
 
 function normalizeAllowedHosts(value: unknown) {
     if (typeof value === 'string') {
-        return value
+        return compact(value
             .split(',')
-            .map(entry => entry.trim().toLowerCase())
-            .filter(Boolean);
+            .map(entry => entry.trim().toLowerCase()));
     }
 
     if (!Array.isArray(value)) {
         return [];
     }
 
-    return value
-        .map(entry => typeof entry === 'string' ? entry.trim().toLowerCase() : '')
-        .filter(Boolean);
+    return compact(value.map(entry => typeof entry === 'string' ? entry.trim().toLowerCase() : ''));
 }
 
 export function extractGeo(event: H3Event): IGeoData {

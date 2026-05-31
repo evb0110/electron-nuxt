@@ -2,6 +2,7 @@ import type {
     IpcRenderer,
     webUtils,
 } from 'electron';
+import { compact } from 'es-toolkit/array';
 import type { ISettingsData } from '@contracts/shared';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type {
@@ -116,7 +117,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             return baseDocuments.openPdfDirect(path);
         },
         openPdfDirectBatch: async (paths: string[], requestId?: string) => {
-            await Promise.all(paths.map(path => pendingRendererFileOpenAllows.get(path)).filter(Boolean));
+            await Promise.all(compact(paths.map(path => pendingRendererFileOpenAllows.get(path))));
             return baseDocuments.openPdfDirectBatch(paths, requestId);
         },
         recentFiles: {

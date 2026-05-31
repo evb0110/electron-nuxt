@@ -5,6 +5,8 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
+import { difference } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
@@ -32,14 +34,7 @@ function getQpdfBinary() {
 }
 
 function buildComplementRanges(pagesToRemove: number[], totalPages: number) {
-    const removeSet = new Set(pagesToRemove);
-    const kept: number[] = [];
-    for (let i = 1; i <= totalPages; i++) {
-        if (!removeSet.has(i)) {
-            kept.push(i);
-        }
-    }
-    return kept;
+    return difference(range(1, totalPages + 1), pagesToRemove);
 }
 
 function formatPageList(pages: number[]) {

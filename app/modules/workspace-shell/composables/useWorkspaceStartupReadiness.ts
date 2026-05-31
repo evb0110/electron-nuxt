@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { delay } from 'es-toolkit/promise';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -21,12 +22,6 @@ function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
         reason,
         timedOut,
     }}));
-}
-
-function delayStartupVisualReady(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
 }
 
 function waitForStartupAnimationFrame() {
@@ -79,7 +74,7 @@ export function useWorkspaceStartupReadiness(options: IWorkspaceStartupReadiness
                         let settleTimedOut = false;
                         await Promise.race([
                             waitForViewerLoadSettled.call(viewer),
-                            delayStartupVisualReady(remainingMs).then(() => {
+                            delay(remainingMs).then(() => {
                                 settleTimedOut = true;
                             }),
                         ]);
@@ -96,7 +91,7 @@ export function useWorkspaceStartupReadiness(options: IWorkspaceStartupReadiness
                         break;
                     }
 
-                    await delayStartupVisualReady(STARTUP_OPEN_VISUAL_READY_POLL_MS);
+                    await delay(STARTUP_OPEN_VISUAL_READY_POLL_MS);
                 }
 
                 if (!hasRenderedStartupDocument()) {

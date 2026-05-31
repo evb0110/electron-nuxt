@@ -1,4 +1,6 @@
 import type { Ref } from 'vue';
+import { difference } from 'es-toolkit/array';
+import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/platformApi';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
@@ -139,7 +141,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (totalPages.value <= 0) {
             return;
         }
-        const allPages = Array.from({ length: totalPages.value }, (_, index) => index + 1);
+        const allPages = range(1, totalPages.value + 1);
         setSelectedThumbnailPages(allPages);
     }
 
@@ -148,14 +150,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (totalPages.value <= 0) {
             return;
         }
-        const currentSet = new Set(selectedThumbnailPages.value);
-        const inverted: number[] = [];
-        for (let page = 1; page <= totalPages.value; page += 1) {
-            if (!currentSet.has(page)) {
-                inverted.push(page);
-            }
-        }
-        setSelectedThumbnailPages(inverted);
+        setSelectedThumbnailPages(difference(
+            range(1, totalPages.value + 1),
+            selectedThumbnailPages.value,
+        ));
     }
 
     async function handleCropPages(pages: number[], margins: ICropMargins) {

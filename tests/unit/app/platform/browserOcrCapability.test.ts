@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 
 const addWorkerMock = vi.hoisted(() => vi.fn());
 const terminateSchedulerMock = vi.hoisted(() => vi.fn(async () => {}));
@@ -87,7 +88,7 @@ describe('browser OCR capability', () => {
         addJobMock.mockImplementation(async () => {
             activeJobs += 1;
             maxActiveJobs = Math.max(maxActiveJobs, activeJobs);
-            await new Promise(resolve => setTimeout(resolve, 5));
+            await delay(5);
             activeJobs -= 1;
             return { data: {
                 text: 'recognized text',
@@ -218,7 +219,7 @@ describe('browser OCR capability', () => {
         let activeJobs = 0;
         addJobMock.mockImplementation(async (_action, _image, _options, _output, jobId) => {
             activeJobs += 1;
-            await new Promise(resolve => setTimeout(resolve, activeJobs === 1 ? 8 : 4));
+            await delay(activeJobs === 1 ? 8 : 4);
             activeJobs -= 1;
             return { data: {
                 text: `recognized ${jobId}`,

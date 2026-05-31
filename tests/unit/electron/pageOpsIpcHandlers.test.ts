@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 
 type TRegisteredHandler = (...args: unknown[]) => unknown;
 type TProgressCallback = (progress: {
@@ -37,7 +38,7 @@ function createDeferred<T = undefined>(): IDeferred<T> {
 }
 
 function flushQueuedMutationStart() {
-    return new Promise(resolve => setTimeout(resolve, 0));
+    return delay(0);
 }
 
 const mocks = vi.hoisted(() => ({

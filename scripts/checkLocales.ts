@@ -4,7 +4,11 @@ import {
     isPluralMessage,
     type TTranslationLeaf,
 } from '@i18n-core';
-import { difference } from 'es-toolkit/array';
+import {
+    difference,
+    uniq,
+} from 'es-toolkit/array';
+import { isEqual } from 'es-toolkit/predicate';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -70,29 +74,24 @@ function hasLeafPath(node: unknown, dottedPath: string): boolean {
 }
 
 function extractPlaceholders(text: string): string[] {
-    const placeholders = new Set<string>();
+    const placeholders: string[] = [];
 
     for (const match of text.matchAll(/\{([^}]+)\}/g)) {
         const placeholder = match[1]?.split(',')[0]?.trim();
         if (placeholder) {
-            placeholders.add(placeholder);
+            placeholders.push(placeholder);
         }
     }
 
-    return Array.from(placeholders).sort();
+    return uniq(placeholders).sort();
 }
 
 function extractPlaceholdersFromLeaf(leaf: TTranslationLeaf): string[] {
     const texts = typeof leaf === 'string'
         ? [leaf]
         : Object.values(leaf.forms);
-    const placeholders = new Set<string>();
 
-    for (const text of texts) {
-        extractPlaceholders(text).forEach(placeholder => placeholders.add(placeholder));
-    }
-
-    return Array.from(placeholders).sort();
+    return uniq(texts.flatMap(text => extractPlaceholders(text))).sort();
 }
 
 function diffKeys(expected: Set<string>, actual: Set<string>) {
@@ -166,7 +165,7 @@ function assertPlaceholderParity(
             const expectedPlaceholders = extractPlaceholdersFromLeaf(expectedMessage);
             const actualPlaceholders = extractPlaceholdersFromLeaf(actualMessage);
 
-            if (expectedPlaceholders.join('|') !== actualPlaceholders.join('|')) {
+            if (!isEqual(expectedPlaceholders, actualPlaceholders)) {
                 errors.push(
                     `${label} locale "${locale}" placeholder mismatch at "${dottedPath}": expected=${formatKeyList(expectedPlaceholders)}; actual=${formatKeyList(actualPlaceholders)}`,
                 );

@@ -45,6 +45,7 @@ const testRenderer = createRenderer<object, object>({
 vi.mock('@vueuse/core', () => ({
     tryOnScopeDispose: vi.fn(() => true),
     useEventListener: vi.fn(),
+    useMutationObserver: vi.fn(() => ({stop: vi.fn()})),
 }));
 
 vi.mock('@app/utils/asyncGuard', () => ({runGuardedTask: (run: () => unknown) => run()}));

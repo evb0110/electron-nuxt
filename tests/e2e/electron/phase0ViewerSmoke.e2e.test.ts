@@ -5,6 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import {
     createMultiPageTextFixturePdf,
     createPngFixture,
@@ -91,7 +92,7 @@ async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
         viewer.scrollTop = Math.max(0, firstPage.offsetTop + firstPage.offsetHeight - viewer.clientHeight);
         viewer.dispatchEvent(new Event('scroll', { bubbles: true }));
     });
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await delay(500);
 }
 
 describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {

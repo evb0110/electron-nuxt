@@ -7,7 +7,7 @@ export interface IRgbColor {
 }
 
 export function clampRgbChannel(value: number) {
-    return Math.max(0, Math.min(255, Math.round(value)));
+    return clamp(Math.round(value), 0, 255);
 }
 
 export function parseCssRgbColor(value: string | null | undefined): IRgbColor | null {

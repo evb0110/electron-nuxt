@@ -1,6 +1,9 @@
 import UTIF from 'utif';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
-import { sumBy } from 'es-toolkit/math';
+import {
+    range,
+    sumBy,
+} from 'es-toolkit/math';
 import type { IImageExportCapability } from '@contracts/platformApi';
 import {
     browserDocumentStore,
@@ -304,7 +307,7 @@ function getTargetPages(pdfDocument: { numPages: number }, pageNumbers?: number[
     const targetPages = (
         pageNumbers?.length
             ? pageNumbers
-            : Array.from({ length: pdfDocument.numPages }, (_value, index) => index + 1)
+            : range(1, pdfDocument.numPages + 1)
     ).filter((pageNumber) => pageNumber >= 1 && pageNumber <= pdfDocument.numPages);
 
     return targetPages;

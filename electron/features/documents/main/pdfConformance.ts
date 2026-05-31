@@ -9,6 +9,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { compact } from 'es-toolkit/array';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -38,10 +39,9 @@ function sanitizeValidationFileName(fileName?: string) {
 }
 
 function extractQpdfWarnings(text: string) {
-    return text
+    return compact(text
         .split(/\r?\n/u)
-        .map(line => line.trim())
-        .filter(Boolean)
+        .map(line => line.trim()))
         .filter(line => !/^checking /iu.test(line));
 }
 
