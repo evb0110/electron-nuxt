@@ -1,4 +1,4 @@
-import { loadPdfStructure } from '@contracts/pdfConformanceLoad';
+import { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -9,7 +9,7 @@ import {
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@contracts/pdfConformanceHelpers';
+} from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfjsDocumentInit,
     getPdfjsLib,

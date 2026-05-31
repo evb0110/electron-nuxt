@@ -105,13 +105,9 @@ import type { ComponentPublicInstance } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TPdfViewMode } from '@contracts/shared';
-import type {
-    IShapeAnnotation,
-    TMarkupSubtype,
-} from '@app/types/annotations';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
+import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvuWorker';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -1437,63 +1433,12 @@ function captureScrollSnapshot(): IScrollSnapshot | null {
 
 function restoreScrollSnapshot() {}
 
-function returnFalseAsync() {
-    return Promise.resolve(false);
-}
-
-function returnNullAsync() {
-    return Promise.resolve(null);
-}
-
-function returnVoidAsync() {
-    return Promise.resolve();
-}
-
-const noop = () => {};
-const noopMarkupOverrides = () => new Map<string, TMarkupSubtype>();
-const noopShapes = () => [] as IShapeAnnotation[];
-const noopSelectedShape = () => null;
-
-defineExpose<IPdfViewerExpose>({
+defineExpose<IDocumentViewerExpose>({
     getViewerContainer: () => viewerContainer.value,
+    getCurrentPage: () => currentPage.value,
     scrollToPage,
     captureScrollSnapshot,
     restoreScrollSnapshot,
-    captureRegionToClipboard: returnFalseAsync,
-    isCapturingRegion: false,
-    startCropSelection: returnNullAsync,
-    cancelCropSelection: noop,
-    isCropSelecting: false,
-    saveDocument: () => Promise.resolve(null),
-    highlightSelection: returnFalseAsync,
-    commentSelection: returnFalseAsync,
-    commentAtPoint: () => Promise.resolve(false),
-    startCommentPlacement: noop,
-    cancelCommentPlacement: noop,
-    undoAnnotation: noop,
-    redoAnnotation: noop,
-    focusAnnotationComment: returnVoidAsync,
-    updateAnnotationComment: () => false,
-    deleteAnnotationComment: () => Promise.resolve(false),
-    suppressAnnotationId: noop,
-    suppressAnnotationStableKey: noop,
-    removeAnnotationFromDom: noop,
-    removeAnnotationFromInternalCache: noop,
-    getMarkupSubtypeOverrides: noopMarkupOverrides,
-    getAllShapes: noopShapes,
-    getDeletedEmbeddedShapeAnnotationIds: () => [],
-    getDeletedEmbeddedShapeStableKeys: () => [],
-    loadShapes: noop,
-    clearShapes: noop,
-    clearSelectedShape: noop,
-    deleteSelectedShape: noop,
-    hasShapes: false,
-    selectedShapeId: null,
-    updateShape: noop,
-    getSelectedShape: noopSelectedShape,
-    startImagePlacement: () => Promise.resolve(false),
-    clearPendingImagePlacement: noop,
-    restorePendingImagePlacement: noop,
     invalidatePages: (pages: number[]) => {
         for (const pageNumber of pages) {
             if (pageNumber < 1 || pageNumber > totalPages.value) {
@@ -1503,7 +1448,9 @@ defineExpose<IPdfViewerExpose>({
         }
         syncLoadedPages();
     },
-    requestScrollToCurrentResult: noop,
+    requestScrollToCurrentResult: () => {
+        scrollToPage(currentPage.value);
+    },
 });
 </script>
 

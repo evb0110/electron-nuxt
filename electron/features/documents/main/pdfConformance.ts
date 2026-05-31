@@ -13,7 +13,7 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
-import { createDefaultPdfConformanceProfile } from '@contracts/pdfConformanceHelpers';
+import { createDefaultPdfConformanceProfile } from '@pdf-core/pdfConformanceHelpers';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
@@ -23,7 +23,7 @@ import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const logger = createLogger('documents-pdfConformance');
 const QPDF_VALIDATE_TIMEOUT_MS = 30_000;

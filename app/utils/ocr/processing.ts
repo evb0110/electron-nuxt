@@ -1,6 +1,6 @@
 import type { TDocumentRef } from '@contracts/platformApi';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import {
     readOptionalAdjacentJsonArtifact,
     readOptionalOcrArtifactJson,

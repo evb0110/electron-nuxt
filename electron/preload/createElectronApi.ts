@@ -14,6 +14,8 @@ import type {
 } from '@contracts/windowTabs';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadClient} from '@electron/features/documents/preloadClient';
+import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/preloadPageOpsClient';
+import { createImageExportPreloadClient } from '@electron/features/image-export/preloadClient';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
@@ -83,6 +85,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const invokeDocuments = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
+    const pageOps = createDocumentsPreloadPageOpsClient(ipcRenderer);
+    const imageExport = createImageExportPreloadClient(ipcRenderer);
     const pendingRendererFileOpenAllows = new Map<string, Promise<unknown>>();
 
     function allowRendererFileOpen(filePath: string) {
@@ -102,32 +106,42 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         return allowPromise;
     }
 
-    const api = {
-        documents: {
-            ...baseDocuments,
-            openPdfDirect: async (path: string) => {
-                const pendingAllow = pendingRendererFileOpenAllows.get(path);
-                if (pendingAllow) {
-                    await pendingAllow;
-                }
-                return baseDocuments.openPdfDirect(path);
-            },
-            openPdfDirectBatch: async (paths: string[], requestId?: string) => {
-                await Promise.all(paths.map(path => pendingRendererFileOpenAllows.get(path)).filter(Boolean));
-                return baseDocuments.openPdfDirectBatch(paths, requestId);
-            },
-            recentFiles: {
-                ...baseDocuments.recentFiles,
-                get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),
-            },
-            getPathForFile: (file: File) => {
-                const filePath = electronWebUtils.getPathForFile(file);
-                if (filePath) {
-                    void allowRendererFileOpen(filePath);
-                }
-                return filePath;
-            },
+    const documents = {
+        ...baseDocuments,
+        openPdfDirect: async (path: string) => {
+            const pendingAllow = pendingRendererFileOpenAllows.get(path);
+            if (pendingAllow) {
+                await pendingAllow;
+            }
+            return baseDocuments.openPdfDirect(path);
         },
+        openPdfDirectBatch: async (paths: string[], requestId?: string) => {
+            await Promise.all(paths.map(path => pendingRendererFileOpenAllows.get(path)).filter(Boolean));
+            return baseDocuments.openPdfDirectBatch(paths, requestId);
+        },
+        recentFiles: {
+            ...baseDocuments.recentFiles,
+            get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),
+        },
+        getPathForFile: (file: File) => {
+            const filePath = electronWebUtils.getPathForFile(file);
+            if (filePath) {
+                void allowRendererFileOpen(filePath);
+            }
+            return filePath;
+        },
+    };
+
+    const legacyDocuments = {
+        ...documents,
+        ...imageExport,
+        pageOps,
+    };
+
+    const api = {
+        documents: legacyDocuments,
+        pageOps,
+        imageExport,
 
         ocr: createOcrPreloadClient(ipcRenderer),
 

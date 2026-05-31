@@ -13,7 +13,7 @@ export const PAGE_OPS_CHANNELS = {
     getPageGeometry: 'page-ops:get-page-geometry',
 } as const;
 
-type TPageOpsApi = IPageOpsCapability['pageOps'];
+type TPageOpsApi = IPageOpsCapability;
 
 export interface IPageOpsInvokeMap {
     [PAGE_OPS_CHANNELS.delete]: {

@@ -21,6 +21,7 @@ const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
 ]);
 
 const ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS = new Set(APP_MODULE_PUBLIC_ENTRYPOINTS);
+ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS.add('contract.ts');
 
 const ROOT_BOUNDARY_RULES = [
     {
@@ -136,6 +137,31 @@ const FEATURE_BOUNDARY_RULES = [
     },
 ];
 
+function checkElectronFeatureMainPrivacy(edge) {
+    const targetOwner = getFeatureOwner(edge.target, 'electron/features');
+    if (!targetOwner) {
+        return null;
+    }
+
+    const targetRelativePath = relativeWithinOwner(edge.target, 'electron/features', targetOwner);
+    if (!targetRelativePath.startsWith('main/')) {
+        return null;
+    }
+
+    const sourceOwner = getFeatureOwner(edge.source, 'electron/features');
+    if (sourceOwner === targetOwner) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'electron-feature-main-private',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'Electron feature main internals must be consumed through feature public or service entrypoints.',
+    });
+}
+
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
@@ -223,7 +249,8 @@ function checkEdge(edge) {
     return [
         ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
         ...collectViolationsFromRules(edge, FEATURE_BOUNDARY_RULES, checkFeatureBoundaryRule),
-    ];
+        checkElectronFeatureMainPrivacy(edge),
+    ].filter(Boolean);
 }
 
 function formatViolations(violations) {

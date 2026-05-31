@@ -13,8 +13,10 @@ import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/ipc/workingCopyValidation';
 import { WorkingCopyMissingError } from '@electron/ipc/workingCopyMissingError';
-import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
-import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
+import {
+    normalizeIpcWritePayload,
+    validatePdfFile,
+} from '@electron/features/documents/public';
 import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {

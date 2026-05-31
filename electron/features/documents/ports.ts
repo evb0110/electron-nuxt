@@ -9,7 +9,7 @@ import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
-} from '@electron/features/documents/main/serializedPdfPersistence';
+} from '@electron/features/documents/serializedPdfPersistenceContract';
 
 export interface IDocumentsService {
     openPdfDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;

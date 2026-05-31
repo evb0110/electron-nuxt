@@ -1,7 +1,8 @@
+import type { IpcMainInvokeEvent } from 'electron';
 import type { IIpcMainRegistrar as IContractIpcMainRegistrar } from '@contracts/ipcMain';
 import type { ISearchInvokeMap } from '@electron/features/search/contract';
 
-type IIpcMainRegistrar = IContractIpcMainRegistrar<ISearchInvokeMap>;
+type IIpcMainRegistrar = IContractIpcMainRegistrar<ISearchInvokeMap, IpcMainInvokeEvent>;
 export type { IIpcMainRegistrar };
 
 export interface ISearchService {registerHandlers: (registrar: IIpcMainRegistrar) => void;}

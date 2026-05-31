@@ -38,8 +38,10 @@ import {
     setupMenu,
 } from '@electron/menu';
 import { initRecentFilesCache } from '@electron/recentFiles';
-import { performDjvuViewingShutdownCleanup } from '@electron/features/djvu/main/viewing';
-import { shutdownDjvuConversions } from '@electron/features/djvu/main/pdfExport';
+import {
+    performDjvuViewingShutdownCleanup,
+    shutdownDjvuConversions,
+} from '@electron/features/djvu/public';
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
@@ -54,7 +56,7 @@ import {
 } from '@electron/windowTabTransfer';
 import { promptSetDefaultViewer } from '@electron/defaultViewer';
 import { createLogger } from '@electron/utils/logger';
-import { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
+import { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/public';
 import {
     initializeUpdates,
     shutdownUpdates,

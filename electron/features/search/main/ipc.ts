@@ -18,7 +18,7 @@ import {
     getSearchWorkerServiceConfig,
     SearchWorkerService,
 } from '@electron/features/search/main/searchWorkerService';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
 import type { IIpcMainRegistrar } from '@electron/features/search/ports';
 

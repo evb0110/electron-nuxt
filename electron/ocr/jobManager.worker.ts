@@ -6,7 +6,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getAppTempDir } from '@electron/utils/appTempDir';

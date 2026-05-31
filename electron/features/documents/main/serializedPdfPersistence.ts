@@ -11,6 +11,10 @@ import type {
     WebContents,
 } from 'electron';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type {
+    IBeginSerializedPdfPersistenceResult,
+    IBeginSerializedPdfSaveAsResult,
+} from '@electron/features/documents/serializedPdfPersistenceContract';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -47,13 +51,6 @@ interface ISerializedPdfPersistenceSession {
     timeout: NodeJS.Timeout;
     queue: Promise<void>;
     unregisterSenderCleanup: () => void;
-}
-
-export interface IBeginSerializedPdfPersistenceResult {sessionId: string;}
-
-export interface IBeginSerializedPdfSaveAsResult {
-    sessionId: string | null;
-    path: string | null;
 }
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();

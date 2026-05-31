@@ -40,6 +40,13 @@ export function getLocalReleaseCheckCommands() {
             ],
             command: 'pnpm',
         },
+        {
+            args: [
+                'run',
+                'test:bundle-integrity',
+            ],
+            command: 'pnpm',
+        },
     ];
 }
 

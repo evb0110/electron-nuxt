@@ -10,10 +10,8 @@ import {
 } from '@electron/features/documents/main/documentSave.service';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
-import {
-    beginSerializedPdfSaveAs,
-    type IBeginSerializedPdfSaveAsResult,
-} from '@electron/features/documents/main/serializedPdfPersistence';
+import { beginSerializedPdfSaveAs } from '@electron/features/documents/main/serializedPdfPersistence';
+import type { IBeginSerializedPdfSaveAsResult } from '@electron/features/documents/serializedPdfPersistenceContract';
 import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { te } from '@electron/i18n';

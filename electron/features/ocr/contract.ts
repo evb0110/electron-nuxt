@@ -3,6 +3,7 @@ import type {
     IOcrCompleteResult,
     IOcrProgress,
     IOcrRecognizeRequest,
+    IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
 
 export const OCR_CHANNELS = {
@@ -52,7 +53,7 @@ export interface IOcrInvokeMap {
     };
     [OCR_CHANNELS.validateTools]: {
         args: [];
-        result: unknown;
+        result: IOcrToolValidationResult;
     };
     [OCR_CHANNELS.preprocessingValidate]: {
         args: [];

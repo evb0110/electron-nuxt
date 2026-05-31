@@ -1,7 +1,11 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platformApi';
-import { getPlatformAPI } from '@app/utils/platform';
+import {
+    getPlatformAPI,
+    shouldPreferDesktopPlatform,
+    waitForDesktopPlatformBridge,
+} from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { traceRendererStartup } from '@app/utils/startupTrace';
 import {
@@ -27,6 +31,7 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
+    const route = useRoute();
     const {
         tabs,
         isStartupOpenClaimPending,
@@ -216,7 +221,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
     onMounted(() => {
         const onMountedStart = performance.now();
-        const platformApi = getPlatformAPI();
         traceRendererStartup('tabs shell onMounted start');
         isStartupOpenClaimPending.value = true;
         traceRendererStartup('tabs shell initial tab available', {tabCount: tabs.value.length});
@@ -226,27 +230,36 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
         }
 
-        menuCleanups.push(...registerTabsMenuBindings(platformApi, {
-            activeWorkspace,
-            activeTabId,
-            createTab,
-            handleCloseTab,
-            handleFallbackToolbarOpenFile,
-            openPathInAppropriateTab,
-            openPathsInAppropriateTab,
-            clearRecentFiles,
-            loadRecentFiles,
-            openSettings,
-            checkForUpdates,
-            splitEditor,
-            focusGroup,
-            moveActiveTab,
-            copyActiveTab,
-            handleWindowTabsAction,
-        }));
-        traceRendererStartup('tabs shell menu bindings registered');
-
         void (async () => {
+            const shouldWaitForDesktopBridge = shouldPreferDesktopPlatform(route.path);
+            const bridgeReady = await waitForDesktopPlatformBridge({shouldWait: shouldWaitForDesktopBridge});
+            traceRendererStartup('tabs shell platform bridge resolved', {
+                bridgeReady,
+                routePath: route.path,
+                shouldWaitForDesktopBridge,
+            });
+
+            const platformApi = getPlatformAPI();
+            menuCleanups.push(...registerTabsMenuBindings(platformApi, {
+                activeWorkspace,
+                activeTabId,
+                createTab,
+                handleCloseTab,
+                handleFallbackToolbarOpenFile,
+                openPathInAppropriateTab,
+                openPathsInAppropriateTab,
+                clearRecentFiles,
+                loadRecentFiles,
+                openSettings,
+                checkForUpdates,
+                splitEditor,
+                focusGroup,
+                moveActiveTab,
+                copyActiveTab,
+                handleWindowTabsAction,
+            }));
+            traceRendererStartup('tabs shell menu bindings registered');
+
             const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
             dispatchStartupOpenClaimed(startupExternalPaths.length);
             if (startupExternalPaths.length > 0) {

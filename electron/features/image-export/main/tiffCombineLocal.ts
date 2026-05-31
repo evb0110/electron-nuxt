@@ -11,7 +11,7 @@ import * as utifModule from 'utif';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-} from '@contracts/tiffEncoding';
+} from '@pdf-core/tiffEncoding';
 import {
     atomicReplace,
     makeSiblingTempPath,

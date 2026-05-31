@@ -18,7 +18,6 @@ export type {
     IDocumentsMenuCapability,
     IImageExportCapability,
     IPageOpsCapability,
-    IElectronAPI,
     IMenuEventCallback,
     IMenuEventUnsubscribe,
     IOcrCapability,
@@ -32,6 +31,7 @@ export type {
     TAppUpdatePhase,
     TOpenFileResult,
 } from './platformApi';
+export type { IElectronAPI } from './electronApi';
 
 export type {
     IDesktopMenuCapability,

@@ -1,17 +1,10 @@
 import type { IpcRenderer } from 'electron';
-import type {
-    IDocumentsFileCapability,
-    IImageExportCapability,
-} from '@contracts/platformApi';
+import type {IDocumentsFileCapability} from '@contracts/platformApi';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {
-    IMAGE_EXPORT_CHANNELS,
-    type IImageExportInvokeMap,
-} from '@electron/features/image-export/index';
 import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 import {
     assertAbsolutePath,
@@ -22,7 +15,7 @@ import {
     MAX_IPC_FILE_NAME_LENGTH,
 } from '@electron/features/documents/preloadShared';
 
-type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile'> & IImageExportCapability;
+type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile'>;
 const PDF_PERSISTENCE_CHUNK_BYTES = 8 * 1024 * 1024;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
 const PDF_PERSISTENCE_ACK_TIMEOUT_MS = 60_000;
@@ -236,7 +229,7 @@ async function streamPdfBytesToPersistencePort(
 export function createDocumentsPreloadFileClient(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage'>,
 ): TDocumentsPreloadFileClient {
-    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap & IImageExportInvokeMap>(ipcRenderer);
+    const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
 
     return {
         openPdfDialog: () => invoke(DOCUMENTS_CHANNELS.openPdfDialog),
@@ -266,10 +259,6 @@ export function createDocumentsPreloadFileClient(
         },
         savePdfDialog: (suggestedName: string) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
         saveDocxAs: (workingPath: string) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
-        exportPdfToImages: (workingPath: string, pageNumbers?: number[]) =>
-            invoke(IMAGE_EXPORT_CHANNELS.exportImages, workingPath, pageNumbers),
-        exportPdfToMultiPageTiff: (workingPath: string, pageNumbers?: number[]) =>
-            invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers),
         readFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
         statFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
         readFileRange: (path: string, offset: number, length: number) =>

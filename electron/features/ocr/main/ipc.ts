@@ -7,7 +7,10 @@ import {
     ipcMain,
 } from 'electron';
 import { extname } from 'path';
-import type { IOcrRecognizeResult } from '@contracts/electronApiOcr';
+import type {
+    IOcrRecognizeResult,
+    IOcrToolValidationResult,
+} from '@contracts/electronApiOcr';
 import {
     OCR_CHANNELS,
     OCR_EVENT_CHANNELS,
@@ -205,37 +208,43 @@ async function handleOcrValidateTools() {
         const envelope = toOcrErrorEnvelope(error, 'OCR_TOOLS_VALIDATION_FAILED');
         const paths = getOcrToolPaths();
         log.error(`ocr:validateTools failed: ${envelope.message}`);
+        const tools: IOcrToolValidationResult['tools'] = {
+            tesseract: {
+                found: false,
+                path: paths.tesseract,
+            },
+            tessdata: {
+                found: false,
+                path: paths.tessdata,
+                languages: [],
+            },
+            pdftoppm: {
+                found: false,
+                path: paths.pdftoppm,
+            },
+            pdftotext: {
+                found: false,
+                path: paths.pdftotext,
+            },
+            popplerRuntime: {
+                dataDirFound: false,
+                fontConfigDirFound: false,
+            },
+            qpdf: {
+                found: false,
+                path: paths.qpdf,
+            },
+        };
+        if (paths.popplerDataDir !== undefined) {
+            tools.popplerRuntime.dataDir = paths.popplerDataDir;
+        }
+        if (paths.popplerFontConfigDir !== undefined) {
+            tools.popplerRuntime.fontConfigDir = paths.popplerFontConfigDir;
+        }
+
         return {
             valid: false,
-            tools: {
-                tesseract: {
-                    found: false,
-                    path: paths.tesseract,
-                },
-                tessdata: {
-                    found: false,
-                    path: paths.tessdata,
-                    languages: [],
-                },
-                pdftoppm: {
-                    found: false,
-                    path: paths.pdftoppm,
-                },
-                pdftotext: {
-                    found: false,
-                    path: paths.pdftotext,
-                },
-                popplerRuntime: {
-                    dataDirFound: false,
-                    dataDir: paths.popplerDataDir,
-                    fontConfigDirFound: false,
-                    fontConfigDir: paths.popplerFontConfigDir,
-                },
-                qpdf: {
-                    found: false,
-                    path: paths.qpdf,
-                },
-            },
+            tools,
             errors: [envelope.message],
             errorEnvelope: envelope,
         };

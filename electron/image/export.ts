@@ -1,1 +1,1 @@
-export * from '@electron/features/image-export/main/export';
+export * from '@electron/features/image-export/public';

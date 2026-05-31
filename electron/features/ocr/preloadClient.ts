@@ -45,12 +45,20 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         getLanguages: () => invoke(OCR_CHANNELS.getLanguages),
 
-        installLanguages: (languages: string[], requestId: string) => Promise.resolve({
-            started: true,
-            jobId: assertRequestId(requestId, 'ocrInstallLanguages.requestId'),
-            installed: languages,
-            errors: [],
-        }),
+        validateTools: () => invoke(OCR_CHANNELS.validateTools),
+
+        installLanguages: async (languages: string[], requestId: string) => {
+            const checkedRequestId = assertRequestId(requestId, 'ocrInstallLanguages.requestId');
+            const validation = await invoke(OCR_CHANNELS.validateTools);
+            return {
+                started: validation.valid,
+                jobId: checkedRequestId,
+                installed: validation.valid ? languages : [],
+                errors: validation.errors,
+                ...(validation.errorEnvelope ? { errorEnvelope: validation.errorEnvelope } : {}),
+                ...(!validation.valid && validation.errors[0] ? { error: validation.errors[0] } : {}),
+            };
+        },
 
         acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) =>
             invoke(

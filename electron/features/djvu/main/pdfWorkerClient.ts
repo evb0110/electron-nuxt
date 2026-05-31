@@ -14,7 +14,7 @@ import {
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_PDF_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['djvu-pdf'].fileName;

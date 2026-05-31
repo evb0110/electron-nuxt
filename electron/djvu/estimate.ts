@@ -6,11 +6,11 @@ import {
     rm,
 } from 'fs/promises';
 import { sortBy } from 'es-toolkit/array';
-import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
 import {
+    convertDjvuPageToImage,
     createDjvuPdfEstimateTask,
     DjvuPdfWorkerStartupError,
-} from '@electron/features/djvu/main/pdfWorkerClient';
+} from '@electron/features/djvu/public';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { buildOptimizedPdf } from '@electron/djvu/pdfBuilder';
 import { te } from '@electron/i18n';

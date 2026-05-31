@@ -14,6 +14,7 @@ import {
 } from '@electron/ocr/languageModels';
 import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
 
 interface IOcrPaths {
     binary: string;
@@ -30,41 +31,6 @@ export interface IOcrToolPaths {
     popplerFontConfigDir?: string;
     qpdf: string;
     unpaper?: string;
-}
-
-interface IToolValidationResult {
-    valid: boolean;
-    tools: {
-        tesseract: {
-            found: boolean;
-            path: string;
-            version?: string 
-        };
-        tessdata: {
-            found: boolean;
-            path: string;
-            languages?: string[] 
-        };
-        pdftoppm: {
-            found: boolean;
-            path: string 
-        };
-        pdftotext: {
-            found: boolean;
-            path: string 
-        };
-        popplerRuntime: {
-            dataDirFound: boolean;
-            dataDir?: string;
-            fontConfigDirFound: boolean;
-            fontConfigDir?: string;
-        };
-        qpdf: {
-            found: boolean;
-            path: string 
-        };
-    };
-    errors: string[];
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -386,7 +352,7 @@ function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
     return result;
 }
 
-export async function validateOcrTools(): Promise<IToolValidationResult> {
+export async function validateOcrTools(): Promise<IOcrToolValidationResult> {
     const paths = await getOcrToolPaths();
     const errors: string[] = [];
 
@@ -412,7 +378,7 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
         path => `qpdf not found: ${path} (install qpdf or bundle it)`,
     );
     const valid = tesseract.found && tessdata.found && pdftoppmFound && pdftotextFound && qpdfFound && popplerRuntime.valid;
-    const tools: IToolValidationResult['tools'] = {
+    const tools: IOcrToolValidationResult['tools'] = {
         tesseract: {
             found: tesseract.found,
             path: paths.tesseract,

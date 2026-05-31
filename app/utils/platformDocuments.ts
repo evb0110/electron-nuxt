@@ -1,17 +1,23 @@
 import type {
     IDocumentsCapability,
+    IImageExportCapability,
+    IPageOpsCapability,
     TDocumentRef,
 } from '@contracts/platformApi';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getDocumentsCapability(): IDocumentsCapability {
     return getPlatformAPI().documents;
 }
 
-export function getPageOpsCapability(): IDocumentsCapability['pageOps'] {
-    return getDocumentsCapability().pageOps;
+export function getPageOpsCapability(): IPageOpsCapability {
+    return getPlatformAPI().pageOps;
+}
+
+export function getImageExportCapability(): IImageExportCapability {
+    return getPlatformAPI().imageExport;
 }
 
 export function getDocumentPathForFile(file: File) {

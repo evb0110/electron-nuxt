@@ -5,7 +5,7 @@ import {
 } from 'node:fs/promises';
 import esbuild from 'esbuild';
 
-const { WORKER_BUNDLES } = await import(new URL('../packages/contracts/electronWorkerBundles.js', import.meta.url).href);
+const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href);
 
 const builds = [
     {

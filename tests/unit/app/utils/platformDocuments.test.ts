@@ -17,7 +17,7 @@ const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => getPlatformApiMock() }));
 
-vi.mock('@app/platform/browser-api/browserYield', () => ({ yieldToBrowser: yieldToBrowserMock }));
+vi.mock('@app/utils/yieldToBrowser', () => ({ yieldToBrowser: yieldToBrowserMock }));
 
 describe('platformDocuments', () => {
     beforeEach(() => {

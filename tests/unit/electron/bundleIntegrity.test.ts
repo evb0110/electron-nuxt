@@ -13,52 +13,74 @@ import {
     expect,
     it,
 } from 'vitest';
-import { WORKER_BUNDLES_BY_ID } from '@contracts/electronWorkerBundles.js';
+import {
+    WORKER_BUNDLES,
+    type TWorkerBundleId,
+} from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const execFileAsync = promisify(execFile);
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 const DIST_DIR = join(REPO_ROOT, 'dist-electron');
-const ELECTRON_DIR = join(REPO_ROOT, 'electron');
+const SOURCE_ROOTS = [
+    join(REPO_ROOT, 'electron'),
+    join(REPO_ROOT, 'packages', 'contracts'),
+    join(REPO_ROOT, 'packages', 'electron-worker-bundles'),
+    join(REPO_ROOT, 'packages', 'pdf-core'),
+];
 
 interface IBundleCheck {
     file: string;
     requiredSymbols: string[];
 }
 
-const BUNDLE_CHECKS: IBundleCheck[] = [
-    {
-        file: WORKER_BUNDLES_BY_ID['pdf-combine'].fileName,
-        requiredSymbols: [
-            'readImageDpi',
-            'pixelsToPdfPoints',
-            'readTiffFrameDpi',
-            'METERS_PER_INCH',
-        ],
-    },
-    {
-        file: WORKER_BUNDLES_BY_ID.ocr.fileName,
-        requiredSymbols: ['detectSourceDpi'],
-    },
-    {
-        file: WORKER_BUNDLES_BY_ID.search.fileName,
-        requiredSymbols: ['SEARCH_INDEX_CACHE_MAX_ENTRIES'],
-    },
-];
+const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
+    'djvu-pdf': [
+        'buildOptimizedPdf',
+        'embedBookmarksIntoPdfFile',
+    ],
+    'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
+    ocr: ['detectSourceDpiDetails'],
+    'page-ops-crop': [
+        'cropPagesLocal',
+        'getPageGeometryLocal',
+    ],
+    'pdf-combine': [
+        'readImageDpi',
+        'pixelsToPdfPoints',
+        'readTiffFrameDpi',
+        'METERS_PER_INCH',
+    ],
+    'pdf-conformance': ['analyzePdfConformanceFileDirect'],
+    search: ['SEARCH_INDEX_CACHE_MAX_ENTRIES'],
+};
+
+const BUNDLE_CHECKS: IBundleCheck[] = WORKER_BUNDLES.map(bundle => ({
+    file: bundle.fileName,
+    requiredSymbols: REQUIRED_SYMBOLS_BY_WORKER[bundle.id] ?? [],
+}));
 
 let latestSourceMtimeMs = 0;
 
-async function collectTypeScriptFiles(dirPath: string): Promise<string[]> {
+function shouldTrackSourceFile(fileName: string) {
+    return fileName.endsWith('.ts')
+        || fileName.endsWith('.d.ts')
+        || fileName.endsWith('.js')
+        || fileName.endsWith('.mjs')
+        || fileName.endsWith('.cjs');
+}
+
+async function collectSourceFiles(dirPath: string): Promise<string[]> {
     const entries = await readdir(dirPath, { withFileTypes: true });
     const files: string[] = [];
 
     for (const entry of entries) {
         const entryPath = join(dirPath, entry.name);
         if (entry.isDirectory()) {
-            files.push(...await collectTypeScriptFiles(entryPath));
+            files.push(...await collectSourceFiles(entryPath));
             continue;
         }
-        if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.d.ts'))) {
+        if (entry.isFile() && shouldTrackSourceFile(entry.name)) {
             files.push(entryPath);
         }
     }
@@ -67,10 +89,11 @@ async function collectTypeScriptFiles(dirPath: string): Promise<string[]> {
 }
 
 async function getLatestSourceMtimeMs(): Promise<number> {
-    const sourceFiles = await collectTypeScriptFiles(ELECTRON_DIR);
+    const sourceFiles = (await Promise.all(SOURCE_ROOTS.map(collectSourceFiles))).flat();
     const freshnessReferenceFiles = [
         ...sourceFiles,
         join(REPO_ROOT, 'package.json'),
+        join(REPO_ROOT, 'scripts', 'build-electron.mjs'),
     ];
 
     let newestMtimeMs = 0;

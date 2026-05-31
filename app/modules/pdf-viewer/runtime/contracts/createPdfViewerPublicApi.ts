@@ -1,4 +1,4 @@
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/public';
+import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type { Ref } from 'vue';
 
 type TPdfViewerPublicApiRefBackedKeys = 'isCapturingRegion' | 'isCropSelecting' | 'selectedShapeId';

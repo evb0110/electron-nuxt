@@ -8,7 +8,7 @@ import {
     createDefaultPdfConformanceProfile,
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@contracts/pdfConformanceHelpers';
+} from '@pdf-core/pdfConformanceHelpers';
 
 describe('PDF conformance contract helpers', () => {
     it('creates the default conformance profile', () => {

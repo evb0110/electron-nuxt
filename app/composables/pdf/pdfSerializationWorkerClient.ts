@@ -11,7 +11,7 @@ import {
     serializePdfEdits,
     updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import {
     settleBrowserWorkerResult,
     type TBrowserWorkerResult,

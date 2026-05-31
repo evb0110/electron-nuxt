@@ -1,6 +1,7 @@
+import type { IpcMainInvokeEvent } from 'electron';
 import type { IIpcMainRegistrar as IContractIpcMainRegistrar } from '@contracts/ipcMain';
 import type { IOcrInvokeMap } from '@electron/features/ocr/contract';
 
-export type IIpcMainRegistrar = IContractIpcMainRegistrar<IOcrInvokeMap>;
+export type IIpcMainRegistrar = IContractIpcMainRegistrar<IOcrInvokeMap, IpcMainInvokeEvent>;
 
 export interface IOcrService {registerHandlers: (registrar: IIpcMainRegistrar) => void;}
