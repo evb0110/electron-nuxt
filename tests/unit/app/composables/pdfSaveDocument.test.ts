@@ -8,10 +8,7 @@ import {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 describe('savePdfDocumentWithCommittedEditors', () => {
     afterEach(() => {

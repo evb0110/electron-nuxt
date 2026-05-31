@@ -1,4 +1,5 @@
 import { resolve } from 'path';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
@@ -27,7 +28,7 @@ export async function handleFileWrite(
     try {
         await writeFileAtomic(resolvedPath, payload);
     } catch (error) {
-        const code = (error as NodeJS.ErrnoException | null)?.code;
+        const code = isErrnoException(error) ? error.code : undefined;
         if (code !== 'ENOENT' && code !== 'ENOTDIR') {
             throw error;
         }

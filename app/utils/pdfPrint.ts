@@ -305,6 +305,7 @@ function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
         && document !== targetDocument
         && typeof document.createElement === 'function'
     ) {
+        // Cross-document canvas creation returns DOM Canvas; IBrowserPrintCanvas only narrows the methods used below.
         return document.createElement('canvas') as unknown as IBrowserPrintCanvas;
     }
 

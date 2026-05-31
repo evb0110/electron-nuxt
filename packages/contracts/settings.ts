@@ -9,6 +9,7 @@ import {
 } from 'es-toolkit/predicate';
 import { trim } from 'es-toolkit/string';
 import type { ISettingsData } from './shared';
+import { isRecord } from './runtimeGuards';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
 const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<ISettingsData['defaultZoomPreset']>([
@@ -66,6 +67,10 @@ function isDefaultViewMode(value: string): value is ISettingsData['defaultViewMo
 
 function isUiScalePreference(value: string): value is ISettingsData['uiScale'] {
     return UI_SCALE_PREFERENCES.has(value);
+}
+
+function isTabMemoryPolicy(value: string): value is ISettingsData['tabMemoryPolicy'] {
+    return TAB_MEMORY_POLICIES.has(value);
 }
 
 export function normalizeTheme(theme: unknown): ISettingsData['theme'] {
@@ -134,28 +139,29 @@ function normalizeTabMemoryPolicy(value: unknown): ISettingsData['tabMemoryPolic
         return DEFAULT_SETTINGS.tabMemoryPolicy;
     }
 
-    return TAB_MEMORY_POLICIES.has(value) ? value as ISettingsData['tabMemoryPolicy'] : DEFAULT_SETTINGS.tabMemoryPolicy;
+    return isTabMemoryPolicy(value) ? value : DEFAULT_SETTINGS.tabMemoryPolicy;
 }
 
-export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
+export function sanitizeSettings(raw: unknown): ISettingsData {
+    const value = isRecord(raw) ? raw : null;
     const settings: ISettingsData = {
-        version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
-        authorName: normalizeBoundedString(raw?.authorName, MAX_AUTHOR_NAME_LENGTH),
-        theme: normalizeTheme(raw?.theme),
-        locale: normalizeLocale(raw?.locale),
-        defaultZoomPreset: normalizeDefaultZoomPreset(raw?.defaultZoomPreset),
-        defaultViewMode: normalizeDefaultViewMode(raw?.defaultViewMode),
-        defaultContinuousScroll: isBoolean(raw?.defaultContinuousScroll)
-            ? raw.defaultContinuousScroll
+        version: typeof value?.version === 'number' ? value.version : DEFAULT_SETTINGS.version,
+        authorName: normalizeBoundedString(value?.authorName, MAX_AUTHOR_NAME_LENGTH),
+        theme: normalizeTheme(value?.theme),
+        locale: normalizeLocale(value?.locale),
+        defaultZoomPreset: normalizeDefaultZoomPreset(value?.defaultZoomPreset),
+        defaultViewMode: normalizeDefaultViewMode(value?.defaultViewMode),
+        defaultContinuousScroll: isBoolean(value?.defaultContinuousScroll)
+            ? value.defaultContinuousScroll
             : DEFAULT_SETTINGS.defaultContinuousScroll,
-        defaultAnnotationColor: normalizeDefaultAnnotationColor(raw?.defaultAnnotationColor),
-        uiScale: normalizeUiScale(raw?.uiScale),
-        tabMemoryPolicy: normalizeTabMemoryPolicy(raw?.tabMemoryPolicy),
+        defaultAnnotationColor: normalizeDefaultAnnotationColor(value?.defaultAnnotationColor),
+        uiScale: normalizeUiScale(value?.uiScale),
+        tabMemoryPolicy: normalizeTabMemoryPolicy(value?.tabMemoryPolicy),
     };
-    if (isBoolean(raw?.suppressDefaultViewerPrompt)) {
-        settings.suppressDefaultViewerPrompt = raw.suppressDefaultViewerPrompt;
+    if (isBoolean(value?.suppressDefaultViewerPrompt)) {
+        settings.suppressDefaultViewerPrompt = value.suppressDefaultViewerPrompt;
     }
-    const skippedUpdateVersion = normalizeBoundedString(raw?.skippedUpdateVersion, MAX_SKIPPED_UPDATE_VERSION_LENGTH);
+    const skippedUpdateVersion = normalizeBoundedString(value?.skippedUpdateVersion, MAX_SKIPPED_UPDATE_VERSION_LENGTH);
     if (skippedUpdateVersion) {
         settings.skippedUpdateVersion = skippedUpdateVersion;
     }

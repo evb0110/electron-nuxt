@@ -21,6 +21,7 @@ import type {
     IOcrPageWithWords,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
+import { isRecord } from '@contracts/runtimeGuards';
 
 function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
     const relativePath = relative(baseDir, candidatePath);
@@ -35,10 +36,6 @@ function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
 
 function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parseOcrIndexV2Manifest(rawManifest: string): IOcrIndexV2Manifest | null {

@@ -41,6 +41,10 @@ import type {
     TOcrWorkerInboundMessage,
     TOcrWorkerOutboundMessage,
 } from '@electron/ocr/worker/types';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/logger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
@@ -66,14 +70,6 @@ type TOcrWorkerManagerMessage = Exclude<
     TOcrWorkerOutboundMessage,
     { type: 'resource-acquire' } | { type: 'resource-release' }
 >;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-    return isRecord(error) && ('code' in error);
-}
 
 function assertNever(value: never): never {
     throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);

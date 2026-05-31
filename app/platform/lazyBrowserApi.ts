@@ -9,6 +9,7 @@ import type {
     IUpdatesCapability,
     IWindowTabsCapability,
 } from '@contracts/platformApi';
+import { isRecord } from '@contracts/runtimeGuards';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 
 type TBrowserPlatformModule = { browserPlatformApi: IPlatformApi; };
@@ -19,10 +20,6 @@ type TArgs<TMethod> = TMethod extends (...args: infer TMethodArgs) => unknown ? 
 type TAsyncResult<TMethod> = TMethod extends (...args: unknown[]) => Promise<infer TResult> ? TResult : never;
 
 let browserPlatformApiPromise: Promise<IPlatformApi> | null = null;
-
-function isRecord(value: unknown): value is Record<string | symbol, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function loadBrowserPlatformApi() {
     browserPlatformApiPromise ??= import('@app/platform/browserApi').then(

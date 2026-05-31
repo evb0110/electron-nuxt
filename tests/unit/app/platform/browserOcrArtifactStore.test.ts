@@ -10,10 +10,7 @@ import {
     readBrowserOcrArtifactJson,
     writeBrowserOcrArtifactJson,
 } from '@app/platform/browser-api/browserOcrArtifactStore';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 class FakeIdbRequest<T> {
     public result!: T;

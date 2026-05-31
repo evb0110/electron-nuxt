@@ -8,6 +8,7 @@ import {
     join,
     win32,
 } from 'path';
+import { isErrnoException } from '@contracts/runtimeGuards';
 
 const APP_TEMP_DIR_NAME = 'evb-viewer';
 
@@ -25,7 +26,7 @@ export function getAppTempDir() {
             throw new Error(`App temp directory must not be a symbolic link: ${tempDir}`);
         }
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if (!isErrnoException(error) || error.code !== 'ENOENT') {
             throw error;
         }
     }

@@ -15,6 +15,7 @@ import {
     uniqBy,
 } from 'es-toolkit/array';
 import type { IRecentFile } from '@contracts/shared';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import {
     CACHE_TTL_MS,
     MAX_RECENT_FILES,
@@ -98,7 +99,7 @@ function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
         statSync(filePath);
         return 'exists';
     } catch (error) {
-        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        const code = isErrnoException(error) ? error.code : undefined;
         if (code === 'ENOENT' || code === 'ENOTDIR') {
             return 'missing';
         }
@@ -158,7 +159,7 @@ async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFi
         }
         return migratedData;
     } catch (bootstrapError) {
-        if ((bootstrapError as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        if (!isErrnoException(bootstrapError) || bootstrapError.code !== 'ENOENT') {
             logger.warn(
                 `Failed to bootstrap recent files from ${bootstrapPath}: ${
                     getErrorMessage(bootstrapError)
@@ -186,7 +187,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         const content = await readFile(storagePath, 'utf-8');
         return normalizeRecentFilesData(JSON.parse(content));
     } catch (err) {
-        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        if (isErrnoException(err) && err.code === 'ENOENT') {
             const bootstrapData = await loadBootstrapRecentFilesData();
             return bootstrapData ?? emptyRecentFilesData();
         }

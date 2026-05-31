@@ -1,6 +1,6 @@
-export function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
-    return typeof value === 'object' && value !== null;
-}
+import { isRecord } from '@contracts/runtimeGuards';
+
+export { isRecord };
 
 export function getOptionalString(
     value: unknown,
@@ -84,9 +84,9 @@ export function getOptionalNumberArray(
     key: PropertyKey,
 ): number[] | null {
     const candidate = getOptionalArray(value, key);
-    if (!candidate || !candidate.every(item => typeof item === 'number' && Number.isFinite(item))) {
+    if (!candidate || !candidate.every((item): item is number => typeof item === 'number' && Number.isFinite(item))) {
         return null;
     }
 
-    return candidate as number[];
+    return candidate;
 }

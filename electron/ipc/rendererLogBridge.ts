@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { clamp } from 'es-toolkit/math';
+import { isRecord } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/logger';
 
 interface IRendererLogEntry {
@@ -84,10 +85,6 @@ const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = (() => {
 const rendererLogRateStateBySender = new Map<number, IRendererLogRateState>();
 const rendererLogCleanupRegisteredBySender = new Set<number>();
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
 function clampString(value: unknown, maxChars: number, fallback = '') {
     if (typeof value !== 'string') {
         return fallback;
@@ -109,7 +106,7 @@ const RENDERER_LOG_NOT_PRIMITIVE = Symbol('renderer-log-not-primitive');
 
 function normalizeRendererLogPrimitive(value: unknown) {
     if (value === null || value === undefined) {
-        return value ?? null;
+        return null;
     }
 
     const valueType = typeof value;
@@ -125,11 +122,8 @@ function normalizeRendererLogPrimitive(value: unknown) {
     if (valueType === 'symbol') {
         return String(value);
     }
-    if (valueType === 'function') {
-        const functionValue = value as { name?: unknown };
-        const functionName = typeof functionValue.name === 'string'
-            ? functionValue.name
-            : '';
+    if (typeof value === 'function') {
+        const functionName = value.name;
         return `[Function ${functionName || 'anonymous'}]`;
     }
 
@@ -182,12 +176,12 @@ function normalizeRendererLogArray(
 }
 
 function normalizeRendererLogPlainObject(
-    value: object,
+    value: Record<PropertyKey, unknown>,
     depth: number,
     state: IRendererLogSerializeState,
 ) {
     const normalizedObject: Record<string, unknown> = {};
-    const entries = Object.entries(value as Record<string, unknown>);
+    const entries = Object.entries(value);
     const maxKeys = Math.min(entries.length, RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS);
     for (let index = 0; index < maxKeys; index += 1) {
         const entry = entries[index];
@@ -243,7 +237,9 @@ function normalizeRendererLogData(
             return normalizeRendererLogArray(value, depth, state);
         }
 
-        return normalizeRendererLogPlainObject(value, depth, state);
+        return isRecord(value)
+            ? normalizeRendererLogPlainObject(value, depth, state)
+            : '[Object]';
     } finally {
         state.seen.delete(value);
     }

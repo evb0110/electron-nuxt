@@ -1,5 +1,6 @@
 import { unlink } from 'fs/promises';
 import { basename } from 'path';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -31,7 +32,7 @@ export async function handleCleanupOcrTemp(
         try {
             await unlink(resolvedPath);
         } catch (unlinkErr) {
-            const code = (unlinkErr as NodeJS.ErrnoException | null)?.code;
+            const code = isErrnoException(unlinkErr) ? unlinkErr.code : undefined;
             if (code !== 'ENOENT') {
                 throw unlinkErr;
             }

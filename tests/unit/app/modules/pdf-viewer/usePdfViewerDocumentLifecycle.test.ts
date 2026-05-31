@@ -15,10 +15,7 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from '@app/types/pdf';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../../helpers/cast';
 
 function flushLifecycleTasks() {
     return Promise.resolve()

@@ -6,10 +6,7 @@ import {
 } from 'vitest';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { buildPageLayoutMetrics } from '@app/composables/pdf/pdfPageLayout';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 function createContainerStub() {
     let scrollTop = 0;

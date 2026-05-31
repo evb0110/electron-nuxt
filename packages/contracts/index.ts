@@ -124,6 +124,11 @@ export {
     sanitizeSettings,
 } from './settings';
 
+export {
+    isErrnoException,
+    isRecord,
+} from './runtimeGuards';
+
 export { isTimeoutError } from './timeoutError';
 
 export { normalizeAnalyticsScalar } from './analytics';
@@ -145,6 +150,7 @@ export type {
     TZoomMode,
     TPdfViewMode,
 } from './shared';
+export { isOcrWord } from './shared';
 
 export {
     OCR_TEXT_LAYER_INDEX_SOURCE,

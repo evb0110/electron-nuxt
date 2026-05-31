@@ -9,10 +9,7 @@ import { ref } from 'vue';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabsMenuBindings';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../../../helpers/cast';
 
 async function flushMicrotasks() {
     await Promise.resolve();

@@ -1,5 +1,6 @@
 import { BROWSER_DOCUMENT_CHUNK_SIZE } from './browserDocumentConstants';
 import { groupBy } from 'es-toolkit/array';
+import { isRecord } from '@contracts/runtimeGuards';
 import {
     cloneBytes,
     normalizePersistedBytes,
@@ -37,9 +38,7 @@ interface IPersistedChunkLayout {
     chunkGeneration?: string;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
+export { isRecord };
 
 function normalizeStorageMode(value: unknown): TBrowserDocumentStorageMode {
     if (

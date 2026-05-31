@@ -30,6 +30,7 @@ async function getPdfjsLib() {
 }
 
 function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
+    // pdfjs expects a wide init union; this object is the browser byte-data branch.
     return {
         data: toUint8Array(data),
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
@@ -71,6 +72,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     }
 
     const RangeTransportBase =
+        // pdfjs exposes the constructor with broader internal typing than the range transport API used here.
         pdfjsLib.PDFDataRangeTransport as unknown as TPdfDataRangeTransportConstructor;
 
     class BrowserDocumentRangeTransport extends RangeTransportBase {
@@ -119,6 +121,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         }
     }
 
+    // pdfjs expects a wide init union; this object is the browser range-transport branch.
     return {
         length: size,
         range: new BrowserDocumentRangeTransport(),

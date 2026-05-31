@@ -8,6 +8,7 @@ import {
 import { ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
+import { cast } from '../../../../../helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
@@ -24,10 +25,6 @@ vi.mock('@vueuse/core', () => ({
     whenever: mocks.whenever,
 }));
 vi.mock('@app/utils/platformShortcuts', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
 
 function createDeps() {
     return {

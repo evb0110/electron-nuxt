@@ -66,15 +66,12 @@ import {
     runOcrCommand,
     type IOcrRunCommandOptions,
 } from '@electron/ocr/worker/runCommand';
+import { isRecord } from '@contracts/runtimeGuards';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
 
 function toStringArray(value: unknown) {
     if (!Array.isArray(value)) {

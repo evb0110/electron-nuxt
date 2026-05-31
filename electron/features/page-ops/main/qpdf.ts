@@ -11,6 +11,7 @@ import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import {
     cleanupTempOutput,
     makeTempPdfOutputPath,
@@ -125,8 +126,7 @@ async function cleanupEmptyTarget(targetPath: string) {
             await unlink(targetPath);
         }
     } catch (cleanupError) {
-        const err = cleanupError as NodeJS.ErrnoException;
-        if (err.code === 'ENOENT') {
+        if (isErrnoException(cleanupError) && cleanupError.code === 'ENOENT') {
             return;
         }
 

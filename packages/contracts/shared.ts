@@ -1,5 +1,6 @@
 import type { TLocale } from '@i18n-core';
 import type { TDocumentRef } from './document';
+import { isRecord } from './runtimeGuards';
 
 export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[] {
     return paths
@@ -26,6 +27,19 @@ export interface IOcrWord {
     y: number;
     width: number;
     height: number;
+}
+
+export function isOcrWord(value: unknown): value is IOcrWord {
+    return isRecord(value)
+        && typeof value.text === 'string'
+        && typeof value.x === 'number'
+        && typeof value.y === 'number'
+        && typeof value.width === 'number'
+        && typeof value.height === 'number'
+        && Number.isFinite(value.x)
+        && Number.isFinite(value.y)
+        && Number.isFinite(value.width)
+        && Number.isFinite(value.height);
 }
 
 export type TFitMode = 'width' | 'height';

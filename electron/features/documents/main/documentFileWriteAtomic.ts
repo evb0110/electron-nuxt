@@ -14,6 +14,7 @@ import {
     resolve,
 } from 'path';
 import { randomUUID } from 'crypto';
+import { isErrnoException } from '@contracts/runtimeGuards';
 
 const MAX_IPC_WRITE_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_IPC_WRITE_BYTES ?? `${512 * 1024 * 1024}`, 10);
@@ -69,7 +70,7 @@ function assertNoSymlinkPathSegments(resolvedPath: string) {
                 throw new Error(`Invalid file path: symlink path segment is not allowed (${segment})`);
             }
         } catch (error) {
-            const code = (error as NodeJS.ErrnoException | null)?.code;
+            const code = isErrnoException(error) ? error.code : undefined;
             if (code === 'ENOENT') {
                 continue;
             }

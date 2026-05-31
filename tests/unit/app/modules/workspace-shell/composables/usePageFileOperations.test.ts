@@ -13,6 +13,7 @@ import { usePageFileOperations } from '@app/modules/workspace-shell/composables/
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdf';
+import { cast } from '../../../../../helpers/cast';
 
 const {
     mockHasElectronAPI,
@@ -29,10 +30,6 @@ vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
     openCombineDialog: mockOpenCombineDialog,
     readFileRange: mockReadFileRange,
 })}));
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
 
 function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
     return {

@@ -7,10 +7,7 @@ import {
     getPageContainer,
     setupPagePlaceholderSizes,
 } from '@app/composables/pdf/pdfPageBufferManager';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 function createPageContainerRoot(pageNumbers: number[]) {
     const mountedPages = pageNumbers.map((pageNumber) => cast<HTMLElement>({dataset: {page: String(pageNumber)}}));

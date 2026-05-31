@@ -5,13 +5,11 @@ import type {
 } from '@contracts/platformApi';
 import {
     DEFAULT_SETTINGS,
+    normalizeLocale,
+    normalizeTheme,
     sanitizeSettings,
 } from '@contracts/settings';
-import type {
-    ISettingsData,
-    TAppLocale,
-    TAppTheme,
-} from '@contracts/shared';
+import type { ISettingsData } from '@contracts/shared';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
@@ -51,10 +49,10 @@ function readBrowserSettingsFromCookie() {
 
     const fallbackSettings: Partial<ISettingsData> = {};
     if (localeCookie) {
-        fallbackSettings.locale = decodeURIComponent(localeCookie) as TAppLocale;
+        fallbackSettings.locale = normalizeLocale(decodeURIComponent(localeCookie));
     }
     if (themeCookie) {
-        fallbackSettings.theme = decodeURIComponent(themeCookie) as TAppTheme;
+        fallbackSettings.theme = normalizeTheme(decodeURIComponent(themeCookie));
     }
 
     return parseBrowserSettingsPayload(
@@ -70,7 +68,7 @@ function readBrowserSettingsFromStorage() {
     }
 
     try {
-        return sanitizeSettings(JSON.parse(rawSettings) as Partial<ISettingsData>);
+        return sanitizeSettings(JSON.parse(rawSettings));
     } catch {
         return null;
     }

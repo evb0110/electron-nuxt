@@ -2,6 +2,7 @@ import {
     rm,
     unlink,
 } from 'fs/promises';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -31,7 +32,7 @@ async function unlinkIfPresent(filePath: string) {
     try {
         await unlink(filePath);
     } catch (error) {
-        const code = (error as NodeJS.ErrnoException | null)?.code;
+        const code = isErrnoException(error) ? error.code : undefined;
         if (code !== 'ENOENT') {
             log.debug(`Failed to remove page-op artifact "${filePath}": ${getErrorMessage(error)}`);
         }

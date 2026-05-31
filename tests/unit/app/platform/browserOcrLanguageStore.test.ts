@@ -15,10 +15,7 @@ import {
     listInstalledBrowserOcrLanguages,
     markBrowserOcrLanguageInstalled,
 } from '@app/platform/browser-api/browserOcrLanguageStore';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../helpers/cast';
 
 class FakeIdbRequest<T> {
     public result!: T;

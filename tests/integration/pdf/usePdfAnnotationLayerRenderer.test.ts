@@ -14,10 +14,7 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
+import { cast } from '../../helpers/cast';
 
 const loggerWarn = vi.fn();
 const loggerDebug = vi.fn();

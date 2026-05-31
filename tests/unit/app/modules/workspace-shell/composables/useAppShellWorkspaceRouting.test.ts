@@ -14,10 +14,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
-
-function cast<T>(value: unknown): T {
-    return value as T;
-}
+import { cast } from '../../../../../helpers/cast';
 
 interface IWorkspaceRecord {
     workspace: IWorkspaceExpose;

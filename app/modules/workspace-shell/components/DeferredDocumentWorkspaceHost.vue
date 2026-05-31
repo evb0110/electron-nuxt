@@ -896,9 +896,9 @@ useEventListener(
 async function runWithDocumentOpenInFlight<T>(
     intent: IDocumentOpenIntent,
     run: () => Promise<T>,
-) {
+): Promise<T | false> {
     if (isHostUnmounted) {
-        return false as T;
+        return false;
     }
     const transaction = beginDocumentOpenTransaction(intent);
     documentOpenInFlightCount.value += 1;
@@ -924,9 +924,9 @@ async function runWithDocumentOpenInFlight<T>(
 async function enqueueDocumentOpen<T>(
     intent: IDocumentOpenIntent,
     run: () => Promise<T>,
-) {
+): Promise<T | false> {
     if (isHostUnmounted) {
-        return false as T;
+        return false;
     }
     const queuedRun = documentOpenQueue
         .catch(() => {})

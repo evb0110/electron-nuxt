@@ -14,10 +14,7 @@ import {
     usePageLabelState,
 } from '@app/composables/pdf/usePageLabelState';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
-
-function cast<T>(obj: unknown): T {
-    return obj as T;
-}
+import { cast } from '../../../helpers/cast';
 
 function createPdfDocumentRef(
     numPages: number,
