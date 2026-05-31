@@ -1,16 +1,17 @@
 <template>
-    <div class="save-split" :class="{ 'is-open': menuOpen }">
-        <AppTooltip :delay-duration="1200">
+    <div class="save-split" :class="{ 'is-open': menuOpen, 'is-primary-disabled': primaryDisabled }">
+        <AppTooltip :delay-duration="1200" :disabled="primaryDisabled">
             <button
                 type="button"
                 class="save-split-primary"
-                :disabled="saveDisabled || isSaving"
                 :class="{ 'is-loading': isSaving }"
+                :disabled="primaryDisabled"
                 :aria-label="saveTooltip"
+                :aria-busy="isSaving"
                 @click="handleSave"
             >
-                <Icon v-if="!isSaving" name="ph:floppy-disk" class="save-split-icon" />
-                <Icon v-else name="ph:circle-notch" class="save-split-icon animate-spin" />
+                <Icon v-if="!isSaving" name="ph:floppy-disk" class="save-split-icon" aria-hidden="true" />
+                <Icon v-else name="ph:circle-notch" class="save-split-icon animate-spin" aria-hidden="true" />
             </button>
 
             <template #content>
@@ -29,23 +30,26 @@
             <button
                 type="button"
                 class="save-split-trigger"
-                :class="{ 'is-open': menuOpen }"
                 :disabled="triggerDisabled"
-                aria-haspopup="menu"
+                aria-haspopup="true"
                 :aria-expanded="menuOpen"
                 :aria-label="t('toolbar.saveOptions')"
             >
-                <Icon name="ph:caret-down" class="save-split-chevron" />
+                <Icon name="ph:caret-down" class="save-split-chevron" aria-hidden="true" />
             </button>
 
             <template #content>
-                <div class="save-split-menu toolbar-menu-panel">
+                <div
+                    class="save-split-menu toolbar-menu-panel"
+                    role="group"
+                    :aria-label="t('toolbar.saveOptions')"
+                >
                     <button
                         class="save-split-item toolbar-menu-item"
-                        :disabled="saveDisabled || isSaving"
+                        :disabled="primaryDisabled"
                         @click="handleMenuSave"
                     >
-                        <Icon name="ph:floppy-disk" class="save-split-menu-icon toolbar-menu-icon" />
+                        <Icon name="ph:floppy-disk" class="save-split-menu-icon toolbar-menu-icon" aria-hidden="true" />
                         <span class="toolbar-menu-label">{{ t('toolbar.save') }}</span>
                         <span v-if="saveShortcut" class="toolbar-menu-shortcut">{{ saveShortcut }}</span>
                     </button>
@@ -54,7 +58,7 @@
                         :disabled="saveAsDisabled || isSavingAs"
                         @click="handleSaveAs"
                     >
-                        <Icon name="ph:floppy-disk-back" class="save-split-menu-icon toolbar-menu-icon" />
+                        <Icon name="ph:floppy-disk-back" class="save-split-menu-icon toolbar-menu-icon" aria-hidden="true" />
                         <span class="toolbar-menu-label">{{ t('toolbar.saveAs') }}</span>
                         <span v-if="saveAsShortcut" class="toolbar-menu-shortcut">{{ saveAsShortcut }}</span>
                     </button>
@@ -91,9 +95,8 @@ const { t } = useTypedI18n();
 
 const menuOpen = ref(false);
 
-// The chevron stays usable whenever either action is available, so "Save As…"
-// remains reachable even when an unmodified document cannot be plain-saved.
-const triggerDisabled = computed(() => (saveDisabled || isSaving) && (saveAsDisabled || isSavingAs));
+const primaryDisabled = computed(() => saveDisabled || isSaving);
+const triggerDisabled = computed(() => primaryDisabled.value && (saveAsDisabled || isSavingAs));
 
 const menuContentOptions = {
     side: 'bottom' as const,
@@ -122,16 +125,10 @@ function handleSaveAs() {
 
 .save-split {
     display: inline-flex;
-    align-items: stretch;
+    align-items: center;
     height: var(--toolbar-control-height);
-    border: 1px solid transparent;
     border-radius: 0.4375rem;
-    overflow: hidden;
-}
-
-.save-split:hover,
-.save-split.is-open {
-    border-color: var(--app-toolbar-control-hover-border);
+    transition: background-color 0.1s ease, box-shadow 0.1s ease;
 }
 
 .save-split-primary,
@@ -139,6 +136,7 @@ function handleSaveAs() {
     display: flex;
     align-items: center;
     justify-content: center;
+    height: var(--toolbar-control-height);
     border: none;
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
@@ -147,25 +145,52 @@ function handleSaveAs() {
 }
 
 .save-split-primary {
-    width: var(--toolbar-control-height);
+    width: 2rem;
     padding: 0.32rem;
+    border-radius: 0.4375rem 0 0 0.4375rem;
 }
 
 .save-split-trigger {
-    width: 1.125rem;
-    padding: 0;
-    border-left: 1px solid var(--app-toolbar-separator);
+    width: 1rem;
+    padding-right: 0.0625rem;
+    border-radius: 0 0.4375rem 0.4375rem 0;
 }
 
-.save-split-primary:hover:not(:disabled),
-.save-split-trigger:hover:not(:disabled),
-.save-split-trigger.is-open {
+/* HOVER, both actions live → the control lights as one recessed gray pill. */
+.save-split:not(.is-primary-disabled, .is-open):hover .save-split-primary,
+.save-split:not(.is-primary-disabled, .is-open):hover .save-split-trigger {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--app-toolbar-control-hover-fg);
 }
 
-.save-split-trigger.is-open {
+/* HOVER, Save unavailable → only the caret reacts, as a standalone control. */
+.save-split.is-primary-disabled:not(.is-open) .save-split-trigger:not(:disabled):hover {
+    background: var(--app-toolbar-control-hover-bg);
+    color: var(--app-toolbar-control-hover-fg);
+    border-radius: 0.4375rem;
+}
+
+/*
+ * OPEN (active) is a distinct, raised elevation — not the recessed hover.
+ * With Save live we frame the whole engaged control (matches the app-menu
+ * button); with Save disabled the active fill sits on the caret alone, so a
+ * dead Save is never wrapped in an active border.
+ */
+.save-split.is-open:not(.is-primary-disabled) {
     background: var(--app-toolbar-control-active-bg);
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-control-active-border);
+}
+
+.save-split.is-open:not(.is-primary-disabled) .save-split-primary,
+.save-split.is-open:not(.is-primary-disabled) .save-split-trigger,
+.save-split.is-open.is-primary-disabled .save-split-trigger {
+    color: var(--app-toolbar-control-hover-fg);
+}
+
+.save-split.is-open.is-primary-disabled .save-split-trigger {
+    background: var(--app-toolbar-control-active-bg);
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-control-active-border);
+    border-radius: 0.4375rem;
 }
 
 .save-split-primary:focus-visible,
@@ -178,8 +203,8 @@ function handleSaveAs() {
 
 .save-split-primary:disabled,
 .save-split-trigger:disabled {
-    opacity: var(--app-toolbar-control-disabled-opacity);
     color: var(--app-toolbar-control-disabled-fg);
+    opacity: var(--app-toolbar-control-disabled-opacity);
     cursor: not-allowed;
 }
 
@@ -195,8 +220,13 @@ function handleSaveAs() {
 }
 
 .save-split-chevron {
-    width: 0.75rem;
-    height: 0.75rem;
+    width: 0.6875rem;
+    height: 0.6875rem;
+    transition: transform 0.15s ease;
+}
+
+.save-split.is-open .save-split-chevron {
+    transform: rotate(180deg);
 }
 
 .save-split-menu {
