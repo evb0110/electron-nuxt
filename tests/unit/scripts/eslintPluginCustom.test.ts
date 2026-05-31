@@ -3,6 +3,7 @@ import {
     it,
 } from 'vitest';
 import { RuleTester } from 'eslint';
+import * as tsParser from '@typescript-eslint/parser';
 import * as vueParser from 'vue-eslint-parser';
 
 const customPlugin = (await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href)).default;
@@ -11,6 +12,7 @@ const tester = new RuleTester({languageOptions: {
     parser: vueParser,
     ecmaVersion: 2022,
     sourceType: 'module',
+    parserOptions: { parser: tsParser },
 }});
 
 const rules = (customPlugin as { rules: Record<string, unknown> }).rules;
