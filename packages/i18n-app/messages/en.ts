@@ -149,7 +149,7 @@ export default {
         }),
         'annotations': 'Annotations',
         'notes': 'Notes',
-        'select': 'Select',
+        'select': 'Select Drawing',
         'closeTool': 'Deactivate tool',
         'annotationsList': 'Annotations List',
         'notesList': 'Notes List',
