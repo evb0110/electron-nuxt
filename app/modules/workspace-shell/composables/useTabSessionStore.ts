@@ -5,7 +5,7 @@ import type {
     TZoomMode,
 } from '@contracts/shared';
 import type { Ref } from 'vue';
-import type { IEditorGroupState } from '@app/types/editorGroups';
+import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 
@@ -46,7 +46,7 @@ export function createTabViewSessionState(snapshot: IWorkspaceToolbarSnapshot): 
 
 export function resolveTabLifecycleStates(options: {
     tabs: ITab[];
-    groups: IEditorGroupState[];
+    panes: IEditorPaneState[];
     activeTabId: string | null;
     activationOrder: string[];
     policy: TTabMemoryPolicy;
@@ -54,8 +54,8 @@ export function resolveTabLifecycleStates(options: {
     const warmCount = TAB_POLICY_WARM_COUNTS[options.policy];
     const tabIds = new Set(options.tabs.map(tab => tab.id));
     const visibleTabIds = new Set(
-        options.groups
-            .map(group => group.activeTabId)
+        options.panes
+            .map(pane => pane.activeTabId)
             .filter((tabId): tabId is string => Boolean(tabId)),
     );
     const recentWarmTabIds = options.activationOrder
@@ -78,7 +78,7 @@ export function resolveTabLifecycleStates(options: {
 
 export function useTabSessionStore(options: {
     tabs: Ref<ITab[]>;
-    groups: Ref<IEditorGroupState[]>;
+    panes: Ref<IEditorPaneState[]>;
     activeTabId: Ref<string | null>;
     policy: Ref<TTabMemoryPolicy>;
 }) {
@@ -116,7 +116,7 @@ export function useTabSessionStore(options: {
     const lifecycleByTabId = computed(() => Object.fromEntries(
         resolveTabLifecycleStates({
             tabs: options.tabs.value,
-            groups: options.groups.value,
+            panes: options.panes.value,
             activeTabId: options.activeTabId.value,
             activationOrder: activationOrder.value,
             policy: options.policy.value,

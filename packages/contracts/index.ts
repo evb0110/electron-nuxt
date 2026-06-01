@@ -68,14 +68,14 @@ export type {
 export type { TDocumentRef } from '@contracts/document';
 
 export type {
-    IEditorGroupRect,
-    IEditorGroupState,
+    IEditorPaneRect,
+    IEditorPaneState,
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
-    TGroupDirection,
-    TGroupOrientation,
-} from '@contracts/editorGroups';
+    TPaneDirection,
+    TPaneOrientation,
+} from '@contracts/editorPanes';
 
 export {
     MAX_IPC_PATH_LENGTH,

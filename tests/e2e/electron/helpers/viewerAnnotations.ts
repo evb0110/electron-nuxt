@@ -58,7 +58,7 @@ async function waitForActiveAnnotationTool(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -84,7 +84,7 @@ async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = D
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.annotationEditorLayer, .annotation-editor-layer'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -138,7 +138,7 @@ async function waitForAnnotationEditorMode(
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = args.targetPageNumber
             ? `.page_container[data-page="${args.targetPageNumber}"]`
             : '.page_container';
@@ -198,7 +198,7 @@ async function getLatestFreeTextHitPoints(page: Page) {
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -283,7 +283,7 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -326,7 +326,7 @@ export async function getActiveToolLabel(page: Page) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -348,7 +348,7 @@ export async function getFreeTextEditorCount(page: Page) {
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -359,7 +359,7 @@ export async function getFreeTextEditorCount(page: Page) {
 
 export async function getHighlightEditorCount(page: Page) {
     return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         return host?.querySelectorAll('.highlightEditor').length ?? 0;
     });
@@ -392,7 +392,7 @@ export async function clickPageAtRatio(
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
@@ -458,7 +458,7 @@ async function resolveAnnotationLayerPoint(
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
@@ -524,7 +524,7 @@ async function synthesizeAnnotationCreationClick(
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
@@ -601,7 +601,7 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
@@ -689,7 +689,7 @@ async function triggerKeyboardFreeTextCreation(page: Page, pageNumber?: number) 
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
@@ -769,7 +769,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                         && rect.height > 100
                     );
                 });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -870,7 +870,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -912,7 +912,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -954,7 +954,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                         && rect.height > 100
                     );
                 });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -984,7 +984,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -1082,7 +1082,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                         && rect.height > 100
                     );
                 });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -1121,7 +1121,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         } catch {
             // Escape+Delete didn't work — try programmatic removal via PDF.js
             const removalResult = await page.evaluate(() => {
-                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
                     ?? document.querySelector<HTMLElement>('.workspace-host')
                     ?? null;
                 const target = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).at(-1) ?? null;
@@ -1242,7 +1242,7 @@ export async function createHighlightFromVisibleText(page: Page) {
     await clickAnnotationTool(page, 'Highlight');
 
     const dragPoints = await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         if (!host) {
             return null;
@@ -1278,7 +1278,7 @@ export async function createHighlightFromVisibleText(page: Page) {
     await page.mouse.up();
 
     await page.waitForFunction((previousCount: number) => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         return (host?.querySelectorAll('.highlightEditor').length ?? 0) > previousCount;
     }, {timeout: DEFAULT_TIMEOUT_MS}, before);
@@ -1346,7 +1346,7 @@ export async function countFreeTextEditorsOnPage(page: Page, pageNumber: number)
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const pageSelector = `.page_container[data-page="${targetPageNumber}"]`;
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
@@ -1365,7 +1365,7 @@ export async function countFreeTextEditorsOnPage(page: Page, pageNumber: number)
 
 export async function getFirstFreeTextComputedColor(page: Page) {
     return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         const editor = host?.querySelector<HTMLElement>('.freeTextEditor [contenteditable], .freeTextEditor');
         if (!editor) {

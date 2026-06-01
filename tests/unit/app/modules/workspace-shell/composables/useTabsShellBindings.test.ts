@@ -65,7 +65,7 @@ function createOptions() {
         openSettings: vi.fn(),
         checkForUpdates: vi.fn(),
         splitEditor: vi.fn(),
-        focusGroup: vi.fn(),
+        focusPane: vi.fn(),
         moveActiveTab: vi.fn(),
         copyActiveTab: vi.fn(),
         handleWindowTabsAction: vi.fn(),

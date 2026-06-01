@@ -84,12 +84,12 @@ async function splitActiveDocument(session: IElectronE2ESession, direction: 'rig
     }, direction);
 
     expect(split).toBe(true);
-    await session.page.waitForFunction(() => document.querySelectorAll('.editor-group-pane').length >= 2);
+    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length >= 2);
 }
 
 async function waitForActiveDjvuImages(session: IElectronE2ESession) {
     await session.page.waitForFunction(() => {
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         return (activeHost?.querySelectorAll('.djvu-page-shell img').length ?? 0) > 0;
     }, { timeout: 20_000 });
 }

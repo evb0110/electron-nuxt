@@ -1,4 +1,4 @@
-import type { TGroupDirection } from '@contracts/editorGroups';
+import type { TPaneDirection } from '@contracts/editorPanes';
 import type { TDocumentRef } from '@contracts/document';
 import type {
     IWindowTabIncomingTransfer,
@@ -28,8 +28,8 @@ export interface IWindowTabsCapability extends IWindowTabsApi {
     claimPendingExternalOpenPaths: () => Promise<TDocumentRef[]>;
     onMenuNewTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuCloseTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuSplitEditor: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
-    onMenuFocusEditorGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
-    onMenuMoveTabToGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
-    onMenuCopyTabToGroup: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;
+    onMenuSplitEditor: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
+    onMenuFocusEditorPane: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
+    onMenuMoveTabToPane: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
+    onMenuCopyTabToPane: (callback: (direction: TPaneDirection) => void) => IMenuEventUnsubscribe;
 }

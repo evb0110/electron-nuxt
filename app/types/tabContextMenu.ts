@@ -1,6 +1,6 @@
-import type { TGroupDirection } from '@app/types/editorGroups';
+import type { TPaneDirection } from '@app/types/editorPanes';
 
-export type TDirectionalCommandAvailability = Record<TGroupDirection, boolean>;
+export type TDirectionalCommandAvailability = Record<TPaneDirection, boolean>;
 
 export interface ITabContextAvailability {
     split: TDirectionalCommandAvailability;
@@ -23,21 +23,21 @@ export type TTabContextCommand =
     }
     | {
         kind: 'split';
-        direction: TGroupDirection
+        direction: TPaneDirection
     }
     | {
         kind: 'split-empty';
-        direction: TGroupDirection
+        direction: TPaneDirection
     }
     | {
         kind: 'focus';
-        direction: TGroupDirection 
+        direction: TPaneDirection
     }
     | {
         kind: 'move';
-        direction: TGroupDirection 
+        direction: TPaneDirection
     }
     | {
         kind: 'copy';
-        direction: TGroupDirection 
+        direction: TPaneDirection
     };

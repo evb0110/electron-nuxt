@@ -9,7 +9,7 @@ import {
     tabHasDocumentHint,
 } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import type { IEditorGroupState } from '@app/types/editorGroups';
+import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
@@ -20,17 +20,17 @@ import type { TWindowTabsAction } from '@contracts/windowTabs';
 
 interface IResolvedTabAction {
     tab: ITab;
-    group: IEditorGroupState;
+    pane: IEditorPaneState;
 }
 
 interface IUseAppShellWorkspaceRoutingOptions {
-    activeGroupId: Ref<string | null>;
+    activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
     createTab: (options: {
-        groupId?: string | null;
+        paneId?: string | null;
         activate?: boolean;
         initial?: Partial<ITab>;
     }) => ITab;
@@ -38,7 +38,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
     updateTab: (tabId: string, updates: Partial<ITab>) => void;
     removeTabFromState: (tabId: string) => void;
     resolveTabForAction: (tabId: string | undefined) => IResolvedTabAction | null;
-    handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
+    handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
     mergeWindowInto: (windowId: number) => Promise<void>;
@@ -62,7 +62,7 @@ function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
 
 export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutingOptions) => {
     const {
-        activeGroupId,
+        activePaneId,
         activeTabId,
         activeWorkspace,
         workspaceRefs,
@@ -78,9 +78,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         mergeWindowInto,
     } = options;
 
-    function createTabInGroup(groupId: string) {
+    function createTabInPane(paneId: string) {
         createTab({
-            groupId,
+            paneId,
             activate: true,
         });
     }
@@ -169,7 +169,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
 
         const fallbackTab = createTab({
-            groupId: activeGroupId.value,
+            paneId: activePaneId.value,
             activate: true,
         });
         const fallbackWorkspace = await waitForWorkspace(fallbackTab.id);
@@ -180,10 +180,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         await fallbackWorkspace.handleOpenFileFromUi();
     }
 
-    async function handleOpenInNewTab(pathOrResult: TOpenDocumentTarget, groupId?: string) {
-        const targetGroupId = groupId ?? activeGroupId.value ?? undefined;
+    async function handleOpenInNewTab(pathOrResult: TOpenDocumentTarget, paneId?: string) {
+        const targetPaneId = paneId ?? activePaneId.value ?? undefined;
         const tab = createTab({
-            ...(targetGroupId !== undefined ? { groupId: targetGroupId } : {}),
+            ...(targetPaneId !== undefined ? { paneId: targetPaneId } : {}),
             activate: true,
             initial: buildPendingTabDocumentHint(pathOrResult),
         });
@@ -222,7 +222,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             }
         }
 
-        return handleOpenInNewTab(pathOrResult, activeGroupId.value ?? undefined);
+        return handleOpenInNewTab(pathOrResult, activePaneId.value ?? undefined);
     }
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
@@ -254,7 +254,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     continue;
                 }
 
-                await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
+                await handleOpenInNewTab(path, activePaneId.value ?? undefined);
             } catch (error) {
                 const activeTab = getTabById(activeTabId.value);
                 const currentActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
@@ -301,7 +301,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             }
 
             const tab = createTab({
-                groupId: activeGroupId.value,
+                paneId: activePaneId.value,
                 activate: index === normalizedPaths.length - 1,
                 initial: buildPendingTabDocumentHint(path),
             });
@@ -343,7 +343,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             if (!resolved) {
                 return;
             }
-            await handleCloseTab(resolved.group.id, resolved.tab.id);
+            await handleCloseTab(resolved.pane.id, resolved.tab.id);
             return;
         }
 
@@ -369,7 +369,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     return {
-        createTabInGroup,
+        createTabInPane,
         handleFallbackToolbarOpenFile,
         handleOpenInNewTab,
         openResultInAppropriateTab,

@@ -489,7 +489,7 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
             }),
             { type: 'separator' },
             {
-                label: te('menu.editorGroups'),
+                label: te('menu.editorPanes'),
                 submenu: [
                     {
                         label: te('menu.splitEditor'),
@@ -518,76 +518,76 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                         ],
                     },
                     {
-                        label: te('menu.focusEditorGroup'),
+                        label: te('menu.focusEditorPane'),
                         submenu: [
                             createWindowMenuAction({
-                                label: te('menu.focusGroupRight'),
-                                channel: 'menu:focusEditorGroup',
+                                label: te('menu.focusPaneRight'),
+                                channel: 'menu:focusEditorPane',
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
-                                label: te('menu.focusGroupLeft'),
-                                channel: 'menu:focusEditorGroup',
+                                label: te('menu.focusPaneLeft'),
+                                channel: 'menu:focusEditorPane',
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
-                                label: te('menu.focusGroupUp'),
-                                channel: 'menu:focusEditorGroup',
+                                label: te('menu.focusPaneUp'),
+                                channel: 'menu:focusEditorPane',
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
-                                label: te('menu.focusGroupDown'),
-                                channel: 'menu:focusEditorGroup',
+                                label: te('menu.focusPaneDown'),
+                                channel: 'menu:focusEditorPane',
                                 args: ['down'],
                             }),
                         ],
                     },
                     {
-                        label: te('menu.moveTabToGroup'),
+                        label: te('menu.moveTabToPane'),
                         submenu: [
                             createWindowMenuAction({
                                 label: te('menu.moveTabRight'),
-                                channel: 'menu:moveTabToGroup',
+                                channel: 'menu:moveTabToPane',
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.moveTabLeft'),
-                                channel: 'menu:moveTabToGroup',
+                                channel: 'menu:moveTabToPane',
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.moveTabUp'),
-                                channel: 'menu:moveTabToGroup',
+                                channel: 'menu:moveTabToPane',
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.moveTabDown'),
-                                channel: 'menu:moveTabToGroup',
+                                channel: 'menu:moveTabToPane',
                                 args: ['down'],
                             }),
                         ],
                     },
                     {
-                        label: te('menu.copyTabToGroup'),
+                        label: te('menu.copyTabToPane'),
                         submenu: [
                             createWindowMenuAction({
                                 label: te('menu.copyTabRight'),
-                                channel: 'menu:copyTabToGroup',
+                                channel: 'menu:copyTabToPane',
                                 args: ['right'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.copyTabLeft'),
-                                channel: 'menu:copyTabToGroup',
+                                channel: 'menu:copyTabToPane',
                                 args: ['left'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.copyTabUp'),
-                                channel: 'menu:copyTabToGroup',
+                                channel: 'menu:copyTabToPane',
                                 args: ['up'],
                             }),
                             createWindowMenuAction({
                                 label: te('menu.copyTabDown'),
-                                channel: 'menu:copyTabToGroup',
+                                channel: 'menu:copyTabToPane',
                                 args: ['down'],
                             }),
                         ],

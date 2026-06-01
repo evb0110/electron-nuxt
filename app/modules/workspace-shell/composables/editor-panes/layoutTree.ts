@@ -2,28 +2,28 @@ import type {
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
-} from '@app/types/editorGroups';
+} from '@app/types/editorPanes';
 
-export function collectLayoutGroupIds(node: TEditorLayoutNode, target: Set<string>) {
+export function collectLayoutPaneIds(node: TEditorLayoutNode, target: Set<string>) {
     if (node.type === 'leaf') {
-        target.add(node.groupId);
+        target.add(node.paneId);
         return;
     }
 
-    collectLayoutGroupIds(node.first, target);
-    collectLayoutGroupIds(node.second, target);
+    collectLayoutPaneIds(node.first, target);
+    collectLayoutPaneIds(node.second, target);
 }
 
-export function pruneLayoutToExistingGroups(
+export function pruneLayoutToExistingPanes(
     node: TEditorLayoutNode,
-    validGroupIds: Set<string>,
+    validPaneIds: Set<string>,
 ): TEditorLayoutNode | null {
     if (node.type === 'leaf') {
-        return validGroupIds.has(node.groupId) ? node : null;
+        return validPaneIds.has(node.paneId) ? node : null;
     }
 
-    const nextFirst = pruneLayoutToExistingGroups(node.first, validGroupIds);
-    const nextSecond = pruneLayoutToExistingGroups(node.second, validGroupIds);
+    const nextFirst = pruneLayoutToExistingPanes(node.first, validPaneIds);
+    const nextSecond = pruneLayoutToExistingPanes(node.second, validPaneIds);
 
     if (!nextFirst && !nextSecond) {
         return null;
@@ -46,13 +46,13 @@ export function pruneLayoutToExistingGroups(
     };
 }
 
-export function appendGroupToLayout(
+export function appendPaneToLayout(
     currentLayout: TEditorLayoutNode | null,
-    groupId: string,
+    paneId: string,
 ): TEditorLayoutNode {
     const nextLeaf: IEditorLayoutLeafNode = {
         type: 'leaf',
-        groupId,
+        paneId,
     };
     if (!currentLayout) {
         return nextLeaf;
@@ -70,14 +70,14 @@ export function appendGroupToLayout(
 
 export function removeLeafNode(
     node: TEditorLayoutNode,
-    groupId: string,
+    paneId: string,
 ): TEditorLayoutNode | null {
     if (node.type === 'leaf') {
-        return node.groupId === groupId ? null : node;
+        return node.paneId === paneId ? null : node;
     }
 
-    const nextFirst = removeLeafNode(node.first, groupId);
-    const nextSecond = removeLeafNode(node.second, groupId);
+    const nextFirst = removeLeafNode(node.first, paneId);
+    const nextSecond = removeLeafNode(node.second, paneId);
 
     if (!nextFirst && !nextSecond) {
         return null;
@@ -98,17 +98,17 @@ export function removeLeafNode(
 
 export function replaceLeafWithSplit(
     node: TEditorLayoutNode,
-    sourceGroupId: string,
+    sourcePaneId: string,
     splitNode: IEditorLayoutSplitNode,
 ): TEditorLayoutNode {
     if (node.type === 'leaf') {
-        return node.groupId === sourceGroupId ? splitNode : node;
+        return node.paneId === sourcePaneId ? splitNode : node;
     }
 
     return {
         ...node,
-        first: replaceLeafWithSplit(node.first, sourceGroupId, splitNode),
-        second: replaceLeafWithSplit(node.second, sourceGroupId, splitNode),
+        first: replaceLeafWithSplit(node.first, sourcePaneId, splitNode),
+        second: replaceLeafWithSplit(node.second, sourcePaneId, splitNode),
     };
 }
 

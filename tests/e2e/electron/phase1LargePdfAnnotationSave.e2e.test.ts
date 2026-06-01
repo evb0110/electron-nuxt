@@ -133,7 +133,7 @@ async function resolveLargePdfPageNotePoint(page: Page) {
                 const style = window.getComputedStyle(host);
                 return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -201,7 +201,7 @@ async function placePageNote(page: Page, text: string) {
                     const style = window.getComputedStyle(host);
                     return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
                 });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const host: IVueWorkspaceHost | null = activeHost && visibleHosts.includes(activeHost)
                 ? activeHost
                 : (visibleHosts[0] ?? null);

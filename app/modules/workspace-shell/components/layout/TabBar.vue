@@ -87,7 +87,7 @@ import {
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
-import type { TGroupDirection } from '@app/types/editorGroups';
+import type { TPaneDirection } from '@app/types/editorPanes';
 import { getDocumentRefDisplayLabel } from '@app/utils/documentRef';
 import type {
     ITabContextAvailability,
@@ -103,10 +103,10 @@ const DIRECTION_ORDER = [
     'left',
     'up',
     'down',
-] as const satisfies readonly TGroupDirection[];
+] as const satisfies readonly TPaneDirection[];
 type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy';
 type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty' | 'focus' | 'move' | 'copy'>;
-type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TGroupDirection }>;
+type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TPaneDirection }>;
 
 interface IContextMenuAction {
     key: string;
@@ -166,7 +166,7 @@ function resolveTabTitle(tab: ITab) {
     return getDocumentRefDisplayLabel(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
 }
 
-function isDirectionEnabled(kind: TDirectionalAvailabilityKind, direction: TGroupDirection) {
+function isDirectionEnabled(kind: TDirectionalAvailabilityKind, direction: TPaneDirection) {
     return contextAvailability?.[kind][direction] ?? true;
 }
 
@@ -201,7 +201,7 @@ function isCommandEnabled(command: TTabContextCommand) {
 
 function buildDirectionalActions(
     kind: 'split' | 'split-empty' | 'focus' | 'move' | 'copy',
-    labels: Record<TGroupDirection, string>,
+    labels: Record<TPaneDirection, string>,
 ) {
     return DIRECTION_ORDER.flatMap((direction) => {
         const command: TTabContextCommand = {
@@ -276,10 +276,10 @@ const splitEmptyActions = computed(() => buildDirectionalActions('split-empty', 
 }));
 
 const focusActions = computed(() => buildDirectionalActions('focus', {
-    right: t('menu.focusGroupRight'),
-    left: t('menu.focusGroupLeft'),
-    up: t('menu.focusGroupUp'),
-    down: t('menu.focusGroupDown'),
+    right: t('menu.focusPaneRight'),
+    left: t('menu.focusPaneLeft'),
+    up: t('menu.focusPaneUp'),
+    down: t('menu.focusPaneDown'),
 }));
 
 const moveActions = computed(() => buildDirectionalActions('move', {
@@ -328,21 +328,21 @@ const menuSections = computed<IContextMenuSection[]>(() => {
     if (focusActions.value.length > 0) {
         sections.push({
             key: 'focus',
-            title: t('menu.focusEditorGroup'),
+            title: t('menu.focusEditorPane'),
             actions: focusActions.value,
         });
     }
     if (moveActions.value.length > 0) {
         sections.push({
             key: 'move',
-            title: t('menu.moveTabToGroup'),
+            title: t('menu.moveTabToPane'),
             actions: moveActions.value,
         });
     }
     if (copyActions.value.length > 0) {
         sections.push({
             key: 'copy',
-            title: t('menu.copyTabToGroup'),
+            title: t('menu.copyTabToPane'),
             actions: copyActions.value,
         });
     }

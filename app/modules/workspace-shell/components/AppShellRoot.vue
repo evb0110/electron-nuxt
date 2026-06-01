@@ -91,15 +91,15 @@
             />
         </div>
 
-        <EditorGroupsHost
+        <EditorPanesHost
             v-show="!activeToolPage"
             :layout="layout"
-            :groups="groups"
+            :panes="panes"
             :tabs="tabs"
-            :active-group-id="activeGroupId"
+            :active-pane-id="activePaneId"
             :is-startup-open-claim-pending="isStartupOpenClaimPending"
             :is-tab-transition-busy="isTabTransitionBusy"
-            :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+            :tab-context-availability-by-pane="tabContextAvailabilityByPane"
             :start-section-by-tab-id="startSectionByTabId"
             :tab-lifecycle-by-id="tabLifecycleById"
             :view-state-by-tab-id="viewStateByTabId"
@@ -107,11 +107,11 @@
             :zen-active-tab-id="activeTabId"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
-            @activate-group="activateGroup"
+            @activate-pane="activatePane"
             @activate-tab="activateTab"
             @close-tab="handleCloseTab"
-            @new-tab="createTabInGroup"
-            @reorder-tab="moveTabWithinGroup"
+            @new-tab="createTabInPane"
+            @reorder-tab="moveTabWithinPane"
             @move-tab-direction="handleTabMoveDirection"
             @tab-context-command="handleTabContextCommand"
             @set-workspace-ref="setWorkspaceRef"
@@ -169,7 +169,7 @@ import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
-import EditorGroupsHost from '@app/modules/workspace-shell/components/EditorGroupsHost.vue';
+import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import FallbackWorkspaceToolbar from '@app/modules/workspace-shell/components/FallbackWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
@@ -188,7 +188,7 @@ import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composable
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables/useEditorGroupsManager';
+import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import {
@@ -212,27 +212,27 @@ import {
 traceRendererStartup('index.vue script setup start');
 
 const {
-    groups,
+    panes,
     tabs,
     layout,
-    activeGroupId,
+    activePaneId,
     activeTabId,
     ensureAtLeastOneTab,
-    getGroupById,
+    getPaneById,
     getTabById,
-    getGroupByTabId,
-    activateGroup,
+    getPaneByTabId,
+    activatePane,
     activateTab: activateEditorTab,
     createTab,
     closeTab,
-    moveTabWithinGroup,
-    splitGroup,
-    closeGroup,
+    moveTabWithinPane,
+    splitPane,
+    closePane,
     setSplitRatio,
-    focusGroup,
-    findDirectionalGroup,
-    moveTabToGroup,
-} = useEditorGroupsManager();
+    focusPane,
+    findDirectionalPane,
+    moveTabToPane,
+} = useEditorPanesManager();
 
 ensureAtLeastOneTab();
 
@@ -281,7 +281,7 @@ const {
     viewStateByTabId,
 } = useTabSessionStore({
     activeTabId,
-    groups,
+    panes,
     policy: computed(() => appSettings.value.tabMemoryPolicy),
     tabs,
 });
@@ -322,9 +322,9 @@ function persistActiveTabViewState() {
     updateTabViewState(tabId, createTabViewSessionState(workspace.getToolbarSnapshot()));
 }
 
-function activateTab(groupId: string, tabId: string) {
+function activateTab(paneId: string, tabId: string) {
     persistActiveTabViewState();
-    activateEditorTab(groupId, tabId);
+    activateEditorTab(paneId, tabId);
 }
 
 const activeTab = computed(() => (
@@ -344,28 +344,28 @@ const {
     setAfterTransitionHook,
     updateTab,
     removeTabFromState,
-    cleanupEmptyGroups,
+    cleanupEmptyPanes,
     isSingletonPlaceholderCloseBlocked,
     resolveTabForAction,
     closeTabInState,
     handoffActiveTabBeforeClose,
     handleCloseTab,
 } = useAppShellTabLifecycle({
-    groups,
+    panes,
     tabs,
-    activeGroupId,
+    activePaneId,
     activeTabId,
     workspaceRefs,
     hasTeleportedToolbarContent: hasTeleportedToolbarContentState,
     workspaceSplitCache,
     workspaceRestoreTracker,
-    getGroupById,
+    getPaneById,
     getTabById,
-    getGroupByTabId: (tabId) => (tabId ? getGroupByTabId(tabId) : null),
-    activateGroup,
+    getPaneByTabId: (tabId) => (tabId ? getPaneByTabId(tabId) : null),
+    activatePane,
     activateTab,
     closeTab,
-    closeGroup,
+    closePane,
     requestDirtyTabCloseConfirmation,
 });
 const {
@@ -613,7 +613,7 @@ const {
     handleFallbackOverflowSetViewMode: handleFallbackOverflowSetViewModeInternal,
     showFallbackToolbar,
 } = useFallbackWorkspaceToolbar({
-    activeGroupId,
+    activePaneId,
     activeTabId,
     activeWorkspace,
     hasTeleportedToolbarContent,
@@ -655,18 +655,18 @@ const {
     moveTabToWindow,
     mergeWindowInto,
 } = useWindowTabTransfers({
-    activeGroupId,
-    groups,
+    activePaneId,
+    panes,
     tabs,
     layout,
     createTab,
-    getGroupById,
+    getPaneById,
     getTabById,
-    getGroupByTabId,
-    activateGroup,
+    getPaneByTabId,
+    activatePane,
     activateTab,
     removeTabFromState,
-    cleanupEmptyGroups,
+    cleanupEmptyPanes,
     closeTabInState,
     workspaceRefs,
     waitForWorkspace,
@@ -675,7 +675,7 @@ const {
     handoffActiveTabBeforeClose,
 });
 const {
-    createTabInGroup: createTabInGroupFromRouting,
+    createTabInPane: createTabInPaneFromRouting,
     handleFallbackToolbarOpenFile,
     handleOpenInNewTab,
     openResultInAppropriateTab,
@@ -684,7 +684,7 @@ const {
     beginOpenPathsInAppropriateTab,
     handleWindowTabsAction,
 } = useAppShellWorkspaceRouting({
-    activeGroupId,
+    activePaneId,
     activeTabId,
     activeWorkspace,
     workspaceRefs,
@@ -699,9 +699,9 @@ const {
     moveTabToWindow,
     mergeWindowInto,
 });
-function createTabInGroup(groupId: string) {
+function createTabInPane(paneId: string) {
     persistActiveTabViewState();
-    createTabInGroupFromRouting(groupId);
+    createTabInPaneFromRouting(paneId);
 }
 
 function setTabStartSection(tabId: string, section: TStartSection) {
@@ -735,18 +735,18 @@ function findEmptyTab() {
 }
 
 function activateTabById(tabId: string) {
-    const group = getGroupByTabId(tabId);
-    if (!group) {
+    const pane = getPaneByTabId(tabId);
+    if (!pane) {
         return;
     }
 
-    activateTab(group.id, tabId);
+    activateTab(pane.id, tabId);
 }
 
 function openSettingsPage() {
     activeToolPage.value = null;
     const settingsTab = findEmptyTab() ?? createTab({
-        groupId: activeGroupId.value,
+        paneId: activePaneId.value,
         activate: true,
     });
 
@@ -770,32 +770,32 @@ function handleCombineOpenResult(result: TOpenFileResult) {
     });
 }
 const {
-    tabContextAvailabilityByGroup,
+    tabContextAvailabilityByPane,
     splitEditor,
     splitEditorEmpty,
-    focusEditorGroup,
+    focusEditorPane,
     moveActiveTab,
     copyActiveTab,
     handleTabContextCommand,
     handleTabMoveDirection,
     cleanup: cleanupDirectionalTabs,
 } = useAppShellDirectionalTabs({
-    activeGroupId,
-    groups,
+    activePaneId,
+    panes,
     tabs,
     workspaceRefs,
     isTabTransitionBusy,
-    getGroupById,
+    getPaneById,
     getTabById,
-    findDirectionalGroup,
-    focusGroup,
-    splitGroup,
-    moveTabToGroup,
+    findDirectionalPane,
+    focusPane,
+    splitPane,
+    moveTabToPane,
     createTab,
-    activateGroup,
+    activatePane,
     activateTab,
     removeTabFromState,
-    cleanupEmptyGroups,
+    cleanupEmptyPanes,
     workspaceSplitCache,
     isSingletonPlaceholderCloseBlocked,
     enqueueTabTransition,
@@ -944,17 +944,17 @@ useTabsShellBindings({
         return createTab({ activate: true });
     },
     activateTab: (tabId) => {
-        const group = getGroupByTabId(tabId);
-        if (group) {
-            activateTab(group.id, tabId);
+        const pane = getPaneByTabId(tabId);
+        if (pane) {
+            activateTab(pane.id, tabId);
         }
     },
     handleCloseTab: async (tabId) => {
-        const group = getGroupByTabId(tabId);
-        if (!group) {
+        const pane = getPaneByTabId(tabId);
+        if (!pane) {
             return;
         }
-        await handleCloseTab(group.id, tabId);
+        await handleCloseTab(pane.id, tabId);
     },
     handleFallbackToolbarOpenFile,
     openPathInAppropriateTab,
@@ -966,7 +966,7 @@ useTabsShellBindings({
     openSettings: openSettingsPage,
     checkForUpdates,
     splitEditor,
-    focusGroup: focusEditorGroup,
+    focusPane: focusEditorPane,
     moveActiveTab,
     copyActiveTab,
     handleWindowTabsAction,
@@ -977,7 +977,7 @@ useAppShellLifecycle({
     dirtyTabCloseDialogOpen,
     updatesDialogOpen: computed(() => updatesDialog.value.open),
     observeToolbarHost,
-    cleanupEmptyGroups,
+    cleanupEmptyPanes,
     ensureUpdatesInitialized,
     handleIncomingTabTransfer,
     cleanupDirectionalTabs,

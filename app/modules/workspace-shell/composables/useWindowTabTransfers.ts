@@ -5,7 +5,7 @@ import type {
     TSplitPayload,
     TWindowTabTransferTarget,
 } from '@contracts/windowTabs';
-import type { TEditorLayoutNode } from '@app/types/editorGroups';
+import type { TEditorLayoutNode } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -18,7 +18,7 @@ import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/compos
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 
-interface IGroupLike {
+interface IPaneLike {
     id: string;
     activeTabId: string | null;
     tabIds: string[];
@@ -32,36 +32,36 @@ interface IIncomingTransferTargetTab {
 }
 
 interface IIncomingTransferTarget {
-    group: IGroupLike;
+    pane: IPaneLike;
     tab: IIncomingTransferTargetTab;
 }
 
 interface IUseWindowTabTransfersOptions {
-    activeGroupId: Ref<string | null>;
-    groups: Ref<IGroupLike[]>;
+    activePaneId: Ref<string | null>;
+    panes: Ref<IPaneLike[]>;
     tabs: Ref<ITab[]>;
     layout: Ref<TEditorLayoutNode | null>;
     createTab: (options: {
-        groupId?: string;
+        paneId?: string;
         activate?: boolean;
         initial?: Partial<ITab>;
     }) => ITab;
-    getGroupById: (groupId: string | null | undefined) => IGroupLike | null;
+    getPaneById: (paneId: string | null | undefined) => IPaneLike | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
-    getGroupByTabId: (tabId: string) => IGroupLike | null;
-    activateGroup: (groupId: string) => void;
-    activateTab: (groupId: string, tabId: string) => void;
+    getPaneByTabId: (tabId: string) => IPaneLike | null;
+    activatePane: (paneId: string) => void;
+    activateTab: (paneId: string, tabId: string) => void;
     removeTabFromState: (tabId: string) => void;
-    cleanupEmptyGroups: () => void;
-    closeTabInState: (groupId: string, tabId: string) => void;
+    cleanupEmptyPanes: () => void;
+    closeTabInState: (paneId: string, tabId: string) => void;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
     workspaceRestoreTracker: {
         start: (tabId: string) => void;
         finish: (tabId: string) => void;
     };
-    handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
-    handoffActiveTabBeforeClose: (groupId: string, tabId: string) => Promise<void>;
+    handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
+    handoffActiveTabBeforeClose: (paneId: string, tabId: string) => Promise<void>;
 }
 
 function buildTransferredTabState(tab: ITab): ITransferredTabState {
@@ -80,18 +80,18 @@ function isPlaceholderTab(tab: ITab) {
         && !tab.isDjvu;
 }
 
-function isOnlyOpenTargetTab(targetGroup: IGroupLike, totalTabCount: number) {
-    return targetGroup.tabIds.length === 1 && totalTabCount === 1;
+function isOnlyOpenTargetTab(targetPane: IPaneLike, totalTabCount: number) {
+    return targetPane.tabIds.length === 1 && totalTabCount === 1;
 }
 
 function canReuseIncomingTransferTab(
     tab: ITab | null,
-    targetGroup: IGroupLike,
+    targetPane: IPaneLike,
     totalTabCount: number,
     existingHasDocument: boolean,
 ): tab is ITab {
     return !!tab
-        && isOnlyOpenTargetTab(targetGroup, totalTabCount)
+        && isOnlyOpenTargetTab(targetPane, totalTabCount)
         && isPlaceholderTab(tab)
         && !existingHasDocument;
 }
@@ -99,8 +99,8 @@ function canReuseIncomingTransferTab(
 export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) => {
     const { t } = useTypedI18n();
 
-    function getIncomingTransferTabContext(targetGroup: IGroupLike) {
-        const existingTabId = targetGroup.tabIds[0] ?? null;
+    function getIncomingTransferTabContext(targetPane: IPaneLike) {
+        const existingTabId = targetPane.tabIds[0] ?? null;
         const existingTab = options.getTabById(existingTabId);
         const existingWorkspace = existingTabId ? options.workspaceRefs.value.get(existingTabId) ?? null : null;
 
@@ -110,9 +110,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         };
     }
 
-    function createIncomingTransferTargetTab(targetGroup: IGroupLike): IIncomingTransferTargetTab {
+    function createIncomingTransferTargetTab(targetPane: IPaneLike): IIncomingTransferTargetTab {
         const createdTab = options.createTab({
-            groupId: targetGroup.id,
+            paneId: targetPane.id,
             activate: false,
         });
 
@@ -122,30 +122,30 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         };
     }
 
-    function reuseIncomingTransferTargetTab(targetGroup: IGroupLike, existingTab: ITab): IIncomingTransferTargetTab {
-        options.activateGroup(targetGroup.id);
-        options.activateTab(targetGroup.id, existingTab.id);
+    function reuseIncomingTransferTargetTab(targetPane: IPaneLike, existingTab: ITab): IIncomingTransferTargetTab {
+        options.activatePane(targetPane.id);
+        options.activateTab(targetPane.id, existingTab.id);
         return {
             tabId: existingTab.id,
             created: false,
         };
     }
 
-    function resolveIncomingTransferTargetTab(targetGroupId: string): IIncomingTransferTargetTab | null {
-        const targetGroup = options.getGroupById(targetGroupId);
-        if (!targetGroup) {
+    function resolveIncomingTransferTargetTab(targetPaneId: string): IIncomingTransferTargetTab | null {
+        const targetPane = options.getPaneById(targetPaneId);
+        if (!targetPane) {
             return null;
         }
 
         const {
             existingTab,
             existingHasDocument,
-        } = getIncomingTransferTabContext(targetGroup);
-        if (canReuseIncomingTransferTab(existingTab, targetGroup, options.tabs.value.length, existingHasDocument)) {
-            return reuseIncomingTransferTargetTab(targetGroup, existingTab);
+        } = getIncomingTransferTabContext(targetPane);
+        if (canReuseIncomingTransferTab(existingTab, targetPane, options.tabs.value.length, existingHasDocument)) {
+            return reuseIncomingTransferTargetTab(targetPane, existingTab);
         }
 
-        return createIncomingTransferTargetTab(targetGroup);
+        return createIncomingTransferTargetTab(targetPane);
     }
 
     async function ackIncomingTransferFailure(transferId: string, error: string) {
@@ -163,8 +163,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         });
     }
 
-    function resolveIncomingTransferTargetGroup() {
-        return options.getGroupById(options.activeGroupId.value) ?? options.groups.value[0] ?? null;
+    function resolveIncomingTransferTargetPane() {
+        return options.getPaneById(options.activePaneId.value) ?? options.panes.value[0] ?? null;
     }
 
     function removeCreatedTransferTab(targetTab: {
@@ -176,30 +176,30 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    function applyIncomingTransferTabState(targetGroupId: string, targetTabId: string, transfer: IWindowTabIncomingTransfer) {
+    function applyIncomingTransferTabState(targetPaneId: string, targetTabId: string, transfer: IWindowTabIncomingTransfer) {
         const incomingTab = options.getTabById(targetTabId);
         if (incomingTab) {
             Object.assign(incomingTab, transfer.tab);
         }
-        options.activateGroup(targetGroupId);
-        options.activateTab(targetGroupId, targetTabId);
+        options.activatePane(targetPaneId);
+        options.activateTab(targetPaneId, targetTabId);
     }
 
     async function prepareIncomingTransferTarget(transferId: string): Promise<IIncomingTransferTarget | null> {
-        const targetGroup = resolveIncomingTransferTargetGroup();
-        if (!targetGroup) {
-            await ackIncomingTransferFailure(transferId, t('tabs.transferErrors.noTargetGroup'));
+        const targetPane = resolveIncomingTransferTargetPane();
+        if (!targetPane) {
+            await ackIncomingTransferFailure(transferId, t('tabs.transferErrors.noTargetPane'));
             return null;
         }
 
-        const targetTab = resolveIncomingTransferTargetTab(targetGroup.id);
+        const targetTab = resolveIncomingTransferTargetTab(targetPane.id);
         if (!targetTab) {
             await ackIncomingTransferFailure(transferId, t('tabs.transferErrors.noTargetTab'));
             return null;
         }
 
         return {
-            group: targetGroup,
+            pane: targetPane,
             tab: targetTab,
         };
     }
@@ -278,8 +278,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function closeSourceWorkspaceWithoutPersist(groupId: string, tabId: string) {
-        await options.handoffActiveTabBeforeClose(groupId, tabId);
+    async function closeSourceWorkspaceWithoutPersist(paneId: string, tabId: string) {
+        await options.handoffActiveTabBeforeClose(paneId, tabId);
 
         const workspace = options.workspaceRefs.value.get(tabId);
         if (!workspace || !workspaceHasPdf(workspace)) {
@@ -300,8 +300,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function finalizeTransferredSourceTab(groupId: string, tabId: string): Promise<TSourceTransferOutcome> {
-        const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(groupId, tabId);
+    async function finalizeTransferredSourceTab(paneId: string, tabId: string): Promise<TSourceTransferOutcome> {
+        const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(paneId, tabId);
         if (!sourceCloseSucceeded) {
             return 'failed';
         }
@@ -313,15 +313,15 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             }
         }
 
-        options.closeTabInState(groupId, tabId);
-        options.cleanupEmptyGroups();
+        options.closeTabInState(paneId, tabId);
+        options.cleanupEmptyPanes();
         return 'success';
     }
 
     async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
         const tab = options.getTabById(tabId);
-        const sourceGroup = options.getGroupByTabId(tabId);
-        if (!tab || !sourceGroup) {
+        const sourcePane = options.getPaneByTabId(tabId);
+        if (!tab || !sourcePane) {
             return 'failed';
         }
 
@@ -353,7 +353,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return 'failed';
         }
 
-        return finalizeTransferredSourceTab(sourceGroup.id, tab.id);
+        return finalizeTransferredSourceTab(sourcePane.id, tab.id);
     }
 
     async function moveTabToNewWindow(tabId?: string) {
@@ -376,7 +376,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     async function mergeWindowInto(targetWindowId: number) {
-        const orderedTabIds = collectMergeTabOrder(options.layout.value, options.groups.value, options.tabs.value);
+        const orderedTabIds = collectMergeTabOrder(options.layout.value, options.panes.value, options.tabs.value);
         for (const tabId of orderedTabIds) {
             if (!options.getTabById(tabId)) {
                 continue;
@@ -407,7 +407,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return;
             }
 
-            applyIncomingTransferTabState(target.group.id, target.tab.tabId, transfer);
+            applyIncomingTransferTabState(target.pane.id, target.tab.tabId, transfer);
             await ackIncomingTransferSuccess(transfer.transferId);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {

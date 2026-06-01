@@ -7,7 +7,7 @@ interface IUseAppShellLifecycleOptions {
     dirtyTabCloseDialogOpen: Ref<boolean>;
     updatesDialogOpen: Ref<boolean>;
     observeToolbarHost: () => void;
-    cleanupEmptyGroups: () => void;
+    cleanupEmptyPanes: () => void;
     ensureUpdatesInitialized: () => Promise<void>;
     handleIncomingTabTransfer: (transfer: IWindowTabIncomingTransfer) => Promise<void>;
     cleanupDirectionalTabs: () => void;
@@ -22,7 +22,7 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
         dirtyTabCloseDialogOpen,
         updatesDialogOpen,
         observeToolbarHost,
-        cleanupEmptyGroups,
+        cleanupEmptyPanes,
         ensureUpdatesInitialized,
         handleIncomingTabTransfer,
         cleanupDirectionalTabs,
@@ -39,7 +39,7 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
         traceRendererStartup('index.vue onMounted start');
 
         observeToolbarHost();
-        cleanupEmptyGroups();
+        cleanupEmptyPanes();
         void ensureUpdatesInitialized();
 
         incomingTabTransferCleanup = getWindowTabsCapability().onIncomingTransfer((transfer) => {

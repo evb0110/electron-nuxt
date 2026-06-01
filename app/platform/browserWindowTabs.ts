@@ -798,7 +798,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     onMenuNewTab: noopUnsubscribe,
     onMenuCloseTab: noopUnsubscribe,
     onMenuSplitEditor: noopUnsubscribe,
-    onMenuFocusEditorGroup: noopUnsubscribe,
-    onMenuMoveTabToGroup: noopUnsubscribe,
-    onMenuCopyTabToGroup: noopUnsubscribe,
+    onMenuFocusEditorPane: noopUnsubscribe,
+    onMenuMoveTabToPane: noopUnsubscribe,
+    onMenuCopyTabToPane: noopUnsubscribe,
 };

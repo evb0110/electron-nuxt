@@ -17,7 +17,7 @@ export async function getLinkOverlayCount(page: Page) {
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.pdf-link-overlay-layer .pdf-link-overlay'));
         const fallbackHost = matchingHosts.length === 1 ? (matchingHosts[0] ?? null) : null;
         const host = (
@@ -82,7 +82,7 @@ export async function clickFirstLinkOverlay(page: Page) {
                     && rect.height > 100
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.pdf-link-overlay-layer .pdf-link-overlay'));
         const fallbackHost = matchingHosts.length === 1 ? (matchingHosts[0] ?? null) : null;
         const orderedHosts = (

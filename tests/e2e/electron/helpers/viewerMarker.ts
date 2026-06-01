@@ -12,7 +12,7 @@ export async function getMarkers(page: Page): Promise<IMarkerInfo[]> {
     await waitForActiveWorkspaceHost(page);
 
     return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         if (!host) {
             return [];
@@ -32,7 +32,7 @@ export async function getConnectorPaths(page: Page): Promise<string[]> {
     await waitForActiveWorkspaceHost(page);
 
     return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         if (!host) {
             return [];
@@ -58,7 +58,7 @@ export async function dragMarker(page: Page, stableKey: string, dx: number, dy: 
     await waitForActiveWorkspaceHost(page);
 
     const startPoint = await page.evaluate((targetKey: string) => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         const marker = host?.querySelector<HTMLElement>(
             `.pdf-comment-marker-button[data-stable-key="${targetKey}"]`,
@@ -98,7 +98,7 @@ export async function dragMarker(page: Page, stableKey: string, dx: number, dy: 
         startY,
         targetKey,
     }) => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         const marker = host?.querySelector<HTMLElement>(
             `.pdf-comment-marker-button[data-stable-key="${targetKey}"]`,
@@ -119,7 +119,7 @@ export async function dragMarker(page: Page, stableKey: string, dx: number, dy: 
     });
 
     const finalPoint = await page.evaluate((targetKey: string) => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? null;
         const marker = host?.querySelector<HTMLElement>(
             `.pdf-comment-marker-button[data-stable-key="${targetKey}"]`,

@@ -3,7 +3,7 @@ import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import type { IEditorGroupState } from '@app/types/editorGroups';
+import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
@@ -19,46 +19,46 @@ interface IWorkspaceRestoreTrackerLike {
 }
 
 interface IUseAppShellTabLifecycleOptions {
-    groups: Ref<IEditorGroupState[]>;
+    panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
-    activeGroupId: Ref<string | null>;
+    activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     hasTeleportedToolbarContent: Ref<boolean>;
     workspaceSplitCache: IWorkspaceSplitCacheLike;
     workspaceRestoreTracker: IWorkspaceRestoreTrackerLike;
-    getGroupById: (groupId: string | null | undefined) => IEditorGroupState | null;
+    getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
-    getGroupByTabId: (tabId: string | null | undefined) => IEditorGroupState | null;
-    activateGroup: (groupId: string) => void;
-    activateTab: (groupId: string, tabId: string) => void;
-    closeTab: (groupId: string, tabId: string) => void;
-    closeGroup: (groupId: string) => void;
+    getPaneByTabId: (tabId: string | null | undefined) => IEditorPaneState | null;
+    activatePane: (paneId: string) => void;
+    activateTab: (paneId: string, tabId: string) => void;
+    closeTab: (paneId: string, tabId: string) => void;
+    closePane: (paneId: string) => void;
     requestDirtyTabCloseConfirmation: (tabId: string) => Promise<boolean>;
 }
 
 interface ICloseHandoffTarget {
-    groupId: string;
+    paneId: string;
     tabId: string;
 }
 
 export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions) => {
     const {
-        groups,
+        panes,
         tabs,
-        activeGroupId,
+        activePaneId,
         activeTabId,
         workspaceRefs,
         hasTeleportedToolbarContent,
         workspaceSplitCache,
         workspaceRestoreTracker,
-        getGroupById,
+        getPaneById,
         getTabById,
-        getGroupByTabId,
-        activateGroup,
+        getPaneByTabId,
+        activatePane,
         activateTab,
         closeTab,
-        closeGroup,
+        closePane,
         requestDirtyTabCloseConfirmation,
     } = options;
 
@@ -92,7 +92,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             tabId,
             updates,
             activeTabId: activeTabId.value,
-            activeGroupId: activeGroupId.value,
+            activePaneId: activePaneId.value,
             isTabTransitionBusy: isTabTransitionBusy.value,
             hasSplitCache: workspaceSplitCache.has(tabId),
             isRestoreTracked: workspaceRestoreTracker.has(tabId),
@@ -151,20 +151,20 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     }
 
     function removeTabFromState(tabId: string) {
-        const group = getGroupByTabId(tabId);
-        if (group) {
-            closeTab(group.id, tabId);
+        const pane = getPaneByTabId(tabId);
+        if (pane) {
+            closeTab(pane.id, tabId);
         }
         workspaceSplitCache.clear(tabId);
     }
 
-    function cleanupEmptyGroups() {
-        for (const group of [...groups.value]) {
-            if (groups.value.length <= 1) {
+    function cleanupEmptyPanes() {
+        for (const pane of [...panes.value]) {
+            if (panes.value.length <= 1) {
                 break;
             }
-            if (group.tabIds.length === 0) {
-                closeGroup(group.id);
+            if (pane.tabIds.length === 0) {
+                closePane(pane.id);
             }
         }
     }
@@ -176,13 +176,13 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             && !tab.isDjvu;
     }
 
-    function isSingletonPlaceholderCloseBlocked(groupId: string, tabId: string) {
+    function isSingletonPlaceholderCloseBlocked(paneId: string, tabId: string) {
         if (tabs.value.length !== 1) {
             return false;
         }
 
-        const group = getGroupById(groupId);
-        if (!group || group.tabIds.length !== 1 || !group.tabIds.includes(tabId)) {
+        const pane = getPaneById(paneId);
+        if (!pane || pane.tabIds.length !== 1 || !pane.tabIds.includes(tabId)) {
             return false;
         }
 
@@ -206,14 +206,14 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             return null;
         }
 
-        const group = getGroupByTabId(resolvedTabId);
-        if (!group) {
+        const pane = getPaneByTabId(resolvedTabId);
+        if (!pane) {
             return null;
         }
 
         return {
             tab,
-            group,
+            pane,
         };
     }
 
@@ -250,30 +250,30 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         return bestTabId;
     }
 
-    function pickSameGroupCloseReplacement(sourceGroup: IEditorGroupState, tabId: string) {
-        const closingTabIndex = sourceGroup.tabIds.indexOf(tabId);
+    function pickSamePaneCloseReplacement(sourcePane: IEditorPaneState, tabId: string) {
+        const closingTabIndex = sourcePane.tabIds.indexOf(tabId);
         if (closingTabIndex === -1) {
             return null;
         }
 
         return pickBestTabCandidate([
-            sourceGroup.tabIds[closingTabIndex + 1],
-            sourceGroup.tabIds[closingTabIndex - 1],
-            ...sourceGroup.tabIds.filter(candidate => candidate !== tabId),
+            sourcePane.tabIds[closingTabIndex + 1],
+            sourcePane.tabIds[closingTabIndex - 1],
+            ...sourcePane.tabIds.filter(candidate => candidate !== tabId),
         ]);
     }
 
-    function pickCrossGroupCloseReplacement(sourceGroupId: string) {
+    function pickCrossPaneCloseReplacement(sourcePaneId: string) {
         let bestTarget: (ICloseHandoffTarget & { score: number }) | null = null;
 
-        for (const candidateGroup of groups.value) {
-            if (candidateGroup.id === sourceGroupId || candidateGroup.tabIds.length === 0) {
+        for (const candidatePane of panes.value) {
+            if (candidatePane.id === sourcePaneId || candidatePane.tabIds.length === 0) {
                 continue;
             }
 
             const candidateTabId = pickBestTabCandidate([
-                candidateGroup.activeTabId,
-                ...candidateGroup.tabIds,
+                candidatePane.activeTabId,
+                ...candidatePane.tabIds,
             ]);
             if (!candidateTabId) {
                 continue;
@@ -282,7 +282,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             const score = scoreTabDocumentReadiness(candidateTabId);
             if (!bestTarget || score > bestTarget.score) {
                 bestTarget = {
-                    groupId: candidateGroup.id,
+                    paneId: candidatePane.id,
                     tabId: candidateTabId,
                     score,
                 };
@@ -291,94 +291,94 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
 
         return bestTarget
             ? {
-                groupId: bestTarget.groupId,
+                paneId: bestTarget.paneId,
                 tabId: bestTarget.tabId,
             }
             : null;
     }
 
-    function resolveCloseHandoffTarget(groupId: string, tabId: string) {
-        if (activeGroupId.value !== groupId || activeTabId.value !== tabId) {
+    function resolveCloseHandoffTarget(paneId: string, tabId: string) {
+        if (activePaneId.value !== paneId || activeTabId.value !== tabId) {
             return null;
         }
 
-        const sourceGroup = getGroupById(groupId);
-        if (!sourceGroup) {
+        const sourcePane = getPaneById(paneId);
+        if (!sourcePane) {
             return null;
         }
 
-        const sameGroupReplacement = pickSameGroupCloseReplacement(sourceGroup, tabId);
-        if (sameGroupReplacement) {
+        const samePaneReplacement = pickSamePaneCloseReplacement(sourcePane, tabId);
+        if (samePaneReplacement) {
             return {
-                groupId: sourceGroup.id,
-                tabId: sameGroupReplacement,
+                paneId: sourcePane.id,
+                tabId: samePaneReplacement,
             };
         }
 
-        return pickCrossGroupCloseReplacement(sourceGroup.id);
+        return pickCrossPaneCloseReplacement(sourcePane.id);
     }
 
-    async function handoffActiveTabBeforeClose(groupId: string, tabId: string) {
-        const target = resolveCloseHandoffTarget(groupId, tabId);
+    async function handoffActiveTabBeforeClose(paneId: string, tabId: string) {
+        const target = resolveCloseHandoffTarget(paneId, tabId);
         if (!target) {
             return;
         }
 
-        activateGroup(target.groupId);
-        activateTab(target.groupId, target.tabId);
+        activatePane(target.paneId);
+        activateTab(target.paneId, target.tabId);
         await nextTick();
     }
 
-    function closeTabInState(groupId: string, tabId: string) {
-        closeTab(groupId, tabId);
+    function closeTabInState(paneId: string, tabId: string) {
+        closeTab(paneId, tabId);
         workspaceSplitCache.clear(tabId);
     }
 
-    function closeResolvedTabInState(groupId: string, tabId: string) {
-        const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
-        if (resolvedGroup) {
-            closeTabInState(resolvedGroup.id, tabId);
+    function closeResolvedTabInState(paneId: string, tabId: string) {
+        const resolvedPane = getPaneByTabId(tabId) ?? getPaneById(paneId);
+        if (resolvedPane) {
+            closeTabInState(resolvedPane.id, tabId);
         }
     }
 
     function shouldDeferCloseHandoff(
-        sourceGroup: IEditorGroupState | null,
+        sourcePane: IEditorPaneState | null,
         closeHandoffTarget: ICloseHandoffTarget | null,
     ) {
         return Boolean(
-            sourceGroup
+            sourcePane
             && closeHandoffTarget
-            && sourceGroup.tabIds.length === 1
-            && closeHandoffTarget.groupId !== sourceGroup.id,
+            && sourcePane.tabIds.length === 1
+            && closeHandoffTarget.paneId !== sourcePane.id,
         );
     }
 
     async function activateDeferredCloseHandoff(
-        shouldDeferCrossGroupHandoff: boolean,
+        shouldDeferCrossPaneHandoff: boolean,
         closeHandoffTarget: ICloseHandoffTarget | null,
     ) {
-        if (!shouldDeferCrossGroupHandoff || !closeHandoffTarget) {
+        if (!shouldDeferCrossPaneHandoff || !closeHandoffTarget) {
             return;
         }
 
         const targetTab = getTabById(closeHandoffTarget.tabId);
-        const targetGroup = getGroupById(closeHandoffTarget.groupId)
-            ?? getGroupByTabId(closeHandoffTarget.tabId);
-        if (!targetTab || !targetGroup || !targetGroup.tabIds.includes(targetTab.id)) {
+        const targetPane = getPaneById(closeHandoffTarget.paneId)
+            ?? getPaneByTabId(closeHandoffTarget.tabId);
+        if (!targetTab || !targetPane || !targetPane.tabIds.includes(targetTab.id)) {
             return;
         }
 
-        activateGroup(targetGroup.id);
-        activateTab(targetGroup.id, targetTab.id);
+        activatePane(targetPane.id);
+        activateTab(targetPane.id, targetTab.id);
         await nextTick();
     }
 
-    function resolveCloseHandoffContext(groupId: string, tabId: string) {
-        const sourceGroupBeforeClose = getGroupById(groupId);
-        const closeHandoffTarget = resolveCloseHandoffTarget(groupId, tabId);
+    function resolveCloseHandoffContext(paneId: string, tabId: string) {
+        const sourcePaneBeforeClose = getPaneById(paneId);
+        const closeHandoffTarget = resolveCloseHandoffTarget(paneId, tabId);
         return {
             closeHandoffTarget,
-            shouldDeferCrossGroupHandoff: shouldDeferCloseHandoff(sourceGroupBeforeClose, closeHandoffTarget),
+            shouldDeferCrossPaneHandoff: shouldDeferCloseHandoff(sourcePaneBeforeClose, closeHandoffTarget),
         };
     }
 
@@ -397,7 +397,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     }
 
     async function closeWorkspaceDocument(
-        groupId: string,
+        paneId: string,
         tabId: string,
         workspace: IWorkspaceExpose,
         shouldPersistBeforeClose: boolean,
@@ -411,11 +411,11 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         }
 
         if (closed && !workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
-            closeResolvedTabInState(groupId, tabId);
+            closeResolvedTabInState(paneId, tabId);
         }
     }
 
-    async function closeTabDuringTransition(groupId: string, tabId: string) {
+    async function closeTabDuringTransition(paneId: string, tabId: string) {
         const tab = getTabById(tabId);
         if (!tab) {
             return;
@@ -423,35 +423,35 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
 
         const {
             closeHandoffTarget,
-            shouldDeferCrossGroupHandoff,
-        } = resolveCloseHandoffContext(groupId, tabId);
+            shouldDeferCrossPaneHandoff,
+        } = resolveCloseHandoffContext(paneId, tabId);
 
         const shouldPersistBeforeClose = await resolveClosePersistence(tabId, tab);
         if (shouldPersistBeforeClose === null) {
             return;
         }
 
-        if (!shouldDeferCrossGroupHandoff) {
-            await handoffActiveTabBeforeClose(groupId, tabId);
+        if (!shouldDeferCrossPaneHandoff) {
+            await handoffActiveTabBeforeClose(paneId, tabId);
         }
 
         const workspace = workspaceRefs.value.get(tabId);
         if (workspaceHasCloseableDocument(workspace)) {
-            await closeWorkspaceDocument(groupId, tabId, workspace, shouldPersistBeforeClose);
+            await closeWorkspaceDocument(paneId, tabId, workspace, shouldPersistBeforeClose);
         } else {
-            closeResolvedTabInState(groupId, tabId);
+            closeResolvedTabInState(paneId, tabId);
         }
 
-        cleanupEmptyGroups();
-        await activateDeferredCloseHandoff(shouldDeferCrossGroupHandoff, closeHandoffTarget);
+        cleanupEmptyPanes();
+        await activateDeferredCloseHandoff(shouldDeferCrossPaneHandoff, closeHandoffTarget);
     }
 
-    async function handleCloseTab(groupId: string, tabId: string) {
-        if (isSingletonPlaceholderCloseBlocked(groupId, tabId)) {
+    async function handleCloseTab(paneId: string, tabId: string) {
+        if (isSingletonPlaceholderCloseBlocked(paneId, tabId)) {
             return;
         }
 
-        await enqueueTabTransition(() => closeTabDuringTransition(groupId, tabId));
+        await enqueueTabTransition(() => closeTabDuringTransition(paneId, tabId));
     }
 
     return {
@@ -462,7 +462,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         },
         updateTab,
         removeTabFromState,
-        cleanupEmptyGroups,
+        cleanupEmptyPanes,
         isSingletonPlaceholderCloseBlocked,
         resolveTabForAction,
         closeTabInState,

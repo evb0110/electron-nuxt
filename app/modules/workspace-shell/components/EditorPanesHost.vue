@@ -1,14 +1,14 @@
 <template>
     <div class="flex-1 min-h-0 min-w-0">
-        <EditorGroupsGrid
+        <EditorPanesGrid
             v-if="layout"
             :node="layout"
-            :groups="groups"
+            :panes="panes"
             :tabs="tabs"
-            :active-group-id="activeGroupId"
+            :active-pane-id="activePaneId"
             :is-startup-open-claim-pending="isStartupOpenClaimPending"
             :is-tab-transition-busy="isTabTransitionBusy"
-            :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+            :tab-context-availability-by-pane="tabContextAvailabilityByPane"
             :start-section-by-tab-id="startSectionByTabId"
             :tab-lifecycle-by-id="tabLifecycleById"
             :view-state-by-tab-id="viewStateByTabId"
@@ -16,7 +16,7 @@
             :zen-active-tab-id="zenActiveTabId"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
-            @activate-group="handleActivateGroup"
+            @activate-pane="handleActivatePane"
             @activate-tab="handleActivateTab"
             @close-tab="handleCloseTab"
             @new-tab="handleNewTab"
@@ -39,11 +39,11 @@
 
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/platformApi';
-import EditorGroupsGrid from '@app/modules/workspace-shell/components/EditorGroupsGrid.vue';
+import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanesGrid.vue';
 import type {
-    IEditorGroupState,
+    IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorGroups';
+} from '@app/types/editorPanes';
 import type {
     ITabContextAvailability,
     TTabContextCommand,
@@ -58,16 +58,16 @@ import type {
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
-defineOptions({ name: 'EditorGroupsHost' });
+defineOptions({ name: 'EditorPanesHost' });
 
 defineProps<{
     layout: TEditorLayoutNode | null;
-    groups: IEditorGroupState[];
+    panes: IEditorPaneState[];
     tabs: ITab[];
-    activeGroupId: string | null;
+    activePaneId: string | null;
     isStartupOpenClaimPending: boolean;
     isTabTransitionBusy: boolean;
-    tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
+    tabContextAvailabilityByPane: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
@@ -78,51 +78,51 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-    'activate-group': [groupId: string];
-    'activate-tab': [groupId: string, tabId: string];
-    'close-tab': [groupId: string, tabId: string];
-    'new-tab': [groupId: string];
-    'reorder-tab': [groupId: string, fromIndex: number, toIndex: number];
-    'move-tab-direction': [groupId: string, tabId: string, direction: 'left' | 'right'];
-    'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
+    'activate-pane': [paneId: string];
+    'activate-tab': [paneId: string, tabId: string];
+    'close-tab': [paneId: string, tabId: string];
+    'new-tab': [paneId: string];
+    'reorder-tab': [paneId: string, fromIndex: number, toIndex: number];
+    'move-tab-direction': [paneId: string, tabId: string, direction: 'left' | 'right'];
+    'tab-context-command': [paneId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
     'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
-    'open-in-new-tab': [result: string | TOpenFileResult, groupId?: string];
-    'request-close-tab': [groupId: string, tabId: string];
+    'open-in-new-tab': [result: string | TOpenFileResult, paneId?: string];
+    'request-close-tab': [paneId: string, tabId: string];
     'open-settings': [];
     'open-combine': [];
     'toggle-fullscreen': [];
     'update-split-ratio': [splitId: string, ratio: number];
 }>();
 
-function handleActivateGroup(groupId: string) {
-    emit('activate-group', groupId);
+function handleActivatePane(paneId: string) {
+    emit('activate-pane', paneId);
 }
 
-function handleActivateTab(groupId: string, tabId: string) {
-    emit('activate-tab', groupId, tabId);
+function handleActivateTab(paneId: string, tabId: string) {
+    emit('activate-tab', paneId, tabId);
 }
 
-function handleCloseTab(groupId: string, tabId: string) {
-    emit('close-tab', groupId, tabId);
+function handleCloseTab(paneId: string, tabId: string) {
+    emit('close-tab', paneId, tabId);
 }
 
-function handleNewTab(groupId: string) {
-    emit('new-tab', groupId);
+function handleNewTab(paneId: string) {
+    emit('new-tab', paneId);
 }
 
-function handleReorderTab(groupId: string, fromIndex: number, toIndex: number) {
-    emit('reorder-tab', groupId, fromIndex, toIndex);
+function handleReorderTab(paneId: string, fromIndex: number, toIndex: number) {
+    emit('reorder-tab', paneId, fromIndex, toIndex);
 }
 
-function handleMoveTabDirection(groupId: string, tabId: string, direction: 'left' | 'right') {
-    emit('move-tab-direction', groupId, tabId, direction);
+function handleMoveTabDirection(paneId: string, tabId: string, direction: 'left' | 'right') {
+    emit('move-tab-direction', paneId, tabId, direction);
 }
 
-function handleTabContextCommand(groupId: string, tabId: string, command: TTabContextCommand) {
-    emit('tab-context-command', groupId, tabId, command);
+function handleTabContextCommand(paneId: string, tabId: string, command: TTabContextCommand) {
+    emit('tab-context-command', paneId, tabId, command);
 }
 
 function handleSetWorkspaceRef(tabId: string, el: unknown) {
@@ -141,12 +141,12 @@ function handleUpdateTabStartSection(tabId: string, section: TStartSection) {
     emit('update-tab-start-section', tabId, section);
 }
 
-function handleOpenInNewTab(result: string | TOpenFileResult, groupId?: string) {
-    emit('open-in-new-tab', result, groupId);
+function handleOpenInNewTab(result: string | TOpenFileResult, paneId?: string) {
+    emit('open-in-new-tab', result, paneId);
 }
 
-function handleRequestCloseTab(groupId: string, tabId: string) {
-    emit('request-close-tab', groupId, tabId);
+function handleRequestCloseTab(paneId: string, tabId: string) {
+    emit('request-close-tab', paneId, tabId);
 }
 
 function handleOpenSettings() {

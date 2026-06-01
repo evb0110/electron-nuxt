@@ -1,8 +1,8 @@
-export type TGroupDirection = 'left' | 'right' | 'up' | 'down';
+export type TPaneDirection = 'left' | 'right' | 'up' | 'down';
 
-export type TGroupOrientation = 'horizontal' | 'vertical';
+export type TPaneOrientation = 'horizontal' | 'vertical';
 
-export interface IEditorGroupState {
+export interface IEditorPaneState {
     id: string;
     tabIds: string[];
     activeTabId: string | null;
@@ -10,13 +10,13 @@ export interface IEditorGroupState {
 
 export interface IEditorLayoutLeafNode {
     type: 'leaf';
-    groupId: string;
+    paneId: string;
 }
 
 export interface IEditorLayoutSplitNode {
     type: 'split';
     id: string;
-    orientation: TGroupOrientation;
+    orientation: TPaneOrientation;
     ratio: number;
     first: TEditorLayoutNode;
     second: TEditorLayoutNode;
@@ -24,8 +24,8 @@ export interface IEditorLayoutSplitNode {
 
 export type TEditorLayoutNode = IEditorLayoutLeafNode | IEditorLayoutSplitNode;
 
-export interface IEditorGroupRect {
-    groupId: string;
+export interface IEditorPaneRect {
+    paneId: string;
     x: number;
     y: number;
     width: number;

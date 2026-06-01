@@ -238,7 +238,7 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
         };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && isVisibleElement(activeHost)
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleElement);

@@ -59,7 +59,7 @@ function createWorkspace(hasPdf = false, isDjvuMode = false, isOpeningDocument =
 }
 
 function createRoutingOptions(options: {
-    activeGroupId: Ref<string | null>;
+    activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     createTab: (args?: {
@@ -68,7 +68,7 @@ function createRoutingOptions(options: {
     }) => ITab;
 }) {
     return {
-        activeGroupId: options.activeGroupId,
+        activePaneId: options.activePaneId,
         activeTabId: options.activeTabId,
         activeWorkspace: computed(() => options.workspaceRefs.value.get(options.activeTabId.value ?? '') ?? null),
         workspaceRefs: options.workspaceRefs,
@@ -100,7 +100,7 @@ function createRoutingOptions(options: {
 
 describe('useAppShellWorkspaceRouting', () => {
     it('opens each external path in its own tab instead of batching them into one workspace', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(true);
@@ -110,7 +110,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -137,7 +137,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('reuses the placeholder tab for the first path, then opens later paths in new tabs', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
@@ -147,7 +147,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -173,7 +173,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('seeds a reused placeholder tab with a document hint before opening the path', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
@@ -181,7 +181,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const activeTab = createTabStub('tab-1');
 
         const routingOptions = createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: () => {
@@ -213,7 +213,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('does not let a pending document hint make the first placeholder open look occupied', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
@@ -225,7 +225,7 @@ describe('useAppShellWorkspaceRouting', () => {
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
 
         const routingOptions = createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: () => {
@@ -254,7 +254,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('opens in a new tab when a reusable placeholder reports a failed direct open', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
@@ -265,7 +265,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -289,13 +289,13 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('reuses the active placeholder tab during startup even before its workspace ref is registered', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
 
         const routingOptions = createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: () => {
@@ -319,7 +319,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('treats a DjVu tab as occupied and opens dropped PDFs in a new tab', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false, true);
@@ -329,7 +329,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -352,7 +352,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('treats an in-flight document open as occupied and opens later external paths in a new tab', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false, false, true);
@@ -362,7 +362,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -385,7 +385,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('reuses a failed empty tab for the next path instead of stalling the drop batch', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(true);
@@ -395,7 +395,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -425,7 +425,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('keeps later dropped paths out of the active tab even when its document state lags behind the first open', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
@@ -436,7 +436,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({ activate }: { activate?: boolean } = {}) => {
@@ -464,7 +464,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('seeds new tabs with document hints so external paths can mount a workspace before opening', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(true);
@@ -474,7 +474,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routingOptions = createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({
@@ -518,7 +518,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('marks DjVu open results as document hints before opening them in a new tab', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(true);
@@ -528,7 +528,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
         const routingOptions = createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: ({
@@ -577,14 +577,14 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('removes a startup-created tab when its direct open reports failure', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(true);
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
 
         const routingOptions = createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: () => {
@@ -603,7 +603,7 @@ describe('useAppShellWorkspaceRouting', () => {
     });
 
     it('keeps startup path opening pending until the active placeholder open settles', async () => {
-        const activeGroupId = ref('group-1');
+        const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
@@ -614,7 +614,7 @@ describe('useAppShellWorkspaceRouting', () => {
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
 
         const routing = useAppShellWorkspaceRouting(createRoutingOptions({
-            activeGroupId,
+            activePaneId,
             activeTabId,
             workspaceRefs,
             createTab: () => {

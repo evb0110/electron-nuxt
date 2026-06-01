@@ -4,7 +4,7 @@ import type {
     IHostZenModeState,
 } from '@contracts/electronApiHost';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
-import type { TGroupDirection } from '@contracts/editorGroups';
+import type { TPaneDirection } from '@contracts/editorPanes';
 import type { ISettingsData } from '@contracts/shared';
 import type {
     IWindowTabIncomingTransfer,
@@ -45,9 +45,9 @@ export const CORE_IPC_EVENT_CHANNELS = {
     menuNewTab: 'menu:newTab',
     menuCloseTab: 'menu:closeTab',
     menuSplitEditor: 'menu:splitEditor',
-    menuFocusEditorGroup: 'menu:focusEditorGroup',
-    menuMoveTabToGroup: 'menu:moveTabToGroup',
-    menuCopyTabToGroup: 'menu:copyTabToGroup',
+    menuFocusEditorPane: 'menu:focusEditorPane',
+    menuMoveTabToPane: 'menu:moveTabToPane',
+    menuCopyTabToPane: 'menu:copyTabToPane',
     debugLog: 'debug:log',
     hostEnvironmentChanged: 'host:environmentChanged',
     hostZenModeChanged: 'host:zenModeChanged',
@@ -136,10 +136,10 @@ export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction]: TWindowTabsAction;
     [CORE_IPC_EVENT_CHANNELS.menuNewTab]: undefined;
     [CORE_IPC_EVENT_CHANNELS.menuCloseTab]: undefined;
-    [CORE_IPC_EVENT_CHANNELS.menuSplitEditor]: TGroupDirection;
-    [CORE_IPC_EVENT_CHANNELS.menuFocusEditorGroup]: TGroupDirection;
-    [CORE_IPC_EVENT_CHANNELS.menuMoveTabToGroup]: TGroupDirection;
-    [CORE_IPC_EVENT_CHANNELS.menuCopyTabToGroup]: TGroupDirection;
+    [CORE_IPC_EVENT_CHANNELS.menuSplitEditor]: TPaneDirection;
+    [CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane]: TPaneDirection;
+    [CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane]: TPaneDirection;
+    [CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane]: TPaneDirection;
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged]: IHostEnvironmentSnapshot;
     [CORE_IPC_EVENT_CHANNELS.hostZenModeChanged]: IHostZenModeState;

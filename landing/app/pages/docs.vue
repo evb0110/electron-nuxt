@@ -234,7 +234,7 @@
               tag="li"
               scope="global"
             >
-              <template #menuPath><code>View > Editor Groups > Split Editor</code></template>
+              <template #menuPath><code>View > Editor Panes > Split Editor</code></template>
             </i18n-t>
             <li>{{ t('docs.tabsSplits.li3') }}</li>
             <i18n-t
@@ -242,15 +242,15 @@
               tag="li"
               scope="global"
             >
-              <template #command><code>Focus Editor Group</code></template>
+              <template #command><code>Focus Editor Pane</code></template>
             </i18n-t>
             <i18n-t
               keypath="docs.tabsSplits.li5"
               tag="li"
               scope="global"
             >
-              <template #moveTab><code>Move Tab to Group</code></template>
-              <template #copyTab><code>Copy Tab to Group</code></template>
+              <template #moveTab><code>Move Tab to Pane</code></template>
+              <template #copyTab><code>Copy Tab to Pane</code></template>
             </i18n-t>
           </ul>
         </section>

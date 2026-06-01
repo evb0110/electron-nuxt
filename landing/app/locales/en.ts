@@ -328,7 +328,7 @@ export default {
             menuPages: 'Pages',
             menuPagesActions: 'Delete selected pages, extract selected pages, rotate, insert pages',
             menuView: 'View',
-            menuViewActions: 'Zoom controls, fit modes, page layout modes, split/focus/move/copy editor groups',
+            menuViewActions: 'Zoom controls, fit modes, page layout modes, split/focus/move/copy editor panes',
             menuWindow: 'Window',
             menuWindowActions: 'Move active tab to new window, move active tab to another window, merge this window into',
             menuHelp: 'Help',
