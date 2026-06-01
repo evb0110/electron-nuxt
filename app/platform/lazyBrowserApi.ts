@@ -725,6 +725,34 @@ const lazyAgentCapability: IAgentCapability = {
         'agent',
         'setMcpIntegrationEnabled',
     ]),
+    getAssistantState: lazyAsync<IAgentCapability['getAssistantState']>([
+        'agent',
+        'getAssistantState',
+    ]),
+    installAssistantCodex: lazyAsync<IAgentCapability['installAssistantCodex']>([
+        'agent',
+        'installAssistantCodex',
+    ]),
+    startAssistantLogin: lazyAsync<IAgentCapability['startAssistantLogin']>([
+        'agent',
+        'startAssistantLogin',
+    ]),
+    cancelAssistantLogin: lazyAsync<IAgentCapability['cancelAssistantLogin']>([
+        'agent',
+        'cancelAssistantLogin',
+    ]),
+    sendAssistantMessage: lazyAsync<IAgentCapability['sendAssistantMessage']>([
+        'agent',
+        'sendAssistantMessage',
+    ]),
+    interruptAssistant: lazyAsync<IAgentCapability['interruptAssistant']>([
+        'agent',
+        'interruptAssistant',
+    ]),
+    onAssistantEvent: lazyEvent<IAgentCapability['onAssistantEvent']>([
+        'agent',
+        'onAssistantEvent',
+    ]),
 };
 
 const lazyShellCapability: IPlatformApi['shell'] = {openExternal: lazyAsync<IPlatformApi['shell']['openExternal']>([

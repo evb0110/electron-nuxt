@@ -44,6 +44,7 @@ import {
 } from '@electron/features/djvu/public';
 import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
 import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
+import { shutdownAgentAssistant } from '@electron/features/agent/codexAssistant';
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
@@ -244,6 +245,10 @@ async function performShutdownCleanup() {
     shutdownCoordinator?.clearGracefulQuitForceTimer();
 
     await runShutdownSteps(logger, [
+        {
+            label: 'agent-assistant',
+            run: () => shutdownAgentAssistant(),
+        },
         {
             label: 'mcp-server',
             run: () => shutdownLocalMcpServer(),

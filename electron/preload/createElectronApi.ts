@@ -198,6 +198,20 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 invokeCore(CORE_IPC_CHANNELS.agentGetMcpIntegrationStatus),
             setMcpIntegrationEnabled: enabled =>
                 invokeCore(CORE_IPC_CHANNELS.agentSetMcpIntegrationEnabled, enabled),
+            getAssistantState: () =>
+                invokeCore(CORE_IPC_CHANNELS.agentGetAssistantState),
+            installAssistantCodex: () =>
+                invokeCore(CORE_IPC_CHANNELS.agentInstallAssistantCodex),
+            startAssistantLogin: request =>
+                invokeCore(CORE_IPC_CHANNELS.agentStartAssistantLogin, request),
+            cancelAssistantLogin: () =>
+                invokeCore(CORE_IPC_CHANNELS.agentCancelAssistantLogin),
+            sendAssistantMessage: request =>
+                invokeCore(CORE_IPC_CHANNELS.agentSendAssistantMessage, request),
+            interruptAssistant: () =>
+                invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant),
+            onAssistantEvent: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent, callback),
         },
 
         windowTabs: {

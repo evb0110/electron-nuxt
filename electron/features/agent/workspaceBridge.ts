@@ -265,13 +265,3 @@ export function submitAgentCommandResponse(
         rawResponse.result ?? {},
     );
 }
-
-export function cancelAllAgentRendererRequests(reason = 'Agent bridge is shutting down.') {
-    const error = new Error(reason);
-    for (const requestId of pendingSnapshotRequests.keys()) {
-        rejectPendingRequest(pendingSnapshotRequests, requestId, error);
-    }
-    for (const requestId of pendingCommandRequests.keys()) {
-        rejectPendingRequest(pendingCommandRequests, requestId, error);
-    }
-}

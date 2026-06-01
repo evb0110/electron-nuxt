@@ -16,7 +16,6 @@ import type {
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
-    getAllRegisteredAppWindows,
     getRegisteredMainWindow,
     getWindowByIdFromRegistry,
 } from '@electron/window/registry';
@@ -141,7 +140,11 @@ interface IProcessMcpRequestOptions {
     ): Promise<Record<string, unknown>>;
 }
 
+interface IHttpHandlerOptions {bearerToken?: string | null;}
+
 let localMcpServer: Server | null = null;
+let embeddedMcpServer: Server | null = null;
+let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
 
 const WINDOW_ID_SCHEMA = {
     type: 'number',
@@ -476,8 +479,8 @@ function createHealthResponse(identity: ILocalMcpServerIdentity) {
 
 function createInitializeInstructions() {
     return [
-        'EVB Viewer exposes the live PDF workspace. If the user mentions EVB Viewer, evb-viewer, the viewer app, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, or debug ports.',
-        'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree.',
+        'EVB Viewer exposes the live viewer workspace. A document may or may not be open. If the user mentions EVB Viewer, evb-viewer, the viewer app, the workspace, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, debug ports, or the repository.',
+        'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree or need to determine whether any document is open.',
         'For questions like "find X in this PDF" or "navigate to X", call evb_viewer_search_open_document or evb_search_document first. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, call evb_read_document_pages for candidate pages if you need surrounding text, then evb_go_to_page to navigate the visible viewer.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
@@ -769,7 +772,7 @@ function createWorkspaceResource(): IMcpResourceDefinition {
         name: 'evb_workspace_current',
         title: 'EVB Viewer current workspace',
         uri: WORKSPACE_RESOURCE_URI,
-        description: 'Live JSON snapshot of EVB Viewer panes, tabs, active document, page numbers, and readiness hints.',
+        description: 'Live JSON snapshot of EVB Viewer panes, tabs, active document when present, page numbers, and readiness hints.',
         mimeType: 'application/json',
     };
 }
@@ -1070,15 +1073,36 @@ function writeNoContent(response: ServerResponse) {
     response.end();
 }
 
-function createHttpHandler(options: IProcessMcpRequestOptions) {
+function isAuthorizedMcpRequest(request: IncomingMessage, bearerToken: string | null | undefined) {
+    if (!bearerToken) {
+        return true;
+    }
+
+    const header = request.headers.authorization;
+    return typeof header === 'string' && header === `Bearer ${bearerToken}`;
+}
+
+function createHttpHandler(
+    options: IProcessMcpRequestOptions,
+    httpOptions: IHttpHandlerOptions = {},
+) {
     return async (request: IncomingMessage, response: ServerResponse) => {
         if (request.method === 'GET' && request.url === '/health') {
+            if (!isAuthorizedMcpRequest(request, httpOptions.bearerToken)) {
+                writeJson(response, 401, { error: 'Unauthorized.' });
+                return;
+            }
             writeJson(response, 200, createHealthResponse(options.identity));
             return;
         }
 
         if (request.method !== 'POST') {
             writeJson(response, 405, { error: 'Only POST JSON-RPC requests are supported.' });
+            return;
+        }
+
+        if (!isAuthorizedMcpRequest(request, httpOptions.bearerToken)) {
+            writeJson(response, 401, { error: 'Unauthorized.' });
             return;
         }
 
@@ -1165,14 +1189,8 @@ export function isLocalMcpServerRunning() {
     return localMcpServer !== null;
 }
 
-export function startLocalMcpServer() {
-    if (localMcpServer) {
-        return;
-    }
-
-    const port = resolveConfiguredLocalMcpPort();
-    const identity = createLocalMcpServerIdentity(port);
-    const options: IProcessMcpRequestOptions = {
+function createDefaultMcpRequestOptions(identity: ILocalMcpServerIdentity): IProcessMcpRequestOptions {
+    return {
         identity,
         getWorkspaceSnapshot: async (windowId) => {
             const window = resolveAgentWindow(windowId);
@@ -1204,6 +1222,16 @@ export function startLocalMcpServer() {
             return readAgentDocumentPages(window, input);
         },
     };
+}
+
+export function startLocalMcpServer() {
+    if (localMcpServer) {
+        return;
+    }
+
+    const port = resolveConfiguredLocalMcpPort();
+    const identity = createLocalMcpServerIdentity(port);
+    const options = createDefaultMcpRequestOptions(identity);
 
     const server = createServer(createHttpHandler(options));
     server.on('error', (error) => {
@@ -1228,9 +1256,74 @@ export function shutdownLocalMcpServer() {
     });
 }
 
-export function listRegisteredAgentWindowsForMcp() {
-    return getAllRegisteredAppWindows().map(window => ({
-        windowId: window.id,
-        title: window.getTitle(),
-    }));
+export function isEmbeddedMcpServerRunning() {
+    return embeddedMcpServer !== null;
+}
+
+export function getEmbeddedMcpServerDescriptor() {
+    return embeddedMcpServerDescriptor;
+}
+
+export function startEmbeddedMcpServer(bearerToken: string): Promise<ILocalMcpServerDescriptor> {
+    if (embeddedMcpServer && embeddedMcpServerDescriptor) {
+        return Promise.resolve(embeddedMcpServerDescriptor);
+    }
+
+    return new Promise((resolve, reject) => {
+        const identity = createLocalMcpServerIdentity(0);
+        identity.name = `${identity.name}_embedded`;
+        identity.title = `${identity.title} Assistant`;
+        const options = createDefaultMcpRequestOptions(identity);
+        const server = createServer(createHttpHandler(options, { bearerToken }));
+        let settled = false;
+
+        server.on('error', (error) => {
+            logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`);
+            if (!settled) {
+                settled = true;
+                embeddedMcpServer = null;
+                embeddedMcpServerDescriptor = null;
+                reject(error);
+            }
+        });
+        server.listen(0, DEFAULT_MCP_HOST, () => {
+            const address = server.address() as AddressInfo | null;
+            const port = address?.port;
+            if (!port) {
+                embeddedMcpServer = null;
+                embeddedMcpServerDescriptor = null;
+                settled = true;
+                server.close();
+                reject(new Error('Embedded MCP server did not receive a port.'));
+                return;
+            }
+
+            identity.port = port;
+            embeddedMcpServerDescriptor = {
+                name: identity.name,
+                title: identity.title,
+                host: identity.host,
+                port,
+                url: `http://${identity.host}:${port}`,
+            };
+            embeddedMcpServer = server;
+            settled = true;
+            logger.info(`Embedded MCP server ${identity.name} listening on ${embeddedMcpServerDescriptor.url}`);
+            resolve(embeddedMcpServerDescriptor);
+        });
+    });
+}
+
+export function shutdownEmbeddedMcpServer() {
+    const server = embeddedMcpServer;
+    if (!server) {
+        embeddedMcpServerDescriptor = null;
+        return Promise.resolve();
+    }
+
+    embeddedMcpServer = null;
+    embeddedMcpServerDescriptor = null;
+    return new Promise<void>((resolve) => {
+        server.close(() => resolve());
+    });
 }

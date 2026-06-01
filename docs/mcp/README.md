@@ -4,9 +4,14 @@ This document describes the current local MCP architecture for EVB Viewer so fut
 
 ## Current Shape
 
-EVB Viewer exposes a local, desktop-only MCP server from the Electron main process. The server gives agents a live view of the open workspace, including panes, tabs, active document, page numbers, document readiness, searchable text coverage, PDF search, page text reads, and navigation commands.
+EVB Viewer exposes a local, desktop-only MCP server from the Electron main process. The server gives agents a live view of the workspace, including panes, tabs, the active document when one is present, page numbers, document readiness, searchable text coverage, PDF search, page text reads, and navigation commands.
 
-The end-user switch lives in Settings. When enabled, EVB Viewer starts the local MCP server and registers it in global Codex settings using the Codex CLI. When disabled, EVB Viewer removes the Codex MCP entry and shuts the local server down.
+There are two Codex-facing entry points:
+
+- **Embedded EVB Assistant**: EVB Viewer owns a sandboxed `codex app-server` child process, an isolated `CODEX_HOME`, and a private random-port MCP server protected by a bearer token. This powers the in-app assistant panel, works with empty workspaces as well as open documents, uses the system browser for ChatGPT sign-in, and does not mutate global Codex configuration.
+- **External Codex MCP**: the advanced Settings switch starts the fixed-port MCP server and registers it in global Codex settings using the Codex CLI. This is for users who want a separate Codex app or CLI to connect to EVB Viewer.
+
+When the external switch is enabled, EVB Viewer starts the local MCP server and registers it in global Codex settings using the Codex CLI. When disabled, EVB Viewer removes the Codex MCP entry and shuts the local server down.
 
 ```mermaid
 flowchart LR
@@ -23,6 +28,19 @@ flowchart LR
     LocalServer --> SearchIndex["documentText.ts / search worker"]
 ```
 
+The embedded assistant uses the same MCP tool implementation, but through a separate random-port listener:
+
+```mermaid
+flowchart LR
+    User["User opens EVB Assistant panel"] --> Renderer["Assistant UI"]
+    Renderer --> AssistantIPC["typed assistant IPC"]
+    AssistantIPC --> Runtime["codexAssistant.ts"]
+    Runtime --> AppServer["codex app-server child process"]
+    Runtime --> PrivateMcp["private MCP server on 127.0.0.1:random with bearer token"]
+    AppServer --> PrivateMcp
+    PrivateMcp --> WorkspaceBridge
+```
+
 ## File Map
 
 - `electron/features/agent/mcpServer.ts`
@@ -30,6 +48,12 @@ flowchart LR
 
 - `electron/features/agent/codexMcpIntegration.ts`
   End-user Codex integration: Codex CLI discovery, native permission dialogs, global Codex config mutation, status reporting, and startup sync with app settings.
+
+- `electron/features/agent/codexAssistant.ts`
+  Embedded assistant runtime: EVB-managed Codex install/login/status flow, isolated app-server process, assistant chat thread lifecycle, and renderer-safe event streaming.
+
+- `electron/features/agent/codexCli.ts`
+  Shared cross-platform Codex discovery, version checks, managed install directory, and official standalone installer execution.
 
 - `electron/features/agent/workspaceBridge.ts`
   Main-to-renderer request bridge for workspace snapshots and UI navigation commands. Uses request ids, sender-window validation, and timeouts.
@@ -50,7 +74,10 @@ flowchart LR
   Platform capability for agent IPC: request subscriptions, response submission, MCP status, and MCP toggle.
 
 - `app/components/settings/SettingsAgentPanel.vue`
-  Desktop settings panel for Codex MCP status and enable/disable/repair/install flows.
+  Desktop settings panel for the external Codex MCP status and enable/disable/repair/install flows.
+
+- `app/components/agent/AgentAssistantPanel.vue`
+  Desktop assistant panel with Codex install/update, ChatGPT sign-in, workspace/document empty states, and chat composer.
 
 - `scripts/evb-mcp-proxy.mjs`
   Compatibility stdio proxy for development/manual MCP clients. It mirrors the MCP descriptors and forwards JSON-RPC to the local HTTP endpoint.
@@ -137,7 +164,7 @@ Supported methods:
 
 Batch JSON-RPC requests are supported. Request bodies are capped at 1 MiB. Responses are JSON with `Cache-Control: no-store`. Notifications get `202` when there is no response payload.
 
-Initialize instructions explicitly tell agents to use EVB Viewer MCP tools before inspecting processes, files, windows, debug ports, or the repository when the user asks about EVB Viewer or the open document.
+Initialize instructions explicitly tell agents to use EVB Viewer MCP tools before inspecting processes, files, windows, debug ports, or the repository when the user asks about EVB Viewer, the workspace, or the open document. A document may not be open, so agents should inspect the workspace before assuming document-specific context.
 
 ## Tools
 

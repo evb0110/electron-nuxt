@@ -2,6 +2,13 @@ import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type {
     IAgentCommandRequest,
     IAgentCommandResponse,
+    IAgentAssistantEvent,
+    IAgentAssistantInstallResult,
+    IAgentAssistantLoginRequest,
+    IAgentAssistantLoginResult,
+    IAgentAssistantSendMessageRequest,
+    IAgentAssistantSendMessageResult,
+    IAgentAssistantState,
     IAgentMcpIntegrationStatus,
     IAgentMcpIntegrationUpdateResult,
     IAgentWorkspaceSnapshotRequest,
@@ -44,6 +51,12 @@ export const CORE_IPC_CHANNELS = {
     hostSetZenMode: 'host:setZenMode',
     agentGetMcpIntegrationStatus: 'agent:getMcpIntegrationStatus',
     agentSetMcpIntegrationEnabled: 'agent:setMcpIntegrationEnabled',
+    agentGetAssistantState: 'agent:getAssistantState',
+    agentInstallAssistantCodex: 'agent:installAssistantCodex',
+    agentStartAssistantLogin: 'agent:startAssistantLogin',
+    agentCancelAssistantLogin: 'agent:cancelAssistantLogin',
+    agentSendAssistantMessage: 'agent:sendAssistantMessage',
+    agentInterruptAssistant: 'agent:interruptAssistant',
     agentSubmitWorkspaceSnapshot: 'agent:submitWorkspaceSnapshot',
     agentSubmitCommandResponse: 'agent:submitCommandResponse',
 } as const;
@@ -63,6 +76,7 @@ export const CORE_IPC_EVENT_CHANNELS = {
     debugLog: 'debug:log',
     hostEnvironmentChanged: 'host:environmentChanged',
     hostZenModeChanged: 'host:zenModeChanged',
+    agentAssistantEvent: 'agent:assistantEvent',
     agentWorkspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
     agentCommandRequest: 'agent:commandRequest',
 } as const;
@@ -148,6 +162,30 @@ export interface ICoreInvokeMap {
         args: [enabled: boolean];
         result: IAgentMcpIntegrationUpdateResult;
     };
+    [CORE_IPC_CHANNELS.agentGetAssistantState]: {
+        args: [];
+        result: IAgentAssistantState;
+    };
+    [CORE_IPC_CHANNELS.agentInstallAssistantCodex]: {
+        args: [];
+        result: IAgentAssistantInstallResult;
+    };
+    [CORE_IPC_CHANNELS.agentStartAssistantLogin]: {
+        args: [request: IAgentAssistantLoginRequest];
+        result: IAgentAssistantLoginResult;
+    };
+    [CORE_IPC_CHANNELS.agentCancelAssistantLogin]: {
+        args: [];
+        result: IAgentAssistantState;
+    };
+    [CORE_IPC_CHANNELS.agentSendAssistantMessage]: {
+        args: [request: IAgentAssistantSendMessageRequest];
+        result: IAgentAssistantSendMessageResult;
+    };
+    [CORE_IPC_CHANNELS.agentInterruptAssistant]: {
+        args: [];
+        result: IAgentAssistantState;
+    };
     [CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot]: {
         args: [response: IAgentWorkspaceSnapshotResponse];
         result: boolean;
@@ -173,6 +211,7 @@ export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged]: IHostEnvironmentSnapshot;
     [CORE_IPC_EVENT_CHANNELS.hostZenModeChanged]: IHostZenModeState;
+    [CORE_IPC_EVENT_CHANNELS.agentAssistantEvent]: IAgentAssistantEvent;
     [CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest]: IAgentWorkspaceSnapshotRequest;
     [CORE_IPC_EVENT_CHANNELS.agentCommandRequest]: IAgentCommandRequest;
 }
