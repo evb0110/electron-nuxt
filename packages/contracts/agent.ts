@@ -1,4 +1,5 @@
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
+import type { TDocumentRef } from '@contracts/document';
 
 export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
@@ -9,9 +10,11 @@ export type TAgentMcpCodexRegistrationState = 'configured' | 'missing' | 'mismat
 export type TAgentAssistantInstallState = 'installed' | 'missing' | 'unsupported';
 export type TAgentAssistantAuthState = 'signed-in' | 'signed-out' | 'login-pending' | 'unknown';
 export type TAgentAssistantRuntimeState = 'stopped' | 'starting' | 'ready' | 'busy' | 'error';
+export type TAgentAssistantTurnPhase = 'idle' | 'starting' | 'running' | 'interrupting' | 'error';
 export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
 export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
 export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-completed' | 'install-progress' | 'error';
+export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
 
 export interface IAgentDocumentOcrState {
     status: TAgentOcrCoverageStatus;
@@ -58,12 +61,38 @@ export interface IAgentTabSnapshot {
     readiness: IAgentDocumentReadiness;
 }
 
+export interface IAgentDocumentReference {
+    tabId: string;
+    paneId: string | null;
+    fileName: string | null;
+    originalPath: TDocumentRef | null;
+    kind: TAgentDocumentKind;
+}
+
+export interface IAgentRecentFileSnapshot {
+    fileName: string;
+    originalPath: TDocumentRef;
+    kind: TAgentDocumentKind;
+    openedAt: string;
+    fileSize?: number;
+}
+
+export interface IAgentWorkspaceSummary {
+    mode: TAgentWorkspaceMode;
+    activeDocument: IAgentDocumentReference | null;
+    documentCount: number;
+    recentFileCount: number;
+    recentFilesResolved: boolean;
+}
+
 export interface IAgentWorkspaceSnapshot {
     capturedAt: string;
     activePaneId: string | null;
     activeTabId: string | null;
+    summary: IAgentWorkspaceSummary;
     panes: IAgentPaneSnapshot[];
     tabs: IAgentTabSnapshot[];
+    recentFiles: IAgentRecentFileSnapshot[];
     layout: TEditorLayoutNode | null;
 }
 
@@ -159,10 +188,16 @@ export interface IAgentAssistantStatus {
     account: IAgentAssistantAccount | null;
     runtimeState: TAgentAssistantRuntimeState;
     mcp: IAgentAssistantMcpStatus;
+    turn: IAgentAssistantTurnState;
     threadId: string | null;
     activeTurnId: string | null;
     lastCheckedAt: string;
     error?: string;
+}
+
+export interface IAgentAssistantTurnState {
+    id: string | null;
+    phase: TAgentAssistantTurnPhase;
 }
 
 export interface IAgentAssistantChatMessage {

@@ -7,6 +7,16 @@
             </div>
             <div class="agent-assistant-header-actions">
                 <UButton
+                    :aria-label="t('assistant.newChat')"
+                    icon="i-ph-plus"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    :loading="isResetting"
+                    :disabled="!canResetChat"
+                    @click="resetChat"
+                />
+                <UButton
                     :aria-label="t('assistant.refresh')"
                     icon="i-ph-arrows-clockwise"
                     color="neutral"
@@ -28,7 +38,16 @@
 
         <div class="agent-assistant-body">
             <section
-                v-if="!status.supported"
+                v-if="!hasLoadedState"
+                class="agent-assistant-setup"
+            >
+                <UIcon name="i-ph-circle-notch" class="agent-assistant-setup-icon is-spinning" />
+                <h2>{{ t('assistant.checkingTitle') }}</h2>
+                <p>{{ t('assistant.checkingDescription') }}</p>
+            </section>
+
+            <section
+                v-else-if="!status.supported"
                 class="agent-assistant-setup"
             >
                 <UIcon name="i-ph-warning-circle" class="agent-assistant-setup-icon" />
@@ -123,6 +142,21 @@
                     <span>{{ toolsLabel }}</span>
                 </div>
 
+                <div class="agent-assistant-context-strip">
+                    <UIcon :name="contextIcon" class="agent-assistant-context-icon" />
+                    <div class="agent-assistant-context-copy">
+                        <strong>{{ contextTitle }}</strong>
+                        <span>{{ contextDescription }}</span>
+                    </div>
+                    <div
+                        v-if="isTurnActive"
+                        class="agent-assistant-working-pill"
+                    >
+                        <UIcon name="i-ph-circle-notch" class="agent-assistant-working-icon is-spinning" />
+                        <span>{{ turnStatusText }}</span>
+                    </div>
+                </div>
+
                 <div
                     ref="messagesRef"
                     class="agent-assistant-messages"
@@ -140,13 +174,31 @@
                         v-for="message in messages"
                         :key="message.id"
                         class="agent-assistant-message"
-                        :class="`is-${message.role}`"
+                        :class="[
+                            `is-${message.role}`,
+                            { 'is-pending': message.pending },
+                        ]"
                     >
                         <div class="agent-assistant-message-role">
                             {{ roleLabel(message.role) }}
                         </div>
-                        <p>{{ message.text }}</p>
+                        <p>{{ message.text || (message.pending ? t('assistant.working') : '') }}</p>
+                        <div
+                            v-if="message.pending"
+                            class="agent-assistant-message-pending"
+                        >
+                            <UIcon name="i-ph-circle-notch" class="agent-assistant-working-icon is-spinning" />
+                            <span>{{ t('assistant.moreComing') }}</span>
+                        </div>
                     </article>
+
+                    <div
+                        v-if="isTurnActive && !hasPendingAssistantMessage"
+                        class="agent-assistant-turn-progress"
+                    >
+                        <UIcon name="i-ph-circle-notch" class="agent-assistant-working-icon is-spinning" />
+                        <span>{{ turnStatusText }}</span>
+                    </div>
                 </div>
 
                 <form
@@ -164,7 +216,7 @@
                     <div class="agent-assistant-composer-actions">
                         <UButton
                             v-if="isSending"
-                            :label="t('assistant.stop')"
+                            :aria-label="t('assistant.stop')"
                             icon="i-ph-stop-circle"
                             color="neutral"
                             variant="outline"
@@ -172,7 +224,7 @@
                             @click="interrupt"
                         />
                         <UButton
-                            :label="t('assistant.send')"
+                            :aria-label="t('assistant.send')"
                             icon="i-ph-arrow-up"
                             color="primary"
                             size="sm"
@@ -208,10 +260,14 @@ const {
     activeDocumentName = null,
     hasActiveDocument = false,
     hasAnyDocument = false,
+    recentFileCount = 0,
+    recentFilesResolved = false,
 } = defineProps<{
     activeDocumentName?: string | null;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
+    recentFileCount?: number;
+    recentFilesResolved?: boolean;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -222,11 +278,14 @@ const isInstalling = ref(false);
 const isLoggingIn = ref(false);
 const loginMode = ref<TAgentAssistantLoginMode | null>(null);
 const isSending = ref(false);
+const isResetting = ref(false);
+const hasLoadedState = ref(false);
 const installProgress = ref('');
 const deviceCode = ref('');
 const draft = ref('');
 const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
+let sendGeneration = 0;
 
 const emptyState = computed<IAgentAssistantState>(() => ({
     status: {
@@ -250,6 +309,10 @@ const emptyState = computed<IAgentAssistantState>(() => ({
             serverRunning: false,
             toolCount: 0,
         },
+        turn: {
+            id: null,
+            phase: 'idle',
+        },
         threadId: null,
         activeTurnId: null,
         lastCheckedAt: '',
@@ -259,6 +322,15 @@ const emptyState = computed<IAgentAssistantState>(() => ({
 const status = computed(() => (state.value ?? emptyState.value).status);
 const messages = computed(() => (state.value ?? emptyState.value).messages);
 const canSend = computed(() => draft.value.trim().length > 0 && !isSending.value);
+const canResetChat = computed(() => (
+    hasLoadedState.value
+    && !isResetting.value
+    && (
+        messages.value.length > 0
+        || Boolean(status.value.threadId)
+        || status.value.runtimeState === 'busy'
+    )
+));
 const signedInLabel = computed(() => {
     const account = status.value.account;
     if (account?.type === 'chatgpt' && account.email) {
@@ -286,9 +358,62 @@ const emptyDescription = computed(() => {
 const placeholderText = computed(() => hasActiveDocument
     ? t('assistant.documentPlaceholder')
     : t('assistant.workspacePlaceholder'));
+const isTurnActive = computed(() => (
+    status.value.turn.phase === 'starting'
+    || status.value.turn.phase === 'running'
+    || status.value.turn.phase === 'interrupting'
+    || status.value.runtimeState === 'busy'
+));
+const hasPendingAssistantMessage = computed(() => messages.value.some(message => (
+    message.role === 'assistant' && message.pending
+)));
+const turnStatusText = computed(() => {
+    if (status.value.turn.phase === 'interrupting') {
+        return t('assistant.interrupting');
+    }
+    if (status.value.turn.phase === 'starting') {
+        return t('assistant.startingTurn');
+    }
+    return t('assistant.working');
+});
+const contextIcon = computed(() => {
+    if (hasActiveDocument) {
+        return 'i-ph-file-text';
+    }
+    if (hasAnyDocument) {
+        return 'i-ph-folder-open';
+    }
+    return 'i-ph-lightbulb';
+});
+const contextTitle = computed(() => {
+    if (hasActiveDocument) {
+        return activeDocumentName
+            ? t('assistant.contextDocumentNamed', { name: activeDocumentName })
+            : t('assistant.contextDocument');
+    }
+    if (hasAnyDocument) {
+        return t('assistant.contextDocumentsOpen');
+    }
+    return t('assistant.contextWorkspaceEmpty');
+});
+const contextDescription = computed(() => {
+    if (hasActiveDocument) {
+        return t('assistant.contextDocumentDescription');
+    }
+    if (hasAnyDocument) {
+        return t('assistant.contextDocumentsOpenDescription');
+    }
+    if (!recentFilesResolved) {
+        return t('assistant.contextRecentFilesLoading');
+    }
+    return recentFileCount > 0
+        ? t('assistant.contextRecentFilesCount', { count: recentFileCount })
+        : t('assistant.contextNoRecentFiles');
+});
 
 function applyState(nextState: IAgentAssistantState) {
     state.value = nextState;
+    hasLoadedState.value = true;
     isSending.value = nextState.status.runtimeState === 'busy';
     void nextTick(() => {
         const el = messagesRef.value;
@@ -355,19 +480,37 @@ async function sendMessage() {
     if (!canSend.value) {
         return;
     }
+    const generation = sendGeneration;
     const text = draft.value.trim();
     draft.value = '';
     isSending.value = true;
     try {
         const result = await getPlatformAPI().agent.sendAssistantMessage({ text });
+        if (generation !== sendGeneration) {
+            return;
+        }
         applyState(result.state);
     } finally {
-        isSending.value = status.value.runtimeState === 'busy';
+        if (generation === sendGeneration) {
+            isSending.value = status.value.runtimeState === 'busy';
+        }
     }
 }
 
 async function interrupt() {
+    sendGeneration += 1;
     applyState(await getPlatformAPI().agent.interruptAssistant());
+}
+
+async function resetChat() {
+    sendGeneration += 1;
+    isResetting.value = true;
+    try {
+        applyState(await getPlatformAPI().agent.resetAssistantChat());
+    } finally {
+        isResetting.value = false;
+        isSending.value = status.value.runtimeState === 'busy';
+    }
 }
 
 function roleLabel(role: TAgentAssistantMessageRole) {
@@ -421,7 +564,11 @@ onUnmounted(() => {
 .agent-assistant-header-actions,
 .agent-assistant-setup-actions,
 .agent-assistant-composer-actions,
-.agent-assistant-status-line {
+.agent-assistant-status-line,
+.agent-assistant-context-strip,
+.agent-assistant-working-pill,
+.agent-assistant-message-pending,
+.agent-assistant-turn-progress {
     display: flex;
     align-items: center;
 }
@@ -466,10 +613,15 @@ onUnmounted(() => {
 }
 
 .agent-assistant-setup-icon,
-.agent-assistant-empty-icon {
+.agent-assistant-empty-icon,
+.agent-assistant-context-icon {
     width: 1.25rem;
     height: 1.25rem;
     color: var(--ui-primary);
+}
+
+.is-spinning {
+    animation: agent-assistant-spin 0.9s linear infinite;
 }
 
 .agent-assistant-setup h2,
@@ -483,6 +635,9 @@ onUnmounted(() => {
 .agent-assistant-setup p,
 .agent-assistant-empty p,
 .agent-assistant-message p,
+.agent-assistant-context-copy span,
+.agent-assistant-message-pending,
+.agent-assistant-turn-progress,
 .agent-assistant-progress,
 .agent-assistant-error {
     margin: 0;
@@ -498,6 +653,56 @@ onUnmounted(() => {
     border-bottom: 1px solid var(--ui-border);
     color: var(--ui-text-dimmed);
     font-size: 0.75rem;
+}
+
+.agent-assistant-status-line span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-assistant-context-strip {
+    gap: 0.65rem;
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--ui-border);
+    background: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-muted) 12%);
+}
+
+.agent-assistant-context-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.agent-assistant-context-copy strong {
+    overflow: hidden;
+    color: var(--ui-text);
+    font-size: 0.8125rem;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-assistant-working-pill {
+    flex: 0 0 auto;
+    gap: 0.35rem;
+    max-width: 45%;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid color-mix(in oklab, var(--ui-primary) 35%, var(--ui-border) 65%);
+    border-radius: var(--ui-radius);
+    background: color-mix(in oklab, var(--ui-primary) 9%, var(--ui-bg) 91%);
+    color: var(--ui-primary);
+    font-size: 0.6875rem;
+    font-weight: 600;
+}
+
+.agent-assistant-working-pill span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .agent-assistant-messages {
@@ -550,6 +755,31 @@ onUnmounted(() => {
     border-radius: var(--ui-radius);
     background: var(--ui-bg-elevated);
     color: var(--ui-text);
+}
+
+.agent-assistant-message.is-pending p {
+    border-color: color-mix(in oklab, var(--ui-primary) 34%, var(--ui-border) 66%);
+}
+
+.agent-assistant-message-pending,
+.agent-assistant-turn-progress {
+    gap: 0.35rem;
+    color: var(--ui-text-dimmed);
+    font-size: 0.75rem;
+}
+
+.agent-assistant-turn-progress {
+    align-self: flex-start;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    background: var(--ui-bg-elevated);
+}
+
+.agent-assistant-working-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex: 0 0 auto;
 }
 
 .agent-assistant-message.is-user p {
@@ -614,6 +844,12 @@ onUnmounted(() => {
 
 .agent-assistant-error {
     padding: 0 0.75rem 0.75rem;
+}
+
+@keyframes agent-assistant-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @media (width <= 50rem) {

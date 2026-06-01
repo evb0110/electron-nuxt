@@ -130,6 +130,8 @@
                 :has-active-document="assistantHasActiveDocument"
                 :has-any-document="assistantHasAnyDocument"
                 :active-document-name="assistantActiveDocumentName"
+                :recent-file-count="recentFiles.length"
+                :recent-files-resolved="recentFilesResolved"
                 @close="assistantPanelOpen = false"
             />
         </div>
@@ -779,12 +781,21 @@ function activateTabById(tabId: string) {
     activateTab(pane.paneId, tabId);
 }
 
+const {
+    recentFiles,
+    isResolved: recentFilesResolved,
+    loadRecentFiles,
+    clearRecentFiles,
+} = useRecentFiles();
+
 useAgentWorkspaceSnapshot({
     panes,
     tabs,
     layout,
     activePaneId,
     activeTabId,
+    recentFiles,
+    recentFilesResolved,
     workspaceRefs,
     shouldWaitForDesktopBridge: () => shouldWaitForDesktopBridge.value,
     getPaneByTabId,
@@ -860,10 +871,6 @@ const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({
     isEnabled: computed(() => activeToolPage.value === null),
 });
 
-const {
-    loadRecentFiles,
-    clearRecentFiles,
-} = useRecentFiles();
 const browserInstallUrl = computed(() => {
     if (!isBrowserRuntime.value) {
         return undefined;

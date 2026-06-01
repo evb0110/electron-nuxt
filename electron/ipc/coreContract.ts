@@ -57,6 +57,7 @@ export const CORE_IPC_CHANNELS = {
     agentCancelAssistantLogin: 'agent:cancelAssistantLogin',
     agentSendAssistantMessage: 'agent:sendAssistantMessage',
     agentInterruptAssistant: 'agent:interruptAssistant',
+    agentResetAssistantChat: 'agent:resetAssistantChat',
     agentSubmitWorkspaceSnapshot: 'agent:submitWorkspaceSnapshot',
     agentSubmitCommandResponse: 'agent:submitCommandResponse',
 } as const;
@@ -183,6 +184,10 @@ export interface ICoreInvokeMap {
         result: IAgentAssistantSendMessageResult;
     };
     [CORE_IPC_CHANNELS.agentInterruptAssistant]: {
+        args: [];
+        result: IAgentAssistantState;
+    };
+    [CORE_IPC_CHANNELS.agentResetAssistantChat]: {
         args: [];
         result: IAgentAssistantState;
     };

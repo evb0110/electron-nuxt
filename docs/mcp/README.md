@@ -71,7 +71,7 @@ flowchart LR
   Shared agent/MCP contracts for snapshots, commands, readiness, Codex integration status, and update results.
 
 - `packages/contracts/electronApiAgent.ts`
-  Platform capability for agent IPC: request subscriptions, response submission, MCP status, and MCP toggle.
+  Platform capability for agent IPC: request subscriptions, response submission, MCP status, MCP toggle, and embedded assistant lifecycle methods.
 
 - `app/components/settings/SettingsAgentPanel.vue`
   Desktop settings panel for the external Codex MCP status and enable/disable/repair/install flows.
@@ -170,8 +170,8 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 
 | Tool | Purpose | Mutation |
 | --- | --- | --- |
-| `evb_workspace_snapshot` | Full live workspace: panes, tabs, active ids, layout tree, document kind, page numbers, readiness. | Read-only |
-| `evb_viewer_open_documents` | Fast answer for "what document is open?" including active document and pane/tab mapping. | Read-only |
+| `evb_workspace_snapshot` | Full live workspace: summary mode, panes, tabs, active ids, layout tree, document kind, page numbers, readiness, and recent-file list metadata. | Read-only |
+| `evb_viewer_open_documents` | Fast answer for "what document is open?" including workspace mode, real open documents, active document, pane/tab mapping, and recent-file list metadata. Empty tabs are not reported as documents. | Read-only |
 | `evb_document_readiness` | Preparation hints for all tabs or a selected tab. | Read-only |
 | `evb_inspect_document_text` | Warm/reuse the search index and report searchable text coverage plus OCR recommendations. | Read-only |
 | `evb_search_document` | Search text in a selected or active open PDF. | Read-only |
@@ -209,6 +209,17 @@ The renderer builds `IAgentWorkspaceSnapshot` from the workspace shell:
 - `capturedAt`
 - `activePaneId`
 - `activeTabId`
+- `summary`
+  - `mode`: `empty-workspace`, `open-document`, or `documents-open-no-active-document`
+  - `activeDocument`
+    - `tabId`
+    - `paneId`
+    - `fileName`
+    - `originalPath`
+    - `kind`
+  - `documentCount`
+  - `recentFileCount`
+  - `recentFilesResolved`
 - `panes`
   - `paneId`
   - `tabIds`
@@ -228,10 +239,20 @@ The renderer builds `IAgentWorkspaceSnapshot` from the workspace shell:
   - `currentPage`
   - `totalPages`
   - `readiness`
+- `recentFiles`
+  - `fileName`
+  - `originalPath`
+  - `kind`
+  - `openedAt`
+  - `fileSize`
 - `layout`
   - cloned pane split tree
 
 Only the word `pane` is used externally and internally for split editor containers. A pane can hold several tabs. A tab can be active in one pane.
+
+The snapshot intentionally separates real open document tabs from empty workspace tabs. Empty tabs can still be attached to a workspace pane, but they keep `kind: empty`, `summary.documentCount: 0` when no documents are open, and `evb_viewer_open_documents` excludes them from `documents`.
+
+Recent files are list metadata only. Agents may report filenames, kinds, and counts from this list, but must not infer or summarize file contents until the user opens a file and the relevant EVB document tools can inspect it.
 
 Readiness is intentionally conservative:
 
@@ -291,6 +312,8 @@ Platform API:
 
 - Desktop preload implements the agent capability through IPC.
 - Browser runtime provides no-op agent methods and an unavailable MCP status so web builds remain type-compatible.
+- Embedded assistant status includes a `turn` object with `phase` values (`idle`, `starting`, `running`, `interrupting`, `error`) so the UI can distinguish ready, still-working, and stopping states.
+- `resetAssistantChat()` interrupts the active turn if needed, archives the previous Codex thread best-effort, clears local messages, and starts the next user message in a fresh ephemeral thread.
 
 ## Security And Safety Boundaries
 
@@ -300,7 +323,8 @@ Platform API:
 - Trusted IPC validation in `electron/ipc/registry.ts` rejects untrusted renderer URLs and non-main-frame senders.
 - Renderer bridge responses are accepted only from the window that received the request.
 - MCP tools are scoped to current EVB Viewer windows and open tabs.
-- There is no authentication on the loopback HTTP server today, so only enable it when local agent access is desired.
+- The embedded assistant MCP server uses a random loopback port and bearer token known only to the sandboxed Codex app-server process.
+- The external fixed-port MCP server has no authentication on the loopback HTTP server today, so only enable it when local agent access is desired.
 
 ## Stdio Proxy
 
@@ -374,7 +398,7 @@ pnpm run release:verify
 
 ## Known Limitations
 
-- The local HTTP server has no token/auth layer.
+- The external local HTTP MCP server has no token/auth layer.
 - Web runtime has no MCP server; it only has no-op typed APIs.
 - OCR and convert-to-PDF are recommendations, not MCP-callable actions yet.
 - PDF readiness starts as `unknown` until `evb_inspect_document_text` builds or reads the index.

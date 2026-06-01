@@ -175,7 +175,7 @@ const MCP_TOOLS = [
     {
         name: 'evb_workspace_snapshot',
         title: 'EVB Viewer workspace snapshot',
-        description: 'Fast read of the current EVB Viewer workspace: panes, tabs, active tab, layout tree, page numbers, document kinds, and preparation recommendations. Use this first to discover what is open in EVB Viewer / evb-viewer.',
+        description: 'Fast read of the current EVB Viewer workspace: workspace mode, panes, tabs, active tab, recent files shown on the empty start page, page numbers, document kinds, and preparation recommendations. Use this first to discover what is open in EVB Viewer / evb-viewer.',
         inputSchema: {
             type: 'object',
             properties: {windowId: WINDOW_ID_SCHEMA},
@@ -187,7 +187,7 @@ const MCP_TOOLS = [
     {
         name: 'evb_viewer_open_documents',
         title: 'EVB Viewer open documents',
-        description: 'Use this when the user asks what file, PDF, tab, or document is open in EVB Viewer, evb-viewer, or the viewer app. This is the fastest answer for "what document is open?" and should be preferred over inspecting processes, windows, files, or debug ports.',
+        description: 'Use this when the user asks what file, PDF, tab, or document is open in EVB Viewer, evb-viewer, or the viewer app. Empty tabs are reported as empty workspace state, not documents. Recent files are listed separately and are not open document contents.',
         inputSchema: {
             type: 'object',
             properties: {windowId: WINDOW_ID_SCHEMA},
@@ -481,6 +481,7 @@ function createInitializeInstructions() {
     return [
         'EVB Viewer exposes the live viewer workspace. A document may or may not be open. If the user mentions EVB Viewer, evb-viewer, the viewer app, the workspace, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, debug ports, or the repository.',
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree or need to determine whether any document is open.',
+        'When the workspace is empty, evb_workspace_snapshot and evb_viewer_open_documents may still include recent files shown by EVB Viewer. Treat those as file-list metadata only; do not claim to know their contents unless a document is opened and read through EVB tools.',
         'For questions like "find X in this PDF" or "navigate to X", call evb_viewer_search_open_document or evb_search_document first. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, call evb_read_document_pages for candidate pages if you need surrounding text, then evb_go_to_page to navigate the visible viewer.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
@@ -639,9 +640,18 @@ function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: 
     };
 }
 
+function isAgentDocumentTab(tab: IAgentTabSnapshot) {
+    return tab.kind !== 'empty' && Boolean(
+        tab.fileName
+        || tab.originalPath
+        || tab.hasPdf
+        || tab.isDjvu,
+    );
+}
+
 function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
     const documents = snapshot.tabs
-        .filter(tab => tab.workspaceAttached)
+        .filter(isAgentDocumentTab)
         .map(tab => ({
             tabId: tab.tabId,
             paneId: tab.paneId,
@@ -656,10 +666,16 @@ function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
         }));
 
     return {
+        workspaceMode: snapshot.summary.mode,
+        hasOpenDocument: documents.length > 0,
+        documentCount: documents.length,
         activePaneId: snapshot.activePaneId,
         activeTabId: snapshot.activeTabId,
         activeDocument: documents.find(document => document.isActive) ?? null,
         documents,
+        recentFilesResolved: snapshot.summary.recentFilesResolved,
+        recentFileCount: snapshot.recentFiles.length,
+        recentFiles: snapshot.recentFiles,
         panes: snapshot.panes.map(pane => ({
             paneId: pane.paneId,
             activeTabId: pane.activeTabId,
@@ -792,7 +808,7 @@ async function listMcpResources(options: IProcessMcpRequestOptions) {
     return {resources: [
         createWorkspaceResource(),
         ...snapshot.tabs
-            .filter(tab => tab.kind === 'pdf' && tab.workspaceAttached)
+            .filter(tab => tab.kind === 'pdf' && isAgentDocumentTab(tab))
             .map(createDocumentStatusResource),
     ]};
 }

@@ -32,6 +32,7 @@ export interface IAgentCapability {
     cancelAssistantLogin: () => Promise<IAgentAssistantState>;
     sendAssistantMessage: (request: IAgentAssistantSendMessageRequest) => Promise<IAgentAssistantSendMessageResult>;
     interruptAssistant: () => Promise<IAgentAssistantState>;
+    resetAssistantChat: () => Promise<IAgentAssistantState>;
     onAssistantEvent: (
         callback: (event: IAgentAssistantEvent) => void,
     ) => IMenuEventUnsubscribe;
