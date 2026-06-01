@@ -749,6 +749,10 @@ const lazyAgentCapability: IAgentCapability = {
         'agent',
         'interruptAssistant',
     ]),
+    resetAssistantChat: lazyAsync<IAgentCapability['resetAssistantChat']>([
+        'agent',
+        'resetAssistantChat',
+    ]),
     onAssistantEvent: lazyEvent<IAgentCapability['onAssistantEvent']>([
         'agent',
         'onAssistantEvent',

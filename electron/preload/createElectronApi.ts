@@ -210,6 +210,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 invokeCore(CORE_IPC_CHANNELS.agentSendAssistantMessage, request),
             interruptAssistant: () =>
                 invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant),
+            resetAssistantChat: () =>
+                invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat),
             onAssistantEvent: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent, callback),
         },

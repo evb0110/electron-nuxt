@@ -30,6 +30,7 @@ import type {
     IAgentAssistantStatus,
     TAgentAssistantAuthState,
     TAgentAssistantRuntimeState,
+    TAgentAssistantTurnPhase,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
@@ -58,6 +59,7 @@ const ASSISTANT_ROLE_PROMPT = [
     'You are EVB Assistant, an assistant embedded inside EVB Viewer for scientists and researchers.',
     'You can help with the current EVB Viewer workspace and, when a document is open, with that document by using the EVB Viewer MCP tools.',
     'A document may not be open. Do not assume there is a current document; inspect the workspace when document state matters, and help the user open or prepare a document when the workspace is empty.',
+    'Recent files in workspace snapshots are list metadata only. Do not summarize or compare their contents unless the user opens them and EVB tools can read them.',
     'This session is sandboxed for EVB Viewer: use only the EVB Viewer MCP tools exposed in this session. Do not use local files, shell commands, browser automation, or external services.',
     'When a PDF has missing searchable text, explain that OCR or conversion is needed instead of guessing from unavailable page content.',
     'Be concise, cite page numbers when the tools provide them, and navigate the viewer only when it directly helps the user.',
@@ -358,6 +360,7 @@ class CodexAppServerClient {
 let codexInfoCache: ICodexCliInfo | null = null;
 let runtime: IAssistantRuntime | null = null;
 let runtimeState: TAgentAssistantRuntimeState = 'stopped';
+let turnPhase: TAgentAssistantTurnPhase = 'idle';
 let authState: TAgentAssistantAuthState = 'unknown';
 let account: IAgentAssistantAccount | null = null;
 let threadId: string | null = null;
@@ -503,6 +506,10 @@ function currentStatus(): IAgentAssistantStatus {
         account,
         runtimeState,
         mcp: createBaseMcpStatusWithToolCount(),
+        turn: {
+            id: activeTurnId,
+            phase: turnPhase,
+        },
         threadId,
         activeTurnId,
         lastCheckedAt: new Date().toISOString(),
@@ -598,9 +605,35 @@ function getThreadItem(params: unknown) {
     return isRecord(params) && isRecord(params.item) ? params.item : null;
 }
 
+function getNotificationThreadId(params: unknown) {
+    if (!isRecord(params)) {
+        return null;
+    }
+    if (typeof params.threadId === 'string') {
+        return params.threadId;
+    }
+    if (isRecord(params.thread) && typeof params.thread.id === 'string') {
+        return params.thread.id;
+    }
+    return null;
+}
+
+function shouldIgnoreThreadNotification(method: string, params: unknown) {
+    const notificationThreadId = getNotificationThreadId(params);
+    if (!notificationThreadId || method === 'thread/started') {
+        return false;
+    }
+    return !threadId || notificationThreadId !== threadId;
+}
+
 function handleAppServerNotification(notification: IJsonRpcNotification) {
     const method = typeof notification.method === 'string' ? notification.method : '';
     const params = notification.params;
+    if (shouldIgnoreThreadNotification(method, params)) {
+        logger.info(`Ignoring stale assistant notification for inactive thread: ${method}`);
+        return;
+    }
+
     if (method === 'account/login/completed') {
         const success = isRecord(params) && params.success === true;
         const error = isRecord(params) && typeof params.error === 'string' ? params.error : null;
@@ -626,6 +659,7 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
             ? params.turn.id
             : activeTurnId;
         runtimeState = 'busy';
+        turnPhase = 'running';
         publishAssistantEvent({
             type: 'turn-started',
             ...(activeTurnId ? { turnId: activeTurnId } : {}),
@@ -636,6 +670,7 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
     if (method === 'turn/completed') {
         activeTurnId = null;
         runtimeState = 'ready';
+        turnPhase = 'idle';
         for (const message of messages) {
             if (message.role === 'assistant' && message.pending) {
                 message.pending = false;
@@ -648,6 +683,9 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
     if (method === 'item/agentMessage/delta') {
         const itemId = getStringParam(params, 'itemId');
         const delta = getStringParam(params, 'delta');
+        if (runtimeState === 'busy') {
+            turnPhase = 'running';
+        }
         if (itemId && delta) {
             appendAssistantDelta(itemId, delta);
         }
@@ -659,7 +697,7 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
         if (item?.type === 'agentMessage' && typeof item.id === 'string' && typeof item.text === 'string') {
             upsertAssistantMessage(item.id, {
                 text: item.text,
-                pending: false,
+                pending: runtimeState === 'busy',
             });
         }
         return;
@@ -670,6 +708,7 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
             ? params.error.message
             : 'Codex assistant turn failed.';
         runtimeState = 'error';
+        turnPhase = 'error';
         activeTurnId = null;
         addMessage({
             role: 'system',
@@ -686,6 +725,8 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
 function handleAppServerExit(message: string) {
     runtime = null;
     runtimeState = 'error';
+    turnPhase = 'error';
+    activeTurnId = null;
     lastError = message;
     publishAssistantEvent({
         type: 'error',
@@ -747,6 +788,7 @@ function syncRuntimeStateAfterAuthCheck(options: { recoverFromError?: boolean } 
     }
 
     runtimeState = authState === 'signed-in' ? 'ready' : 'stopped';
+    turnPhase = 'idle';
 }
 
 async function refreshAuthStateAndRuntimeAvailability(options: { recoverFromError?: boolean } = {}) {
@@ -760,18 +802,21 @@ async function ensureAssistantRuntime() {
     }
 
     runtimeState = 'starting';
+    turnPhase = 'idle';
     lastError = undefined;
     publishState();
 
     const codexInfo = await refreshCodexInfo();
     if (!codexInfo.installed || !codexInfo.path) {
         runtimeState = 'stopped';
+        turnPhase = 'idle';
         authState = 'unknown';
         publishState();
         throw new Error('Codex is not installed.');
     }
     if (!codexInfo.isVersionSupported) {
         runtimeState = 'error';
+        turnPhase = 'error';
         lastError = `Codex ${codexInfo.version ?? ''} is too old. EVB Assistant requires Codex ${codexInfo.minimumVersion} or newer.`;
         publishState();
         throw new Error(lastError);
@@ -817,6 +862,7 @@ async function ensureAssistantRuntime() {
         client.shutdown();
         runtime = null;
         runtimeState = 'error';
+        turnPhase = 'error';
         lastError = getErrorMessage(error);
         await shutdownEmbeddedMcpServer();
         publishState();
@@ -883,6 +929,7 @@ async function ensureAssistantThread() {
     }
     threadId = response.thread.id;
     runtimeState = 'ready';
+    turnPhase = 'idle';
     publishState();
     return threadId;
 }
@@ -932,6 +979,7 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
         } catch (error) {
             lastError = getErrorMessage(error);
             runtimeState = 'error';
+            turnPhase = 'error';
             publishAssistantEvent({
                 type: 'error',
                 error: lastError,
@@ -1024,14 +1072,17 @@ export async function sendAgentAssistantMessage(
         };
     }
 
+    let currentThreadId: string | null = null;
     try {
         const currentRuntime = await ensureAssistantRuntime();
-        const currentThreadId = await ensureAssistantThread();
+        currentThreadId = await ensureAssistantThread();
+        runtimeState = 'busy';
+        turnPhase = 'starting';
         addMessage({
             role: 'user',
             text,
         });
-        runtimeState = 'busy';
+        publishState();
         const response = await currentRuntime.client.request('turn/start', {
             threadId: currentThreadId,
             input: [{
@@ -1048,7 +1099,14 @@ export async function sendAgentAssistantMessage(
             personality: 'friendly',
         });
         if (isRecord(response) && isRecord(response.turn) && typeof response.turn.id === 'string') {
+            if (threadId !== currentThreadId) {
+                return {
+                    ok: true,
+                    state: currentState(),
+                };
+            }
             activeTurnId = response.turn.id;
+            turnPhase = 'running';
         }
         publishState();
         return {
@@ -1056,8 +1114,16 @@ export async function sendAgentAssistantMessage(
             state: currentState(),
         };
     } catch (error) {
+        if (currentThreadId && threadId !== currentThreadId) {
+            return {
+                ok: false,
+                state: currentState(),
+                error: getErrorMessage(error),
+            };
+        }
         lastError = getErrorMessage(error);
         runtimeState = 'error';
+        turnPhase = 'error';
         addMessage({
             role: 'system',
             text: lastError,
@@ -1073,6 +1139,8 @@ export async function sendAgentAssistantMessage(
 
 export async function interruptAgentAssistant(): Promise<IAgentAssistantState> {
     if (runtime && threadId && activeTurnId) {
+        turnPhase = 'interrupting';
+        publishState();
         await runtime.client.request('turn/interrupt', {
             threadId,
             turnId: activeTurnId,
@@ -1081,6 +1149,37 @@ export async function interruptAgentAssistant(): Promise<IAgentAssistantState> {
         });
     }
     activeTurnId = null;
+    runtimeState = authState === 'signed-in' ? 'ready' : 'stopped';
+    turnPhase = 'idle';
+    publishState();
+    return currentState();
+}
+
+export async function resetAgentAssistantChat(): Promise<IAgentAssistantState> {
+    const previousThreadId = threadId;
+    const previousTurnId = activeTurnId;
+    if (runtime && previousThreadId && previousTurnId) {
+        turnPhase = 'interrupting';
+        publishState();
+        await runtime.client.request('turn/interrupt', {
+            threadId: previousThreadId,
+            turnId: previousTurnId,
+        }).catch((error: unknown) => {
+            logger.warn(`Failed to interrupt assistant turn during reset: ${getErrorMessage(error)}`);
+        });
+    }
+
+    if (runtime && previousThreadId) {
+        void runtime.client.request('thread/archive', { threadId: previousThreadId }).catch((error: unknown) => {
+            logger.warn(`Failed to archive reset assistant thread: ${getErrorMessage(error)}`);
+        });
+    }
+
+    threadId = null;
+    activeTurnId = null;
+    messages.length = 0;
+    lastError = undefined;
+    turnPhase = 'idle';
     runtimeState = authState === 'signed-in' ? 'ready' : 'stopped';
     publishState();
     return currentState();
@@ -1091,6 +1190,8 @@ export async function shutdownAgentAssistant() {
     runtime?.client.shutdown();
     runtime = null;
     runtimeState = 'stopped';
+    turnPhase = 'idle';
     activeTurnId = null;
+    threadId = null;
     await shutdownEmbeddedMcpServer();
 }

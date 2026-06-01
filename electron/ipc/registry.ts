@@ -62,6 +62,7 @@ import {
     getAgentAssistantState,
     installAgentAssistantCodex,
     interruptAgentAssistant,
+    resetAgentAssistantChat,
     sendAgentAssistantMessage,
     startAgentAssistantLogin,
 } from '@electron/features/agent/codexAssistant';
@@ -424,6 +425,10 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
 
     registrar.handle(CORE_IPC_CHANNELS.agentInterruptAssistant, () =>
         interruptAgentAssistant(),
+    );
+
+    registrar.handle(CORE_IPC_CHANNELS.agentResetAssistantChat, () =>
+        resetAgentAssistantChat(),
     );
 
     registrar.handle(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, (event, response: unknown) =>

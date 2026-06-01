@@ -10,6 +10,7 @@ import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpos
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
+import type { IRecentFile } from '@contracts/shared';
 import { cast } from '@tests/helpers/cast';
 
 function createWorkspace(overrides: Partial<ReturnType<IWorkspaceExpose['getToolbarSnapshot']>>) {
@@ -94,6 +95,11 @@ describe('buildAgentWorkspaceSnapshot', () => {
                 paneId: 'pane-right',
             },
         } as const);
+        const recentFiles = ref<IRecentFile[]>([{
+            fileName: 'Previous.pdf',
+            originalPath: '/tmp/Previous.pdf',
+            timestamp: Date.UTC(2026, 4, 31),
+        }]);
 
         const snapshot = buildAgentWorkspaceSnapshot({
             panes,
@@ -101,11 +107,30 @@ describe('buildAgentWorkspaceSnapshot', () => {
             layout,
             activePaneId: ref('pane-left'),
             activeTabId: ref('tab-pdf'),
+            recentFiles,
+            recentFilesResolved: ref(true),
             workspaceRefs,
             getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
         });
 
         expect(snapshot.activePaneId).toBe('pane-left');
+        expect(snapshot.summary).toMatchObject({
+            mode: 'open-document',
+            documentCount: 3,
+            recentFileCount: 1,
+            recentFilesResolved: true,
+            activeDocument: {
+                tabId: 'tab-pdf',
+                kind: 'pdf',
+                originalPath: '/tmp/Grammar.pdf',
+            },
+        });
+        expect(snapshot.recentFiles).toEqual([{
+            fileName: 'Previous.pdf',
+            originalPath: '/tmp/Previous.pdf',
+            kind: 'pdf',
+            openedAt: '2026-05-31T00:00:00.000Z',
+        }]);
         expect(snapshot.panes).toEqual([
             {
                 paneId: 'pane-left',
@@ -136,5 +161,63 @@ describe('buildAgentWorkspaceSnapshot', () => {
         expect(imageTab?.kind).toBe('image');
         expect(imageTab?.workspaceAttached).toBe(false);
         expect(imageTab?.readiness.recommendations.map(item => item.id)).toEqual(['convert_to_pdf']);
+    });
+
+    it('distinguishes an empty attached tab from an open document and exposes recent files as metadata', () => {
+        const panes = ref<IEditorPaneState[]>([{
+            paneId: 'pane-start',
+            tabIds: ['tab-empty'],
+            activeTabId: 'tab-empty',
+        }]);
+        const tabs = ref<ITab[]>([{
+            id: 'tab-empty',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        }]);
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>([[
+            'tab-empty',
+            createWorkspace({}),
+        ]]));
+        const recentFiles = ref<IRecentFile[]>([{
+            fileName: 'Recent.djvu',
+            originalPath: '/tmp/Recent.djvu',
+            timestamp: Date.UTC(2026, 5, 1),
+            fileSize: 1234,
+        }]);
+
+        const snapshot = buildAgentWorkspaceSnapshot({
+            panes,
+            tabs,
+            layout: ref(null),
+            activePaneId: ref('pane-start'),
+            activeTabId: ref('tab-empty'),
+            recentFiles,
+            recentFilesResolved: ref(true),
+            workspaceRefs,
+            getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
+        });
+
+        expect(snapshot.summary).toEqual({
+            mode: 'empty-workspace',
+            activeDocument: null,
+            documentCount: 0,
+            recentFileCount: 1,
+            recentFilesResolved: true,
+        });
+        expect(snapshot.tabs).toEqual([expect.objectContaining({
+            tabId: 'tab-empty',
+            kind: 'empty',
+            workspaceAttached: true,
+            readiness: expect.objectContaining({ status: 'empty' }),
+        })]);
+        expect(snapshot.recentFiles).toEqual([{
+            fileName: 'Recent.djvu',
+            originalPath: '/tmp/Recent.djvu',
+            kind: 'djvu',
+            openedAt: '2026-06-01T00:00:00.000Z',
+            fileSize: 1234,
+        }]);
     });
 });

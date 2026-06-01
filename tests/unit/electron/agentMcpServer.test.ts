@@ -50,39 +50,83 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
     capturedAt: '2026-06-01T00:00:00.000Z',
     activePaneId: 'pane-1',
     activeTabId: 'tab-1',
+    summary: {
+        mode: 'open-document',
+        activeDocument: {
+            tabId: 'tab-1',
+            paneId: 'pane-1',
+            fileName: 'Grammar.pdf',
+            originalPath: '/tmp/Grammar.pdf',
+            kind: 'pdf',
+        },
+        documentCount: 1,
+        recentFileCount: 1,
+        recentFilesResolved: true,
+    },
     panes: [{
         paneId: 'pane-1',
-        tabIds: ['tab-1'],
+        tabIds: [
+            'tab-1',
+            'tab-empty',
+        ],
         activeTabId: 'tab-1',
     }],
-    tabs: [{
-        tabId: 'tab-1',
-        paneId: 'pane-1',
-        fileName: 'Grammar.pdf',
-        originalPath: '/tmp/Grammar.pdf',
-        isDirty: false,
-        kind: 'pdf',
-        workspaceAttached: true,
-        hasPdf: true,
-        isDjvu: false,
-        isOpeningDocument: false,
-        hasOpenError: false,
-        currentPage: 5,
-        totalPages: 25,
-        readiness: {
-            status: 'unknown',
-            reasons: ['Page-level OCR coverage is not exposed to agents yet.'],
-            ocr: {
+    tabs: [
+        {
+            tabId: 'tab-1',
+            paneId: 'pane-1',
+            fileName: 'Grammar.pdf',
+            originalPath: '/tmp/Grammar.pdf',
+            isDirty: false,
+            kind: 'pdf',
+            workspaceAttached: true,
+            hasPdf: true,
+            isDjvu: false,
+            isOpeningDocument: false,
+            hasOpenError: false,
+            currentPage: 5,
+            totalPages: 25,
+            readiness: {
                 status: 'unknown',
-                pageCount: 25,
+                reasons: ['Page-level OCR coverage is not exposed to agents yet.'],
+                ocr: {
+                    status: 'unknown',
+                    pageCount: 25,
+                },
+                recommendations: [{
+                    id: 'ocr_all_pages',
+                    title: 'OCR all pages',
+                    reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
+                    toolName: 'evb.ocr_all_pages',
+                }],
             },
-            recommendations: [{
-                id: 'ocr_all_pages',
-                title: 'OCR all pages',
-                reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
-                toolName: 'evb.ocr_all_pages',
-            }],
         },
+        {
+            tabId: 'tab-empty',
+            paneId: 'pane-1',
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            kind: 'empty',
+            workspaceAttached: true,
+            hasPdf: false,
+            isDjvu: false,
+            isOpeningDocument: false,
+            hasOpenError: false,
+            currentPage: null,
+            totalPages: null,
+            readiness: {
+                status: 'empty',
+                reasons: ['No document is open in this tab.'],
+                recommendations: [],
+            },
+        },
+    ],
+    recentFiles: [{
+        fileName: 'Recent Grammar.pdf',
+        originalPath: '/tmp/Recent Grammar.pdf',
+        kind: 'pdf',
+        openedAt: '2026-05-31T00:00:00.000Z',
     }],
     layout: {
         type: 'leaf',
@@ -240,6 +284,8 @@ describe('processMcpRequest', () => {
 
         expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
         expect(response?.result).toMatchObject({structuredContent: {
+            workspaceMode: 'open-document',
+            documentCount: 1,
             activeTabId: 'tab-1',
             activeDocument: {
                 tabId: 'tab-1',
@@ -251,6 +297,11 @@ describe('processMcpRequest', () => {
             documents: [{
                 tabId: 'tab-1',
                 isActive: true,
+            }],
+            recentFileCount: 1,
+            recentFiles: [{
+                fileName: 'Recent Grammar.pdf',
+                originalPath: '/tmp/Recent Grammar.pdf',
             }],
         }});
     });

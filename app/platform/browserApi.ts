@@ -68,6 +68,7 @@ const browserAgentApi: IPlatformApi['agent'] = {
         state: createBrowserAssistantState(),
     }),
     interruptAssistant: () => Promise.resolve(createBrowserAssistantState()),
+    resetAssistantChat: () => Promise.resolve(createBrowserAssistantState()),
     onAssistantEvent: () => () => {},
 };
 
@@ -108,6 +109,10 @@ function createBrowserAssistantState(): IAgentAssistantState {
                 serverUrl: '',
                 serverRunning: false,
                 toolCount: 0,
+            },
+            turn: {
+                id: null,
+                phase: 'idle',
             },
             threadId: null,
             activeTurnId: null,
