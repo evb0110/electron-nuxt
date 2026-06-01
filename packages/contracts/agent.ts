@@ -6,6 +6,12 @@ export type TAgentOcrCoverageStatus = 'complete' | 'partial' | 'none' | 'unknown
 export type TAgentRecommendationId = 'convert_to_pdf' | 'ocr_all_pages';
 export type TAgentCommandName = 'activate_tab' | 'go_to_page';
 export type TAgentMcpCodexRegistrationState = 'configured' | 'missing' | 'mismatched' | 'unknown';
+export type TAgentAssistantInstallState = 'installed' | 'missing' | 'unsupported';
+export type TAgentAssistantAuthState = 'signed-in' | 'signed-out' | 'login-pending' | 'unknown';
+export type TAgentAssistantRuntimeState = 'stopped' | 'starting' | 'ready' | 'busy' | 'error';
+export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
+export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
+export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-completed' | 'install-progress' | 'error';
 
 export interface IAgentDocumentOcrState {
     status: TAgentOcrCoverageStatus;
@@ -121,5 +127,91 @@ export interface IAgentMcpIntegrationUpdateResult {
     ok: boolean;
     cancelled?: boolean;
     status: IAgentMcpIntegrationStatus;
+    error?: string;
+}
+
+export interface IAgentAssistantAccount {
+    type: 'chatgpt' | 'apiKey' | 'other';
+    email?: string;
+    planType?: string;
+}
+
+export interface IAgentAssistantMcpStatus {
+    serverName: string;
+    serverUrl: string;
+    serverRunning: boolean;
+    toolCount: number;
+}
+
+export interface IAgentAssistantStatus {
+    supported: boolean;
+    platform: string;
+    installState: TAgentAssistantInstallState;
+    codexInstalled: boolean;
+    codexPath: string | null;
+    codexVersion: string | null;
+    minimumCodexVersion: string;
+    codexVersionSupported: boolean;
+    installUrl: string;
+    installScriptUrl: string;
+    managedInstallDir: string;
+    authState: TAgentAssistantAuthState;
+    account: IAgentAssistantAccount | null;
+    runtimeState: TAgentAssistantRuntimeState;
+    mcp: IAgentAssistantMcpStatus;
+    threadId: string | null;
+    activeTurnId: string | null;
+    lastCheckedAt: string;
+    error?: string;
+}
+
+export interface IAgentAssistantChatMessage {
+    id: string;
+    role: TAgentAssistantMessageRole;
+    text: string;
+    createdAt: string;
+    pending?: boolean;
+    error?: string;
+}
+
+export interface IAgentAssistantState {
+    status: IAgentAssistantStatus;
+    messages: IAgentAssistantChatMessage[];
+}
+
+export interface IAgentAssistantInstallResult {
+    ok: boolean;
+    state: IAgentAssistantState;
+    error?: string;
+}
+
+export interface IAgentAssistantLoginRequest {mode: TAgentAssistantLoginMode;}
+
+export interface IAgentAssistantLoginResult {
+    ok: boolean;
+    state: IAgentAssistantState;
+    loginId?: string;
+    authUrl?: string;
+    verificationUrl?: string;
+    userCode?: string;
+    error?: string;
+}
+
+export interface IAgentAssistantSendMessageRequest {text: string;}
+
+export interface IAgentAssistantSendMessageResult {
+    ok: boolean;
+    state: IAgentAssistantState;
+    error?: string;
+}
+
+export interface IAgentAssistantEvent {
+    type: TAgentAssistantEventType;
+    state?: IAgentAssistantState;
+    message?: IAgentAssistantChatMessage;
+    messageId?: string;
+    delta?: string;
+    turnId?: string;
+    progress?: string;
     error?: string;
 }

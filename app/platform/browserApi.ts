@@ -1,5 +1,8 @@
 import type { IPlatformApi } from '@contracts/platformApi';
-import type { IAgentMcpIntegrationStatus } from '@contracts/agent';
+import type {
+    IAgentAssistantState,
+    IAgentMcpIntegrationStatus,
+} from '@contracts/agent';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvuCapability';
@@ -50,6 +53,22 @@ const browserAgentApi: IPlatformApi['agent'] = {
         ok: false,
         status: createBrowserAgentMcpStatus(),
     }),
+    getAssistantState: () => Promise.resolve(createBrowserAssistantState()),
+    installAssistantCodex: () => Promise.resolve({
+        ok: false,
+        state: createBrowserAssistantState(),
+    }),
+    startAssistantLogin: () => Promise.resolve({
+        ok: false,
+        state: createBrowserAssistantState(),
+    }),
+    cancelAssistantLogin: () => Promise.resolve(createBrowserAssistantState()),
+    sendAssistantMessage: () => Promise.resolve({
+        ok: false,
+        state: createBrowserAssistantState(),
+    }),
+    interruptAssistant: () => Promise.resolve(createBrowserAssistantState()),
+    onAssistantEvent: () => () => {},
 };
 
 function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
@@ -64,6 +83,37 @@ function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
         codexRegistrationState: 'unknown',
         installUrl: 'https://developers.openai.com/codex/app',
         lastCheckedAt: new Date().toISOString(),
+    };
+}
+
+function createBrowserAssistantState(): IAgentAssistantState {
+    return {
+        status: {
+            supported: false,
+            platform: 'browser',
+            installState: 'unsupported',
+            codexInstalled: false,
+            codexPath: null,
+            codexVersion: null,
+            minimumCodexVersion: '0.133.0',
+            codexVersionSupported: false,
+            installUrl: 'https://developers.openai.com/codex/app',
+            installScriptUrl: '',
+            managedInstallDir: '',
+            authState: 'unknown',
+            account: null,
+            runtimeState: 'stopped',
+            mcp: {
+                serverName: 'evb_viewer_embedded',
+                serverUrl: '',
+                serverRunning: false,
+                toolCount: 0,
+            },
+            threadId: null,
+            activeTurnId: null,
+            lastCheckedAt: new Date().toISOString(),
+        },
+        messages: [],
     };
 }
 

@@ -1,15 +1,4 @@
 import {
-    constants,
-    existsSync,
-} from 'fs';
-import { access } from 'fs/promises';
-import {
-    delimiter,
-    join,
-} from 'path';
-import { homedir } from 'os';
-import { spawn } from 'child_process';
-import {
     dialog,
     shell,
 } from 'electron';
@@ -32,21 +21,16 @@ import {
     loadSettings,
     updateSettings,
 } from '@electron/settings';
+import {
+    CODEX_APP_INSTALL_URL,
+    resolveCodexCliPath,
+    runCodexCli,
+} from '@electron/features/agent/codexCli';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-codex-mcp');
-const CODEX_INSTALL_URL = 'https://developers.openai.com/codex/app';
-const CODEX_COMMAND_TIMEOUT_MS = 15_000;
-const SHELL_DETECTION_TIMEOUT_MS = 5_000;
-
-interface ICommandResult {
-    ok: boolean;
-    stdout: string;
-    stderr: string;
-    exitCode: number | null;
-}
 
 interface ICodexServerConfig {
     enabled?: unknown;
@@ -66,7 +50,7 @@ function createBaseStatus(): Omit<IAgentMcpIntegrationStatus, 'enabled'> {
         codexPath: null,
         codexConfigured: false,
         codexRegistrationState: 'unknown',
-        installUrl: CODEX_INSTALL_URL,
+        installUrl: CODEX_APP_INSTALL_URL,
         lastCheckedAt: new Date().toISOString(),
     };
 }
@@ -82,139 +66,6 @@ function createStatus(
     };
 }
 
-function uniqueStrings(values: string[]) {
-    return [...new Set(values.filter(value => value.trim().length > 0))];
-}
-
-function buildCodexPathCandidates() {
-    const candidates = [
-        process.env.CODEX_CLI_PATH,
-        process.platform === 'darwin'
-            ? '/Applications/Codex.app/Contents/Resources/codex'
-            : undefined,
-        ...((process.env.PATH ?? '').split(delimiter).map(pathEntry => join(pathEntry, process.platform === 'win32' ? 'codex.cmd' : 'codex'))),
-        join(homedir(), '.local', 'bin', process.platform === 'win32' ? 'codex.cmd' : 'codex'),
-        '/opt/homebrew/bin/codex',
-        '/usr/local/bin/codex',
-        '/usr/bin/codex',
-    ];
-    return uniqueStrings(candidates.filter((candidate): candidate is string => typeof candidate === 'string'));
-}
-
-async function isExecutable(path: string) {
-    if (!existsSync(path)) {
-        return false;
-    }
-
-    if (process.platform === 'win32') {
-        return true;
-    }
-
-    try {
-        await access(path, constants.X_OK);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-function runCommand(command: string, args: string[], timeoutMs = CODEX_COMMAND_TIMEOUT_MS): Promise<ICommandResult> {
-    return new Promise((resolve) => {
-        const child = spawn(command, args, {
-            env: {
-                ...process.env,
-                NO_COLOR: '1',
-            },
-            windowsHide: true,
-        });
-        let stdout = '';
-        let stderr = '';
-        let settled = false;
-        const timeout = setTimeout(() => {
-            if (settled) {
-                return;
-            }
-            child.kill();
-            settled = true;
-            resolve({
-                ok: false,
-                stdout,
-                stderr: stderr || 'Command timed out.',
-                exitCode: null,
-            });
-        }, timeoutMs);
-
-        child.stdout.setEncoding('utf8');
-        child.stderr.setEncoding('utf8');
-        child.stdout.on('data', chunk => {
-            stdout += chunk;
-        });
-        child.stderr.on('data', chunk => {
-            stderr += chunk;
-        });
-        child.on('error', (error) => {
-            if (settled) {
-                return;
-            }
-            clearTimeout(timeout);
-            settled = true;
-            resolve({
-                ok: false,
-                stdout,
-                stderr: getErrorMessage(error),
-                exitCode: null,
-            });
-        });
-        child.on('close', (exitCode) => {
-            if (settled) {
-                return;
-            }
-            clearTimeout(timeout);
-            settled = true;
-            resolve({
-                ok: exitCode === 0,
-                stdout,
-                stderr,
-                exitCode,
-            });
-        });
-    });
-}
-
-async function findCodexInLoginShell() {
-    if (process.platform === 'win32') {
-        return null;
-    }
-
-    const shellPath = process.env.SHELL || '/bin/zsh';
-    if (!existsSync(shellPath)) {
-        return null;
-    }
-
-    const result = await runCommand(shellPath, [
-        '-lc',
-        'command -v codex',
-    ], SHELL_DETECTION_TIMEOUT_MS);
-    const candidate = result.stdout.trim().split('\n')[0]?.trim();
-    if (!candidate || !(await isExecutable(candidate))) {
-        return null;
-    }
-    return candidate;
-}
-
-async function resolveCodexCliPath() {
-    for (const candidate of buildCodexPathCandidates()) {
-        if (await isExecutable(candidate)) {
-            return candidate;
-        }
-    }
-    return findCodexInLoginShell();
-}
-
-async function runCodex(codexPath: string, args: string[]) {
-    return runCommand(codexPath, args);
-}
-
 function parseCodexServerConfig(stdout: string): ICodexServerConfig | null {
     try {
         const parsed: unknown = JSON.parse(stdout);
@@ -228,7 +79,7 @@ function parseCodexServerConfig(stdout: string): ICodexServerConfig | null {
 
 async function getCodexRegistrationState(codexPath: string) {
     const descriptor = getLocalMcpServerDescriptor();
-    const result = await runCodex(codexPath, [
+    const result = await runCodexCli(codexPath, [
         'mcp',
         'get',
         descriptor.name,
@@ -254,7 +105,7 @@ async function getCodexRegistrationState(codexPath: string) {
 }
 
 async function removeCodexRegistration(codexPath: string) {
-    await runCodex(codexPath, [
+    await runCodexCli(codexPath, [
         'mcp',
         'remove',
         getLocalMcpServerDescriptor().name,
@@ -264,7 +115,7 @@ async function removeCodexRegistration(codexPath: string) {
 async function registerCodexMcp(codexPath: string) {
     const descriptor = getLocalMcpServerDescriptor();
     await removeCodexRegistration(codexPath);
-    const result = await runCodex(codexPath, [
+    const result = await runCodexCli(codexPath, [
         'mcp',
         'add',
         descriptor.name,
@@ -295,7 +146,7 @@ async function showInstallCodexDialog(parentWindow?: BrowserWindow | null) {
         ? await dialog.showMessageBox(parentWindow, options)
         : await dialog.showMessageBox(options);
     if (response === 0) {
-        await shell.openExternal(CODEX_INSTALL_URL);
+        await shell.openExternal(CODEX_APP_INSTALL_URL);
     }
 }
 

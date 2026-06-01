@@ -70,7 +70,12 @@ function readHostPressureFromPage(): IWorkspaceHostPressure[] {
 
 async function createNewTab(session: IElectronE2ESession) {
     const nextCount = await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length + 1);
-    await session.page.locator('.tab-list .tab-new').click();
+    const clicked = await session.page.evaluate(() => {
+        const button = document.querySelector<HTMLButtonElement>('.tab-list .tab-new');
+        button?.click();
+        return Boolean(button);
+    });
+    expect(clicked).toBe(true);
     await waitForTabCount(session.page, nextCount);
 }
 

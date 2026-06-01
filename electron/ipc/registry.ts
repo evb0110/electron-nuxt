@@ -19,6 +19,10 @@ import type {
     IWindowTabTransferRequest,
     IWindowTabTargetWindow,
 } from '@contracts/windowTabs';
+import type {
+    IAgentAssistantLoginRequest,
+    IAgentAssistantSendMessageRequest,
+} from '@contracts/agent';
 import { te } from '@electron/i18n';
 import {
     showTabContextMenu,
@@ -53,6 +57,14 @@ import {
     getAgentMcpIntegrationStatus,
     setAgentMcpIntegrationEnabled,
 } from '@electron/features/agent/codexMcpIntegration';
+import {
+    cancelAgentAssistantLogin,
+    getAgentAssistantState,
+    installAgentAssistantCodex,
+    interruptAgentAssistant,
+    sendAgentAssistantMessage,
+    startAgentAssistantLogin,
+} from '@electron/features/agent/codexAssistant';
 import {
     loadSettings,
     updateSettings,
@@ -115,6 +127,14 @@ function isValidTransferAck(ack: unknown): ack is IWindowTabTransferAck {
         && ack.transferId.trim().length > 0
         && typeof ack.success === 'boolean'
         && (ack.error === undefined || typeof ack.error === 'string');
+}
+
+function isAgentAssistantLoginRequest(request: unknown): request is IAgentAssistantLoginRequest {
+    return isRecord(request) && (request.mode === 'chatgpt' || request.mode === 'device-code');
+}
+
+function isAgentAssistantSendMessageRequest(request: unknown): request is IAgentAssistantSendMessageRequest {
+    return isRecord(request) && typeof request.text === 'string';
 }
 
 function sanitizeExternalUrl(rawUrl: unknown) {
@@ -375,6 +395,36 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         }
         return setAgentMcpIntegrationEnabled(enabled, BrowserWindow.fromWebContents(event.sender));
     });
+
+    registrar.handle(CORE_IPC_CHANNELS.agentGetAssistantState, () =>
+        getAgentAssistantState(),
+    );
+
+    registrar.handle(CORE_IPC_CHANNELS.agentInstallAssistantCodex, () =>
+        installAgentAssistantCodex(),
+    );
+
+    registrar.handle(CORE_IPC_CHANNELS.agentStartAssistantLogin, (event, request: unknown) => {
+        if (!isAgentAssistantLoginRequest(request)) {
+            throw new Error('Invalid assistant login request payload');
+        }
+        return startAgentAssistantLogin(request, BrowserWindow.fromWebContents(event.sender));
+    });
+
+    registrar.handle(CORE_IPC_CHANNELS.agentCancelAssistantLogin, () =>
+        cancelAgentAssistantLogin(),
+    );
+
+    registrar.handle(CORE_IPC_CHANNELS.agentSendAssistantMessage, (_event, request: unknown) => {
+        if (!isAgentAssistantSendMessageRequest(request)) {
+            throw new Error('Invalid assistant message payload');
+        }
+        return sendAgentAssistantMessage(request);
+    });
+
+    registrar.handle(CORE_IPC_CHANNELS.agentInterruptAssistant, () =>
+        interruptAgentAssistant(),
+    );
 
     registrar.handle(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, (event, response: unknown) =>
         submitAgentWorkspaceSnapshotResponse(event, response),

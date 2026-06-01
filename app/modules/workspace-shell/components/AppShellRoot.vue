@@ -91,39 +91,58 @@
             />
         </div>
 
-        <EditorPanesHost
-            v-show="!activeToolPage"
-            :layout="layout"
-            :panes="panes"
-            :tabs="tabs"
-            :active-pane-id="activePaneId"
-            :is-startup-open-claim-pending="isStartupOpenClaimPending"
-            :is-tab-transition-busy="isTabTransitionBusy"
-            :tab-context-availability-by-pane="tabContextAvailabilityByPane"
-            :start-section-by-tab-id="startSectionByTabId"
-            :tab-lifecycle-by-id="tabLifecycleById"
-            :view-state-by-tab-id="viewStateByTabId"
-            :zen-mode="isFullscreen"
-            :zen-active-tab-id="activeTabId"
-            :is-fullscreen="isFullscreen"
-            :fullscreen-supported="fullscreenSupported"
-            @activate-pane="activatePane"
-            @activate-tab="activateTab"
-            @close-tab="handleCloseTab"
-            @new-tab="createTabInPane"
-            @reorder-tab="moveTabWithinPane"
-            @move-tab-direction="handleTabMoveDirection"
-            @tab-context-command="handleTabContextCommand"
-            @set-workspace-ref="setWorkspaceRef"
-            @update-tab="updateTab"
-            @update-tab-session-state="updateTabViewState"
-            @update-tab-start-section="setTabStartSection"
-            @open-in-new-tab="handleOpenInNewTab"
-            @request-close-tab="handleCloseTab"
-            @open-settings="openSettingsPage"
-            @open-combine="openCombinePage"
-            @toggle-fullscreen="handleToggleFullscreen"
-            @update-split-ratio="setSplitRatio"
+        <div v-show="!activeToolPage" class="workspace-main-shell">
+            <EditorPanesHost
+                :layout="layout"
+                :panes="panes"
+                :tabs="tabs"
+                :active-pane-id="activePaneId"
+                :is-startup-open-claim-pending="isStartupOpenClaimPending"
+                :is-tab-transition-busy="isTabTransitionBusy"
+                :tab-context-availability-by-pane="tabContextAvailabilityByPane"
+                :start-section-by-tab-id="startSectionByTabId"
+                :tab-lifecycle-by-id="tabLifecycleById"
+                :view-state-by-tab-id="viewStateByTabId"
+                :zen-mode="isFullscreen"
+                :zen-active-tab-id="activeTabId"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
+                @activate-pane="activatePane"
+                @activate-tab="activateTab"
+                @close-tab="handleCloseTab"
+                @new-tab="createTabInPane"
+                @reorder-tab="moveTabWithinPane"
+                @move-tab-direction="handleTabMoveDirection"
+                @tab-context-command="handleTabContextCommand"
+                @set-workspace-ref="setWorkspaceRef"
+                @update-tab="updateTab"
+                @update-tab-session-state="updateTabViewState"
+                @update-tab-start-section="setTabStartSection"
+                @open-in-new-tab="handleOpenInNewTab"
+                @request-close-tab="handleCloseTab"
+                @open-settings="openSettingsPage"
+                @open-combine="openCombinePage"
+                @toggle-fullscreen="handleToggleFullscreen"
+                @update-split-ratio="setSplitRatio"
+            />
+            <AgentAssistantPanel
+                v-if="isDesktopRuntime && assistantPanelOpen && !isFullscreen"
+                :has-active-document="assistantHasActiveDocument"
+                :has-any-document="assistantHasAnyDocument"
+                :active-document-name="assistantActiveDocumentName"
+                @close="assistantPanelOpen = false"
+            />
+        </div>
+
+        <UButton
+            v-if="isDesktopRuntime && !assistantPanelOpen && !activeToolPage && !isFullscreen"
+            class="assistant-panel-toggle"
+            :aria-label="t('assistant.open')"
+            icon="i-ph-chat-circle-dots"
+            color="primary"
+            variant="solid"
+            size="sm"
+            @click="assistantPanelOpen = true"
         />
 
         <CombinePdfPage
@@ -167,6 +186,7 @@ import {
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/startupTrace';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
+import AgentAssistantPanel from '@app/components/agent/AgentAssistantPanel.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
@@ -247,9 +267,13 @@ const analytics = useAnalytics();
 const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const isStartupOpenClaimPending = ref(true);
-const { isBrowserRuntime } = useRuntimeEnvironment();
+const {
+    isBrowserRuntime,
+    isDesktopRuntime,
+} = useRuntimeEnvironment();
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
+const assistantPanelOpen = ref(false);
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const runtimeConfig = useRuntimeConfig();
@@ -729,6 +753,15 @@ function isTabEmpty(tabId: string) {
     return !snapshot.hasPdf && !snapshot.isDjvuMode && !snapshot.isOpeningDocument && !snapshot.hasOpenError;
 }
 
+const assistantActiveTab = computed(() => activeTabId.value ? getTabById(activeTabId.value) : null);
+const assistantHasActiveDocument = computed(() => (
+    assistantActiveTab.value ? !isTabEmpty(assistantActiveTab.value.id) : false
+));
+const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpty(tab.id)));
+const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
+    ? assistantActiveTab.value?.fileName ?? null
+    : null);
+
 function findEmptyTab() {
     if (activeTabId.value && isTabEmpty(activeTabId.value)) {
         return getTabById(activeTabId.value);
@@ -1007,6 +1040,21 @@ useAppShellLifecycle({
 <style scoped>
 .app-shell-root {
     position: relative;
+}
+
+.workspace-main-shell {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.assistant-panel-toggle {
+    position: fixed;
+    right: 0.75rem;
+    bottom: 2.25rem;
+    z-index: 30;
 }
 
 .browser-install-hint {
