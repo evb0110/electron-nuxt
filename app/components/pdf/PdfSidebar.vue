@@ -134,6 +134,7 @@
                     <PdfSearchResults
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
+                        :current-result-navigation-id="currentResultNavigationId"
                         :search-query="submittedSearchQuery ?? ''"
                         :search-options="searchOptions"
                         :page-labels="pageLabels"
@@ -184,6 +185,7 @@ interface IProps {
     pageLabelRanges?: IPdfPageLabelRange[] | undefined;
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
+    currentResultNavigationId: number;
     searchQuery: string;
     submittedSearchQuery?: string | undefined;
     searchOptions: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
@@ -228,6 +230,7 @@ const {
     annotationCommentsStatus,
     bookmarkEditMode,
     currentPage,
+    currentResultNavigationId,
     currentResultIndex,
     isDjvuMode = false,
     isOpen,

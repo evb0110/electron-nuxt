@@ -108,6 +108,7 @@ const { t } = useTypedI18n();
 interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
+    currentResultNavigationId: number;
     searchQuery: string;
     pageLabels?: string[] | null | undefined;
     isSearching?: boolean | undefined;
@@ -121,6 +122,7 @@ interface IProps {
 }
 
 const {
+    currentResultNavigationId,
     currentResultIndex,
     isSearching = undefined,
     isTruncated: isTruncatedProp = false,
@@ -228,14 +230,14 @@ watch(
 );
 
 watch(
-    () => [
-        currentResultIndex,
-        results.length,
-    ] as const,
-    async ([
-        nextIndex,
-        resultCount,
-    ]) => {
+    () => currentResultNavigationId,
+    async (nextNavigationId) => {
+        if (nextNavigationId <= 0) {
+            return;
+        }
+
+        const nextIndex = currentResultIndex;
+        const resultCount = results.length;
         if (resultCount <= 0 || nextIndex < 0 || nextIndex >= resultCount) {
             return;
         }
