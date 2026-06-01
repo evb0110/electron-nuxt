@@ -63,7 +63,7 @@ export const useEditorPanesManager = () => {
     }
 
     const paneLookup = computed(() => {
-        return new Map(Object.entries(keyBy(panes.value, pane => pane.id)));
+        return new Map(Object.entries(keyBy(panes.value, pane => pane.paneId)));
     });
     const tabLookup = computed(() => {
         return new Map(Object.entries(keyBy(tabs.value, tab => tab.id)));
@@ -71,13 +71,13 @@ export const useEditorPanesManager = () => {
     const tabPaneLookup = computed(() => {
         return new Map(panes.value.flatMap(pane => pane.tabIds.map(tabId => [
             tabId,
-            pane.id,
+            pane.paneId,
         ])));
     });
 
     function createPane(): IEditorPaneState {
         return {
-            id: allocateEntityId('pane'),
+            paneId: allocateEntityId('pane'),
             tabIds: [],
             activeTabId: null,
         };
@@ -88,7 +88,7 @@ export const useEditorPanesManager = () => {
         update: (pane: IEditorPaneState) => IEditorPaneState,
     ) {
         panes.value = panes.value.map(pane => (
-            pane.id === paneId ? update(pane) : pane
+            pane.paneId === paneId ? update(pane) : pane
         ));
         return getPaneById(paneId);
     }
@@ -206,11 +206,11 @@ export const useEditorPanesManager = () => {
 
         const pane = createPane();
         panes.value = [pane];
-        activePaneId.value = pane.id;
-        paneMru.value = [pane.id];
+        activePaneId.value = pane.paneId;
+        paneMru.value = [pane.paneId];
         layout.value = {
             type: 'leaf',
-            paneId: pane.id,
+            paneId: pane.paneId,
         };
         normalizeManagerState();
     }
@@ -223,10 +223,10 @@ export const useEditorPanesManager = () => {
         if (hasAnyTab) {
             const activePane = getPaneById(activePaneId.value) ?? panes.value[0] ?? null;
             if (activePane) {
-                activePaneId.value = activePane.id;
-                touchPaneMru(activePane.id);
+                activePaneId.value = activePane.paneId;
+                touchPaneMru(activePane.paneId);
                 if (!activePane.activeTabId && activePane.tabIds.length > 0) {
-                    setPaneActiveTab(activePane.id, activePane.tabIds[0] ?? null);
+                    setPaneActiveTab(activePane.paneId, activePane.tabIds[0] ?? null);
                 }
             }
             normalizeManagerState();
@@ -246,11 +246,11 @@ export const useEditorPanesManager = () => {
             return;
         }
 
-        activePaneId.value = pane.id;
-        touchPaneMru(pane.id);
+        activePaneId.value = pane.paneId;
+        touchPaneMru(pane.paneId);
 
         if (!pane.activeTabId && pane.tabIds.length > 0) {
-            setPaneActiveTab(pane.id, pane.tabIds[0] ?? null);
+            setPaneActiveTab(pane.paneId, pane.tabIds[0] ?? null);
         }
         normalizeManagerState();
     }
@@ -283,7 +283,7 @@ export const useEditorPanesManager = () => {
             if (!layout.value) {
                 layout.value = {
                     type: 'leaf',
-                    paneId: pane.id,
+                    paneId: pane.paneId,
                 };
             }
         }
@@ -295,7 +295,7 @@ export const useEditorPanesManager = () => {
         ];
 
         updatePaneTabIds(
-            pane.id,
+            pane.paneId,
             tabIds => [
                 ...tabIds,
                 tab.id,
@@ -306,7 +306,7 @@ export const useEditorPanesManager = () => {
         );
 
         if (options.activate !== false) {
-            activatePane(pane.id);
+            activatePane(pane.paneId);
         }
 
         normalizeManagerState();
@@ -354,11 +354,11 @@ export const useEditorPanesManager = () => {
             return false;
         }
 
-        panes.value = panes.value.filter(candidate => candidate.id !== pane.id);
-        paneMru.value = paneMru.value.filter(candidate => candidate !== pane.id);
+        panes.value = panes.value.filter(candidate => candidate.paneId !== pane.paneId);
+        paneMru.value = paneMru.value.filter(candidate => candidate !== pane.paneId);
 
         if (layout.value) {
-            layout.value = removeLeafNode(layout.value, pane.id);
+            layout.value = removeLeafNode(layout.value, pane.paneId);
         }
 
         const nextActivePane = getPaneById(activePaneId.value)
@@ -366,11 +366,11 @@ export const useEditorPanesManager = () => {
             ?? panes.value[0]
             ?? null;
 
-        activePaneId.value = nextActivePane?.id ?? null;
+        activePaneId.value = nextActivePane?.paneId ?? null;
         if (nextActivePane) {
-            touchPaneMru(nextActivePane.id);
+            touchPaneMru(nextActivePane.paneId);
             if (!nextActivePane.activeTabId && nextActivePane.tabIds.length > 0) {
-                setPaneActiveTab(nextActivePane.id, nextActivePane.tabIds[0] ?? null);
+                setPaneActiveTab(nextActivePane.paneId, nextActivePane.tabIds[0] ?? null);
             }
         }
 
@@ -401,7 +401,7 @@ export const useEditorPanesManager = () => {
 
         const replacement = nextTabIds[tabIndex] ?? nextTabIds[tabIndex - 1] ?? null;
         updatePaneTabIds(
-            pane.id,
+            pane.paneId,
             () => nextTabIds,
             currentPane => currentPane.activeTabId === tabId ? replacement : currentPane.activeTabId,
         );
@@ -409,14 +409,14 @@ export const useEditorPanesManager = () => {
         let removedPaneId: string | null = null;
         if (nextTabIds.length === 0) {
             if (panes.value.length > 1) {
-                removedPaneId = pane.id;
-                closePane(pane.id);
+                removedPaneId = pane.paneId;
+                closePane(pane.paneId);
             } else {
                 const replacement = createTab({
-                    paneId: pane.id,
+                    paneId: pane.paneId,
                     activate: true,
                 });
-                setPaneActiveTab(pane.id, replacement.id);
+                setPaneActiveTab(pane.paneId, replacement.id);
             }
         }
 
@@ -460,7 +460,7 @@ export const useEditorPanesManager = () => {
         };
         const newLeaf: IEditorLayoutLeafNode = {
             type: 'leaf',
-            paneId: newPane.id,
+            paneId: newPane.paneId,
         };
 
         const horizontal = direction === 'left' || direction === 'right';
@@ -476,10 +476,10 @@ export const useEditorPanesManager = () => {
         };
 
         layout.value = replaceLeafWithSplit(layout.value, sourcePaneId, splitNode);
-        touchPaneMru(newPane.id);
+        touchPaneMru(newPane.paneId);
         normalizeManagerState();
 
-        return newPane.id;
+        return newPane.paneId;
     }
 
     function setSplitRatio(splitId: string, nextRatio: number) {
@@ -499,13 +499,13 @@ export const useEditorPanesManager = () => {
             return null;
         }
 
-        const target = findDirectionalPane(sourcePane.id, direction, wrap);
+        const target = findDirectionalPane(sourcePane.paneId, direction, wrap);
         if (!target) {
             return null;
         }
 
-        activatePane(target.id);
-        return target.id;
+        activatePane(target.paneId);
+        return target.paneId;
     }
 
     function moveTabToPane(tabId: string, targetPaneId: string, activate = true) {
@@ -515,9 +515,9 @@ export const useEditorPanesManager = () => {
             return false;
         }
 
-        if (sourcePane.id === targetPane.id) {
+        if (sourcePane.paneId === targetPane.paneId) {
             if (activate) {
-                activateTab(targetPane.id, tabId);
+                activateTab(targetPane.paneId, tabId);
             }
             normalizeManagerState();
             return true;
@@ -525,14 +525,14 @@ export const useEditorPanesManager = () => {
 
         const nextSourceTabIds = sourcePane.tabIds.filter(candidate => candidate !== tabId);
         updatePaneTabIds(
-            sourcePane.id,
+            sourcePane.paneId,
             () => nextSourceTabIds,
             currentPane => currentPane.activeTabId === tabId
                 ? nextSourceTabIds[nextSourceTabIds.length - 1] ?? null
                 : currentPane.activeTabId,
         );
         updatePaneTabIds(
-            targetPane.id,
+            targetPane.paneId,
             tabIds => [
                 ...tabIds,
                 tabId,
@@ -541,11 +541,11 @@ export const useEditorPanesManager = () => {
         );
 
         if (nextSourceTabIds.length === 0) {
-            closePane(sourcePane.id);
+            closePane(sourcePane.paneId);
         }
 
         if (activate) {
-            activateTab(targetPane.id, tabId);
+            activateTab(targetPane.paneId, tabId);
         }
 
         normalizeManagerState();
@@ -560,7 +560,7 @@ export const useEditorPanesManager = () => {
         }
 
         const copied = createTab({
-            paneId: targetPane.id,
+            paneId: targetPane.paneId,
             activate,
             initial: {
                 fileName: sourceTab.fileName,
@@ -601,19 +601,19 @@ export const useEditorPanesManager = () => {
         }
         const sourceTabId = sourcePane.activeTabId;
 
-        const target = ensureTargetPaneForDirection(sourcePane.id, direction);
+        const target = ensureTargetPaneForDirection(sourcePane.paneId, direction);
         if (!target) {
             return null;
         }
 
-        const moved = moveTabToPane(sourceTabId, target.pane.id, true);
+        const moved = moveTabToPane(sourceTabId, target.pane.paneId, true);
         if (!moved) {
             return null;
         }
 
         return {
             tabId: sourceTabId,
-            targetPaneId: target.pane.id,
+            targetPaneId: target.pane.paneId,
             createdPane: target.created,
         };
     }
@@ -624,12 +624,12 @@ export const useEditorPanesManager = () => {
             return null;
         }
 
-        const target = ensureTargetPaneForDirection(sourcePane.id, direction);
+        const target = ensureTargetPaneForDirection(sourcePane.paneId, direction);
         if (!target) {
             return null;
         }
 
-        const copied = copyTabToPane(sourcePane.activeTabId, target.pane.id, true);
+        const copied = copyTabToPane(sourcePane.activeTabId, target.pane.paneId, true);
         if (!copied) {
             return null;
         }
@@ -637,7 +637,7 @@ export const useEditorPanesManager = () => {
         return {
             sourceTabId: sourcePane.activeTabId,
             targetTabId: copied.id,
-            targetPaneId: target.pane.id,
+            targetPaneId: target.pane.paneId,
             createdPane: target.created,
         };
     }

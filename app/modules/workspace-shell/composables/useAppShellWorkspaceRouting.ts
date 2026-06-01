@@ -343,7 +343,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             if (!resolved) {
                 return;
             }
-            await handleCloseTab(resolved.pane.id, resolved.tab.id);
+            await handleCloseTab(resolved.pane.paneId, resolved.tab.id);
             return;
         }
 

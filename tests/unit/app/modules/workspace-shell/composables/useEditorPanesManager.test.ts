@@ -6,7 +6,10 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { TEditorLayoutNode } from '@app/types/editorPanes';
+import type {
+    IEditorPaneState,
+    TEditorLayoutNode,
+} from '@app/types/editorPanes';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
@@ -47,10 +50,10 @@ describe('useEditorPanesManager', () => {
 
         const firstPane = manager.panes.value[0]!;
         const firstTab = manager.createTab({
-            paneId: firstPane.id,
+            paneId: firstPane.paneId,
             activate: true,
         });
-        const secondPaneId = manager.splitPane(firstPane.id, 'right');
+        const secondPaneId = manager.splitPane(firstPane.paneId, 'right');
         expect(secondPaneId).toBeTruthy();
         const secondPane = manager.getPaneById(secondPaneId);
         expect(secondPane).not.toBeNull();
@@ -66,10 +69,10 @@ describe('useEditorPanesManager', () => {
             fileName: 'duplicate-id',
         });
         manager.panes.value.push({
-            id: firstPane.id,
+            id: firstPane.paneId,
             tabIds: [firstTab.id],
             activeTabId: firstTab.id,
-        });
+        } as unknown as IEditorPaneState);
 
         manager.ensureAtLeastOneTab();
 
@@ -81,7 +84,7 @@ describe('useEditorPanesManager', () => {
         ), 0);
         expect(occurrences).toBe(1);
 
-        const uniquePaneIds = new Set(manager.panes.value.map(pane => pane.id));
+        const uniquePaneIds = new Set(manager.panes.value.map(pane => pane.paneId));
         expect(uniquePaneIds.size).toBe(manager.panes.value.length);
 
         for (const pane of manager.panes.value) {
@@ -106,7 +109,7 @@ describe('useEditorPanesManager', () => {
 
         manager.ensureAtLeastOneTab();
 
-        const validPaneIds = new Set(manager.panes.value.map(pane => pane.id));
+        const validPaneIds = new Set(manager.panes.value.map(pane => pane.paneId));
         const layoutPaneIds = new Set<string>();
         collectLeafPaneIds(manager.layout.value, layoutPaneIds);
 

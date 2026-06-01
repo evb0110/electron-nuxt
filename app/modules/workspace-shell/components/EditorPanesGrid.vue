@@ -11,9 +11,9 @@
         <template v-if="paneForLeaf">
             <TabBar
                 v-if="!zenMode"
-                :tabs="tabsForPane(paneForLeaf!.id)"
+                :tabs="tabsForPane(paneForLeaf!.paneId)"
                 :active-tab-id="paneForLeaf!.activeTabId"
-                :context-availability="tabContextAvailabilityByPane[paneForLeaf!.id] ?? null"
+                :context-availability="tabContextAvailabilityByPane[paneForLeaf!.paneId] ?? null"
                 @activate="handleLeafTabActivate"
                 @close="handleLeafTabClose"
                 @new-tab="handleLeafNewTab"
@@ -22,7 +22,7 @@
                 @tab-context-command="handleLeafTabContextCommand"
             />
             <div class="editor-pane-content">
-                <template v-for="tab in tabsForPane(paneForLeaf!.id)" :key="tab.id">
+                <template v-for="tab in tabsForPane(paneForLeaf!.paneId)" :key="tab.id">
                     <DeferredDocumentWorkspaceHost
                         v-if="shouldMountHost(tab.id)"
                         v-show="tab.id === paneForLeaf!.activeTabId"
@@ -32,7 +32,7 @@
                         :has-document-hint="tabHasDocumentHint(tab)"
                         :initial-view-state="viewStateByTabId[tab.id] ?? null"
                         :is-startup-open-claim-pending="isStartupOpenClaimPending"
-                        :is-active="paneForLeaf!.id === activePaneId && tab.id === paneForLeaf!.activeTabId"
+                        :is-active="paneForLeaf!.paneId === activePaneId && tab.id === paneForLeaf!.activeTabId"
                         :is-render-active="tab.id === paneForLeaf!.activeTabId"
                         :is-tab-transition-busy="isTabTransitionBusy"
                         :is-fullscreen="isFullscreen"
@@ -231,7 +231,7 @@ const hasMultiplePanes = computed(() => panes.length > 1);
 const leafNode = computed(() => (node.type === 'leaf' ? node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (node.type === 'split' ? node : null));
 const paneById = computed(() => {
-    return new Map(Object.entries(keyBy(panes, pane => pane.id)));
+    return new Map(Object.entries(keyBy(panes, pane => pane.paneId)));
 });
 const tabById = computed(() => {
     return new Map(Object.entries(keyBy(tabs, tab => tab.id)));
@@ -248,7 +248,7 @@ const tabsByPaneId = computed(() => {
                 paneTabs.push(tab);
             }
         }
-        map.set(pane.id, paneTabs);
+        map.set(pane.paneId, paneTabs);
     }
 
     return map;
@@ -319,7 +319,7 @@ function workspaceRefHandler(tabId: string) {
 }
 
 function currentLeafPaneId() {
-    return paneForLeaf.value?.id ?? null;
+    return paneForLeaf.value?.paneId ?? null;
 }
 
 function handleLeafTabActivate(tabId: string) {

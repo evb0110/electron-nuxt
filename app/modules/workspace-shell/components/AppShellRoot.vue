@@ -740,7 +740,7 @@ function activateTabById(tabId: string) {
         return;
     }
 
-    activateTab(pane.id, tabId);
+    activateTab(pane.paneId, tabId);
 }
 
 function openSettingsPage() {
@@ -946,7 +946,7 @@ useTabsShellBindings({
     activateTab: (tabId) => {
         const pane = getPaneByTabId(tabId);
         if (pane) {
-            activateTab(pane.id, tabId);
+            activateTab(pane.paneId, tabId);
         }
     },
     handleCloseTab: async (tabId) => {
@@ -954,7 +954,7 @@ useTabsShellBindings({
         if (!pane) {
             return;
         }
-        await handleCloseTab(pane.id, tabId);
+        await handleCloseTab(pane.paneId, tabId);
     },
     handleFallbackToolbarOpenFile,
     openPathInAppropriateTab,

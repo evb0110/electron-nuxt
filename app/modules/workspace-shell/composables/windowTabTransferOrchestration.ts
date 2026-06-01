@@ -29,7 +29,7 @@ export function collectMergeTabOrder(
     const orderedTabIds: string[] = [];
 
     for (const paneId of orderedPaneIds) {
-        const pane = panes.find(candidate => candidate.id === paneId);
+        const pane = panes.find(candidate => candidate.paneId === paneId);
         if (!pane) {
             continue;
         }

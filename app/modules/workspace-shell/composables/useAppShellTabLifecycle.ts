@@ -153,7 +153,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     function removeTabFromState(tabId: string) {
         const pane = getPaneByTabId(tabId);
         if (pane) {
-            closeTab(pane.id, tabId);
+            closeTab(pane.paneId, tabId);
         }
         workspaceSplitCache.clear(tabId);
     }
@@ -164,7 +164,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
                 break;
             }
             if (pane.tabIds.length === 0) {
-                closePane(pane.id);
+                closePane(pane.paneId);
             }
         }
     }
@@ -267,7 +267,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         let bestTarget: (ICloseHandoffTarget & { score: number }) | null = null;
 
         for (const candidatePane of panes.value) {
-            if (candidatePane.id === sourcePaneId || candidatePane.tabIds.length === 0) {
+            if (candidatePane.paneId === sourcePaneId || candidatePane.tabIds.length === 0) {
                 continue;
             }
 
@@ -282,7 +282,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             const score = scoreTabDocumentReadiness(candidateTabId);
             if (!bestTarget || score > bestTarget.score) {
                 bestTarget = {
-                    paneId: candidatePane.id,
+                    paneId: candidatePane.paneId,
                     tabId: candidateTabId,
                     score,
                 };
@@ -310,12 +310,12 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
         const samePaneReplacement = pickSamePaneCloseReplacement(sourcePane, tabId);
         if (samePaneReplacement) {
             return {
-                paneId: sourcePane.id,
+                paneId: sourcePane.paneId,
                 tabId: samePaneReplacement,
             };
         }
 
-        return pickCrossPaneCloseReplacement(sourcePane.id);
+        return pickCrossPaneCloseReplacement(sourcePane.paneId);
     }
 
     async function handoffActiveTabBeforeClose(paneId: string, tabId: string) {
@@ -337,7 +337,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
     function closeResolvedTabInState(paneId: string, tabId: string) {
         const resolvedPane = getPaneByTabId(tabId) ?? getPaneById(paneId);
         if (resolvedPane) {
-            closeTabInState(resolvedPane.id, tabId);
+            closeTabInState(resolvedPane.paneId, tabId);
         }
     }
 
@@ -349,7 +349,7 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             sourcePane
             && closeHandoffTarget
             && sourcePane.tabIds.length === 1
-            && closeHandoffTarget.paneId !== sourcePane.id,
+            && closeHandoffTarget.paneId !== sourcePane.paneId,
         );
     }
 
@@ -368,8 +368,8 @@ export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions
             return;
         }
 
-        activatePane(targetPane.id);
-        activateTab(targetPane.id, targetTab.id);
+        activatePane(targetPane.paneId);
+        activateTab(targetPane.paneId, targetTab.id);
         await nextTick();
     }
 

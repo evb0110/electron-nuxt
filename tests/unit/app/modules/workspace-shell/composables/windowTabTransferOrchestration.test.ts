@@ -76,7 +76,7 @@ describe('window tab transfer orchestration helpers', () => {
 
         const panes: IEditorPaneState[] = [
             {
-                id: 'pane-a',
+                paneId: 'pane-a',
                 tabIds: [
                     'tab-1',
                     'tab-2',
@@ -84,7 +84,7 @@ describe('window tab transfer orchestration helpers', () => {
                 activeTabId: 'tab-1',
             },
             {
-                id: 'pane-b',
+                paneId: 'pane-b',
                 tabIds: ['tab-3'],
                 activeTabId: 'tab-3',
             },
