@@ -13,6 +13,12 @@ import type {
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
+interface ILegacyEditorPaneState {
+    id: string;
+    tabIds: string[];
+    activeTabId: string | null;
+}
+
 function installUseStateStub() {
     vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
         const existing = stateStore.get(key);
@@ -68,11 +74,12 @@ describe('useEditorPanesManager', () => {
             ...firstTab,
             fileName: 'duplicate-id',
         });
-        manager.panes.value.push({
+        const panesWithLegacyState = manager.panes.value as Array<IEditorPaneState | ILegacyEditorPaneState>;
+        panesWithLegacyState.push({
             id: firstPane.paneId,
             tabIds: [firstTab.id],
             activeTabId: firstTab.id,
-        } as unknown as IEditorPaneState);
+        });
 
         manager.ensureAtLeastOneTab();
 
