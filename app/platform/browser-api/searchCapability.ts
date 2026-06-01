@@ -10,6 +10,8 @@ import {
     buildPdfSearchRegex,
     iteratePdfSearchMatches,
 } from '@contracts/search';
+import type { IBrowserOcrSearchDocumentText } from '@app/platform/browser-api/browserOcrSearchText';
+import { readBrowserOcrSearchDocumentText } from '@app/platform/browser-api/browserOcrSearchText';
 import type { ISearchCapability } from '@contracts/platformApi';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
@@ -51,6 +53,8 @@ interface IPersistedSearchDocumentCacheRecord {
     pageTexts: string[];
     textBytes?: number;
     lastAccessedAt?: number;
+    createdAt?: number;
+    textSource?: ISearchDocumentTextSource;
 }
 
 interface ICreateBrowserSearchCapabilityResult {
@@ -68,6 +72,12 @@ interface IIterateSearchPagesOptions {
 interface IExtractedDocumentText {
     pageCount: number;
     pageTexts: string[];
+    textSource?: ISearchDocumentTextSource;
+}
+
+interface ISearchDocumentTextSource {
+    kind: string;
+    version: number;
 }
 
 type TSearchListener = (progress: IPdfSearchProgress) => void;
@@ -77,13 +87,17 @@ const SEARCH_PAGE_CACHE_LIMIT = 24;
 const SEARCH_DOCUMENT_CACHE_LIMIT = 4;
 const SEARCH_YIELD_INTERVAL = 1;
 const BROWSER_SEARCH_MAX_BYTES = 64 * 1024 * 1024;
-const SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES = 16 * 1024 * 1024;
-const SEARCH_PERSISTED_CACHE_MAX_RECORDS = 12;
-const SEARCH_PERSISTED_CACHE_MAX_BYTES = 48 * 1024 * 1024;
+const SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const SEARCH_PERSISTED_CACHE_MAX_RECORDS = 16;
+const SEARCH_PERSISTED_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
 const SEARCH_CACHE_DB_VERSION = 1;
-const SEARCH_CACHE_RECORD_VERSION = 5;
+const SEARCH_CACHE_RECORD_VERSION = 6;
 const SEARCH_CACHE_STORE = 'document-text';
+const PDFJS_TEXT_SOURCE: ISearchDocumentTextSource = {
+    kind: 'pdfjs-text-content',
+    version: 1,
+};
 let searchCacheAccessSequence = 0;
 
 function createBrowserSearchTooLargeError() {
@@ -130,6 +144,68 @@ function openSearchCacheDb(): Promise<IDBDatabase | null> {
 
 function estimatePageTextBytes(pageTexts: string[]) {
     return pageTexts.reduce((total, text) => total + (text.length * 2), 0);
+}
+
+function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function finiteNumberOrUndefined(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : undefined;
+}
+
+function parseSearchDocumentTextSource(value: unknown): ISearchDocumentTextSource | undefined {
+    if (!isRecord(value)) {
+        return undefined;
+    }
+    if (typeof value.kind !== 'string' || typeof value.version !== 'number' || !Number.isInteger(value.version)) {
+        return undefined;
+    }
+    return {
+        kind: value.kind,
+        version: value.version,
+    };
+}
+
+function parsePersistedSearchCacheRecord(value: unknown): IPersistedSearchDocumentCacheRecord | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const pageTexts = value.pageTexts;
+    if (
+        typeof value.pdfPath !== 'string'
+        || typeof value.fileSize !== 'number'
+        || !Number.isFinite(value.fileSize)
+        || value.fileSize < 0
+        || !isPositiveInteger(value.pageCount)
+        || !Array.isArray(pageTexts)
+        || !pageTexts.every((item): item is string => typeof item === 'string')
+    ) {
+        return null;
+    }
+
+    const textSource = parseSearchDocumentTextSource(value.textSource);
+    const textBytes = finiteNumberOrUndefined(value.textBytes);
+    const lastAccessedAt = finiteNumberOrUndefined(value.lastAccessedAt);
+    const createdAt = finiteNumberOrUndefined(value.createdAt);
+    return {
+        ...(typeof value.version === 'number' ? { version: value.version } : {}),
+        pdfPath: value.pdfPath,
+        fileSize: value.fileSize,
+        ...(typeof value.contentSignature === 'string' ? { contentSignature: value.contentSignature } : {}),
+        pageCount: value.pageCount,
+        pageTexts,
+        ...(textBytes !== undefined ? { textBytes } : {}),
+        ...(lastAccessedAt !== undefined ? { lastAccessedAt } : {}),
+        ...(createdAt !== undefined ? { createdAt } : {}),
+        ...(textSource !== undefined ? { textSource } : {}),
+    };
 }
 
 function getPersistedRecordBytes(record: IPersistedSearchDocumentCacheRecord) {
@@ -190,27 +266,26 @@ async function runSearchCacheTransaction<T>(
 async function loadPersistedSearchCacheRecord(cacheKey: string) {
     const record = await runSearchCacheTransaction(
         'readonly',
-        (store) => readStoreValue<IPersistedSearchDocumentCacheRecord>(
+        (store) => readStoreValue<unknown>(
             store,
             cacheKey,
             'Failed to read search cache record',
         ),
     );
-    if (!record) {
-        return null;
-    }
-
-    return record;
+    return parsePersistedSearchCacheRecord(record);
 }
 
 async function loadAllPersistedSearchCacheRecords() {
-    return await runSearchCacheTransaction(
+    const records = await runSearchCacheTransaction(
         'readonly',
-        (store) => readAllStoreValues<IPersistedSearchDocumentCacheRecord>(
+        (store) => readAllStoreValues<unknown>(
             store,
             'Failed to list search cache records',
         ),
     ) ?? [];
+    return records
+        .map(record => parsePersistedSearchCacheRecord(record))
+        .filter((record): record is IPersistedSearchDocumentCacheRecord => record !== null);
 }
 
 async function deletePersistedSearchCacheRecord(cacheKey: string) {
@@ -300,7 +375,9 @@ function createPersistedSearchCacheRecord(
     contentSignature: string,
     pageCount: number,
     pageTexts: string[],
+    textSource: ISearchDocumentTextSource = PDFJS_TEXT_SOURCE,
 ): IPersistedSearchDocumentCacheRecord {
+    const now = createSearchCacheAccessTimestamp();
     return {
         version: SEARCH_CACHE_RECORD_VERSION,
         pdfPath,
@@ -309,7 +386,9 @@ function createPersistedSearchCacheRecord(
         pageCount,
         pageTexts,
         textBytes: estimatePageTextBytes(pageTexts),
-        lastAccessedAt: createSearchCacheAccessTimestamp(),
+        createdAt: now,
+        lastAccessedAt: now,
+        textSource,
     };
 }
 
@@ -423,15 +502,19 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         return cache;
     }
 
-    function clearSearchCaches(pdfPath?: string) {
+    async function clearSearchCachesAsync(pdfPath?: string) {
         if (pdfPath) {
             deleteDocumentMemoryCaches(pdfPath);
-            void clearPersistedSearchCacheForDocument(pdfPath);
+            await clearPersistedSearchCacheForDocument(pdfPath);
             return;
         }
 
         searchDocumentCache.clear();
-        void clearPersistedSearchCaches();
+        await clearPersistedSearchCaches();
+    }
+
+    function clearSearchCaches(pdfPath?: string) {
+        void clearSearchCachesAsync(pdfPath);
     }
 
     async function assertSearchWithinBrowserBudget(pdfPath: string) {
@@ -483,6 +566,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         record: IPersistedSearchDocumentCacheRecord | null,
         fileSize: number,
         contentSignature: string,
+        expectedPageCount?: number,
     ) {
         if (!record) {
             return null;
@@ -496,7 +580,21 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         if (record.contentSignature !== contentSignature) {
             return null;
         }
+        if (
+            typeof expectedPageCount === 'number'
+            && expectedPageCount > 0
+            && record.pageCount !== expectedPageCount
+        ) {
+            return null;
+        }
         if (record.pageCount !== record.pageTexts.length) {
+            return null;
+        }
+        if (record.pageTexts.some(text => typeof text !== 'string')) {
+            return null;
+        }
+        const textBytes = estimatePageTextBytes(record.pageTexts);
+        if (record.textBytes !== textBytes) {
             return null;
         }
         if (getPersistedRecordBytes(record) > SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES) {
@@ -542,6 +640,28 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             if (requestId) {
                 activeWorkerSearchRequests.delete(requestId);
             }
+        }
+    }
+
+    async function extractDocumentTextFromOcrArtifacts(
+        pdfPath: string,
+        fileSize: number,
+        contentSignature: string,
+        requestId: string | undefined,
+        expectedPageCount?: number,
+    ): Promise<IBrowserOcrSearchDocumentText | null> {
+        try {
+            return await readBrowserOcrSearchDocumentText(pdfPath, {
+                fileSize,
+                contentSignature,
+                ...(expectedPageCount !== undefined ? { expectedPageCount } : {}),
+                shouldContinue: () => !isExtractionCanceled(requestId),
+            });
+        } catch (error) {
+            if (isBrowserSearchCanceledError(error)) {
+                return null;
+            }
+            return null;
         }
     }
 
@@ -644,20 +764,47 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
 
         const persistedRecord = await loadPersistedSearchCacheRecord(pdfPath);
-        const validPersistedRecord = pickValidPersistedRecord(persistedRecord, fileSize, contentSignature);
-        if (
-            validPersistedRecord
-            && (
-                typeof options.expectedPageCount !== 'number'
-                || options.expectedPageCount === validPersistedRecord.pageCount
-            )
-        ) {
+        const validPersistedRecord = pickValidPersistedRecord(
+            persistedRecord,
+            fileSize,
+            contentSignature,
+            options.expectedPageCount,
+        );
+        if (validPersistedRecord) {
             void touchPersistedSearchCacheRecord(validPersistedRecord);
             hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
             return iteratePersistedDocumentPages(validPersistedRecord, options);
         }
         if (persistedRecord) {
-            void clearPersistedSearchCacheForDocument(pdfPath);
+            await clearPersistedSearchCacheForDocument(pdfPath);
+        }
+
+        const ocrDocumentText = await extractDocumentTextFromOcrArtifacts(
+            pdfPath,
+            fileSize,
+            contentSignature,
+            options.requestId,
+            options.expectedPageCount,
+        );
+        if (isSearchCanceled(options.requestId)) {
+            return false;
+        }
+        if (ocrDocumentText) {
+            cache.pageCount = ocrDocumentText.pageCount;
+            const { canceled } = await iterateExtractedDocumentPages(cache, ocrDocumentText, options);
+
+            if (!canceled && canPersistPageTexts(ocrDocumentText.pageTexts)) {
+                await persistSearchCacheRecord(createPersistedSearchCacheRecord(
+                    pdfPath,
+                    fileSize,
+                    contentSignature,
+                    ocrDocumentText.pageCount,
+                    ocrDocumentText.pageTexts,
+                    ocrDocumentText.textSource,
+                ));
+            }
+
+            return !canceled;
         }
 
         if (options.streamDirectExtraction) {
@@ -676,25 +823,30 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                         pageCount = totalPages;
                         pageTexts[pageNumber - 1] = text;
                         rememberPageText(cache, pageNumber, text);
-                        const outcome = await deliverPage(pageNumber, text, totalPages, options);
-                        if (outcome === 'cancel') {
-                            canceled = true;
-                        } else if (outcome === 'stop') {
-                            stopped = true;
+                        if (stopped) {
+                            emitPageProgress(options.requestId, pageNumber, totalPages);
+                            await yieldAfterSearchPage(pageNumber);
+                        } else {
+                            const outcome = await deliverPage(pageNumber, text, totalPages, options);
+                            if (outcome === 'cancel') {
+                                canceled = true;
+                            } else if (outcome === 'stop') {
+                                stopped = true;
+                            }
                         }
                     },
-                    { shouldContinue: () => !isExtractionCanceled(options.requestId) && !canceled && !stopped },
+                    { shouldContinue: () => !isExtractionCanceled(options.requestId) && !canceled },
                 );
             } catch (error) {
                 if (isBrowserSearchCanceledError(error)) {
-                    return stopped;
+                    return !canceled && stopped;
                 }
                 throw error;
             }
 
             cache.pageCount = pageCount;
             pageTexts = Array.from({ length: pageCount }, (_value, index) => pageTexts[index] ?? '');
-            if (!canceled && !stopped && canPersistPageTexts(pageTexts)) {
+            if (!canceled && canPersistPageTexts(pageTexts)) {
                 await persistSearchCacheRecord(createPersistedSearchCacheRecord(
                     pdfPath,
                     fileSize,
@@ -842,9 +994,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 searchProgressListeners.delete(callback);
             };
         },
-        resetCache() {
-            clearSearchCaches();
-            return Promise.resolve(true);
+        async resetCache() {
+            await clearSearchCachesAsync();
+            return true;
         },
     };
 

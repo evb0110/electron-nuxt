@@ -15,16 +15,72 @@ class FakeIdbRequest<T> {
     public onupgradeneeded: ((event: Event) => void) | null = null;
 }
 
-class FakeObjectStore {
+interface IFakeStoreState {
+    records: Map<string, unknown>;
+    keyPath: string;
+    indexes: Map<string, string>;
+}
+
+class FakeIndex {
     public constructor(
-        private readonly records: Map<string, unknown>,
+        private readonly state: IFakeStoreState,
         private readonly keyPath: string,
     ) {}
 
-    public put(record: Record<string, unknown>) {
+    public getAllKeys(value: IDBValidKey) {
+        const request = new FakeIdbRequest<IDBValidKey[]>();
+        queueMicrotask(() => {
+            request.result = Array.from(this.state.records.entries())
+                .filter(([
+                    ,
+                    record,
+                ]) => (
+                    typeof record === 'object'
+                    && record !== null
+                    && !Array.isArray(record)
+                    && String((record as Record<string, unknown>)[this.keyPath]) === String(value)
+                ))
+                .map(([key]) => key);
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<IDBValidKey[]>>(request);
+    }
+}
+
+class FakeObjectStore {
+    public readonly indexNames = { contains: (name: string) => this.state.indexes.has(name) };
+
+    public constructor(
+        private readonly state: IFakeStoreState,
+    ) {}
+
+    public createIndex(name: string, keyPath: string, _options?: { unique?: boolean }) {
+        this.state.indexes.set(name, keyPath);
+        return cast<IDBIndex>(new FakeIndex(this.state, keyPath));
+    }
+
+    public index(name: string) {
+        const keyPath = this.state.indexes.get(name);
+        if (!keyPath) {
+            throw new Error(`Missing fake IndexedDB index: ${name}`);
+        }
+        return cast<IDBIndex>(new FakeIndex(this.state, keyPath));
+    }
+
+    public put(record: unknown, key?: IDBValidKey) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            this.records.set(String(record[this.keyPath]), record);
+            const recordKey = key ?? (
+                typeof record === 'object' && record !== null && !Array.isArray(record)
+                    ? (record as Record<string, unknown>)[this.state.keyPath]
+                    : undefined
+            );
+            if (recordKey === undefined) {
+                request.error = new Error('Fake IndexedDB record key is missing');
+                request.onerror?.(new Event('error'));
+                return;
+            }
+            this.state.records.set(String(recordKey), record);
             request.result = record;
             request.onsuccess?.(new Event('success'));
         });
@@ -34,7 +90,7 @@ class FakeObjectStore {
     public get(key: IDBValidKey) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            request.result = this.records.get(String(key));
+            request.result = this.state.records.get(String(key));
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<unknown>>(request);
@@ -43,7 +99,7 @@ class FakeObjectStore {
     public delete(key: IDBValidKey) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            this.records.delete(String(key));
+            this.state.records.delete(String(key));
             request.result = undefined;
             request.onsuccess?.(new Event('success'));
         });
@@ -53,7 +109,7 @@ class FakeObjectStore {
     public clear() {
         const request = new FakeIdbRequest<undefined>();
         queueMicrotask(() => {
-            this.records.clear();
+            this.state.records.clear();
             request.result = undefined;
             request.onsuccess?.(new Event('success'));
         });
@@ -63,7 +119,7 @@ class FakeObjectStore {
     public getAll() {
         const request = new FakeIdbRequest<unknown[]>();
         queueMicrotask(() => {
-            request.result = Array.from(this.records.values());
+            request.result = Array.from(this.state.records.values());
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<unknown[]>>(request);
@@ -72,7 +128,7 @@ class FakeObjectStore {
     public getAllKeys() {
         const request = new FakeIdbRequest<IDBValidKey[]>();
         queueMicrotask(() => {
-            request.result = Array.from(this.records.keys());
+            request.result = Array.from(this.state.records.keys());
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<IDBValidKey[]>>(request);
@@ -95,31 +151,30 @@ class FakeTransaction {
 }
 
 class FakeDatabase {
-    private readonly storesByName = new Map<string, {
-        records: Map<string, unknown>;
-        keyPath: string;
-    }>();
+    private readonly storesByName = new Map<string, IFakeStoreState>();
     private readonly storeNames = new Set<string>();
 
     public readonly objectStoreNames = { contains: (name: string) => this.storeNames.has(name) };
 
     public createObjectStore(name: string, options?: { keyPath?: string }) {
         this.storeNames.add(name);
-        const store = {
+        const store: IFakeStoreState = {
             records: new Map<string, unknown>(),
             keyPath: options?.keyPath ?? 'key',
+            indexes: new Map<string, string>(),
         };
         this.storesByName.set(name, store);
-        return cast<IDBObjectStore>(new FakeObjectStore(store.records, store.keyPath));
+        return cast<IDBObjectStore>(new FakeObjectStore(store));
     }
 
     public transaction(name: string, _mode: IDBTransactionMode) {
         const store = this.storesByName.get(name) ?? {
             records: new Map<string, unknown>(),
             keyPath: 'key',
+            indexes: new Map<string, string>(),
         };
         this.storesByName.set(name, store);
-        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store.records, store.keyPath)));
+        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store)));
     }
 
     public getStoreRecords(name: string) {
@@ -259,6 +314,126 @@ describe('createBrowserSearchCapability', () => {
         expect(cleanup).toHaveBeenCalledTimes(30);
     });
 
+    it('prefers browser OCR artifacts from IndexedDB and persists their normalized page text', async () => {
+        const pdfPath = 'browser://documents/test/ocr.pdf';
+        const {
+            clearBrowserOcrArtifacts,
+            writeBrowserOcrArtifactJson,
+        } = await import('@app/platform/browser-api/browserOcrArtifactStore');
+        await writeBrowserOcrArtifactJson(pdfPath, 'manifest.json', {
+            version: 2,
+            source: {
+                pdfPath,
+                contentSignature: 'content-token-1',
+                fileSize: 3,
+            },
+            pageCount: 2,
+            pages: {
+                1: { path: 'pages/1.json' },
+                2: { path: 'pages/2.json' },
+            },
+        });
+        await writeBrowserOcrArtifactJson(pdfPath, 'pages/1.json', {
+            pageNumber: 1,
+            text: 'ignored raw text',
+            words: [
+                {
+                    text: 'ocr',
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+                {
+                    text: 'needle',
+                    x: 12,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+            ],
+        });
+        await writeBrowserOcrArtifactJson(pdfPath, 'pages/2.json', {
+            pageNumber: 2,
+            text: 'second page',
+            words: [],
+        });
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const firstCapability = createBrowserSearchCapability().capability;
+        const firstRun = await firstCapability.run(pdfPath, 'needle', { pageCount: 2 });
+
+        await clearBrowserOcrArtifacts(pdfPath);
+        const secondCapability = createBrowserSearchCapability().capability;
+        const secondRun = await secondCapability.run(pdfPath, 'needle', { pageCount: 2 });
+
+        expect(firstRun.results).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            excerpt: expect.objectContaining({ match: 'needle' }),
+        })]);
+        expect(secondRun.results).toEqual(firstRun.results);
+        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
+
+        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const records = indexedDbFactory.getDatabase('evb-browser-search-cache')?.getStoreRecords('document-text');
+        expect(records?.get(pdfPath)).toEqual(expect.objectContaining({
+            version: 6,
+            pageCount: 2,
+            textBytes: expect.any(Number),
+            lastAccessedAt: expect.any(Number),
+            textSource: {
+                kind: 'ocr-v2-text-layer',
+                version: 1,
+            },
+        }));
+    });
+
+    it('falls back to PDF.js when browser OCR artifacts are absent or incomplete', async () => {
+        const pdfPath = 'browser://documents/test/incomplete-ocr.pdf';
+        const { writeBrowserOcrArtifactJson } = await import('@app/platform/browser-api/browserOcrArtifactStore');
+        await writeBrowserOcrArtifactJson(pdfPath, 'manifest.json', {
+            version: 2,
+            source: {
+                pdfPath,
+                contentSignature: 'content-token-1',
+                fileSize: 3,
+            },
+            pageCount: 2,
+            pages: {1: { path: 'pages/1.json' }},
+        });
+        await writeBrowserOcrArtifactJson(pdfPath, 'pages/1.json', {
+            pageNumber: 1,
+            text: 'ocr-only needle',
+        });
+
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'pdf fallback needle'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const result = await capability.run(pdfPath, 'fallback');
+
+        expect(result.results).toEqual([expect.objectContaining({ pageNumber: 1 })]);
+        expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
+        expect(getPage).toHaveBeenCalledOnce();
+    });
+
     it('invalidates browser page text caches when same-size document content changes', async () => {
         const firstDocument = {
             numPages: 1,
@@ -304,6 +479,74 @@ describe('createBrowserSearchCapability', () => {
 
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
         expect(firstDocument.getPage).toHaveBeenCalledTimes(1);
+        expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        [
+            'schema version changes',
+            (record: Record<string, unknown>) => {
+                record.version = 0;
+            },
+        ],
+        [
+            'page count mismatches',
+            (record: Record<string, unknown>) => {
+                record.pageCount = 2;
+            },
+        ],
+        [
+            'text byte metadata is corrupt',
+            (record: Record<string, unknown>) => {
+                record.textBytes = 999;
+            },
+        ],
+    ] as const)('rebuilds persisted browser page text when %s', async (_label, mutateRecord) => {
+        const firstDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
+                cleanup: vi.fn(async () => {}),
+            })),
+            destroy: vi.fn(async () => {}),
+        };
+        const secondDocument = {
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
+                cleanup: vi.fn(async () => {}),
+            })),
+            destroy: vi.fn(async () => {}),
+        };
+
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument
+            .mockReturnValueOnce({promise: Promise.resolve(firstDocument)})
+            .mockReturnValueOnce({promise: Promise.resolve(secondDocument)});
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const firstCapability = createBrowserSearchCapability().capability;
+        await firstCapability.run('/tmp/test.pdf', 'foo', { pageCount: 1 });
+
+        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const record = indexedDbFactory
+            .getDatabase('evb-browser-search-cache')
+            ?.getStoreRecords('document-text')
+            .get('/tmp/test.pdf');
+        mutateRecord(cast<Record<string, unknown>>(record));
+
+        const secondCapability = createBrowserSearchCapability().capability;
+        await expect(secondCapability.run('/tmp/test.pdf', 'bar', { pageCount: 1 })).resolves.toEqual({
+            results: [expect.objectContaining({ pageNumber: 1 })],
+            truncated: false,
+        });
+
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
         expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
     });
 
@@ -363,15 +606,15 @@ describe('createBrowserSearchCapability', () => {
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
         const { capability } = createBrowserSearchCapability();
 
-        for (let index = 1; index <= 13; index += 1) {
+        for (let index = 1; index <= 17; index += 1) {
             await capability.warmIndex(`/tmp/lru-${index}.pdf`);
         }
 
         const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
         const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
-        expect(database?.getStoreRecords('document-text').size).toBe(12);
+        expect(database?.getStoreRecords('document-text').size).toBe(16);
         expect(database?.getStoreRecords('document-text').has('/tmp/lru-1.pdf')).toBe(false);
-        expect(database?.getStoreRecords('document-text').has('/tmp/lru-13.pdf')).toBe(true);
+        expect(database?.getStoreRecords('document-text').has('/tmp/lru-17.pdf')).toBe(true);
     });
 
     it('rejects browser search for oversized documents before loading PDF.js', async () => {
@@ -451,7 +694,7 @@ describe('createBrowserSearchCapability', () => {
         expect(getPage).toHaveBeenCalledTimes(2);
     });
 
-    it('does not persist page text after truncated streaming search', async () => {
+    it('persists a full page-text index after truncated streaming search', async () => {
         vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
@@ -492,8 +735,8 @@ describe('createBrowserSearchCapability', () => {
             truncated: true,
         });
         expect(secondRun.truncated).toBe(true);
-        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
-        expect(getPage).toHaveBeenCalledTimes(4);
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(1);
+        expect(getPage).toHaveBeenCalledTimes(3);
     });
 
     it('assigns page match indexes without scanning prior results', async () => {
