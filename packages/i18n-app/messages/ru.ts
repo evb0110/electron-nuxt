@@ -483,6 +483,8 @@ export default {
         'caseSensitive': 'Учитывать регистр',
         'wholeWord': 'Целое слово',
         'regex': 'Регулярное выражение',
+        'runSearch': 'Найти',
+        'runSearchHint': 'Найти (Enter)',
     },
     'searchResults': {
         'searching': 'Поиск…',
