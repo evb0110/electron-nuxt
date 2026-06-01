@@ -20,7 +20,7 @@ This repository contains three related apps:
 - Edit bookmarks/outlines, page labels, and page order from the sidebar.
 - Delete, extract, insert, rotate, crop, and export selected pages.
 - Export to PDF, DOCX, PNG, JPG, and multi-page TIFF.
-- Work across tabs, split editor groups, and multiple windows with tab transfer/merge.
+- Work across tabs, split editor panes, and multiple windows with tab transfer/merge.
 - Persist recent files, viewer defaults, theme, locale, and workspace state.
 
 ## Runtime Matrix

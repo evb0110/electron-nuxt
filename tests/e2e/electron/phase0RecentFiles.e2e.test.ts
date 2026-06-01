@@ -60,7 +60,7 @@ async function readRecentOpenDomState(
                 && Number(style.opacity || '1') > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!activeHost) {
             return {
@@ -184,7 +184,7 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, fileName: str
         }
 
         const loaded = await evaluateInPage(session.page, () => {
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
                 ?? document.querySelector<HTMLElement>('.workspace-host');
             return (activeHost?.querySelectorAll('.djvu-page-shell img').length ?? 0) > 0;
         });

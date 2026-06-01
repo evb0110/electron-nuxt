@@ -14,7 +14,7 @@ import type {
 import type { IWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 
 interface IUseFallbackWorkspaceToolbarOptions {
-    activeGroupId: Ref<string | null>;
+    activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     activeWorkspace: Ref<IWorkspaceExpose | null>;
     hasTeleportedToolbarContent: Ref<boolean>;
@@ -111,7 +111,7 @@ export const useFallbackWorkspaceToolbar = (options: IUseFallbackWorkspaceToolba
         } catch (error) {
             BrowserLogger.debug('toolbar-transition', 'Failed to read toolbar snapshot', {
                 activeTabId: options.activeTabId.value,
-                activeGroupId: options.activeGroupId.value,
+                activePaneId: options.activePaneId.value,
                 error,
             });
             return null;

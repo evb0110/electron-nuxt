@@ -685,17 +685,17 @@ const lazyWindowTabsCapability: IWindowTabsCapability = {
         'windowTabs',
         'onMenuSplitEditor',
     ]),
-    onMenuFocusEditorGroup: lazyEvent<IWindowTabsCapability['onMenuFocusEditorGroup']>([
+    onMenuFocusEditorPane: lazyEvent<IWindowTabsCapability['onMenuFocusEditorPane']>([
         'windowTabs',
-        'onMenuFocusEditorGroup',
+        'onMenuFocusEditorPane',
     ]),
-    onMenuMoveTabToGroup: lazyEvent<IWindowTabsCapability['onMenuMoveTabToGroup']>([
+    onMenuMoveTabToPane: lazyEvent<IWindowTabsCapability['onMenuMoveTabToPane']>([
         'windowTabs',
-        'onMenuMoveTabToGroup',
+        'onMenuMoveTabToPane',
     ]),
-    onMenuCopyTabToGroup: lazyEvent<IWindowTabsCapability['onMenuCopyTabToGroup']>([
+    onMenuCopyTabToPane: lazyEvent<IWindowTabsCapability['onMenuCopyTabToPane']>([
         'windowTabs',
-        'onMenuCopyTabToGroup',
+        'onMenuCopyTabToPane',
     ]),
 };
 

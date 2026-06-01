@@ -33,7 +33,7 @@ export async function createWorkingCopyFromPath(page: Page, sourcePath: string, 
 
 export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
     return evaluateInPage(page, () => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!host) {
             throw new Error('Active workspace host not found');
@@ -191,7 +191,7 @@ export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: strin
             throw new Error('electronAPI.documents.readFile is unavailable');
         }
 
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!host) {
             throw new Error('Active workspace host not found');
@@ -227,7 +227,7 @@ export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId:
             throw new Error('electronAPI.documents.readFile is unavailable');
         }
 
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!host) {
             throw new Error('Active workspace host not found');

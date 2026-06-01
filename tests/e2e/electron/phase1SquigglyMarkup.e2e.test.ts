@@ -27,7 +27,7 @@ import {
 
 async function dragOverFirstTwoSpans(page: Page) {
     const dragPoints = await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const spans = Array.from(host?.querySelectorAll<HTMLElement>(
             '.page_container .text-layer span, .page_container .textLayer span',
         ) ?? []).filter(span => (span.textContent ?? '').trim().length > 0);
@@ -95,7 +95,7 @@ describe('Electron E2E - Phase 1 (Squiggly text markup)', () => {
         await clickAnnotationTool(page, 'Squiggly');
         await dragOverFirstTwoSpans(page);
         await page.waitForFunction((previousCount: number) => {
-            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             return (host?.querySelectorAll('.highlightEditor').length ?? 0) > previousCount;
         }, { timeout: 20_000 }, before);
 

@@ -142,7 +142,7 @@ async function waitForShapeCount(page: Page, expectedCount: number) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -160,7 +160,7 @@ async function waitForShapeSidebarCount(page: Page, expectedCount: number) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisible);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -232,7 +232,7 @@ async function dragInkStroke(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -257,7 +257,7 @@ async function dragInkStroke(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -341,7 +341,7 @@ async function dragLineSegment(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -371,7 +371,7 @@ async function dragLineSegment(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -452,7 +452,7 @@ async function dragInkStrokeWithMouse(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -477,7 +477,7 @@ async function dragInkStrokeWithMouse(
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -529,7 +529,7 @@ async function clickPagePoint(page: Page, point: {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -553,7 +553,7 @@ async function clickPagePoint(page: Page, point: {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -640,7 +640,7 @@ async function getToolbarSaveDebugState(page: Page) {
             .filter(button => button.label === 'Save' || button.label.startsWith('Save ('));
 
         let workspaceInstance: unknown = null;
-        let currentElement = document.querySelector<HTMLElement>('.editor-group-pane.is-active');
+        let currentElement = document.querySelector<HTMLElement>('.editor-pane.is-active');
         while (currentElement) {
             const exposed = (currentElement as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed;
             if (
@@ -694,7 +694,7 @@ async function waitForNoShapeSelectionUi(page: Page) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -713,7 +713,7 @@ async function waitForActiveColorIndicator(page: Page) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -742,7 +742,7 @@ async function waitForNoVisibleInkAtPoint(page: Page, point: {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -914,7 +914,7 @@ async function hasVisibleCanvasInkAtPointWithOverlayHidden(page: Page, point: {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -997,7 +997,7 @@ async function getManagedShapeDebugState(page: Page) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -1105,7 +1105,7 @@ async function getPointInteractionDebugState(page: Page, point: {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -1169,7 +1169,7 @@ async function waitForAllShapesEmbedded(page: Page, expectedCount: number) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);

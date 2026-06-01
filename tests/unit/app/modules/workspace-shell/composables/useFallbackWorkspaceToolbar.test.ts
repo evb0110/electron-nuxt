@@ -81,7 +81,7 @@ describe('useFallbackWorkspaceToolbar', () => {
     it('preserves isOpeningDocument from the active workspace snapshot', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({ isOpeningDocument: true })));
         const toolbar = useFallbackWorkspaceToolbar({
-            activeGroupId: ref('group-1'),
+            activePaneId: ref('pane-1'),
             activeTabId: ref('tab-1'),
             activeWorkspace,
             hasTeleportedToolbarContent: ref(false),
@@ -95,7 +95,7 @@ describe('useFallbackWorkspaceToolbar', () => {
     it('defaults isOpeningDocument to false without an active workspace', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(null);
         const toolbar = useFallbackWorkspaceToolbar({
-            activeGroupId: ref('group-1'),
+            activePaneId: ref('pane-1'),
             activeTabId: ref('tab-1'),
             activeWorkspace,
             hasTeleportedToolbarContent: ref(false),
@@ -109,7 +109,7 @@ describe('useFallbackWorkspaceToolbar', () => {
     it('seeds the fallback snapshot with default values when no workspace is active', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(null);
         const toolbar = useFallbackWorkspaceToolbar({
-            activeGroupId: ref('group-1'),
+            activePaneId: ref('pane-1'),
             activeTabId: ref('tab-1'),
             activeWorkspace,
             hasTeleportedToolbarContent: ref(false),
@@ -131,7 +131,7 @@ describe('useFallbackWorkspaceToolbar', () => {
         }));
 
         const toolbar = useFallbackWorkspaceToolbar({
-            activeGroupId: ref('group-1'),
+            activePaneId: ref('pane-1'),
             activeTabId: ref('tab-1'),
             activeWorkspace,
             hasTeleportedToolbarContent: ref(false),

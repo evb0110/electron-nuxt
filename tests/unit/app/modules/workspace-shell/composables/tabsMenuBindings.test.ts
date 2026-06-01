@@ -43,7 +43,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
         openSettings: vi.fn(),
         checkForUpdates: vi.fn(async () => {}),
         splitEditor: vi.fn(async (_direction) => {}),
-        focusGroup: vi.fn(),
+        focusPane: vi.fn(),
         moveActiveTab: vi.fn(async (_direction) => {}),
         copyActiveTab: vi.fn(async (_direction) => {}),
         handleWindowTabsAction: vi.fn(async (_action) => {}),

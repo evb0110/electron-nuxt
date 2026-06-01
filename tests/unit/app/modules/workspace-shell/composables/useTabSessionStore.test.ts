@@ -7,7 +7,7 @@ import {
     createTabViewSessionState,
     resolveTabLifecycleStates,
 } from '@app/modules/workspace-shell/composables/useTabSessionStore';
-import type { IEditorGroupState } from '@app/types/editorGroups';
+import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 
 function tab(id: string): ITab {
@@ -20,7 +20,7 @@ function tab(id: string): ITab {
     };
 }
 
-function group(id: string, activeTabId: string, tabIds: string[]): IEditorGroupState {
+function pane(id: string, activeTabId: string, tabIds: string[]): IEditorPaneState {
     return {
         id,
         activeTabId,
@@ -73,7 +73,7 @@ describe('tab session memory policy', () => {
                 tab('c'),
                 tab('d'),
             ],
-            groups: [group('group-1', 'a', [
+            panes: [pane('pane-1', 'a', [
                 'a',
                 'b',
                 'c',
@@ -107,12 +107,12 @@ describe('tab session memory policy', () => {
                 tab('b'),
                 tab('c'),
             ],
-            groups: [
-                group('group-1', 'a', [
+            panes: [
+                pane('pane-1', 'a', [
                     'a',
                     'b',
                 ]),
-                group('group-2', 'c', ['c']),
+                pane('pane-2', 'c', ['c']),
             ],
             activeTabId: 'a',
             activationOrder: [

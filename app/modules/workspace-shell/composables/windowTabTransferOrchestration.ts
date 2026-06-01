@@ -1,40 +1,40 @@
 import type {
-    IEditorGroupState,
+    IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorGroups';
+} from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 
-export function collectLayoutGroupOrder(node: TEditorLayoutNode | null): string[] {
+export function collectLayoutPaneOrder(node: TEditorLayoutNode | null): string[] {
     if (!node) {
         return [];
     }
 
     if (node.type === 'leaf') {
-        return [node.groupId];
+        return [node.paneId];
     }
 
     return [
-        ...collectLayoutGroupOrder(node.first),
-        ...collectLayoutGroupOrder(node.second),
+        ...collectLayoutPaneOrder(node.first),
+        ...collectLayoutPaneOrder(node.second),
     ];
 }
 
 export function collectMergeTabOrder(
     layout: TEditorLayoutNode | null,
-    groups: IEditorGroupState[],
+    panes: IEditorPaneState[],
     tabs: ITab[],
 ) {
-    const orderedGroupIds = collectLayoutGroupOrder(layout);
+    const orderedPaneIds = collectLayoutPaneOrder(layout);
     const seenTabIds = new Set<string>();
     const orderedTabIds: string[] = [];
 
-    for (const groupId of orderedGroupIds) {
-        const group = groups.find(candidate => candidate.id === groupId);
-        if (!group) {
+    for (const paneId of orderedPaneIds) {
+        const pane = panes.find(candidate => candidate.id === paneId);
+        if (!pane) {
             continue;
         }
 
-        for (const tabId of group.tabIds) {
+        for (const tabId of pane.tabIds) {
             if (seenTabIds.has(tabId)) {
                 continue;
             }

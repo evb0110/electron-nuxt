@@ -124,7 +124,7 @@ html, body, #__nuxt { min-height: 100%; }
     --app-toolbar-control-active-hover-bg: #ffffff;
     --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-dimmed) 88%, var(--ui-border) 12%);
     --app-toolbar-control-disabled-opacity: 0.4;
-    --app-editor-group-grid-bg: var(--app-window-bg);
+    --app-editor-pane-grid-bg: var(--app-window-bg);
     --app-editor-sash-size: 6px;
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 68%, transparent);
     --shadow-popup: 0 6px 18px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06);
@@ -146,7 +146,7 @@ html, body, #__nuxt { min-height: 100%; }
     --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 50%, var(--ui-text) 9%);
     --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-dimmed) 86%, var(--ui-border) 14%);
     --app-toolbar-control-disabled-opacity: 0.38;
-    --app-editor-group-grid-bg: var(--app-window-bg);
+    --app-editor-pane-grid-bg: var(--app-window-bg);
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 80%, transparent);
     --shadow-popup: 0 10px 24px rgb(0 0 0 / 0.3), 0 3px 8px rgb(0 0 0 / 0.2);
 }
@@ -161,8 +161,8 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     background: var(--app-window-bg);
 }
 .app-shell-root > .flex-1,
-.editor-group-pane,
-.editor-group-content,
+.editor-pane,
+.editor-pane-content,
 .editor-split,
 .editor-split-pane,
 .workspace-host,
@@ -171,7 +171,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     min-height: 0;
 }
 .app-shell-root > .flex-1,
-.editor-group-content,
+.editor-pane-content,
 .editor-split-pane {
     flex: 1 1 auto;
 }
@@ -292,17 +292,17 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.editor-group-pane {
+.editor-pane {
     display: flex;
     flex-direction: column;
     height: 100%;
     background: var(--app-window-bg);
 }
-.editor-group-content {
+.editor-pane-content {
     display: flex;
     overflow: hidden;
 }
-.editor-group-content > * {
+.editor-pane-content > * {
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
@@ -312,7 +312,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: var(--app-editor-group-grid-bg);
+    background: var(--app-editor-pane-grid-bg);
 }
 .editor-split.is-horizontal { flex-direction: row; }
 .editor-split.is-vertical { flex-direction: column; }

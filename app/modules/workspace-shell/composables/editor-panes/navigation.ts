@@ -1,29 +1,29 @@
 import type {
-    IEditorGroupRect,
+    IEditorPaneRect,
     TEditorLayoutNode,
-    TGroupDirection,
-} from '@app/types/editorGroups';
+    TPaneDirection,
+} from '@app/types/editorPanes';
 import { clamp } from 'es-toolkit/math';
 
-interface IFindDirectionalGroupIdParams {
+interface IFindDirectionalPaneIdParams {
     layout: TEditorLayoutNode | null;
-    sourceGroupId: string;
-    direction: TGroupDirection;
-    groupMru: string[];
+    sourcePaneId: string;
+    direction: TPaneDirection;
+    paneMru: string[];
     wrap?: boolean;
 }
 
-function collectGroupRects(
+function collectPaneRects(
     node: TEditorLayoutNode,
     x: number,
     y: number,
     width: number,
     height: number,
-    target: IEditorGroupRect[],
+    target: IEditorPaneRect[],
 ) {
     if (node.type === 'leaf') {
         target.push({
-            groupId: node.groupId,
+            paneId: node.paneId,
             x,
             y,
             width,
@@ -36,24 +36,24 @@ function collectGroupRects(
     if (node.orientation === 'horizontal') {
         const firstWidth = width * ratio;
         const secondWidth = width - firstWidth;
-        collectGroupRects(node.first, x, y, firstWidth, height, target);
-        collectGroupRects(node.second, x + firstWidth, y, secondWidth, height, target);
+        collectPaneRects(node.first, x, y, firstWidth, height, target);
+        collectPaneRects(node.second, x + firstWidth, y, secondWidth, height, target);
         return;
     }
 
     const firstHeight = height * ratio;
     const secondHeight = height - firstHeight;
-    collectGroupRects(node.first, x, y, width, firstHeight, target);
-    collectGroupRects(node.second, x, y + firstHeight, width, secondHeight, target);
+    collectPaneRects(node.first, x, y, width, firstHeight, target);
+    collectPaneRects(node.second, x, y + firstHeight, width, secondHeight, target);
 }
 
-function getGroupRects(layout: TEditorLayoutNode | null) {
+function getPaneRects(layout: TEditorLayoutNode | null) {
     if (!layout) {
         return [];
     }
 
-    const rects: IEditorGroupRect[] = [];
-    collectGroupRects(layout, 0, 0, 1, 1, rects);
+    const rects: IEditorPaneRect[] = [];
+    collectPaneRects(layout, 0, 0, 1, 1, rects);
     return rects;
 }
 
@@ -61,26 +61,26 @@ function overlapAmount(aStart: number, aEnd: number, bStart: number, bEnd: numbe
     return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
 }
 
-function getMruRank(groupMru: string[], groupId: string) {
-    const index = groupMru.indexOf(groupId);
+function getMruRank(paneMru: string[], paneId: string) {
+    const index = paneMru.indexOf(paneId);
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-export function findDirectionalGroupId({
+export function findDirectionalPaneId({
     layout,
-    sourceGroupId,
+    sourcePaneId,
     direction,
-    groupMru,
+    paneMru,
     wrap = true,
-}: IFindDirectionalGroupIdParams): string | null {
-    const rects = getGroupRects(layout);
-    const sourceRect = rects.find(rect => rect.groupId === sourceGroupId);
+}: IFindDirectionalPaneIdParams): string | null {
+    const rects = getPaneRects(layout);
+    const sourceRect = rects.find(rect => rect.paneId === sourcePaneId);
     if (!sourceRect) {
         return null;
     }
 
     interface IScore {
-        groupId: string;
+        paneId: string;
         distance: number;
         overlap: number;
         mruRank: number;
@@ -88,7 +88,7 @@ export function findDirectionalGroupId({
 
     const candidates: IScore[] = [];
     for (const rect of rects) {
-        if (rect.groupId === sourceGroupId) {
+        if (rect.paneId === sourcePaneId) {
             continue;
         }
 
@@ -137,10 +137,10 @@ export function findDirectionalGroupId({
 
         if (distance !== Number.MAX_VALUE) {
             candidates.push({
-                groupId: rect.groupId,
+                paneId: rect.paneId,
                 distance,
                 overlap,
-                mruRank: getMruRank(groupMru, rect.groupId),
+                mruRank: getMruRank(paneMru, rect.paneId),
             });
         }
     }
@@ -157,7 +157,7 @@ export function findDirectionalGroupId({
 
     if (candidates.length > 0) {
         candidates.sort(sortScores);
-        return candidates[0]?.groupId ?? null;
+        return candidates[0]?.paneId ?? null;
     }
 
     if (!wrap) {
@@ -165,7 +165,7 @@ export function findDirectionalGroupId({
     }
 
     const wrapCandidates = rects
-        .filter(rect => rect.groupId !== sourceGroupId)
+        .filter(rect => rect.paneId !== sourcePaneId)
         .map((rect) => {
             let anchor = 0;
             let overlap = 0;
@@ -205,10 +205,10 @@ export function findDirectionalGroupId({
             }
 
             return {
-                groupId: rect.groupId,
+                paneId: rect.paneId,
                 anchor,
                 overlap,
-                mruRank: getMruRank(groupMru, rect.groupId),
+                mruRank: getMruRank(paneMru, rect.paneId),
             };
         });
 
@@ -228,5 +228,5 @@ export function findDirectionalGroupId({
         return left.mruRank - right.mruRank;
     });
 
-    return wrapCandidates[0]?.groupId ?? null;
+    return wrapCandidates[0]?.paneId ?? null;
 }

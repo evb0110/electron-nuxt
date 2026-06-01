@@ -3,7 +3,7 @@ import type {
     TDocumentRef,
 } from '@contracts/platformApi';
 import type { Ref } from 'vue';
-import type { TGroupDirection } from '@app/types/editorGroups';
+import type { TPaneDirection } from '@app/types/editorPanes';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -20,10 +20,10 @@ export interface ITabsMenuBindingDeps {
     loadRecentFiles: () => Promise<void>;
     openSettings: () => void;
     checkForUpdates: () => Promise<void> | void;
-    splitEditor: (direction: TGroupDirection) => Promise<void> | void;
-    focusGroup: (direction: TGroupDirection) => void;
-    moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
-    copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;
+    splitEditor: (direction: TPaneDirection) => Promise<void> | void;
+    focusPane: (direction: TPaneDirection) => void;
+    moveActiveTab: (direction: TPaneDirection) => Promise<void> | void;
+    copyActiveTab: (direction: TPaneDirection) => Promise<void> | void;
     handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
 }
 
@@ -281,14 +281,14 @@ export function registerTabsMenuBindings(
         api.windowTabs?.onMenuSplitEditor?.((direction) => {
             runMenuAction('split-editor', () => deps.splitEditor(direction));
         }),
-        api.windowTabs?.onMenuFocusEditorGroup?.((direction) => {
-            runMenuAction('focus-editor-group', () => deps.focusGroup(direction));
+        api.windowTabs?.onMenuFocusEditorPane?.((direction) => {
+            runMenuAction('focus-editor-pane', () => deps.focusPane(direction));
         }),
-        api.windowTabs?.onMenuMoveTabToGroup?.((direction) => {
-            runMenuAction('move-tab-to-group', () => deps.moveActiveTab(direction));
+        api.windowTabs?.onMenuMoveTabToPane?.((direction) => {
+            runMenuAction('move-tab-to-pane', () => deps.moveActiveTab(direction));
         }),
-        api.windowTabs?.onMenuCopyTabToGroup?.((direction) => {
-            runMenuAction('copy-tab-to-group', () => deps.copyActiveTab(direction));
+        api.windowTabs?.onMenuCopyTabToPane?.((direction) => {
+            runMenuAction('copy-tab-to-pane', () => deps.copyActiveTab(direction));
         }),
         api.windowTabs?.onWindowAction((action) => {
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));

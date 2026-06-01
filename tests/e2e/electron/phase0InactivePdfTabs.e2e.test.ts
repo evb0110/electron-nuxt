@@ -138,7 +138,7 @@ async function splitActiveDocument(session: IElectronE2ESession, direction: 'rig
     }, direction);
 
     expect(split).toBe(true);
-    await session.page.waitForFunction(() => document.querySelectorAll('.editor-group-pane').length >= 2);
+    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length >= 2);
 }
 
 async function waitForVisibleRenderedPdfHosts(session: IElectronE2ESession, expectedCount: number) {

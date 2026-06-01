@@ -95,7 +95,7 @@ async function waitForHighlightEditorCount(page: Page, expectedCount: number) {
                     && style.visibility !== 'hidden'
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -163,7 +163,7 @@ async function createHighlightWithPdfjsManager(page: Page) {
             };
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter(isVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const matchingHosts = visibleHosts
                 .filter(candidate => candidate.querySelector('.annotationEditorLayer, .annotation-editor-layer'));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
@@ -316,7 +316,7 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
             return false;
         }
         const visibleHosts = Array.from(document.querySelectorAll<IVueWorkspaceHost>('.workspace-host')).filter(isVisible);
-        const activeHost = document.querySelector<IVueWorkspaceHost>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<IVueWorkspaceHost>('.editor-pane.is-active .workspace-host');
         const preferredHost = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -469,7 +469,7 @@ async function clickFirstSidebarAnnotationDelete(page: Page) {
                 && rect.height > 100
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = (activeHost && isVisible(activeHost))
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
@@ -492,7 +492,7 @@ async function resolvePageNotePoint(page: Page) {
                 const style = window.getComputedStyle(host);
                 return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -569,7 +569,7 @@ async function tryCreatePageNoteViaSidebarButton(page: Page) {
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && isVisible(activeHost)
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
@@ -610,7 +610,7 @@ async function getVisibleSidebarAnnotationCount(page: Page) {
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisible);
         const host = (activeHost && visibleHosts.includes(activeHost))
@@ -634,7 +634,7 @@ async function waitForSidebarAnnotationCount(page: Page, expectedCount: number) 
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisible);
         const host = (activeHost && visibleHosts.includes(activeHost))
@@ -658,7 +658,7 @@ async function waitForSidebarAnnotationText(page: Page, expectedText: string) {
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisible);
         const host = (activeHost && visibleHosts.includes(activeHost))
@@ -682,7 +682,7 @@ async function openThumbnailsTab(page: Page) {
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && isVisible(activeHost)
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
@@ -730,7 +730,7 @@ async function openThumbnailsTab(page: Page) {
                     && rect.height > 0
                 );
             };
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const host = activeHost && isVisible(activeHost)
                 ? activeHost
                 : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
@@ -791,7 +791,7 @@ async function getActiveThumbnailYellowPixelCount(page: Page) {
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && isVisible(activeHost)
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
@@ -858,7 +858,7 @@ async function waitForActiveThumbnailYellowPixelCount(
                 && rect.height > 0
             );
         };
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && isVisible(activeHost)
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible);
@@ -934,7 +934,7 @@ async function collectStickyNoteDebugState(page: Page) {
                     && Number(style.opacity || '1') > 0
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -1154,7 +1154,7 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
 
         await waitForActiveWorkspaceHost(page);
         const latestTextHandle = await page.waitForFunction((expectedText: string) => {
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter((candidate) => {
                     const rect = candidate.getBoundingClientRect();

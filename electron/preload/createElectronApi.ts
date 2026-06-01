@@ -209,12 +209,12 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCloseTab, callback),
             onMenuSplitEditor: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuSplitEditor, callback),
-            onMenuFocusEditorGroup: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuFocusEditorGroup, callback),
-            onMenuMoveTabToGroup: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuMoveTabToGroup, callback),
-            onMenuCopyTabToGroup: (callback): IMenuEventUnsubscribe =>
-                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuCopyTabToGroup, callback),
+            onMenuFocusEditorPane: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane, callback),
+            onMenuMoveTabToPane: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane, callback),
+            onMenuCopyTabToPane: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane, callback),
         },
     } satisfies IElectronAPI;
 

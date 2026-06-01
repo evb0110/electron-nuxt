@@ -4,12 +4,12 @@ import {
     it,
 } from 'vitest';
 import type {
-    IEditorGroupState,
+    IEditorPaneState,
     TEditorLayoutNode,
-} from '@app/types/editorGroups';
+} from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import {
-    collectLayoutGroupOrder,
+    collectLayoutPaneOrder,
     collectMergeTabOrder,
     shouldCloseSourceWindowAfterTransfer,
 } from '@app/modules/workspace-shell/composables/windowTabTransferOrchestration';
@@ -25,7 +25,7 @@ function createTab(id: string): ITab {
 }
 
 describe('window tab transfer orchestration helpers', () => {
-    it('collects group order by stable layout traversal', () => {
+    it('collects pane order by stable layout traversal', () => {
         const layout: TEditorLayoutNode = {
             type: 'split',
             id: 'root',
@@ -33,7 +33,7 @@ describe('window tab transfer orchestration helpers', () => {
             ratio: 0.6,
             first: {
                 type: 'leaf',
-                groupId: 'group-left',
+                paneId: 'pane-left',
             },
             second: {
                 type: 'split',
@@ -42,23 +42,23 @@ describe('window tab transfer orchestration helpers', () => {
                 ratio: 0.5,
                 first: {
                     type: 'leaf',
-                    groupId: 'group-top-right',
+                    paneId: 'pane-top-right',
                 },
                 second: {
                     type: 'leaf',
-                    groupId: 'group-bottom-right',
+                    paneId: 'pane-bottom-right',
                 },
             },
         };
 
-        expect(collectLayoutGroupOrder(layout)).toEqual([
-            'group-left',
-            'group-top-right',
-            'group-bottom-right',
+        expect(collectLayoutPaneOrder(layout)).toEqual([
+            'pane-left',
+            'pane-top-right',
+            'pane-bottom-right',
         ]);
     });
 
-    it('collects merge tab order by layout order and tab order inside each group', () => {
+    it('collects merge tab order by layout order and tab order inside each pane', () => {
         const layout: TEditorLayoutNode = {
             type: 'split',
             id: 'root',
@@ -66,17 +66,17 @@ describe('window tab transfer orchestration helpers', () => {
             ratio: 0.5,
             first: {
                 type: 'leaf',
-                groupId: 'group-a',
+                paneId: 'pane-a',
             },
             second: {
                 type: 'leaf',
-                groupId: 'group-b',
+                paneId: 'pane-b',
             },
         };
 
-        const groups: IEditorGroupState[] = [
+        const panes: IEditorPaneState[] = [
             {
-                id: 'group-a',
+                id: 'pane-a',
                 tabIds: [
                     'tab-1',
                     'tab-2',
@@ -84,7 +84,7 @@ describe('window tab transfer orchestration helpers', () => {
                 activeTabId: 'tab-1',
             },
             {
-                id: 'group-b',
+                id: 'pane-b',
                 tabIds: ['tab-3'],
                 activeTabId: 'tab-3',
             },
@@ -97,7 +97,7 @@ describe('window tab transfer orchestration helpers', () => {
             createTab('tab-detached'),
         ];
 
-        expect(collectMergeTabOrder(layout, groups, tabs)).toEqual([
+        expect(collectMergeTabOrder(layout, panes, tabs)).toEqual([
             'tab-1',
             'tab-2',
             'tab-3',

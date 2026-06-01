@@ -6,9 +6,9 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
 import type {
-    IEditorGroupState,
-    TGroupDirection,
-} from '@app/types/editorGroups';
+    IEditorPaneState,
+    TPaneDirection,
+} from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
@@ -26,7 +26,7 @@ const DIRECTION_ORDER = [
     'right',
     'up',
     'down',
-] as const satisfies readonly TGroupDirection[];
+] as const satisfies readonly TPaneDirection[];
 
 interface IWorkspaceSplitCacheLike {
     set: (tabId: string, payload: TSplitPayload | null | undefined) => string | null;
@@ -34,37 +34,37 @@ interface IWorkspaceSplitCacheLike {
 }
 
 interface IUseAppShellDirectionalTabsOptions {
-    activeGroupId: Ref<string | null>;
-    groups: Ref<IEditorGroupState[]>;
+    activePaneId: Ref<string | null>;
+    panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     isTabTransitionBusy: ComputedRef<boolean>;
-    getGroupById: (groupId: string | null | undefined) => IEditorGroupState | null;
+    getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
-    findDirectionalGroup: (sourceGroupId: string, direction: TGroupDirection, wrap?: boolean) => IEditorGroupState | null;
-    focusGroup: (direction: TGroupDirection, wrap?: boolean) => string | null;
-    splitGroup: (sourceGroupId: string, direction: TGroupDirection) => string | null;
-    moveTabToGroup: (tabId: string, targetGroupId: string, activate?: boolean) => boolean;
+    findDirectionalPane: (sourcePaneId: string, direction: TPaneDirection, wrap?: boolean) => IEditorPaneState | null;
+    focusPane: (direction: TPaneDirection, wrap?: boolean) => string | null;
+    splitPane: (sourcePaneId: string, direction: TPaneDirection) => string | null;
+    moveTabToPane: (tabId: string, targetPaneId: string, activate?: boolean) => boolean;
     createTab: (options: {
-        groupId?: string | null;
+        paneId?: string | null;
         activate?: boolean;
         initial?: Partial<ITab>;
     }) => ITab;
-    activateGroup: (groupId: string) => void;
-    activateTab: (groupId: string, tabId: string) => void;
+    activatePane: (paneId: string) => void;
+    activateTab: (paneId: string, tabId: string) => void;
     removeTabFromState: (tabId: string) => void;
-    cleanupEmptyGroups: () => void;
+    cleanupEmptyPanes: () => void;
     workspaceSplitCache: IWorkspaceSplitCacheLike;
-    isSingletonPlaceholderCloseBlocked: (groupId: string, tabId: string) => boolean;
+    isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
     enqueueTabTransition: <T>(task: () => Promise<T>) => Promise<T>;
     captureWorkspacePayload: (tabId: string) => Promise<TSplitPayload | null>;
     restoreWorkspacePayload: (tabId: string, payload: TSplitPayload | null) => Promise<boolean>;
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
-    handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
+    handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
 }
 
-type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TGroupDirection }>;
+type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TPaneDirection }>;
 type TStaticTabContextCommand = Exclude<TTabContextCommand, TDirectionalTabContextCommand>;
 type TStaticTabContextCommandWithoutTargetWindow = Exclude<TStaticTabContextCommand, { kind: 'move-to-window' }>;
 
@@ -77,28 +77,28 @@ function createDirectionalAvailability(value: boolean): TDirectionalCommandAvail
     };
 }
 
-function hasTabs(group: IEditorGroupState | null | undefined) {
-    return Boolean(group && group.tabIds.length > 0);
+function hasTabs(pane: IEditorPaneState | null | undefined) {
+    return Boolean(pane && pane.tabIds.length > 0);
 }
 
 export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsOptions) => {
     const {
-        activeGroupId,
-        groups,
+        activePaneId,
+        panes,
         tabs,
         workspaceRefs,
         isTabTransitionBusy,
-        getGroupById,
+        getPaneById,
         getTabById,
-        findDirectionalGroup,
-        focusGroup,
-        splitGroup,
-        moveTabToGroup,
+        findDirectionalPane,
+        focusPane,
+        splitPane,
+        moveTabToPane,
         createTab,
-        activateGroup,
+        activatePane,
         activateTab,
         removeTabFromState,
-        cleanupEmptyGroups,
+        cleanupEmptyPanes,
         workspaceSplitCache,
         isSingletonPlaceholderCloseBlocked,
         enqueueTabTransition,
@@ -112,12 +112,12 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     const splitCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const canTransferTabsAcrossWindows = computed(() => hasElectronAPI() || isWindowTabTransferSupported());
 
-    function getDirectionalTargetGroup(sourceGroupId: string, direction: TGroupDirection) {
-        return findDirectionalGroup(sourceGroupId, direction, false);
+    function getDirectionalTargetPane(sourcePaneId: string, direction: TPaneDirection) {
+        return findDirectionalPane(sourcePaneId, direction, false);
     }
 
     function buildDirectionalCommandAvailability(
-        group: IEditorGroupState,
+        pane: IEditorPaneState,
         hasActiveTab: boolean,
         transitionsBusy: boolean,
     ) {
@@ -126,14 +126,14 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const copy = createDirectionalAvailability(false);
 
         for (const direction of DIRECTION_ORDER) {
-            const focusTarget = findDirectionalGroup(group.id, direction, true);
-            const directionalTarget = getDirectionalTargetGroup(group.id, direction);
-            const hasUsableDirectionalGroup = hasTabs(directionalTarget);
-            const canUseDirectionalGroup = hasActiveTab && hasUsableDirectionalGroup && !transitionsBusy;
+            const focusTarget = findDirectionalPane(pane.id, direction, true);
+            const directionalTarget = getDirectionalTargetPane(pane.id, direction);
+            const hasUsableDirectionalPane = hasTabs(directionalTarget);
+            const canUseDirectionalPane = hasActiveTab && hasUsableDirectionalPane && !transitionsBusy;
 
-            focus[direction] = groups.value.length > 1 && hasTabs(focusTarget) && !transitionsBusy;
-            move[direction] = canUseDirectionalGroup;
-            copy[direction] = canUseDirectionalGroup;
+            focus[direction] = panes.value.length > 1 && hasTabs(focusTarget) && !transitionsBusy;
+            move[direction] = canUseDirectionalPane;
+            copy[direction] = canUseDirectionalPane;
         }
 
         return {
@@ -143,20 +143,20 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    function buildTabContextAvailabilityForGroup(
-        group: IEditorGroupState,
+    function buildTabContextAvailabilityForPane(
+        pane: IEditorPaneState,
         transitionsBusy: boolean,
     ): ITabContextAvailability {
-        const activeTabIdForGroup = group.activeTabId;
-        const hasActiveTab = Boolean(activeTabIdForGroup);
-        const closeBlocked = activeTabIdForGroup
-            ? isSingletonPlaceholderCloseBlocked(group.id, activeTabIdForGroup)
+        const activeTabIdForPane = pane.activeTabId;
+        const hasActiveTab = Boolean(activeTabIdForPane);
+        const closeBlocked = activeTabIdForPane
+            ? isSingletonPlaceholderCloseBlocked(pane.id, activeTabIdForPane)
             : false;
         const {
             focus,
             move,
             copy,
-        } = buildDirectionalCommandAvailability(group, hasActiveTab, transitionsBusy);
+        } = buildDirectionalCommandAvailability(pane, hasActiveTab, transitionsBusy);
 
         return {
             split: createDirectionalAvailability(hasActiveTab && !transitionsBusy),
@@ -193,10 +193,10 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     }
 
     async function captureActiveTabPayload() {
-        const sourceGroup = getGroupById(activeGroupId.value);
-        const sourceTabId = sourceGroup?.activeTabId ?? null;
+        const sourcePane = getPaneById(activePaneId.value);
+        const sourceTabId = sourcePane?.activeTabId ?? null;
         const sourceTab = getTabById(sourceTabId);
-        if (!sourceGroup || !sourceTabId || !sourceTab) {
+        if (!sourcePane || !sourceTabId || !sourceTab) {
             return null;
         }
 
@@ -207,7 +207,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
         return {
             payload,
-            sourceGroup,
+            sourcePane,
             sourceTab,
             sourceTabId,
         };
@@ -228,18 +228,18 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailability>>(() => {
+    const tabContextAvailabilityByPane = computed<Record<string, ITabContextAvailability>>(() => {
         const result: Record<string, ITabContextAvailability> = {};
         const transitionsBusy = isTabTransitionBusy.value;
 
-        for (const group of groups.value) {
-            result[group.id] = buildTabContextAvailabilityForGroup(group, transitionsBusy);
+        for (const pane of panes.value) {
+            result[pane.id] = buildTabContextAvailabilityForPane(pane, transitionsBusy);
         }
 
         return result;
     });
 
-    async function splitEditor(direction: TGroupDirection) {
+    async function splitEditor(direction: TPaneDirection) {
         await enqueueTabTransition(async () => {
             const activeTabPayload = await captureActiveTabPayload();
             if (!activeTabPayload) {
@@ -247,7 +247,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             }
             const {
                 payload,
-                sourceGroup,
+                sourcePane,
                 sourceTab,
                 sourceTabId,
             } = activeTabPayload;
@@ -255,13 +255,13 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
             scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
 
-            const newGroupId = splitGroup(sourceGroup.id, direction);
-            if (!newGroupId) {
+            const newPaneId = splitPane(sourcePane.id, direction);
+            if (!newPaneId) {
                 return;
             }
 
             const newTab = createTab({
-                groupId: newGroupId,
+                paneId: newPaneId,
                 activate: false,
                 initial: {
                     fileName: sourceTab.fileName,
@@ -280,21 +280,21 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                     metadata: { tabId: newTab.id },
                 });
                 removeTabFromState(newTab.id);
-                activateTab(sourceGroup.id, sourceTabId);
+                activateTab(sourcePane.id, sourceTabId);
                 return;
             }
 
-            activateGroup(sourceGroup.id);
-            activateTab(sourceGroup.id, sourceTabId);
-            cleanupEmptyGroups();
+            activatePane(sourcePane.id);
+            activateTab(sourcePane.id, sourceTabId);
+            cleanupEmptyPanes();
         });
     }
 
-    async function splitEditorEmpty(direction: TGroupDirection) {
+    async function splitEditorEmpty(direction: TPaneDirection) {
         await enqueueTabTransition(async () => {
-            const sourceGroup = getGroupById(activeGroupId.value);
-            const sourceTabId = sourceGroup?.activeTabId ?? null;
-            if (!sourceGroup) {
+            const sourcePane = getPaneById(activePaneId.value);
+            const sourceTabId = sourcePane?.activeTabId ?? null;
+            if (!sourcePane) {
                 return;
             }
 
@@ -306,53 +306,53 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 }
             }
 
-            const newGroupId = splitGroup(sourceGroup.id, direction);
-            if (!newGroupId) {
+            const newPaneId = splitPane(sourcePane.id, direction);
+            if (!newPaneId) {
                 return;
             }
 
             createTab({
-                groupId: newGroupId,
+                paneId: newPaneId,
                 activate: true,
             });
 
-            activateGroup(newGroupId);
+            activatePane(newPaneId);
         });
     }
 
-    function focusEditorGroup(direction: TGroupDirection) {
+    function focusEditorPane(direction: TPaneDirection) {
         if (isTabTransitionBusy.value) {
             return;
         }
-        focusGroup(direction, true);
+        focusPane(direction, true);
     }
 
-    function ensureTargetGroupForDirection(direction: TGroupDirection) {
-        const sourceGroup = getGroupById(activeGroupId.value);
-        if (!sourceGroup) {
+    function ensureTargetPaneForDirection(direction: TPaneDirection) {
+        const sourcePane = getPaneById(activePaneId.value);
+        if (!sourcePane) {
             return null;
         }
 
-        const existing = getDirectionalTargetGroup(sourceGroup.id, direction);
+        const existing = getDirectionalTargetPane(sourcePane.id, direction);
         if (!existing || existing.tabIds.length === 0) {
             return null;
         }
 
         return {
-            sourceGroup,
-            targetGroupId: existing.id,
+            sourcePane,
+            targetPaneId: existing.id,
         };
     }
 
-    async function moveActiveTab(direction: TGroupDirection) {
+    async function moveActiveTab(direction: TPaneDirection) {
         await enqueueTabTransition(async () => {
-            const sourceGroup = getGroupById(activeGroupId.value);
-            const sourceTabId = sourceGroup?.activeTabId ?? null;
-            if (!sourceGroup || !sourceTabId) {
+            const sourcePane = getPaneById(activePaneId.value);
+            const sourceTabId = sourcePane?.activeTabId ?? null;
+            if (!sourcePane || !sourceTabId) {
                 return;
             }
 
-            const route = ensureTargetGroupForDirection(direction);
+            const route = ensureTargetPaneForDirection(direction);
             if (!route) {
                 return;
             }
@@ -367,15 +367,15 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
             }
 
-            const moved = moveTabToGroup(sourceTabId, route.targetGroupId, true);
+            const moved = moveTabToPane(sourceTabId, route.targetPaneId, true);
             if (moved) {
-                activateTab(route.targetGroupId, sourceTabId);
+                activateTab(route.targetPaneId, sourceTabId);
             }
-            cleanupEmptyGroups();
+            cleanupEmptyPanes();
         });
     }
 
-    async function copyActiveTab(direction: TGroupDirection) {
+    async function copyActiveTab(direction: TPaneDirection) {
         await enqueueTabTransition(async () => {
             const activeTabPayload = await captureActiveTabPayload();
             if (!activeTabPayload) {
@@ -383,18 +383,18 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             }
             const {
                 payload,
-                sourceGroup,
+                sourcePane,
                 sourceTab,
                 sourceTabId,
             } = activeTabPayload;
 
-            const route = ensureTargetGroupForDirection(direction);
+            const route = ensureTargetPaneForDirection(direction);
             if (!route) {
                 return;
             }
 
             const targetTab = createTab({
-                groupId: route.targetGroupId,
+                paneId: route.targetPaneId,
                 activate: false,
                 initial: {
                     fileName: sourceTab.fileName,
@@ -407,12 +407,12 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const restored = await restoreWorkspacePayload(targetTab.id, payload);
             if (!restored) {
                 removeTabFromState(targetTab.id);
-                activateTab(sourceGroup.id, sourceTabId);
+                activateTab(sourcePane.id, sourceTabId);
                 return;
             }
 
-            activateTab(route.targetGroupId, targetTab.id);
-            cleanupEmptyGroups();
+            activateTab(route.targetPaneId, targetTab.id);
+            cleanupEmptyPanes();
         });
     }
 
@@ -421,7 +421,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     }
 
     function getStaticContextCommandRunner(
-        groupId: string,
+        paneId: string,
         tabId: string,
         command: TStaticTabContextCommand,
     ) {
@@ -432,12 +432,12 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const handlers = {
             'new-tab': () => {
                 createTab({
-                    groupId,
+                    paneId,
                     activate: true,
                 });
                 return Promise.resolve();
             },
-            'close-tab': () => handleCloseTab(groupId, tabId),
+            'close-tab': () => handleCloseTab(paneId, tabId),
             'move-to-new-window': () => moveTabToNewWindow(tabId),
         } satisfies Record<TStaticTabContextCommandWithoutTargetWindow['kind'], () => Promise<void>>;
 
@@ -448,34 +448,34 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const handlers = {
             split: splitEditor,
             'split-empty': splitEditorEmpty,
-            focus: (direction: TGroupDirection) => {
-                focusEditorGroup(direction);
+            focus: (direction: TPaneDirection) => {
+                focusEditorPane(direction);
                 return Promise.resolve();
             },
             move: moveActiveTab,
             copy: copyActiveTab,
-        } satisfies Record<TDirectionalTabContextCommand['kind'], (direction: TGroupDirection) => Promise<void>>;
+        } satisfies Record<TDirectionalTabContextCommand['kind'], (direction: TPaneDirection) => Promise<void>>;
 
         await handlers[command.kind](command.direction);
     }
 
     async function handleTabContextCommand(
-        groupId: string,
+        paneId: string,
         tabId: string,
         command: TTabContextCommand,
     ) {
-        const group = getGroupById(groupId);
-        if (!group) {
+        const pane = getPaneById(paneId);
+        if (!pane) {
             return;
         }
 
-        activateGroup(groupId);
-        activateTab(groupId, tabId);
-        await runTabContextCommand(groupId, tabId, command);
+        activatePane(paneId);
+        activateTab(paneId, tabId);
+        await runTabContextCommand(paneId, tabId, command);
     }
 
     async function runTabContextCommand(
-        groupId: string,
+        paneId: string,
         tabId: string,
         command: TTabContextCommand,
     ) {
@@ -484,21 +484,21 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             return;
         }
 
-        await getStaticContextCommandRunner(groupId, tabId, command)();
+        await getStaticContextCommandRunner(paneId, tabId, command)();
     }
 
     function handleTabMoveDirection(
-        groupId: string,
+        paneId: string,
         tabId: string,
         direction: 'left' | 'right',
     ) {
-        const group = getGroupById(groupId);
-        if (!group || !group.tabIds.includes(tabId)) {
+        const pane = getPaneById(paneId);
+        if (!pane || !pane.tabIds.includes(tabId)) {
             return;
         }
 
-        activateGroup(groupId);
-        activateTab(groupId, tabId);
+        activatePane(paneId);
+        activateTab(paneId, tabId);
         void moveActiveTab(direction);
     }
 
@@ -510,10 +510,10 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     }
 
     return {
-        tabContextAvailabilityByGroup,
+        tabContextAvailabilityByPane,
         splitEditor,
         splitEditorEmpty,
-        focusEditorGroup,
+        focusEditorPane,
         moveActiveTab,
         copyActiveTab,
         handleTabContextCommand,

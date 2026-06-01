@@ -1,19 +1,19 @@
 <template>
     <div
         v-if="leafNode"
-        class="editor-group-pane"
+        class="editor-pane"
         :class="{
-            'is-active': leafNode.groupId === activeGroupId,
-            'has-multiple-groups': hasMultipleGroups,
+            'is-active': leafNode.paneId === activePaneId,
+            'has-multiple-panes': hasMultiplePanes,
         }"
-        @pointerdown="handleGroupPointerDown(leafNode.groupId)"
+        @pointerdown="handlePanePointerDown(leafNode.paneId)"
     >
-        <template v-if="groupForLeaf">
+        <template v-if="paneForLeaf">
             <TabBar
                 v-if="!zenMode"
-                :tabs="tabsForGroup(groupForLeaf!.id)"
-                :active-tab-id="groupForLeaf!.activeTabId"
-                :context-availability="tabContextAvailabilityByGroup[groupForLeaf!.id] ?? null"
+                :tabs="tabsForPane(paneForLeaf!.id)"
+                :active-tab-id="paneForLeaf!.activeTabId"
+                :context-availability="tabContextAvailabilityByPane[paneForLeaf!.id] ?? null"
                 @activate="handleLeafTabActivate"
                 @close="handleLeafTabClose"
                 @new-tab="handleLeafNewTab"
@@ -21,19 +21,19 @@
                 @move-direction="handleLeafTabMoveDirection"
                 @tab-context-command="handleLeafTabContextCommand"
             />
-            <div class="editor-group-content">
-                <template v-for="tab in tabsForGroup(groupForLeaf!.id)" :key="tab.id">
+            <div class="editor-pane-content">
+                <template v-for="tab in tabsForPane(paneForLeaf!.id)" :key="tab.id">
                     <DeferredDocumentWorkspaceHost
                         v-if="shouldMountHost(tab.id)"
-                        v-show="tab.id === groupForLeaf!.activeTabId"
+                        v-show="tab.id === paneForLeaf!.activeTabId"
                         :ref="workspaceRefHandler(tab.id)"
                         :tab-id="tab.id"
                         :document-path="tab.originalPath"
                         :has-document-hint="tabHasDocumentHint(tab)"
                         :initial-view-state="viewStateByTabId[tab.id] ?? null"
                         :is-startup-open-claim-pending="isStartupOpenClaimPending"
-                        :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
-                        :is-render-active="tab.id === groupForLeaf!.activeTabId"
+                        :is-active="paneForLeaf!.id === activePaneId && tab.id === paneForLeaf!.activeTabId"
+                        :is-render-active="tab.id === paneForLeaf!.activeTabId"
                         :is-tab-transition-busy="isTabTransitionBusy"
                         :is-fullscreen="isFullscreen"
                         :fullscreen-supported="fullscreenSupported"
@@ -50,7 +50,7 @@
                 </template>
             </div>
         </template>
-        <div v-else class="editor-group-content" />
+        <div v-else class="editor-pane-content" />
     </div>
 
     <div
@@ -64,14 +64,14 @@
             class="editor-split-pane editor-split-pane-first"
             :style="firstPaneStyle"
         >
-            <EditorGroupsGrid
+            <EditorPanesGrid
                 :node="splitNode.first"
-                :groups="groups"
+                :panes="panes"
                 :tabs="tabs"
-                :active-group-id="activeGroupId"
+                :active-pane-id="activePaneId"
                 :is-startup-open-claim-pending="isStartupOpenClaimPending"
                 :is-tab-transition-busy="isTabTransitionBusy"
-                :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+                :tab-context-availability-by-pane="tabContextAvailabilityByPane"
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
@@ -79,7 +79,7 @@
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                @activate-group="handleActivateGroup"
+                @activate-pane="handleActivatePane"
                 @activate-tab="handleActivateTab"
                 @close-tab="handleCloseTab"
                 @new-tab="handleNewTab"
@@ -112,14 +112,14 @@
             v-if="!zenMode || secondPaneHasZenActiveTab"
             class="editor-split-pane editor-split-pane-second"
         >
-            <EditorGroupsGrid
+            <EditorPanesGrid
                 :node="splitNode.second"
-                :groups="groups"
+                :panes="panes"
                 :tabs="tabs"
-                :active-group-id="activeGroupId"
+                :active-pane-id="activePaneId"
                 :is-startup-open-claim-pending="isStartupOpenClaimPending"
                 :is-tab-transition-busy="isTabTransitionBusy"
-                :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+                :tab-context-availability-by-pane="tabContextAvailabilityByPane"
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
                 :view-state-by-tab-id="viewStateByTabId"
@@ -127,7 +127,7 @@
                 :zen-active-tab-id="zenActiveTabId"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                @activate-group="handleActivateGroup"
+                @activate-pane="handleActivatePane"
                 @activate-tab="handleActivateTab"
                 @close-tab="handleCloseTab"
                 @new-tab="handleNewTab"
@@ -163,11 +163,11 @@ import type {
     TTabContextCommand,
 } from '@app/types/tabContextMenu';
 import type {
-    IEditorGroupState,
+    IEditorPaneState,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
-    TGroupOrientation,
-} from '@app/types/editorGroups';
+    TPaneOrientation,
+} from '@app/types/editorPanes';
 import type { TOpenFileResult } from '@contracts/platformApi';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
@@ -178,10 +178,10 @@ import type {
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/composables/useTabSessionStore';
 
-defineOptions({name: 'EditorGroupsGrid'});
+defineOptions({name: 'EditorPanesGrid'});
 
 const {
-    groups,
+    panes,
     node,
     tabLifecycleById,
     tabs,
@@ -190,12 +190,12 @@ const {
     zenMode,
 } = defineProps<{
     node: TEditorLayoutNode;
-    groups: IEditorGroupState[];
+    panes: IEditorPaneState[];
     tabs: ITab[];
-    activeGroupId: string | null;
+    activePaneId: string | null;
     isStartupOpenClaimPending: boolean;
     isTabTransitionBusy: boolean;
-    tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
+    tabContextAvailabilityByPane: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
@@ -206,19 +206,19 @@ const {
 }>();
 
 const emit = defineEmits<{
-    'activate-group': [groupId: string];
-    'activate-tab': [groupId: string, tabId: string];
-    'close-tab': [groupId: string, tabId: string];
-    'new-tab': [groupId: string];
-    'reorder-tab': [groupId: string, fromIndex: number, toIndex: number];
-    'move-tab-direction': [groupId: string, tabId: string, direction: 'left' | 'right'];
-    'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
+    'activate-pane': [paneId: string];
+    'activate-tab': [paneId: string, tabId: string];
+    'close-tab': [paneId: string, tabId: string];
+    'new-tab': [paneId: string];
+    'reorder-tab': [paneId: string, fromIndex: number, toIndex: number];
+    'move-tab-direction': [paneId: string, tabId: string, direction: 'left' | 'right'];
+    'tab-context-command': [paneId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
     'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
-    'open-in-new-tab': [result: string | TOpenFileResult, groupId: string];
-    'request-close-tab': [groupId: string, tabId: string];
+    'open-in-new-tab': [result: string | TOpenFileResult, paneId: string];
+    'request-close-tab': [paneId: string, tabId: string];
     'open-settings': [];
     'open-combine': [];
     'toggle-fullscreen': [];
@@ -227,28 +227,28 @@ const emit = defineEmits<{
 
 const splitContainerRef = ref<HTMLElement | null>(null);
 const workspaceRefHandlersByTabId = new Map<string, (el: unknown) => void>();
-const hasMultipleGroups = computed(() => groups.length > 1);
+const hasMultiplePanes = computed(() => panes.length > 1);
 const leafNode = computed(() => (node.type === 'leaf' ? node : null));
 const splitNode = computed<IEditorLayoutSplitNode | null>(() => (node.type === 'split' ? node : null));
-const groupById = computed(() => {
-    return new Map(Object.entries(keyBy(groups, group => group.id)));
+const paneById = computed(() => {
+    return new Map(Object.entries(keyBy(panes, pane => pane.id)));
 });
 const tabById = computed(() => {
     return new Map(Object.entries(keyBy(tabs, tab => tab.id)));
 });
-const tabsByGroupId = computed(() => {
+const tabsByPaneId = computed(() => {
     const map = new Map<string, ITab[]>();
     const tabLookup = tabById.value;
 
-    for (const group of groups) {
-        const groupTabs: ITab[] = [];
-        for (const tabId of group.tabIds) {
+    for (const pane of panes) {
+        const paneTabs: ITab[] = [];
+        for (const tabId of pane.tabIds) {
             const tab = tabLookup.get(tabId);
             if (tab) {
-                groupTabs.push(tab);
+                paneTabs.push(tab);
             }
         }
-        map.set(group.id, groupTabs);
+        map.set(pane.id, paneTabs);
     }
 
     return map;
@@ -271,22 +271,22 @@ const secondPaneHasZenActiveTab = computed(() => (
     Boolean(splitNode.value && nodeContainsTab(splitNode.value.second, zenActiveTabId))
 ));
 
-const groupForLeaf = computed(() => {
+const paneForLeaf = computed(() => {
     const leaf = leafNode.value;
     if (!leaf) {
         return null;
     }
 
-    return groupById.value.get(leaf.groupId) ?? null;
+    return paneById.value.get(leaf.paneId) ?? null;
 });
 
-function tabsForGroup(groupId: string) {
-    const groupTabs = tabsByGroupId.value.get(groupId) ?? [];
+function tabsForPane(paneId: string) {
+    const paneTabs = tabsByPaneId.value.get(paneId) ?? [];
     if (!zenMode || !zenActiveTabId) {
-        return groupTabs;
+        return paneTabs;
     }
 
-    return groupTabs.filter(tab => tab.id === zenActiveTabId);
+    return paneTabs.filter(tab => tab.id === zenActiveTabId);
 }
 
 function shouldMountHost(tabId: string) {
@@ -299,7 +299,7 @@ function nodeContainsTab(node: TEditorLayoutNode, tabId: string | null): boolean
     }
 
     if (node.type === 'leaf') {
-        return tabsByGroupId.value.get(node.groupId)?.some(tab => tab.id === tabId) ?? false;
+        return tabsByPaneId.value.get(node.paneId)?.some(tab => tab.id === tabId) ?? false;
     }
 
     return nodeContainsTab(node.first, tabId) || nodeContainsTab(node.second, tabId);
@@ -318,49 +318,49 @@ function workspaceRefHandler(tabId: string) {
     return handler;
 }
 
-function currentLeafGroupId() {
-    return groupForLeaf.value?.id ?? null;
+function currentLeafPaneId() {
+    return paneForLeaf.value?.id ?? null;
 }
 
 function handleLeafTabActivate(tabId: string) {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('activate-tab', groupId, tabId);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('activate-tab', paneId, tabId);
     }
 }
 
 function handleLeafTabClose(tabId: string) {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('close-tab', groupId, tabId);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('close-tab', paneId, tabId);
     }
 }
 
 function handleLeafNewTab() {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('new-tab', groupId);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('new-tab', paneId);
     }
 }
 
 function handleLeafTabReorder(fromIndex: number, toIndex: number) {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('reorder-tab', groupId, fromIndex, toIndex);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('reorder-tab', paneId, fromIndex, toIndex);
     }
 }
 
 function handleLeafTabMoveDirection(tabId: string, direction: 'left' | 'right') {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('move-tab-direction', groupId, tabId, direction);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('move-tab-direction', paneId, tabId, direction);
     }
 }
 
 function handleLeafTabContextCommand(tabId: string, command: TTabContextCommand) {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('tab-context-command', groupId, tabId, command);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('tab-context-command', paneId, tabId, command);
     }
 }
 
@@ -377,45 +377,45 @@ function handleWorkspaceStartSectionUpdate(tabId: string, section: TStartSection
 }
 
 function handleLeafOpenInNewTab(result: string | TOpenFileResult) {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('open-in-new-tab', result, groupId);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('open-in-new-tab', result, paneId);
     }
 }
 
 function handleLeafRequestCloseTab(tabId: string) {
-    const groupId = currentLeafGroupId();
-    if (groupId) {
-        emit('request-close-tab', groupId, tabId);
+    const paneId = currentLeafPaneId();
+    if (paneId) {
+        emit('request-close-tab', paneId, tabId);
     }
 }
 
-function handleActivateGroup(groupId: string) {
-    emit('activate-group', groupId);
+function handleActivatePane(paneId: string) {
+    emit('activate-pane', paneId);
 }
 
-function handleActivateTab(groupId: string, tabId: string) {
-    emit('activate-tab', groupId, tabId);
+function handleActivateTab(paneId: string, tabId: string) {
+    emit('activate-tab', paneId, tabId);
 }
 
-function handleCloseTab(groupId: string, tabId: string) {
-    emit('close-tab', groupId, tabId);
+function handleCloseTab(paneId: string, tabId: string) {
+    emit('close-tab', paneId, tabId);
 }
 
-function handleNewTab(groupId: string) {
-    emit('new-tab', groupId);
+function handleNewTab(paneId: string) {
+    emit('new-tab', paneId);
 }
 
-function handleReorderTab(groupId: string, fromIndex: number, toIndex: number) {
-    emit('reorder-tab', groupId, fromIndex, toIndex);
+function handleReorderTab(paneId: string, fromIndex: number, toIndex: number) {
+    emit('reorder-tab', paneId, fromIndex, toIndex);
 }
 
-function handleMoveTabDirection(groupId: string, tabId: string, direction: 'left' | 'right') {
-    emit('move-tab-direction', groupId, tabId, direction);
+function handleMoveTabDirection(paneId: string, tabId: string, direction: 'left' | 'right') {
+    emit('move-tab-direction', paneId, tabId, direction);
 }
 
-function handleTabContextCommand(groupId: string, tabId: string, command: TTabContextCommand) {
-    emit('tab-context-command', groupId, tabId, command);
+function handleTabContextCommand(paneId: string, tabId: string, command: TTabContextCommand) {
+    emit('tab-context-command', paneId, tabId, command);
 }
 
 function handleSetWorkspaceRef(tabId: string, el: unknown) {
@@ -434,12 +434,12 @@ function handleUpdateTabStartSection(tabId: string, section: TStartSection) {
     emit('update-tab-start-section', tabId, section);
 }
 
-function handleOpenInNewTab(result: string | TOpenFileResult, groupId: string) {
-    emit('open-in-new-tab', result, groupId);
+function handleOpenInNewTab(result: string | TOpenFileResult, paneId: string) {
+    emit('open-in-new-tab', result, paneId);
 }
 
-function handleRequestCloseTab(groupId: string, tabId: string) {
-    emit('request-close-tab', groupId, tabId);
+function handleRequestCloseTab(paneId: string, tabId: string) {
+    emit('request-close-tab', paneId, tabId);
 }
 
 function handleOpenSettings() {
@@ -458,8 +458,8 @@ function handleUpdateSplitRatio(splitId: string, ratio: number) {
     emit('update-split-ratio', splitId, ratio);
 }
 
-function handleGroupPointerDown(groupId: string) {
-    emit('activate-group', groupId);
+function handlePanePointerDown(paneId: string) {
+    emit('activate-pane', paneId);
 }
 
 let moveListener: ((event: PointerEvent) => void) | null = null;
@@ -472,7 +472,7 @@ function clearResizeListeners() {
     upListener = null;
 }
 
-function startResize(event: PointerEvent, splitId: string, orientation: TGroupOrientation) {
+function startResize(event: PointerEvent, splitId: string, orientation: TPaneOrientation) {
     const container = splitContainerRef.value;
     if (!container) {
         return;
@@ -538,7 +538,7 @@ watch(() => tabs, (tabs) => {
 </script>
 
 <style scoped>
-.editor-group-pane {
+.editor-pane {
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -549,24 +549,24 @@ watch(() => tabs, (tabs) => {
     background: var(--app-window-bg);
 }
 
-.editor-group-pane.has-multiple-groups {
+.editor-pane.has-multiple-panes {
     position: relative;
 }
 
-.editor-group-pane.has-multiple-groups :deep(.tab-bar) {
+.editor-pane.has-multiple-panes :deep(.tab-bar) {
     transition: background-color 0.12s ease, border-bottom-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.editor-group-pane.has-multiple-groups.is-active :deep(.tab-bar) {
-    background: var(--app-editor-group-active-tabbar-bg);
-    border-bottom-color: var(--app-editor-group-active-tabbar-divider);
-    box-shadow: inset 0 1px 0 var(--app-editor-group-active-tabbar-glow);
+.editor-pane.has-multiple-panes.is-active :deep(.tab-bar) {
+    background: var(--app-editor-pane-active-tabbar-bg);
+    border-bottom-color: var(--app-editor-pane-active-tabbar-divider);
+    box-shadow: inset 0 1px 0 var(--app-editor-pane-active-tabbar-glow);
 
-    --app-tab-divider: var(--app-editor-group-active-tabbar-divider);
-    --app-tab-hover-bg: color-mix(in oklab, var(--app-editor-group-active-tabbar-bg) 55%, var(--ui-bg) 45%);
+    --app-tab-divider: var(--app-editor-pane-active-tabbar-divider);
+    --app-tab-hover-bg: color-mix(in oklab, var(--app-editor-pane-active-tabbar-bg) 55%, var(--ui-bg) 45%);
 }
 
-.editor-group-content {
+.editor-pane-content {
     display: flex;
     flex: 1;
     min-height: 0;
@@ -575,7 +575,7 @@ watch(() => tabs, (tabs) => {
     box-sizing: border-box;
 }
 
-.editor-group-content > * {
+.editor-pane-content > * {
     flex: 1;
     width: 100%;
     min-width: 0;
@@ -589,7 +589,7 @@ watch(() => tabs, (tabs) => {
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    background: var(--app-editor-group-grid-bg);
+    background: var(--app-editor-pane-grid-bg);
     box-sizing: border-box;
 }
 
