@@ -477,6 +477,8 @@ export default {
         'caseSensitive': 'Hoofdlettergevoelig',
         'wholeWord': 'Heel woord',
         'regex': 'Reguliere expressie gebruiken',
+        'runSearch': 'Zoeken',
+        'runSearchHint': 'Zoeken (Enter)',
     },
     'searchResults': {
         'searching': 'Zoeken…',

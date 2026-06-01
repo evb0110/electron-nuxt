@@ -477,6 +477,8 @@ export default {
         'caseSensitive': 'Match case',
         'wholeWord': 'Whole word',
         'regex': 'Use regular expression',
+        'runSearch': 'Suchen',
+        'runSearchHint': 'Suchen (Enter)',
     },
     'searchResults': {
         'searching': 'Suche läuft…',

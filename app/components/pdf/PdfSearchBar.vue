@@ -1,19 +1,43 @@
 <template>
-    <div class="flex flex-col gap-1 px-2 py-1.5">
-        <div class="flex items-center gap-1.5">
-            <UInput
-                ref="inputRef"
-                v-model="searchQuery"
-                class="min-w-0 flex-1"
-                :placeholder="t('search.placeholder')"
-                autofocus
-                @keydown.enter.exact.prevent="onSearch"
-                @keydown.shift.enter="onPrevious"
-            >
-                <template #leading>
-                    <UIcon name="i-ph-magnifying-glass" class="size-4" />
-                </template>
-                <template v-if="searchQuery" #trailing>
+    <div class="flex flex-col gap-1.5 px-2 py-1.5">
+        <UInput
+            ref="inputRef"
+            v-model="searchQuery"
+            class="w-full"
+            :placeholder="t('search.placeholder')"
+            autofocus
+            @keydown.enter.exact.prevent="onSearch"
+            @keydown.shift.enter="onPrevious"
+        >
+            <template #leading>
+                <UIcon name="i-ph-magnifying-glass" class="size-4" />
+            </template>
+            <template v-if="searchQuery" #trailing>
+                <div class="flex items-center gap-0.5">
+                    <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
+                        <UButton
+                            icon="i-ph-caret-up"
+                            variant="ghost"
+                            color="neutral"
+                            size="xs"
+                            class="min-w-auto px-1"
+                            :disabled="totalMatches === 0"
+                            :aria-label="t('search.previousMatchLabel')"
+                            @click="onPrevious"
+                        />
+                    </AppTooltip>
+                    <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
+                        <UButton
+                            icon="i-ph-caret-down"
+                            variant="ghost"
+                            color="neutral"
+                            size="xs"
+                            class="min-w-auto px-1"
+                            :disabled="totalMatches === 0"
+                            :aria-label="t('search.nextMatchLabel')"
+                            @click="onNext"
+                        />
+                    </AppTooltip>
                     <UButton
                         icon="i-ph-x"
                         variant="ghost"
@@ -23,66 +47,58 @@
                         :aria-label="t('search.clearSearchLabel')"
                         @click="clearQuery"
                     />
-                </template>
-            </UInput>
+                </div>
+            </template>
+        </UInput>
 
-            <div class="flex shrink-0 items-center gap-0.5">
-                <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
+        <div class="flex items-center gap-1">
+            <div class="search-toggle-group">
+                <UButton
+                    label="Aa"
+                    variant="ghost"
+                    color="neutral"
+                    size="xs"
+                    class="search-toggle"
+                    :class="{ 'is-active': options.matchCase }"
+                    :aria-label="t('search.caseSensitive')"
+                    @click="toggleOption('matchCase')"
+                />
+                <UButton
+                    label="W"
+                    variant="ghost"
+                    color="neutral"
+                    size="xs"
+                    class="search-toggle"
+                    :class="{ 'is-active': options.wholeWord }"
+                    :aria-label="t('search.wholeWord')"
+                    @click="toggleOption('wholeWord')"
+                />
+                <UButton
+                    label=".*"
+                    variant="ghost"
+                    color="neutral"
+                    size="xs"
+                    class="search-toggle"
+                    :class="{ 'is-active': options.useRegex }"
+                    :aria-label="t('search.regex')"
+                    @click="toggleOption('useRegex')"
+                />
+            </div>
+
+            <div class="ml-auto">
+                <AppTooltip :text="t('search.runSearchHint')" :delay-duration="1200">
                     <UButton
-                        icon="i-ph-caret-up"
-                        variant="ghost"
-                        color="neutral"
+                        :label="t('search.runSearch')"
+                        variant="outline"
+                        color="primary"
                         size="xs"
-                        :disabled="totalMatches === 0"
-                        :aria-label="t('search.previousMatchLabel')"
-                        @click="onPrevious"
-                    />
-                </AppTooltip>
-                <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
-                    <UButton
-                        icon="i-ph-caret-down"
-                        variant="ghost"
-                        color="neutral"
-                        size="xs"
-                        :disabled="totalMatches === 0"
-                        :aria-label="t('search.nextMatchLabel')"
-                        @click="onNext"
+                        class="search-run-button"
+                        :disabled="!searchQuery.trim()"
+                        :aria-label="t('search.runSearch')"
+                        @click="onSearchButton"
                     />
                 </AppTooltip>
             </div>
-        </div>
-
-        <div class="flex items-center gap-1">
-            <UButton
-                label="Aa"
-                variant="ghost"
-                color="neutral"
-                size="xs"
-                class="search-option-chip min-w-auto px-1.5 text-[11px] font-semibold"
-                :class="{ 'is-active': options.matchCase }"
-                :aria-label="t('search.caseSensitive')"
-                @click="toggleOption('matchCase')"
-            />
-            <UButton
-                label="W"
-                variant="ghost"
-                color="neutral"
-                size="xs"
-                class="search-option-chip min-w-auto px-1.5 text-[11px] font-semibold"
-                :class="{ 'is-active': options.wholeWord }"
-                :aria-label="t('search.wholeWord')"
-                @click="toggleOption('wholeWord')"
-            />
-            <UButton
-                label=".*"
-                variant="ghost"
-                color="neutral"
-                size="xs"
-                class="search-option-chip min-w-auto px-1.5 text-[11px] font-semibold"
-                :class="{ 'is-active': options.useRegex }"
-                :aria-label="t('search.regex')"
-                @click="toggleOption('useRegex')"
-            />
         </div>
     </div>
 </template>
@@ -140,6 +156,11 @@ function onSearch() {
     emit('search');
 }
 
+function onSearchButton() {
+    emit('search');
+    focus();
+}
+
 function onNext() {
     emit('next');
 }
@@ -160,19 +181,40 @@ defineExpose({ focus });
 </script>
 
 <style scoped>
-.search-option-chip {
-    border: 1px solid transparent;
+.search-toggle-group {
+    display: inline-flex;
+    align-items: stretch;
+    height: 1.5rem;
+    border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
+    overflow: hidden;
 }
 
-.search-option-chip:hover {
+.search-toggle {
+    min-width: auto;
+    border-radius: 0;
+    padding-inline: 0.5rem;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.search-toggle + .search-toggle {
+    border-left: 1px solid var(--ui-border);
+}
+
+.search-toggle:hover {
     background: var(--app-sidebar-control-hover-bg);
     color: var(--ui-text);
 }
 
-.search-option-chip.is-active {
-    border-color: var(--app-control-active-border);
-    background: var(--app-control-active-bg);
-    color: var(--ui-text);
+.search-toggle.is-active {
+    background: var(--app-search-toggle-active-bg);
+    color: var(--ui-primary);
+}
+
+.search-run-button {
+    height: 1.5rem;
+    font-size: 11px;
+    font-weight: 600;
 }
 </style>

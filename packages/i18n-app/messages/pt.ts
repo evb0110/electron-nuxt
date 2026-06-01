@@ -480,6 +480,8 @@ export default {
         'caseSensitive': 'Distinguir maiúsculas e minúsculas',
         'wholeWord': 'Palavra inteira',
         'regex': 'Usar expressão regular',
+        'runSearch': 'Pesquisar',
+        'runSearchHint': 'Pesquisar (Enter)',
     },
     'searchResults': {
         'searching': 'A pesquisar…',

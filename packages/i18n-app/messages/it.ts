@@ -477,6 +477,8 @@ export default {
         'caseSensitive': 'Distingui maiuscole e minuscole',
         'wholeWord': 'Parola intera',
         'regex': 'Usa espressione regolare',
+        'runSearch': 'Cerca',
+        'runSearchHint': 'Cerca (Enter)',
     },
     'searchResults': {
         'searching': 'Ricerca…',

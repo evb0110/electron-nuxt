@@ -480,6 +480,8 @@ export default {
         'caseSensitive': 'Match case',
         'wholeWord': 'Whole word',
         'regex': 'Use regular expression',
+        'runSearch': 'Rechercher',
+        'runSearchHint': 'Rechercher (Enter)',
     },
     'searchResults': {
         'searching': 'Recherche…',
