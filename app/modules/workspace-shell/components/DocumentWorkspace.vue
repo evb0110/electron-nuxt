@@ -238,6 +238,7 @@
                     :page-label-ranges="pageLabelRanges"
                     :search-results="results"
                     :current-result-index="currentResultIndex"
+                    :current-result-navigation-id="currentResultNavigationId"
                     :total-matches="totalMatches"
                     :is-searching="isSearching"
                     :search-error="searchError"
