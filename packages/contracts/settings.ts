@@ -49,6 +49,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
     tabMemoryPolicy: 'conservative',
+    agentMcpEnabled: false,
 };
 
 const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
@@ -157,6 +158,9 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         defaultAnnotationColor: normalizeDefaultAnnotationColor(value?.defaultAnnotationColor),
         uiScale: normalizeUiScale(value?.uiScale),
         tabMemoryPolicy: normalizeTabMemoryPolicy(value?.tabMemoryPolicy),
+        agentMcpEnabled: isBoolean(value?.agentMcpEnabled)
+            ? value.agentMcpEnabled
+            : DEFAULT_SETTINGS.agentMcpEnabled,
     };
     if (isBoolean(value?.suppressDefaultViewerPrompt)) {
         settings.suppressDefaultViewerPrompt = value.suppressDefaultViewerPrompt;

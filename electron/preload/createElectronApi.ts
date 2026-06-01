@@ -185,6 +185,21 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
         },
 
+        agent: {
+            onWorkspaceSnapshotRequest: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest, callback),
+            submitWorkspaceSnapshot: response =>
+                invokeCore(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, response),
+            onCommandRequest: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentCommandRequest, callback),
+            submitCommandResponse: response =>
+                invokeCore(CORE_IPC_CHANNELS.agentSubmitCommandResponse, response),
+            getMcpIntegrationStatus: () =>
+                invokeCore(CORE_IPC_CHANNELS.agentGetMcpIntegrationStatus),
+            setMcpIntegrationEnabled: enabled =>
+                invokeCore(CORE_IPC_CHANNELS.agentSetMcpIntegrationEnabled, enabled),
+        },
+
         windowTabs: {
             closeCurrentWindow: () => invokeCore(CORE_IPC_CHANNELS.windowCloseCurrent),
             notifyRendererReady: () => {

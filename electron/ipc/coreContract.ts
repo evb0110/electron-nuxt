@@ -1,5 +1,13 @@
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type {
+    IAgentCommandRequest,
+    IAgentCommandResponse,
+    IAgentMcpIntegrationStatus,
+    IAgentMcpIntegrationUpdateResult,
+    IAgentWorkspaceSnapshotRequest,
+    IAgentWorkspaceSnapshotResponse,
+} from '@contracts/agent';
+import type {
     IHostEnvironmentSnapshot,
     IHostZenModeState,
 } from '@contracts/electronApiHost';
@@ -34,6 +42,10 @@ export const CORE_IPC_CHANNELS = {
     hostGetEnvironment: 'host:getEnvironment',
     hostGetZenModeState: 'host:getZenModeState',
     hostSetZenMode: 'host:setZenMode',
+    agentGetMcpIntegrationStatus: 'agent:getMcpIntegrationStatus',
+    agentSetMcpIntegrationEnabled: 'agent:setMcpIntegrationEnabled',
+    agentSubmitWorkspaceSnapshot: 'agent:submitWorkspaceSnapshot',
+    agentSubmitCommandResponse: 'agent:submitCommandResponse',
 } as const;
 
 export const CORE_IPC_EVENT_CHANNELS = {
@@ -51,6 +63,8 @@ export const CORE_IPC_EVENT_CHANNELS = {
     debugLog: 'debug:log',
     hostEnvironmentChanged: 'host:environmentChanged',
     hostZenModeChanged: 'host:zenModeChanged',
+    agentWorkspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
+    agentCommandRequest: 'agent:commandRequest',
 } as const;
 
 export const CORE_IPC_SEND_CHANNELS = {rendererLog: 'renderer:log'} as const;
@@ -126,6 +140,22 @@ export interface ICoreInvokeMap {
         args: [active: boolean];
         result: IHostZenModeState;
     };
+    [CORE_IPC_CHANNELS.agentGetMcpIntegrationStatus]: {
+        args: [];
+        result: IAgentMcpIntegrationStatus;
+    };
+    [CORE_IPC_CHANNELS.agentSetMcpIntegrationEnabled]: {
+        args: [enabled: boolean];
+        result: IAgentMcpIntegrationUpdateResult;
+    };
+    [CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot]: {
+        args: [response: IAgentWorkspaceSnapshotResponse];
+        result: boolean;
+    };
+    [CORE_IPC_CHANNELS.agentSubmitCommandResponse]: {
+        args: [response: IAgentCommandResponse];
+        result: boolean;
+    };
 }
 
 export interface ICoreEventMap {
@@ -143,4 +173,6 @@ export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged]: IHostEnvironmentSnapshot;
     [CORE_IPC_EVENT_CHANNELS.hostZenModeChanged]: IHostZenModeState;
+    [CORE_IPC_EVENT_CHANNELS.agentWorkspaceSnapshotRequest]: IAgentWorkspaceSnapshotRequest;
+    [CORE_IPC_EVENT_CHANNELS.agentCommandRequest]: IAgentCommandRequest;
 }

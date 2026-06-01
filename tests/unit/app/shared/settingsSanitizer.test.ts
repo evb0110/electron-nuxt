@@ -60,6 +60,11 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({tabMemoryPolicy: 'unsupported' as never}).tabMemoryPolicy).toBe(DEFAULT_SETTINGS.tabMemoryPolicy);
     });
 
+    it('normalizes agent MCP setting', () => {
+        expect(sanitizeSettings({agentMcpEnabled: true}).agentMcpEnabled).toBe(true);
+        expect(sanitizeSettings({agentMcpEnabled: 'yes'}).agentMcpEnabled).toBe(false);
+    });
+
     it('trims and clamps unbounded string settings', () => {
         expect(sanitizeSettings({
             authorName: `  ${'A'.repeat(300)}  `,

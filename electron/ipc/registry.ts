@@ -46,6 +46,14 @@ import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
 import {registerPageOpsIpcAdapter} from '@electron/features/page-ops/ipcAdapter';
 import type { IPageOpsInvokeMap } from '@electron/features/page-ops/contract';
 import {
+    submitAgentCommandResponse,
+    submitAgentWorkspaceSnapshotResponse,
+} from '@electron/features/agent/workspaceBridge';
+import {
+    getAgentMcpIntegrationStatus,
+    setAgentMcpIntegrationEnabled,
+} from '@electron/features/agent/codexMcpIntegration';
+import {
     loadSettings,
     updateSettings,
 } from '@electron/settings';
@@ -321,6 +329,8 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
                 ...incoming,
                 // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
                 skippedUpdateVersion: currentSettings.skippedUpdateVersion,
+                // This value is managed by the Codex MCP flow because it mutates external Codex config.
+                agentMcpEnabled: currentSettings.agentMcpEnabled,
             };
         });
         updateRecentFilesMenu();
@@ -354,6 +364,25 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         const window = BrowserWindow.fromWebContents(event.sender);
         return setHostZenModeForWindow(window, active === true);
     });
+
+    registrar.handle(CORE_IPC_CHANNELS.agentGetMcpIntegrationStatus, () =>
+        getAgentMcpIntegrationStatus(),
+    );
+
+    registrar.handle(CORE_IPC_CHANNELS.agentSetMcpIntegrationEnabled, (event, enabled: unknown) => {
+        if (typeof enabled !== 'boolean') {
+            throw new Error('Invalid agent MCP enabled payload');
+        }
+        return setAgentMcpIntegrationEnabled(enabled, BrowserWindow.fromWebContents(event.sender));
+    });
+
+    registrar.handle(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, (event, response: unknown) =>
+        submitAgentWorkspaceSnapshotResponse(event, response),
+    );
+
+    registrar.handle(CORE_IPC_CHANNELS.agentSubmitCommandResponse, (event, response: unknown) =>
+        submitAgentCommandResponse(event, response),
+    );
 }
 
 export function registerIpcHandlers(options: ICoreIpcHandlerOptions = {}) {

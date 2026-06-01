@@ -1317,6 +1317,9 @@ const workspaceExpose: IWorkspaceExpose = {
     handleActualSize: () => {
         void withLoadedWorkspace('handleActualSize', workspace => workspace.handleActualSize());
     },
+    handleGoToPage: (page: number) => {
+        void withLoadedWorkspace('handleGoToPage', workspace => workspace.handleGoToPage(page));
+    },
     handleToggleSidebar: () => {
         void withLoadedWorkspace('handleToggleSidebar', workspace => workspace.handleToggleSidebar());
     },

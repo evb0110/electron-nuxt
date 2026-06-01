@@ -36,6 +36,7 @@ const VIEW_PORT_METHODS = [
     'handleFitWidth',
     'handleFitHeight',
     'handleActualSize',
+    'handleGoToPage',
     'handleToggleSidebar',
     'handleToggleContinuousScroll',
     'handleEnableDragMode',

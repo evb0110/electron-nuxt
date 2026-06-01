@@ -63,6 +63,7 @@ export interface ISettingsData {
     defaultAnnotationColor: string;
     uiScale: TUiScalePreference;
     tabMemoryPolicy: TTabMemoryPolicy;
+    agentMcpEnabled: boolean;
     suppressDefaultViewerPrompt?: boolean | undefined;
     skippedUpdateVersion?: string | undefined;
 }

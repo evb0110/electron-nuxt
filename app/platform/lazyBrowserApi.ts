@@ -1,4 +1,5 @@
 import type {
+    IAgentCapability,
     IDjvuCapability,
     IDocumentsCapability,
     IHostCapability,
@@ -699,6 +700,33 @@ const lazyWindowTabsCapability: IWindowTabsCapability = {
     ]),
 };
 
+const lazyAgentCapability: IAgentCapability = {
+    onWorkspaceSnapshotRequest: lazyEvent<IAgentCapability['onWorkspaceSnapshotRequest']>([
+        'agent',
+        'onWorkspaceSnapshotRequest',
+    ]),
+    submitWorkspaceSnapshot: lazyAsync<IAgentCapability['submitWorkspaceSnapshot']>([
+        'agent',
+        'submitWorkspaceSnapshot',
+    ]),
+    onCommandRequest: lazyEvent<IAgentCapability['onCommandRequest']>([
+        'agent',
+        'onCommandRequest',
+    ]),
+    submitCommandResponse: lazyAsync<IAgentCapability['submitCommandResponse']>([
+        'agent',
+        'submitCommandResponse',
+    ]),
+    getMcpIntegrationStatus: lazyAsync<IAgentCapability['getMcpIntegrationStatus']>([
+        'agent',
+        'getMcpIntegrationStatus',
+    ]),
+    setMcpIntegrationEnabled: lazyAsync<IAgentCapability['setMcpIntegrationEnabled']>([
+        'agent',
+        'setMcpIntegrationEnabled',
+    ]),
+};
+
 const lazyShellCapability: IPlatformApi['shell'] = {openExternal: lazyAsync<IPlatformApi['shell']['openExternal']>([
     'shell',
     'openExternal',
@@ -739,4 +767,5 @@ export const lazyBrowserPlatformApi = {
     windowTabs: lazyWindowTabsCapability,
     shell: lazyShellCapability,
     host: lazyHostCapability,
+    agent: lazyAgentCapability,
 } satisfies IPlatformApi;

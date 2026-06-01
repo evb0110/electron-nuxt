@@ -158,6 +158,7 @@ import {
     useLocalStorage,
     useTimeoutFn,
 } from '@vueuse/core';
+import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
 import {
     BROWSER_INSTALL_HINT_COOKIE_KEY,
@@ -185,6 +186,7 @@ import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables
 import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composables/useToolbarTeleportBridge';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
+import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
@@ -246,6 +248,7 @@ const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const isStartupOpenClaimPending = ref(true);
 const { isBrowserRuntime } = useRuntimeEnvironment();
+const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
@@ -742,6 +745,19 @@ function activateTabById(tabId: string) {
 
     activateTab(pane.paneId, tabId);
 }
+
+useAgentWorkspaceSnapshot({
+    panes,
+    tabs,
+    layout,
+    activePaneId,
+    activeTabId,
+    workspaceRefs,
+    shouldWaitForDesktopBridge: () => shouldWaitForDesktopBridge.value,
+    getPaneByTabId,
+    activateTab,
+    waitForWorkspace,
+});
 
 function openSettingsPage() {
     activeToolPage.value = null;

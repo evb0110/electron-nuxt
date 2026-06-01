@@ -1,4 +1,5 @@
 import type { IPlatformApi } from '@contracts/platformApi';
+import type { IAgentMcpIntegrationStatus } from '@contracts/agent';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvuCapability';
@@ -39,6 +40,33 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
     return Promise.resolve();
 } };
 
+const browserAgentApi: IPlatformApi['agent'] = {
+    onWorkspaceSnapshotRequest: () => () => {},
+    submitWorkspaceSnapshot: () => Promise.resolve(false),
+    onCommandRequest: () => () => {},
+    submitCommandResponse: () => Promise.resolve(false),
+    getMcpIntegrationStatus: () => Promise.resolve(createBrowserAgentMcpStatus()),
+    setMcpIntegrationEnabled: () => Promise.resolve({
+        ok: false,
+        status: createBrowserAgentMcpStatus(),
+    }),
+};
+
+function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
+    return {
+        enabled: false,
+        serverName: 'evb_viewer',
+        serverUrl: '',
+        serverRunning: false,
+        codexInstalled: false,
+        codexPath: null,
+        codexConfigured: false,
+        codexRegistrationState: 'unknown',
+        installUrl: 'https://developers.openai.com/codex/app',
+        lastCheckedAt: new Date().toISOString(),
+    };
+}
+
 export const browserPlatformApi = {
     documents: browserDocumentCapabilities.documents,
     pageOps: browserDocumentCapabilities.pageOps,
@@ -51,4 +79,5 @@ export const browserPlatformApi = {
     windowTabs: browserWindowTabsCapability,
     shell: browserShellApi,
     host: browserHostCapability,
+    agent: browserAgentApi,
 } satisfies IPlatformApi;
