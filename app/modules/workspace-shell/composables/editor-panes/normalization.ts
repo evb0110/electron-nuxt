@@ -37,6 +37,14 @@ interface IActivePaneMruResult {
     paneMru: string[];
 }
 
+function readPaneId(pane: IEditorPaneState) {
+    const rawPane = pane as IEditorPaneState & { id?: unknown };
+    if (typeof rawPane.paneId === 'string' && rawPane.paneId.length > 0) {
+        return rawPane.paneId;
+    }
+    return typeof rawPane.id === 'string' ? rawPane.id : '';
+}
+
 export function arraysEqual<T>(left: T[], right: T[]) {
     if (left === right) {
         return true;
@@ -106,11 +114,13 @@ function normalizePaneTabIds(
     let hasInvalidPanes = false;
 
     for (const pane of panes) {
-        if (!pane.id || validPaneIds.has(pane.id)) {
+        const paneId = readPaneId(pane);
+        if (!paneId || validPaneIds.has(paneId)) {
             hasInvalidPanes = true;
             continue;
         }
-        validPaneIds.add(pane.id);
+        hasInvalidPanes ||= pane.paneId !== paneId;
+        validPaneIds.add(paneId);
 
         const nextTabIds: string[] = [];
         for (const tabId of pane.tabIds) {
@@ -127,7 +137,7 @@ function normalizePaneTabIds(
             : (nextTabIds[0] ?? null);
         hasInvalidPanes ||= pane.activeTabId !== activeTabId;
         normalizedPanes.push({
-            id: pane.id,
+            paneId,
             tabIds: nextTabIds,
             activeTabId,
         });
@@ -150,18 +160,18 @@ function normalizeLayoutForPanes(
     if (!nextLayout) {
         nextLayout = {
             type: 'leaf',
-            paneId: panes[0]!.id,
+            paneId: panes[0]!.paneId,
         };
     }
 
     const layoutPaneIds = new Set<string>();
     collectLayoutPaneIds(nextLayout, layoutPaneIds);
     for (const pane of panes) {
-        if (layoutPaneIds.has(pane.id)) {
+        if (layoutPaneIds.has(pane.paneId)) {
             continue;
         }
-        nextLayout = appendPaneToLayout(nextLayout, pane.id);
-        layoutPaneIds.add(pane.id);
+        nextLayout = appendPaneToLayout(nextLayout, pane.paneId);
+        layoutPaneIds.add(pane.paneId);
     }
 
     return nextLayout;
@@ -195,11 +205,11 @@ function normalizeActivePaneAndMru(
 ): IActivePaneMruResult {
     const nextActivePaneId = activePaneId && validPaneIds.has(activePaneId)
         ? activePaneId
-        : (panes[0]?.id ?? null);
+        : (panes[0]?.paneId ?? null);
     const nextMru = buildNormalizedPaneMru(
         nextActivePaneId,
         paneMru,
-        panes.map(pane => pane.id),
+        panes.map(pane => pane.paneId),
         validPaneIds,
     );
 
@@ -287,7 +297,7 @@ export function normalizeEditorPanesState({
     if (normalizedPanes.panes.length === 0) {
         const fallbackPane = createPane();
         normalizedPanes.panes.push(fallbackPane);
-        normalizedPanes.paneIds.add(fallbackPane.id);
+        normalizedPanes.paneIds.add(fallbackPane.paneId);
     }
 
     const nextPanes = clonePanesWithUnassignedTabs(
@@ -295,7 +305,7 @@ export function normalizeEditorPanesState({
         uniqueTabs.tabs,
         normalizedPanes.assignedTabIds,
     );
-    const freshPaneIds = new Set(nextPanes.map(pane => pane.id));
+    const freshPaneIds = new Set(nextPanes.map(pane => pane.paneId));
     const nextLayout = normalizeLayoutForPanes(layout, nextPanes, freshPaneIds);
     const activePaneMru = normalizeActivePaneAndMru(
         activePaneId,

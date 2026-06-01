@@ -3,7 +3,7 @@ export type TPaneDirection = 'left' | 'right' | 'up' | 'down';
 export type TPaneOrientation = 'horizontal' | 'vertical';
 
 export interface IEditorPaneState {
-    id: string;
+    paneId: string;
     tabIds: string[];
     activeTabId: string | null;
 }

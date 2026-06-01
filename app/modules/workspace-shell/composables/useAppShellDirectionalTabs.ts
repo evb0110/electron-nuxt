@@ -126,8 +126,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const copy = createDirectionalAvailability(false);
 
         for (const direction of DIRECTION_ORDER) {
-            const focusTarget = findDirectionalPane(pane.id, direction, true);
-            const directionalTarget = getDirectionalTargetPane(pane.id, direction);
+            const focusTarget = findDirectionalPane(pane.paneId, direction, true);
+            const directionalTarget = getDirectionalTargetPane(pane.paneId, direction);
             const hasUsableDirectionalPane = hasTabs(directionalTarget);
             const canUseDirectionalPane = hasActiveTab && hasUsableDirectionalPane && !transitionsBusy;
 
@@ -150,7 +150,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const activeTabIdForPane = pane.activeTabId;
         const hasActiveTab = Boolean(activeTabIdForPane);
         const closeBlocked = activeTabIdForPane
-            ? isSingletonPlaceholderCloseBlocked(pane.id, activeTabIdForPane)
+            ? isSingletonPlaceholderCloseBlocked(pane.paneId, activeTabIdForPane)
             : false;
         const {
             focus,
@@ -233,7 +233,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const transitionsBusy = isTabTransitionBusy.value;
 
         for (const pane of panes.value) {
-            result[pane.id] = buildTabContextAvailabilityForPane(pane, transitionsBusy);
+            result[pane.paneId] = buildTabContextAvailabilityForPane(pane, transitionsBusy);
         }
 
         return result;
@@ -255,7 +255,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const cacheEntryId = workspaceSplitCache.set(sourceTabId, payload);
             scheduleSplitCacheCleanup(sourceTabId, cacheEntryId);
 
-            const newPaneId = splitPane(sourcePane.id, direction);
+            const newPaneId = splitPane(sourcePane.paneId, direction);
             if (!newPaneId) {
                 return;
             }
@@ -280,12 +280,12 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                     metadata: { tabId: newTab.id },
                 });
                 removeTabFromState(newTab.id);
-                activateTab(sourcePane.id, sourceTabId);
+                activateTab(sourcePane.paneId, sourceTabId);
                 return;
             }
 
-            activatePane(sourcePane.id);
-            activateTab(sourcePane.id, sourceTabId);
+            activatePane(sourcePane.paneId);
+            activateTab(sourcePane.paneId, sourceTabId);
             cleanupEmptyPanes();
         });
     }
@@ -306,7 +306,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 }
             }
 
-            const newPaneId = splitPane(sourcePane.id, direction);
+            const newPaneId = splitPane(sourcePane.paneId, direction);
             if (!newPaneId) {
                 return;
             }
@@ -333,14 +333,14 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             return null;
         }
 
-        const existing = getDirectionalTargetPane(sourcePane.id, direction);
+        const existing = getDirectionalTargetPane(sourcePane.paneId, direction);
         if (!existing || existing.tabIds.length === 0) {
             return null;
         }
 
         return {
             sourcePane,
-            targetPaneId: existing.id,
+            targetPaneId: existing.paneId,
         };
     }
 
@@ -407,7 +407,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const restored = await restoreWorkspacePayload(targetTab.id, payload);
             if (!restored) {
                 removeTabFromState(targetTab.id);
-                activateTab(sourcePane.id, sourceTabId);
+                activateTab(sourcePane.paneId, sourceTabId);
                 return;
             }
 

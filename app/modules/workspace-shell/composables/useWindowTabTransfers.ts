@@ -19,7 +19,7 @@ import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IPaneLike {
-    id: string;
+    paneId: string;
     activeTabId: string | null;
     tabIds: string[];
 }
@@ -112,7 +112,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     function createIncomingTransferTargetTab(targetPane: IPaneLike): IIncomingTransferTargetTab {
         const createdTab = options.createTab({
-            paneId: targetPane.id,
+            paneId: targetPane.paneId,
             activate: false,
         });
 
@@ -123,8 +123,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     function reuseIncomingTransferTargetTab(targetPane: IPaneLike, existingTab: ITab): IIncomingTransferTargetTab {
-        options.activatePane(targetPane.id);
-        options.activateTab(targetPane.id, existingTab.id);
+        options.activatePane(targetPane.paneId);
+        options.activateTab(targetPane.paneId, existingTab.id);
         return {
             tabId: existingTab.id,
             created: false,
@@ -192,7 +192,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return null;
         }
 
-        const targetTab = resolveIncomingTransferTargetTab(targetPane.id);
+        const targetTab = resolveIncomingTransferTargetTab(targetPane.paneId);
         if (!targetTab) {
             await ackIncomingTransferFailure(transferId, t('tabs.transferErrors.noTargetTab'));
             return null;
@@ -353,7 +353,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return 'failed';
         }
 
-        return finalizeTransferredSourceTab(sourcePane.id, tab.id);
+        return finalizeTransferredSourceTab(sourcePane.paneId, tab.id);
     }
 
     async function moveTabToNewWindow(tabId?: string) {
@@ -407,7 +407,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return;
             }
 
-            applyIncomingTransferTabState(target.pane.id, target.tab.tabId, transfer);
+            applyIncomingTransferTabState(target.pane.paneId, target.tab.tabId, transfer);
             await ackIncomingTransferSuccess(transfer.transferId);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {

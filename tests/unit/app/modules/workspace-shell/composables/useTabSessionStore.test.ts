@@ -22,7 +22,7 @@ function tab(id: string): ITab {
 
 function pane(id: string, activeTabId: string, tabIds: string[]): IEditorPaneState {
     return {
-        id,
+        paneId: id,
         activeTabId,
         tabIds,
     };
