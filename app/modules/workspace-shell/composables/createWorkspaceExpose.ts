@@ -48,6 +48,7 @@ interface ICreateWorkspaceExposeDeps extends
     currentPage: Ref<number>;
     pdfViewerRef?: Ref<IPdfViewerExpose | null>;
     handleFitMode: (mode: TFitMode) => void;
+    handleGoToPage: (page: number) => void;
     handleToggleSidebar: () => void;
     handleToggleContinuousScroll: () => void;
     handleEnableDragMode: () => void;
@@ -213,6 +214,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleActualSize: () => {
             setCustomZoomFromDisplay(1);
         },
+        handleGoToPage: deps.handleGoToPage,
         handleToggleSidebar: deps.handleToggleSidebar,
         handleToggleContinuousScroll: deps.handleToggleContinuousScroll,
         handleEnableDragMode: deps.handleEnableDragMode,

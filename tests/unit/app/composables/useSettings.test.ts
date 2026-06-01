@@ -72,6 +72,7 @@ describe('useSettings', () => {
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
+            agentMcpEnabled: false,
         });
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -97,6 +98,7 @@ describe('useSettings', () => {
             defaultAnnotationColor: '#ffd400',
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
+            agentMcpEnabled: false,
             suppressDefaultViewerPrompt: false,
             skippedUpdateVersion: undefined,
         });

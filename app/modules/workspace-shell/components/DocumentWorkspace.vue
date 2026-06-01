@@ -1380,6 +1380,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     currentPage,
     pdfViewerRef,
     handleFitMode,
+    handleGoToPage,
     handleToggleSidebar: () => {
         showSidebar.value = !showSidebar.value;
     },

@@ -1,3 +1,4 @@
+import type { IAgentCapability } from '@contracts/electronApiAgent';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
@@ -24,6 +25,7 @@ export interface IPlatformApi {
     windowTabs: IWindowTabsCapability;
     shell: IShellCapability;
     host: IHostCapability;
+    agent: IAgentCapability;
 }
 
 export type { TDocumentRef } from '@contracts/document';
@@ -44,6 +46,19 @@ export type {
 
 export type {
     IAppUpdateStatus,
+    IAgentCapability,
+    IAgentCommandRequest,
+    IAgentCommandResponse,
+    IAgentDocumentOcrState,
+    IAgentDocumentReadiness,
+    IAgentDocumentRecommendation,
+    IAgentMcpIntegrationStatus,
+    IAgentMcpIntegrationUpdateResult,
+    IAgentPaneSnapshot,
+    IAgentTabSnapshot,
+    IAgentWorkspaceSnapshot,
+    IAgentWorkspaceSnapshotRequest,
+    IAgentWorkspaceSnapshotResponse,
     IDebugLogEntry,
     IDjvuCapability,
     IDjvuInfo,
@@ -73,4 +88,11 @@ export type {
     TPdfSaveMode,
     IPdfConformanceProfile,
     IPdfValidationResult,
+    TAgentCommand,
+    TAgentCommandName,
+    TAgentDocumentKind,
+    TAgentDocumentReadinessStatus,
+    TAgentMcpCodexRegistrationState,
+    TAgentOcrCoverageStatus,
+    TAgentRecommendationId,
 } from '@contracts/electronApi';

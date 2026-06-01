@@ -42,6 +42,8 @@ import {
     performDjvuViewingShutdownCleanup,
     shutdownDjvuConversions,
 } from '@electron/features/djvu/public';
+import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
+import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
@@ -243,6 +245,10 @@ async function performShutdownCleanup() {
 
     await runShutdownSteps(logger, [
         {
+            label: 'mcp-server',
+            run: () => shutdownLocalMcpServer(),
+        },
+        {
             label: 'updates',
             run: () => shutdownUpdates(),
         },
@@ -311,6 +317,8 @@ void runInitSequence({
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
     sweepStaleDefaultAppTempPdfs,
-}).catch((error) => {
-    requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-});
+})
+    .then(() => syncAgentMcpServerWithSettings())
+    .catch((error) => {
+        requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    });

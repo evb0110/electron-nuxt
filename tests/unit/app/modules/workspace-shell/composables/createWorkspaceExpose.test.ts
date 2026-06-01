@@ -55,6 +55,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         viewMode: ref('single'),
         currentPage: ref(1),
         handleFitMode: vi.fn(),
+        handleGoToPage: vi.fn(),
         handleToggleSidebar: vi.fn(),
         handleToggleContinuousScroll: vi.fn(),
         handleEnableDragMode: vi.fn(),

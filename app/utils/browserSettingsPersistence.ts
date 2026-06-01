@@ -12,7 +12,7 @@ export const BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
 export const BROWSER_THEME_COOKIE_KEY = 'nuxt-color-mode';
 export const BROWSER_LOCALE_COOKIE_KEY = 'i18n_redirected';
 
-type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'theme' | 'locale'>;
+type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'agentMcpEnabled' | 'theme' | 'locale'>;
 const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
 
 function isSettingsPatch(value: unknown): value is Partial<ISettingsData> {

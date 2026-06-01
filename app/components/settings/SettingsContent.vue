@@ -24,6 +24,15 @@
             @update:annotation-color="updateSetting('defaultAnnotationColor', $event)"
         />
 
+        <SettingsAgentPanel
+            v-if="isDesktopRuntime"
+            :status="agentMcpStatus"
+            :is-busy="isAgentMcpBusy"
+            @set-enabled="setAgentMcpEnabled"
+            @refresh="refreshAgentMcpStatus"
+            @open-install="openAgentMcpInstall"
+        />
+
         <SettingsShortcutsPanel
             :description="shortcutsDescription"
             :items="shortcutItems"
@@ -45,7 +54,10 @@ import type {
     TTabMemoryPolicy,
     TPdfViewMode,
 } from '@contracts/shared';
+import type { IAgentMcpIntegrationStatus } from '@contracts/agent';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
+import { getPlatformAPI } from '@app/utils/platform';
+import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
@@ -171,6 +183,7 @@ const {
 const colorMode = useColorMode();
 const {
     settings,
+    load,
     updateSetting,
 } = useSettings();
 const {
@@ -189,7 +202,9 @@ const LOCALE_FLAGS: Record<TAppLocale, string> = Object.fromEntries(
 
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
-const shortcutsDescription = computed(() => isDesktopRuntime
+const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
+const isAgentMcpBusy = ref(false);
+const shortcutsDescription = computed(() => isDesktopRuntime.value
     ? t('settings.shortcutsDescription')
     : t('settings.browserShortcutsDescription'));
 
@@ -277,7 +292,7 @@ const shortcutItems = computed(() => {
         },
     ];
 
-    if (!isDesktopRuntime) {
+    if (!isDesktopRuntime.value) {
         return browserItems;
     }
 
@@ -378,7 +393,41 @@ function handleCheckForUpdates() {
     void checkForUpdates();
 }
 
+async function refreshAgentMcpStatus() {
+    if (!isDesktopRuntime.value || isAgentMcpBusy.value) {
+        return;
+    }
+
+    isAgentMcpBusy.value = true;
+    try {
+        agentMcpStatus.value = await getPlatformAPI().agent.getMcpIntegrationStatus();
+    } finally {
+        isAgentMcpBusy.value = false;
+    }
+}
+
+async function setAgentMcpEnabled(enabled: boolean) {
+    if (!isDesktopRuntime.value || isAgentMcpBusy.value) {
+        return;
+    }
+
+    isAgentMcpBusy.value = true;
+    try {
+        const result = await getPlatformAPI().agent.setMcpIntegrationEnabled(enabled);
+        agentMcpStatus.value = result.status;
+        await load();
+    } finally {
+        isAgentMcpBusy.value = false;
+    }
+}
+
+function openAgentMcpInstall() {
+    const installUrl = agentMcpStatus.value?.installUrl ?? 'https://developers.openai.com/codex/app';
+    void getPlatformAPI().shell.openExternal(installUrl);
+}
+
 onMounted(() => {
     void ensureUpdatesInitialized();
+    void refreshAgentMcpStatus();
 });
 </script>

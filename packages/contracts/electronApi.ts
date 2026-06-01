@@ -1,6 +1,8 @@
 import type { IDocumentsCapability } from '@contracts/electronApiDocuments';
 import type { IPlatformApi } from '@contracts/platformApi';
 
+export type * from '@contracts/agent';
+export type * from '@contracts/electronApiAgent';
 export type * from '@contracts/pdfConformance';
 export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
