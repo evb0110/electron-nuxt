@@ -960,7 +960,6 @@ onUnmounted(() => {
     border: 1px solid var(--ui-border);
     border-radius: 999px;
     background: var(--ui-bg);
-    box-shadow: var(--app-pdf-popover-shadow);
 }
 
 .agent-assistant-glyph-icon {
