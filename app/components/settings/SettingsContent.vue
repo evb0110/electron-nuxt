@@ -26,8 +26,10 @@
 
         <SettingsAgentPanel
             v-if="isDesktopRuntime"
+            :assistant-panel-enabled="settings.assistantPanelEnabled"
             :status="agentMcpStatus"
             :is-busy="isAgentMcpBusy"
+            @update:assistant-panel-enabled="updateSetting('assistantPanelEnabled', $event)"
             @set-enabled="setAgentMcpEnabled"
             @refresh="refreshAgentMcpStatus"
             @open-install="openAgentMcpInstall"

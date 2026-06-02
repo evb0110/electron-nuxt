@@ -65,6 +65,11 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({agentMcpEnabled: 'yes'}).agentMcpEnabled).toBe(false);
     });
 
+    it('normalizes assistant panel setting', () => {
+        expect(sanitizeSettings({assistantPanelEnabled: false}).assistantPanelEnabled).toBe(false);
+        expect(sanitizeSettings({assistantPanelEnabled: 'no'}).assistantPanelEnabled).toBe(true);
+    });
+
     it('trims and clamps unbounded string settings', () => {
         expect(sanitizeSettings({
             authorName: `  ${'A'.repeat(300)}  `,
