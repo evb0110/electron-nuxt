@@ -130,8 +130,9 @@
                 :has-active-document="assistantHasActiveDocument"
                 :has-any-document="assistantHasAnyDocument"
                 :active-document-name="assistantActiveDocumentName"
-                :recent-file-count="recentFiles.length"
-                :recent-files-resolved="recentFilesResolved"
+                :width="assistantPanelWidth"
+                :is-resizing="isAssistantPanelResizing"
+                @resize-start="startAssistantPanelResize"
                 @close="assistantPanelOpen = false"
             />
         </div>
@@ -141,8 +142,8 @@
             class="assistant-panel-toggle"
             :aria-label="t('assistant.open')"
             icon="i-ph-chat-circle-dots"
-            color="primary"
-            variant="solid"
+            color="neutral"
+            variant="subtle"
             size="sm"
             @click="assistantPanelOpen = true"
         />
@@ -209,6 +210,7 @@ import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composabl
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
+import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
@@ -276,6 +278,11 @@ const {
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
 const assistantPanelOpen = ref(false);
+const {
+    panelWidth: assistantPanelWidth,
+    isResizingPanel: isAssistantPanelResizing,
+    startPanelResize: startAssistantPanelResize,
+} = useAssistantPanelResize();
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const runtimeConfig = useRuntimeConfig();
@@ -1069,6 +1076,14 @@ useAppShellLifecycle({
     right: 0.75rem;
     bottom: 2.25rem;
     z-index: 30;
+    border-radius: 999px;
+    box-shadow: var(--app-pdf-popover-shadow);
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
+}
+
+.assistant-panel-toggle:hover {
+    opacity: 1;
 }
 
 .browser-install-hint {
