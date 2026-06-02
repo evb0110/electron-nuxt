@@ -55,6 +55,7 @@ function createPageRoot() {
 
     return {
         root: root as FakeElement & HTMLElement,
+        page,
         canvasHost,
     };
 }
@@ -63,6 +64,7 @@ describe('usePdfRendererSinglePageController', () => {
     it('cleans a mounted canvas when a later async text-layer stage goes stale', async () => {
         const {
             root,
+            page,
             canvasHost,
         } = createPageRoot();
         let renderVersion = 1;
@@ -125,6 +127,7 @@ describe('usePdfRendererSinglePageController', () => {
         );
 
         expect(canvasHost.children).toHaveLength(0);
+        expect(page.classList.add).not.toHaveBeenCalledWith('page_container--rendered');
         expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
         expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
         expect(renderingPages.has(1)).toBe(false);

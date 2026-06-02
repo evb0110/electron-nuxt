@@ -175,6 +175,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         pageNumber: number,
         version: number,
         pdfPage: PDFPageProxy,
+        pageContainer: HTMLElement,
         shouldContinue: () => boolean,
     ) {
         if (getRenderVersion() !== version || !shouldContinue()) {
@@ -190,6 +191,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         releasePageResources(pageNumber, pdfPage);
         renderedPages.add(pageNumber);
         staleRenderedPages.delete(pageNumber);
+        pageContainer.classList.add(RENDERED_PAGE_CONTAINER_CLASS);
         logPdfRenderTrace('renderer-finalize-page', {
             pageNumber,
             version,
@@ -277,7 +279,6 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         }
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
-        target.container.classList.add(RENDERED_PAGE_CONTAINER_CLASS);
         logPdfRenderTrace('renderer-canvas-mounted', {
             pageNumber,
             version,
@@ -331,7 +332,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         renderContext.annotationLayerInstance =
             annotationRenderResult.annotationLayerInstance;
         scheduleOcrDebugForPage(pageNumber, renderContext);
-        finalizePageRender(pageNumber, version, pdfPage, shouldContinue);
+        finalizePageRender(pageNumber, version, pdfPage, target.container, shouldContinue);
     }
 
     function scheduleCancelledPageRenderRetry(

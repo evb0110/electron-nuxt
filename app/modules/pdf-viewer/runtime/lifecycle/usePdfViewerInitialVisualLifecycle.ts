@@ -27,7 +27,7 @@ export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitial
         renderedPageStateVersion.value += 1;
     }
 
-    function markInitialVisualReady(pageNumber: number, source: 'canvas' | 'page-render') {
+    function markInitialVisualReady(pageNumber: number) {
         if (pendingInitialVisualReadyToken === null) {
             return;
         }
@@ -38,22 +38,20 @@ export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitial
         BrowserLogger.debug('loader', 'PDF viewer initial visual ready', {
             token,
             pageNumber,
-            source,
+            source: 'page-render',
         });
     }
 
     function handlePageCanvasMounted(pageNumber: number) {
         renderedPageStateVersion.value += 1;
-        markDelayedSkeletonPageRendered(pageNumber);
         syncManagedShapesAfterPageRendered(pageNumber);
-        markInitialVisualReady(pageNumber, 'canvas');
     }
 
     function handlePageRendered(pageNumber: number) {
         markDelayedSkeletonPageRendered(pageNumber);
         clearContinuousNavigationTargetForPage(pageNumber);
         syncManagedShapesAfterPageRendered(pageNumber);
-        markInitialVisualReady(pageNumber, 'page-render');
+        markInitialVisualReady(pageNumber);
     }
 
     return {
