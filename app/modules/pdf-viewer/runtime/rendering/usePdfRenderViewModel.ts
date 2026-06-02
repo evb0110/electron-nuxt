@@ -25,6 +25,16 @@ interface IUsePdfRenderViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
     isVisualReloadTransitionActive: Ref<boolean>;
     suppressLoadingOverlay: ComputedRef<boolean>;
+    /**
+     * Current-page fit rerenders need exclusive ownership of the mounted row.
+     *
+     * In fit-height/fit-width paged mode, a rapid toolbar jump can cancel the
+     * old PDF.js task, wait for it to unwind, and then force-render the target
+     * page. If the ordinary paged buffer scheduler starts during that narrow
+     * window, it can occupy the same large page proxy and leave the forced
+     * current-page render stranded behind an infinitely visible skeleton.
+     */
+    suppressPagedBufferRender?: Ref<boolean> | undefined;
     skeletonContentInsets: Ref<IContentInsets | null>;
     pagesToRender: ComputedRef<number[]>;
     isPageBuffered: (page: number) => boolean;
@@ -138,8 +148,25 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
 
     let pagedBufferRenderToken = 0;
 
+    function isPagedBufferRenderSuppressed() {
+        return options.suppressPagedBufferRender?.value === true;
+    }
+
     function schedulePagedBufferRender() {
         const token = ++pagedBufferRenderToken;
+        if (isPagedBufferRenderSuppressed()) {
+            logPdfRenderTrace('paged-buffer-render-suppressed', {
+                token,
+                stage: 'schedule',
+                currentPage: options.currentPage.value,
+                visibleRange: {
+                    start: options.visibleRange.value.start,
+                    end: options.visibleRange.value.end,
+                },
+                pagesToRender: options.pagesToRender.value,
+            });
+            return;
+        }
         logPdfRenderTrace('paged-buffer-render-scheduled', {
             token,
             currentPage: options.currentPage.value,
@@ -161,6 +188,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
                 || options.numPages.value <= 0
                 || firstMountedPage === undefined
                 || lastMountedPage === undefined
+                || isPagedBufferRenderSuppressed()
             ) {
                 logPdfRenderTrace('paged-buffer-render-skipped', {
                     token,
@@ -171,6 +199,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
                     mountedPages,
                     firstMountedPage,
                     lastMountedPage,
+                    suppressed: isPagedBufferRenderSuppressed(),
                 });
                 return;
             }

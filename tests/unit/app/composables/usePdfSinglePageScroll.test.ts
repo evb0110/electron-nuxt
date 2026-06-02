@@ -36,6 +36,7 @@ interface IScrollHarnessOptions {
     clientHeight?: number;
     scrollHeight?: number;
     continuousScroll?: boolean;
+    suppressPagedRowRender?: () => boolean;
 }
 
 function createWheelEvent(
@@ -114,6 +115,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         end: 1,
     });
     const scrollToPageInternal = vi.fn();
+    const renderVisiblePages = vi.fn(async () => {});
     const emitCurrentPage = vi.fn((page: number) => {
         currentPage.value = page;
     });
@@ -145,7 +147,8 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         scrollToPageInternal,
         updateVisibleRange: vi.fn(),
         updateCurrentPage: vi.fn((viewer: HTMLElement | null) => getMostVisiblePage(viewer)),
-        renderVisiblePages: vi.fn(async () => {}),
+        renderVisiblePages,
+        suppressPagedRowRender: options?.suppressPagedRowRender,
         visibleRange,
         emitCurrentPage,
     });
@@ -154,6 +157,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         container,
         currentPage,
         emitCurrentPage,
+        renderVisiblePages,
         visibleRange,
         scrollToPageInternal,
         singlePageScroll,
@@ -529,6 +533,78 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('skips stale queued paged row renders after a newer navigation wins', async () => {
+        const {
+            renderVisiblePages,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 380,
+        });
+
+        singlePageScroll.scrollToPage(2);
+        singlePageScroll.scrollToPage(3);
+        await nextTick();
+
+        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 3,
+                end: 3,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            },
+        );
+    });
+
+    it('can snap to a mounted paged target without queueing another row render', async () => {
+        const {
+            renderVisiblePages,
+            singlePageScroll,
+        } = createSinglePageScrollHarness();
+
+        singlePageScroll.scrollToPage(1, {
+            preferExactDom: true,
+            suppressRenderAfterSnap: true,
+        });
+        await nextTick();
+
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+    });
+
+    it('lets fit-current navigation suppress the queued paged row render', async () => {
+        const suppressPagedRowRender = vi.fn(() => true);
+        const {
+            renderVisiblePages,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            mountedPageNumbers: [],
+            suppressPagedRowRender,
+        });
+
+        singlePageScroll.scrollToPage(2);
+        await nextTick();
+
+        expect(suppressPagedRowRender).toHaveBeenCalled();
+        expect(renderVisiblePages).not.toHaveBeenCalled();
     });
 
     it('throttles rapid same-direction flips on small pages (trackpad inertia guard)', () => {

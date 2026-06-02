@@ -90,6 +90,7 @@ const {
     placedImageBusy = false,
 } = defineProps<IProps>();
 const emit = defineEmits<{
+    'page-container-mounted': [page: number];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
@@ -163,6 +164,10 @@ function openShapeContextMenu(payload: {
 }) {
     shapeContext?.handleShapeContextMenu(payload);
 }
+
+onMounted(() => {
+    emit('page-container-mounted', page);
+});
 
 onBeforeUnmount(() => {
     clearPdfSelectionForLayerTeardown({ target: pageContainer.value });

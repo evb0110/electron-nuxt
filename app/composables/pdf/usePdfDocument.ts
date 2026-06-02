@@ -17,6 +17,7 @@ import {
     getPdfjsWorkerUrl,
 } from '@app/utils/viewerAssets';
 import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getPdfjsWorkerUrl();
 
@@ -152,30 +153,33 @@ export const usePdfDocument = () => {
 
         let loadPromise: Promise<IPdfPageMetric | null> | null = null;
         loadPromise = (async () => {
-            const page = await document.getPage(pageNumber);
-            try {
-                if (version !== renderVersion || document !== pdfDocument.value) {
-                    return null;
-                }
-
-                const viewport = page.getViewport({ scale: 1 });
-                const metric = {
-                    width: viewport.width,
-                    height: viewport.height,
-                } satisfies IPdfPageMetric;
-                if (!isValidPageMetric(metric)) {
-                    return null;
-                }
-
-                pageMetrics.value[pageNumber - 1] = metric;
-                updateBaseMetrics(metric);
-                bumpPageMetricsVersion();
-                return metric;
-            } finally {
-                if (typeof page.cleanup === 'function') {
-                    page.cleanup();
-                }
+            /**
+             * Keep metric-loaded page proxies in the bounded render cache.
+             *
+             * PDF.js may return the same `PDFPageProxy` for a later render.
+             * Calling `cleanup()` after a metrics-only `getViewport()` looked
+             * harmless, but on the scanned Girgas last page it left the
+             * following canvas render waiting forever on PDF.js internals. The
+             * cache already evicts old proxies, so ownership should stay there.
+             */
+            const page = await getPage(pageNumber);
+            if (version !== renderVersion || document !== pdfDocument.value) {
+                return null;
             }
+
+            const viewport = page.getViewport({ scale: 1 });
+            const metric = {
+                width: viewport.width,
+                height: viewport.height,
+            } satisfies IPdfPageMetric;
+            if (!isValidPageMetric(metric)) {
+                return null;
+            }
+
+            pageMetrics.value[pageNumber - 1] = metric;
+            updateBaseMetrics(metric);
+            bumpPageMetricsVersion();
+            return metric;
         })().finally(() => {
             if (loadPromise && pageMetricLoads.get(pageNumber) === loadPromise) {
                 pageMetricLoads.delete(pageNumber);
@@ -446,6 +450,86 @@ export const usePdfDocument = () => {
         };
     }
 
+    /**
+     * Fulfill the exact byte interval requested by PDF.js range transport.
+     *
+     * The platform read capability is chunk-budgeted and may legally return
+     * fewer bytes than requested. PDF.js creates one range reader for the
+     * original `[begin, end)` interval, so the bridge must aggregate any
+     * subreads and call `onDataRange(begin, fullChunk)` exactly once. Delivering
+     * only the first short chunk leaves the worker waiting forever; delivering
+     * later chunks separately throws because there is no reader for their
+     * shifted offset. The Girgas page 928 repro hit this when PDF.js requested
+     * about 10 MB and Electron capped the read to 8 MB.
+     */
+    async function fulfillPdfRangeRequest(
+        transport: PDFDataRangeTransport,
+        src: Extract<TPdfSource, { kind: 'path' }>,
+        begin: number,
+        end: number,
+        version: number,
+    ) {
+        const totalLength = end - begin;
+        if (!Number.isSafeInteger(totalLength) || totalLength <= 0) {
+            throw new Error(`Invalid PDF range request ${begin}..${end}`);
+        }
+
+        let cursor = begin;
+        let outputOffset = 0;
+        const output = new Uint8Array(totalLength);
+        while (cursor < end) {
+            if (version !== renderVersion) {
+                logPdfRenderTrace('pdf-document-range-request-stale-before-read', {
+                    begin,
+                    end,
+                    cursor,
+                    version,
+                    renderVersion,
+                });
+                return;
+            }
+
+            const requestedLength = end - cursor;
+            const chunk = await readDocumentRange(src.path, cursor, requestedLength);
+            if (version !== renderVersion) {
+                logPdfRenderTrace('pdf-document-range-request-stale-after-read', {
+                    begin,
+                    end,
+                    cursor,
+                    version,
+                    renderVersion,
+                });
+                return;
+            }
+            if (chunk.byteLength === 0) {
+                throw new Error(`Range read returned no bytes at ${cursor} before requested end ${end}`);
+            }
+            if (chunk.byteLength > output.byteLength - outputOffset) {
+                throw new Error(`Range read returned ${chunk.byteLength} bytes for ${output.byteLength - outputOffset} remaining bytes`);
+            }
+
+            output.set(chunk, outputOffset);
+            logPdfRenderTrace('pdf-document-range-subread', {
+                begin: cursor,
+                end: cursor + chunk.byteLength,
+                requestedEnd: end,
+                byteLength: chunk.byteLength,
+                requestedLength,
+                version,
+            });
+            outputOffset += chunk.byteLength;
+            cursor += chunk.byteLength;
+        }
+
+        transport.onDataRange(begin, output);
+        logPdfRenderTrace('pdf-document-range-fulfilled', {
+            begin,
+            end,
+            byteLength: output.byteLength,
+            version,
+        });
+    }
+
     function attachRangeRequestHandler(
         transport: PDFDataRangeTransport,
         src: Extract<TPdfSource, { kind: 'path' }>,
@@ -458,21 +542,25 @@ export const usePdfDocument = () => {
             end: number,
         ) => {
             void (async () => {
+                logPdfRenderTrace('pdf-document-range-request', {
+                    begin,
+                    end,
+                    length: end - begin,
+                    version,
+                });
                 try {
-                    // Drop stale reads if a newer load has started.
-                    if (version !== renderVersion) {
-                        return;
-                    }
-                    const chunk = await readDocumentRange(src.path, begin, end - begin);
-                    if (version !== renderVersion) {
-                        return;
-                    }
-                    transport.onDataRange(begin, chunk);
+                    await fulfillPdfRangeRequest(transport, src, begin, end, version);
                 } catch (error) {
                     if (version !== renderVersion) {
                         return;
                     }
 
+                    logPdfRenderTrace('pdf-document-range-error', {
+                        begin,
+                        end,
+                        version,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
                     BrowserLogger.error(
                         'pdf-document',
                         'Failed to read PDF range chunk',

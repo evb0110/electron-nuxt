@@ -583,7 +583,7 @@ import {
 import {
     findPdfPageContainer,
     PDF_VIEWER_DOM_SELECTORS,
-} from '@app/modules/pdf-viewer/dom/pdfViewerDom';
+} from '@app/modules/pdf-viewer/public';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));

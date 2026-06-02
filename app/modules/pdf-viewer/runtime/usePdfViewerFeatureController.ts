@@ -2,6 +2,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
+import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime/rendering/usePdfMountedPageRenderRecovery';
 import { usePdfViewerRenderingRuntime } from '@app/modules/pdf-viewer/runtime/rendering/usePdfViewerRenderingRuntime';
 import { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
 import { usePdfViewerRuntime } from '@app/modules/pdf-viewer/runtime/usePdfViewerRuntime';
@@ -290,6 +291,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         applySearchHighlights,
         hideManagedAnnotationEditors,
         isPageRendered,
+        isPageRendering,
         requestScrollToCurrentResult,
         cancelPendingSearchScroll,
         cancelInFlightRenders,
@@ -324,6 +326,24 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         onRenderedPageStateChanged: handleRenderedPageStateChanged,
         renderedPageStateVersion,
     });
+    /**
+     * In paged fit-height/fit-width mode, current-page changes are rendered by
+     * `usePdfViewerRerenderCoordinator` after it hydrates the destination page
+     * metrics and recomputes scale. The generic paged row render would draw the
+     * same target at the previous scale first, then get cancelled by the fit
+     * rerender; on the 422 MB Girgas PDF that same-page cancel/restart was the
+     * source of the infinite last-page skeleton.
+     */
+    function shouldSuppressPagedFitRowRender() {
+        return (
+            !continuousScroll.value
+            && !isResizing.value
+            && (
+                (fitMode.value === 'height' && zoomMode.value === 'fit-height')
+                || (fitMode.value === 'width' && zoomMode.value === 'fit-width')
+            )
+        );
+    }
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer,
         numPages,
@@ -338,6 +358,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         updateVisibleRange,
         updateCurrentPage,
         renderVisiblePages,
+        suppressPagedRowRender: shouldSuppressPagedFitRowRender,
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
         requestedCurrentPage,
@@ -466,6 +487,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         },
         { immediate: true },
     );
+    const isCurrentPageFitRerenderTransitionActive = ref(false);
     usePdfViewerSourceChangeLifecycle({
         src,
         isAnySaving,
@@ -562,6 +584,9 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         pinCurrentPageDuringRecovery,
         beginVisualReloadTransition,
         endVisualReloadTransition,
+        setCurrentPageFitRerenderTransitionActive: active => {
+            isCurrentPageFitRerenderTransitionActive.value = active;
+        },
         onDocumentLoadStateChange,
         emit,
     });
@@ -592,6 +617,21 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         invalidatePages,
         preserveNextSourceReloadVisibleContent,
     } = runtimeLifecycle;
+    const { queueMountedPageRender: handlePageContainerMounted } = usePdfMountedPageRenderRecovery({
+        isActive,
+        isLoading,
+        hasDocument: computed(() => Boolean(pdfDocument.value)),
+        numPages,
+        suppressRecovery: isCurrentPageFitRerenderTransitionActive,
+        shouldRecoverPage: pageNumber => (
+            pageNumber >= visibleRange.value.start
+            && pageNumber <= visibleRange.value.end
+            && shouldShowSkeleton(pageNumber)
+            && !isPageRenderedForClass(pageNumber)
+            && !isPageRendering(pageNumber)
+        ),
+        renderVisiblePages,
+    });
     const {
         handleViewerMouseDown,
         handleViewerMouseMove,
@@ -626,6 +666,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         viewerContainer,
         isVisualReloadTransitionActive,
         suppressLoadingOverlay,
+        suppressPagedBufferRender: isCurrentPageFitRerenderTransitionActive,
         skeletonContentInsets,
         pagesToRender,
         isPageBuffered,
@@ -748,6 +789,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         handleViewerDblClick,
         handleViewerContextMenu,
         handleSelectStart,
+        handlePageContainerMounted,
         updatePendingImagePlacementRect,
         requestPendingImagePlacementFinalize,
         clearPendingImagePlacement,
