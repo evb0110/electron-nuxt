@@ -108,6 +108,7 @@ export default defineNuxtConfig({
                 children: `
 html, body, #__nuxt { min-height: 100%; }
 :root {
+    --app-font-ui: 'EVB Noto Sans', Arial, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
     --ui-primary: var(--ui-color-primary-700);
     --ui-bg: #ffffff;
     --ui-bg-elevated: var(--ui-color-neutral-50);
@@ -150,8 +151,8 @@ html, body, #__nuxt { min-height: 100%; }
     --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 80%, transparent);
     --shadow-popup: 0 10px 24px rgb(0 0 0 / 0.3), 0 3px 8px rgb(0 0 0 / 0.2);
 }
-html { background: var(--app-window-bg); color: var(--ui-text); }
-body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
+html { background: var(--app-window-bg); color: var(--ui-text); font-family: var(--app-font-ui); }
+body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); font-family: inherit; }
 *, *::before, *::after { box-sizing: border-box; }
 .app-shell-root {
     min-height: 100vh;
