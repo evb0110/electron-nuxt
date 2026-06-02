@@ -21,6 +21,7 @@ import type {
     IAgentAssistantAccount,
     IAgentAssistantChatMessage,
     IAgentAssistantEvent,
+    IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
     IAgentAssistantLoginResult,
@@ -52,6 +53,9 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
+const ASSISTANT_IMAGE_ONLY_PROMPT = 'Please answer using the attached image.';
+const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
+const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ASSISTANT_MCP_SERVER_NAME = 'evb_viewer_embedded';
 const ASSISTANT_MCP_TOKEN_ENV = 'EVB_MCP_TOKEN';
 const ASSISTANT_MODEL_CONFIG_DIR = 'assistant';
@@ -59,6 +63,9 @@ const ASSISTANT_ROLE_PROMPT = [
     'You are EVB Assistant, an assistant embedded inside EVB Viewer for scientists and researchers.',
     'You can help with the current EVB Viewer workspace and, when a document is open, with that document by using the EVB Viewer MCP tools.',
     'A document may not be open. Do not assume there is a current document; inspect the workspace when document state matters, and help the user open or prepare a document when the workspace is empty.',
+    'Use the compact capability workflow for EVB work: inspect with evb_workspace_snapshot, discover actions with evb_list_capabilities, inspect schemas with evb_describe_capability, read EVB resources with evb_read_resource, and run visible app actions with evb_run_action.',
+    'For searching or reading a PDF, use capabilities such as document.search and document.read_pages through evb_run_action; for notes, annotations, and TOC/bookmarks, read evb://document/{tabId}/notes, /annotations, or /toc through evb_read_resource.',
+    'Before write, destructive, or long-running actions, inspect capability policy and use dryRun when the user intent is not already explicit.',
     'Recent files in workspace snapshots are list metadata only. Do not summarize or compare their contents unless the user opens them and EVB tools can read them.',
     'This session is sandboxed for EVB Viewer: use only the EVB Viewer MCP tools exposed in this session. Do not use local files, shell commands, browser automation, or external services.',
     'When a PDF has missing searchable text, explain that OCR or conversion is needed instead of guessing from unavailable page content.',
@@ -66,14 +73,11 @@ const ASSISTANT_ROLE_PROMPT = [
 ].join('\n');
 const ASSISTANT_MCP_TOOLS = [
     'evb_workspace_snapshot',
-    'evb_viewer_open_documents',
-    'evb_document_readiness',
-    'evb_inspect_document_text',
-    'evb_search_document',
-    'evb_viewer_search_open_document',
-    'evb_read_document_pages',
-    'evb_activate_tab',
-    'evb_go_to_page',
+    'evb_list_capabilities',
+    'evb_describe_capability',
+    'evb_read_resource',
+    'evb_run_action',
+    'evb_job_status',
 ];
 
 type TJsonRpcId = number;
@@ -517,8 +521,21 @@ function currentStatus(): IAgentAssistantStatus {
     };
 }
 
+function cloneAssistantAttachment(attachment: IAgentAssistantImageAttachment): IAgentAssistantImageAttachment {
+    return { ...attachment };
+}
+
+function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssistantChatMessage {
+    return {
+        ...message,
+        ...(message.attachments === undefined
+            ? {}
+            : { attachments: message.attachments.map(cloneAssistantAttachment) }),
+    };
+}
+
 function cloneMessages() {
-    return messages.map(message => ({ ...message }));
+    return messages.map(cloneAssistantMessage);
 }
 
 function currentState(): IAgentAssistantState {
@@ -554,6 +571,9 @@ function addMessage(message: Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'
         role: message.role,
         text: message.text,
         createdAt: new Date().toISOString(),
+        ...(message.attachments === undefined
+            ? {}
+            : { attachments: message.attachments.map(cloneAssistantAttachment) }),
         ...(message.pending === undefined ? {} : { pending: message.pending }),
         ...(message.error === undefined ? {} : { error: message.error }),
     };
@@ -571,7 +591,7 @@ function upsertAssistantMessage(id: string, patch: Partial<IAgentAssistantChatMe
         Object.assign(existing, patch);
         publishAssistantEvent({
             type: 'message',
-            message: { ...existing },
+            message: cloneAssistantMessage(existing),
         });
         return existing;
     }
@@ -580,6 +600,7 @@ function upsertAssistantMessage(id: string, patch: Partial<IAgentAssistantChatMe
         id,
         role: 'assistant',
         text: patch.text ?? '',
+        ...(patch.attachments === undefined ? {} : { attachments: patch.attachments }),
         ...(patch.pending === undefined ? {} : { pending: patch.pending }),
         ...(patch.error === undefined ? {} : { error: patch.error }),
     });
@@ -934,8 +955,80 @@ async function ensureAssistantThread() {
     return threadId;
 }
 
-function normalizeOutgoingText(request: IAgentAssistantSendMessageRequest) {
-    return typeof request.text === 'string' ? request.text.trim() : '';
+function estimateBase64ByteSize(base64: string) {
+    const padding = base64.endsWith('==')
+        ? 2
+        : base64.endsWith('=')
+            ? 1
+            : 0;
+    return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+function parseAssistantImageDataUrl(dataUrl: string): {
+    base64: string;
+    mimeType: string;
+    sizeBytes: number;
+} | null {
+    const match = /^data:([^,]+),([a-z0-9+/=\r\n ]+)$/iu.exec(dataUrl.trim());
+    if (!match) {
+        return null;
+    }
+
+    const headerParts = match[1]!.split(';').map(part => part.trim().toLowerCase()).filter(Boolean);
+    const mimeType = headerParts[0] ?? '';
+    if (!mimeType.startsWith('image/') || !headerParts.includes('base64')) {
+        return null;
+    }
+
+    const base64 = match[2]!.replace(/\s+/gu, '');
+    if (!base64 || !/^[a-z0-9+/]+={0,2}$/iu.test(base64)) {
+        return null;
+    }
+
+    const sizeBytes = estimateBase64ByteSize(base64);
+    if (sizeBytes <= 0 || sizeBytes > ASSISTANT_MAX_IMAGE_BYTES) {
+        return null;
+    }
+
+    return {
+        base64,
+        mimeType,
+        sizeBytes,
+    };
+}
+
+function normalizeAttachmentName(name: string, index: number) {
+    return name.trim().slice(0, 160) || `image-${index + 1}`;
+}
+
+function normalizeOutgoingAttachments(request: IAgentAssistantSendMessageRequest) {
+    const rawAttachments = Array.isArray(request.attachments) ? request.attachments : [];
+    if (rawAttachments.length > ASSISTANT_MAX_IMAGE_ATTACHMENTS) {
+        throw new Error(`EVB Assistant accepts up to ${ASSISTANT_MAX_IMAGE_ATTACHMENTS} images per message.`);
+    }
+
+    return rawAttachments.map((attachment, index): IAgentAssistantImageAttachment => {
+        const parsed = parseAssistantImageDataUrl(attachment.dataUrl);
+        if (!parsed) {
+            throw new Error('One attached image is invalid or too large.');
+        }
+
+        return {
+            type: 'image',
+            id: attachment.id.trim() || randomUUID(),
+            name: normalizeAttachmentName(attachment.name, index),
+            mimeType: parsed.mimeType,
+            sizeBytes: parsed.sizeBytes,
+            dataUrl: `data:${parsed.mimeType};base64,${parsed.base64}`,
+        };
+    });
+}
+
+function normalizeOutgoingMessageRequest(request: IAgentAssistantSendMessageRequest) {
+    return {
+        text: typeof request.text === 'string' ? request.text.trim() : '',
+        attachments: normalizeOutgoingAttachments(request),
+    };
 }
 
 export async function getAgentAssistantState(): Promise<IAgentAssistantState> {
@@ -1063,8 +1156,23 @@ export async function cancelAgentAssistantLogin(): Promise<IAgentAssistantState>
 export async function sendAgentAssistantMessage(
     request: IAgentAssistantSendMessageRequest,
 ): Promise<IAgentAssistantSendMessageResult> {
-    const text = normalizeOutgoingText(request);
-    if (!text) {
+    let normalizedRequest: ReturnType<typeof normalizeOutgoingMessageRequest>;
+    try {
+        normalizedRequest = normalizeOutgoingMessageRequest(request);
+    } catch (error) {
+        lastError = getErrorMessage(error);
+        return {
+            ok: false,
+            state: currentState(),
+            error: lastError,
+        };
+    }
+
+    const {
+        text,
+        attachments,
+    } = normalizedRequest;
+    if (!text && attachments.length === 0) {
         return {
             ok: false,
             state: currentState(),
@@ -1081,15 +1189,22 @@ export async function sendAgentAssistantMessage(
         addMessage({
             role: 'user',
             text,
+            ...(attachments.length > 0 ? { attachments } : {}),
         });
         publishState();
         const response = await currentRuntime.client.request('turn/start', {
             threadId: currentThreadId,
-            input: [{
-                type: 'text',
-                text,
-                text_elements: [],
-            }],
+            input: [
+                {
+                    type: 'text',
+                    text: text || ASSISTANT_IMAGE_ONLY_PROMPT,
+                    text_elements: [],
+                },
+                ...attachments.map(attachment => ({
+                    type: 'image',
+                    url: attachment.dataUrl,
+                })),
+            ],
             cwd: currentRuntime.cwd,
             approvalPolicy: 'never',
             sandboxPolicy: {

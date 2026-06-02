@@ -5,7 +5,9 @@ export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
 export type TAgentOcrCoverageStatus = 'complete' | 'partial' | 'none' | 'unknown';
 export type TAgentRecommendationId = 'convert_to_pdf' | 'ocr_all_pages';
-export type TAgentCommandName = 'activate_tab' | 'go_to_page';
+export type TAgentCapabilityDomain = 'workspace' | 'document' | 'annotation' | 'toc' | 'ocr' | 'ui' | 'view' | 'file' | 'export' | 'pageOps';
+export type TAgentCapabilityRisk = 'read' | 'navigate' | 'write' | 'destructive' | 'longRunning';
+export type TAgentCommandName = 'activate_tab' | 'go_to_page' | 'run_action' | 'read_resource';
 export type TAgentMcpCodexRegistrationState = 'configured' | 'missing' | 'mismatched' | 'unknown';
 export type TAgentAssistantInstallState = 'installed' | 'missing' | 'unsupported';
 export type TAgentAssistantAuthState = 'signed-in' | 'signed-out' | 'login-pending' | 'unknown';
@@ -29,6 +31,29 @@ export interface IAgentDocumentRecommendation {
     title: string;
     reason: string;
     toolName?: string;
+}
+
+export interface IAgentCapabilityAvailability {
+    available: boolean;
+    reason?: string;
+}
+
+export interface IAgentCapabilityPolicy {
+    internal: 'allow' | 'confirm' | 'deny';
+    external: 'allow' | 'confirm' | 'deny';
+}
+
+export interface IAgentCapabilityDescriptor {
+    id: string;
+    domain: TAgentCapabilityDomain;
+    title: string;
+    summary: string;
+    risk: TAgentCapabilityRisk;
+    inputSchema: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+    availability: IAgentCapabilityAvailability;
+    policy: IAgentCapabilityPolicy;
+    resourceTemplates?: string[];
 }
 
 export interface IAgentDocumentReadiness {
@@ -122,7 +147,29 @@ export interface IAgentGoToPageCommand {
     };
 }
 
-export type TAgentCommand = IAgentActivateTabCommand | IAgentGoToPageCommand;
+export interface IAgentRunActionCommand {
+    name: 'run_action';
+    arguments: {
+        id: string;
+        tabId?: string;
+        input?: Record<string, unknown>;
+        dryRun?: boolean;
+    };
+}
+
+export interface IAgentReadResourceCommand {
+    name: 'read_resource';
+    arguments: {
+        uri: string;
+        tabId?: string;
+    };
+}
+
+export type TAgentCommand =
+    | IAgentActivateTabCommand
+    | IAgentGoToPageCommand
+    | IAgentRunActionCommand
+    | IAgentReadResourceCommand;
 
 export interface IAgentCommandRequest {
     requestId: string;
@@ -205,8 +252,18 @@ export interface IAgentAssistantChatMessage {
     role: TAgentAssistantMessageRole;
     text: string;
     createdAt: string;
+    attachments?: IAgentAssistantImageAttachment[];
     pending?: boolean;
     error?: string;
+}
+
+export interface IAgentAssistantImageAttachment {
+    type: 'image';
+    id: string;
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+    dataUrl: string;
 }
 
 export interface IAgentAssistantState {
@@ -232,7 +289,10 @@ export interface IAgentAssistantLoginResult {
     error?: string;
 }
 
-export interface IAgentAssistantSendMessageRequest {text: string;}
+export interface IAgentAssistantSendMessageRequest {
+    text: string;
+    attachments?: IAgentAssistantImageAttachment[];
+}
 
 export interface IAgentAssistantSendMessageResult {
     ok: boolean;
