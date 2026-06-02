@@ -47,10 +47,14 @@ describe('browserSettingsCapability', () => {
         cookies.set(BROWSER_THEME_COOKIE_KEY, encodeURIComponent('dark'));
 
         const { browserSettingsCapability } = await import('@app/platform/browser-api/settingsCapability');
-        await browserSettingsCapability.save({ authorName: 'Browser User' });
+        await browserSettingsCapability.save({
+            authorName: 'Browser User',
+            assistantPanelEnabled: false,
+        });
         const settings = await browserSettingsCapability.get();
 
         expect(settings.authorName).toBe('Browser User');
+        expect(settings.assistantPanelEnabled).toBe(false);
         expect(settings.locale).toBe('ru');
         expect(settings.theme).toBe('dark');
     });

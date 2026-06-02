@@ -73,6 +73,7 @@ describe('useSettings', () => {
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
             agentMcpEnabled: false,
+            assistantPanelEnabled: true,
         });
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -99,6 +100,7 @@ describe('useSettings', () => {
             uiScale: 'auto',
             tabMemoryPolicy: 'conservative',
             agentMcpEnabled: false,
+            assistantPanelEnabled: true,
             suppressDefaultViewerPrompt: false,
             skippedUpdateVersion: undefined,
         });

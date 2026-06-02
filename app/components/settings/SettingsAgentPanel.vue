@@ -1,5 +1,34 @@
 <template>
     <fieldset class="settings-section flex flex-col gap-2.5">
+        <legend class="settings-section-title">{{ t('settings.assistantPanel') }}</legend>
+
+        <div class="settings-agent-card">
+            <div class="settings-agent-main">
+                <div class="settings-agent-status">
+                    <UIcon
+                        name="i-ph-chat-circle-dots"
+                        class="settings-agent-status-icon"
+                        :class="{ 'is-ready': assistantPanelEnabled }"
+                    />
+                    <span class="settings-agent-status-label">{{ assistantPanelStatusLabel }}</span>
+                </div>
+                <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
+            </div>
+
+            <label class="settings-agent-switch-row">
+                <span class="settings-agent-switch-label">{{ t('settings.assistantPanelToggle') }}</span>
+                <input
+                    class="sr-only"
+                    type="checkbox"
+                    :checked="assistantPanelEnabled"
+                    @change="handleAssistantPanelToggle"
+                >
+                <span class="settings-agent-switch" aria-hidden="true" />
+            </label>
+        </div>
+    </fieldset>
+
+    <fieldset class="settings-section flex flex-col gap-2.5">
         <legend class="settings-section-title">{{ t('settings.agentMcp') }}</legend>
 
         <div class="settings-agent-card">
@@ -24,6 +53,14 @@
                     :loading="isBusy"
                     :disabled="isBusy || !status"
                     @click="emit('setEnabled', primaryActionEnabled)"
+                />
+                <UButton
+                    :label="t('settings.agentMcpSetupGuide')"
+                    icon="i-ph-info"
+                    color="neutral"
+                    variant="outline"
+                    :disabled="!status"
+                    @click="setupGuideOpen = true"
                 />
                 <UButton
                     :aria-label="t('settings.agentMcpRefresh')"
@@ -69,26 +106,136 @@
             />
         </div>
     </fieldset>
+
+    <UModal
+        v-model:open="setupGuideOpen"
+        :title="t('settings.agentMcpSetupTitle')"
+        :ui="{ footer: 'justify-end' }"
+    >
+        <template #description>
+            <span class="sr-only">{{ t('settings.agentMcpSetupDescription') }}</span>
+        </template>
+
+        <template #body>
+            <div class="settings-agent-guide">
+                <p class="settings-field-hint">{{ t('settings.agentMcpSetupDescription') }}</p>
+
+                <dl class="settings-agent-details settings-agent-details--guide">
+                    <div>
+                        <dt>{{ t('settings.agentMcpServerName') }}</dt>
+                        <dd>{{ mcpServerName }}</dd>
+                    </div>
+                    <div>
+                        <dt>{{ t('settings.agentMcpUrl') }}</dt>
+                        <dd>{{ mcpServerUrl }}</dd>
+                    </div>
+                </dl>
+
+                <section class="settings-agent-guide-section">
+                    <h3>{{ t('settings.agentMcpSetupCodexTitle') }}</h3>
+                    <ol>
+                        <li>{{ t('settings.agentMcpSetupCodexAccess') }}</li>
+                        <li>{{ t('settings.agentMcpSetupCodexEnable') }}</li>
+                        <li>{{ t('settings.agentMcpSetupCodexVerify') }}</li>
+                    </ol>
+                    <div class="settings-agent-code-block">
+                        <pre><code>{{ codexCommand }}</code></pre>
+                        <UButton
+                            :label="copyButtonLabel('codex')"
+                            :icon="copyButtonIcon('codex')"
+                            class="settings-agent-copy-button"
+                            color="neutral"
+                            variant="outline"
+                            size="sm"
+                            @click="copySetupSnippet('codex', codexCommand)"
+                        />
+                    </div>
+                </section>
+
+                <section class="settings-agent-guide-section">
+                    <h3>{{ t('settings.agentMcpSetupClaudeTitle') }}</h3>
+                    <p class="settings-field-hint">{{ t('settings.agentMcpSetupClaudeDescription') }}</p>
+                    <div class="settings-agent-code-block">
+                        <pre><code>{{ claudeCommand }}</code></pre>
+                        <UButton
+                            :label="copyButtonLabel('claude')"
+                            :icon="copyButtonIcon('claude')"
+                            class="settings-agent-copy-button"
+                            color="neutral"
+                            variant="outline"
+                            size="sm"
+                            @click="copySetupSnippet('claude', claudeCommand)"
+                        />
+                    </div>
+                </section>
+
+                <section class="settings-agent-guide-section">
+                    <h3>{{ t('settings.agentMcpSetupCursorTitle') }}</h3>
+                    <p class="settings-field-hint">{{ t('settings.agentMcpSetupCursorDescription') }}</p>
+                    <div class="settings-agent-code-block">
+                        <pre><code>{{ cursorConfig }}</code></pre>
+                        <UButton
+                            :label="copyButtonLabel('cursor')"
+                            :icon="copyButtonIcon('cursor')"
+                            class="settings-agent-copy-button"
+                            color="neutral"
+                            variant="outline"
+                            size="sm"
+                            @click="copySetupSnippet('cursor', cursorConfig)"
+                        />
+                    </div>
+                </section>
+
+                <p class="settings-field-hint">{{ t('settings.agentMcpSetupAvailability') }}</p>
+            </div>
+        </template>
+
+        <template #footer="{ close }">
+            <UButton
+                :label="t('settings.close')"
+                color="neutral"
+                variant="outline"
+                @click="close"
+            />
+        </template>
+    </UModal>
 </template>
 
 <script setup lang="ts">
+import {
+    useClipboard,
+    useTimeoutFn,
+} from '@vueuse/core';
 import type {
     IAgentMcpIntegrationStatus,
     TAgentMcpCodexRegistrationState,
 } from '@contracts/agent';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const props = defineProps<{
+    assistantPanelEnabled: boolean;
     status: IAgentMcpIntegrationStatus | null;
     isBusy: boolean;
 }>();
 
 const emit = defineEmits<{
+    'update:assistantPanelEnabled': [enabled: boolean];
     setEnabled: [enabled: boolean];
     refresh: [];
     openInstall: [];
 }>();
 
 const { t } = useTypedI18n();
+const { copy: copyClipboardText } = useClipboard();
+const setupGuideOpen = ref(false);
+type TSetupSnippetId = 'codex' | 'claude' | 'cursor';
+const copiedSetupSnippet = ref<TSetupSnippetId | null>(null);
+const {
+    start: startCopiedSnippetReset,
+    stop: stopCopiedSnippetReset,
+} = useTimeoutFn(() => {
+    copiedSetupSnippet.value = null;
+}, 1800, { immediate: false });
 
 const needsRepair = computed(() => props.status?.enabled === true && (
     !props.status.serverRunning
@@ -122,6 +269,18 @@ const primaryActionIcon = computed(() => {
 });
 
 const showInstallCodex = computed(() => props.status !== null && !props.status.codexInstalled);
+const assistantPanelStatusLabel = computed(() => props.assistantPanelEnabled
+    ? t('settings.assistantPanelStatusEnabled')
+    : t('settings.assistantPanelStatusDisabled'));
+const mcpServerName = computed(() => props.status?.serverName ?? t('settings.agentMcpUnavailable'));
+const mcpServerUrl = computed(() => props.status?.serverUrl || t('settings.agentMcpUnavailable'));
+const codexCommand = computed(() => `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
+const claudeCommand = computed(() => `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
+const cursorConfig = computed(() => JSON.stringify(
+    { mcpServers: { [mcpServerName.value]: { url: mcpServerUrl.value } } },
+    null,
+    2,
+));
 
 const statusKind = computed<TAgentMcpCodexRegistrationState | 'disabled' | 'error' | 'starting'>(() => {
     const status = props.status;
@@ -210,6 +369,34 @@ const codexLocationLabel = computed(() => {
     }
     return props.status.codexPath ?? t('settings.agentMcpUnavailable');
 });
+
+function handleAssistantPanelToggle(event: Event) {
+    const target = event.target as HTMLInputElement | null;
+    emit('update:assistantPanelEnabled', target?.checked === true);
+}
+
+function copyButtonLabel(snippet: TSetupSnippetId) {
+    return copiedSetupSnippet.value === snippet
+        ? t('toolbar.captureCopied')
+        : t('menu.copy');
+}
+
+function copyButtonIcon(snippet: TSetupSnippetId) {
+    return copiedSetupSnippet.value === snippet
+        ? 'i-ph-check'
+        : 'i-ph-copy';
+}
+
+async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
+    try {
+        await copyClipboardText(value);
+        stopCopiedSnippetReset();
+        copiedSetupSnippet.value = snippet;
+        startCopiedSnippetReset();
+    } catch (error) {
+        BrowserLogger.warn('settings', 'Failed to copy external MCP setup snippet', error);
+    }
+}
 </script>
 
 <style lang="scss" scoped>
@@ -264,6 +451,57 @@ const codexLocationLabel = computed(() => {
     flex-shrink: 0;
 }
 
+.settings-agent-switch-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.settings-agent-switch-label {
+    color: var(--ui-text-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.settings-agent-switch {
+    position: relative;
+    width: 2.4rem;
+    height: 1.35rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: var(--ui-bg-muted);
+    transition: background-color $ease-standard, border-color $ease-standard;
+}
+
+.settings-agent-switch::before {
+    content: '';
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.95rem;
+    height: 0.95rem;
+    border-radius: 50%;
+    background: var(--ui-bg);
+    box-shadow: var(--app-toolbar-control-active-shadow);
+    transition: transform $ease-standard;
+}
+
+.settings-agent-switch-row input:checked + .settings-agent-switch {
+    border-color: var(--ui-primary);
+    background: var(--ui-primary);
+}
+
+.settings-agent-switch-row input:checked + .settings-agent-switch::before {
+    transform: translateX(1.05rem);
+}
+
+.settings-agent-switch-row input:focus-visible + .settings-agent-switch {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+}
+
 .settings-agent-details {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -291,11 +529,80 @@ const codexLocationLabel = computed(() => {
     overflow-wrap: anywhere;
 }
 
+.settings-agent-details--guide {
+    padding: 0.65rem;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    background: var(--ui-bg-muted);
+}
+
 .settings-agent-install {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
+}
+
+.settings-agent-guide {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.settings-agent-guide-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.settings-agent-guide-section h3 {
+    margin: 0;
+    color: var(--ui-text);
+    font-size: 0.875rem;
+    font-weight: 650;
+}
+
+.settings-agent-guide-section ol {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--ui-text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+}
+
+.settings-agent-code-block {
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.settings-agent-code-block pre {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0.65rem;
+    overflow-x: auto;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    user-select: text;
+}
+
+.settings-agent-code-block code {
+    display: block;
+    width: max-content;
+    min-width: 100%;
+    user-select: text;
+}
+
+.settings-agent-copy-button {
+    order: -1;
+    align-self: flex-end;
 }
 
 @media (width <= 36rem) {
@@ -307,6 +614,15 @@ const codexLocationLabel = computed(() => {
 
     .settings-agent-actions {
         justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .settings-agent-switch-row {
+        justify-content: space-between;
+    }
+
+    .settings-agent-copy-button {
+        align-self: flex-start;
     }
 }
 </style>

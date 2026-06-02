@@ -49,6 +49,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
     tabMemoryPolicy: 'conservative',
+    assistantPanelEnabled: true,
     agentMcpEnabled: false,
 };
 
@@ -158,6 +159,9 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         defaultAnnotationColor: normalizeDefaultAnnotationColor(value?.defaultAnnotationColor),
         uiScale: normalizeUiScale(value?.uiScale),
         tabMemoryPolicy: normalizeTabMemoryPolicy(value?.tabMemoryPolicy),
+        assistantPanelEnabled: isBoolean(value?.assistantPanelEnabled)
+            ? value.assistantPanelEnabled
+            : DEFAULT_SETTINGS.assistantPanelEnabled,
         agentMcpEnabled: isBoolean(value?.agentMcpEnabled)
             ? value.agentMcpEnabled
             : DEFAULT_SETTINGS.agentMcpEnabled,

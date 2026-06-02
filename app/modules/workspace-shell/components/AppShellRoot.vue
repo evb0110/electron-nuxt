@@ -126,7 +126,7 @@
                 @update-split-ratio="setSplitRatio"
             />
             <AgentAssistantPanel
-                v-if="isDesktopRuntime && assistantPanelOpen && !isFullscreen"
+                v-if="assistantPanelEnabled && assistantPanelOpen && !isFullscreen"
                 :has-active-document="assistantHasActiveDocument"
                 :has-any-document="assistantHasAnyDocument"
                 :active-document-name="assistantActiveDocumentName"
@@ -137,7 +137,7 @@
         </div>
 
         <UButton
-            v-if="isDesktopRuntime && !assistantPanelOpen && !activeToolPage && !isFullscreen"
+            v-if="assistantPanelEnabled && !assistantPanelOpen && !activeToolPage && !isFullscreen"
             class="assistant-panel-toggle"
             :aria-label="t('assistant.open')"
             icon="i-ph-chat-circle-dots"
@@ -763,6 +763,13 @@ const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpt
 const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
     ? assistantActiveTab.value?.fileName ?? null
     : null);
+const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
+
+watch(assistantPanelEnabled, (enabled) => {
+    if (!enabled) {
+        assistantPanelOpen.value = false;
+    }
+});
 
 function findEmptyTab() {
     if (activeTabId.value && isTabEmpty(activeTabId.value)) {

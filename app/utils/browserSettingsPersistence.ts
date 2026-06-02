@@ -90,6 +90,7 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
         defaultAnnotationColor: sanitized.defaultAnnotationColor,
         uiScale: sanitized.uiScale,
         tabMemoryPolicy: sanitized.tabMemoryPolicy,
+        assistantPanelEnabled: sanitized.assistantPanelEnabled,
     };
     if (sanitized.suppressDefaultViewerPrompt !== undefined) {
         payload.suppressDefaultViewerPrompt = sanitized.suppressDefaultViewerPrompt;
