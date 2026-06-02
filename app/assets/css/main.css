@@ -1,7 +1,27 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
 
+@font-face {
+    font-family: 'EVB Noto Sans';
+    font-style: normal;
+    font-weight: 100 900;
+    font-stretch: 100%;
+    font-display: swap;
+    src: url('/fonts/noto-sans/noto-sans-variable.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'EVB Noto Sans';
+    font-style: italic;
+    font-weight: 100 900;
+    font-stretch: 100%;
+    font-display: swap;
+    src: url('/fonts/noto-sans/noto-sans-italic-variable.woff2') format('woff2');
+}
+
 @theme {
+    --font-sans: var(--app-font-ui);
+
     --color-brand-50: oklch(97% 0.014 235);
     --color-brand-100: oklch(93% 0.035 235);
     --color-brand-200: oklch(87% 0.07 235);
@@ -21,6 +41,13 @@
     /* Universal UI scale lever — driven by useUiScale composable.
        Set on <html> via an inline style; this default keeps the prerendered shell stable. */
     --app-ui-scale: 1;
+    --app-font-ui:
+        'EVB Noto Sans',
+        Arial,
+        'Helvetica Neue',
+        Helvetica,
+        system-ui,
+        sans-serif;
 
     /* Chrome-density tokens — kept in rem so they scale with --app-ui-scale via root font-size. */
     --app-toolbar-control-size: 2.25rem;
@@ -523,13 +550,22 @@
 
 html {
     font-size: calc(16px * var(--app-ui-scale, 1));
+    font-family: var(--app-font-ui);
 }
 
-html,
 body,
 #__nuxt {
     background-color: var(--app-window-bg, #ffffff);
+    font-family: inherit;
     user-select: none;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+    font-family: inherit;
 }
 
 button:not([role='link']) {
