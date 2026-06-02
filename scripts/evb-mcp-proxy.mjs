@@ -56,7 +56,7 @@ const CAPABILITY_DOMAIN_SCHEMA = {
 };
 const CAPABILITY_ID_SCHEMA = {
     type: 'string',
-    description: 'Stable EVB capability id, for example document.search, annotation.open_note, page_labels.apply_range, bookmarks.add, ocr.start, or ocr.open_popup.',
+    description: 'Stable EVB capability id, for example document.search, document.capture_page_image, annotation.open_note, page_labels.apply_range, bookmarks.add, ocr.start, or ocr.open_popup.',
 };
 const RESOURCE_URI_SCHEMA = {
     type: 'string',
@@ -432,6 +432,16 @@ const EVB_MCP_PROMPTS = [
         title: 'Check whether the current EVB document needs OCR',
         description: 'Workflow for determining whether an open PDF has enough searchable text for agent analysis.',
     },
+    {
+        name: 'evb_number_pages_from_printed_pages',
+        title: 'Number PDF pages from printed page numbers',
+        description: 'Workflow for reconstructing page labels from printed paper-page numbers using OCR as a starting point and visual verification when uncertain.',
+    },
+    {
+        name: 'evb_rebuild_verified_bookmarks',
+        title: 'Rebuild verified PDF bookmarks',
+        description: 'Workflow for reconstructing bookmarks from the existing TOC/bookmarks and verifying every target before writing.',
+    },
 ];
 
 let inputBuffer = Buffer.alloc(0);
@@ -537,7 +547,10 @@ function createInitializeInstructions() {
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree.',
         'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
-        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits.',
+        'When reconstructing page labels, start from OCR/searchable text and current page labels, then verify visible printed page numbers across front matter, transition pages, appendices, and body pages. Use document.capture_page_image for uncertain pages or crops and inspect the returned image before writing page_labels.set_ranges/apply_range/set_labels.',
+        'When reconstructing bookmarks, start from the PDF TOC/bookmarks when present, then verify each title/page target against OCR/searchable text and visual screenshots for doubtful entries. Use bookmarks.set_tree/add/add_batch/update/delete only after checking that targets land on the visible section starts.',
+        'For page-label and bookmark workflows, mutate only through EVB Viewer capabilities so edits enter the metadata undo stack. After all writes are verified, save the file with file.save and report any save failure.',
+        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits. Use document.capture_page_image when OCR, page labels, TOC, or search evidence is ambiguous.',
         'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
         'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
@@ -603,6 +616,26 @@ function createPromptText(name, params) {
             'Use evb_viewer_open_documents or evb_workspace_snapshot to identify the active tab.',
             'Use evb_viewer_search_open_document or evb_search_document with a small set of likely query variants; inspect candidate pages with evb_read_document_pages.',
             'Navigate with evb_go_to_page only after choosing the best page. If text coverage is missing, call evb_inspect_document_text and recommend OCR all pages.',
+        ].join('\n');
+    }
+
+    if (name === 'evb_number_pages_from_printed_pages') {
+        return [
+            'Reconstruct the PDF page labels from the printed page numbers.',
+            'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text. Use OCR/searchable page text as evidence, but do not trust it blindly.',
+            'Sample the beginning, front-matter/body transition, appendix or plate sections, and the end. Look for printed numerals such as iv, A, A-1, 1, or restarted numbering; search/read nearby pages to infer ranges.',
+            'For every uncertain boundary or suspicious OCR result, call document.capture_page_image with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
+            'Apply the final numbering with page_labels.set_ranges when ranges are regular, or page_labels.set_labels for irregular explicit labels so the app records an undoable metadata step. Re-read page labels after the write, spot-check representative pages, then save with file.save.',
+        ].join('\n');
+    }
+
+    if (name === 'evb_rebuild_verified_bookmarks') {
+        return [
+            'Rebuild or correct PDF bookmarks from verified section starts.',
+            'Start by reading evb://document/{tabId}/toc and /bookmarks. Treat the existing PDF TOC/bookmarks as hints, not proof.',
+            'Use document.search and document.read_pages to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
+            'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image on candidate pages or crops and inspect the visible page before writing.',
+            'Apply the final tree with bookmarks.set_tree or use add/update/delete for smaller edits so the app records undoable metadata steps. Re-read bookmarks, verify a sample of root and nested targets after the write, then save with file.save.',
         ].join('\n');
     }
 
