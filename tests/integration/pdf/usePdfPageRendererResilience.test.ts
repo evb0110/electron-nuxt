@@ -382,7 +382,7 @@ describe('usePdfPageRenderer resilience', () => {
         expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(2);
     });
 
-    it('shows the canvas before marking page layers rendered', async () => {
+    it('waits to mark the page rendered until page layers finish', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         const textLayerRender = createDeferred();
@@ -423,7 +423,7 @@ describe('usePdfPageRenderer resilience', () => {
             expect(canvasRendererMock.mountCanvas).toHaveBeenCalled();
         });
 
-        expect(pageContainer.classList.contains('page_container--rendered')).toBe(true);
+        expect(pageContainer.classList.contains('page_container--rendered')).toBe(false);
         expect(renderer.isPageRendered(1)).toBe(false);
 
         textLayerRender.resolve();

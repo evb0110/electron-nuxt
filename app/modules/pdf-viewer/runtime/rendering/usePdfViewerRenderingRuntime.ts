@@ -15,10 +15,6 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdf';
-import {
-    findPdfPageContainer,
-    PDF_VIEWER_DOM_SELECTORS,
-} from '@app/modules/pdf-viewer/dom/pdfViewerDom';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -83,13 +79,8 @@ export function usePdfViewerRenderingRuntime(options: IUsePdfViewerRenderingRunt
         options.renderedPageStateVersion.value += 1;
     }
 
-    function hasMountedPageCanvas(page: number) {
-        const container = findPdfPageContainer(options.viewerContainer.value, page);
-        return Boolean(container?.querySelector(PDF_VIEWER_DOM_SELECTORS.pageCanvasElement));
-    }
-
     function isPageRenderedForClass(page: number) {
-        return options.renderedPageStateVersion.value >= 0 && hasMountedPageCanvas(page);
+        return options.renderedPageStateVersion.value >= 0 && rendering.isPageRendered(page);
     }
 
     return {
