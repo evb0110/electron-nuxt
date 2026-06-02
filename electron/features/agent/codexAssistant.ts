@@ -48,6 +48,8 @@ import {
     startEmbeddedMcpServer,
 } from '@electron/features/agent/mcpServer';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
+import { loadSettings } from '@electron/settings';
+import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -419,6 +421,29 @@ function getAssistantCwd() {
 
 function createMcpToken() {
     return randomBytes(32).toString('hex');
+}
+
+async function isAssistantFeatureEnabled() {
+    const settings = await loadSettings();
+    return settings.assistantPanelEnabled;
+}
+
+function createAssistantDisabledError() {
+    return te('dialogs.agentAssistant.disabledMessage');
+}
+
+function markAssistantDisabledError() {
+    const error = createAssistantDisabledError();
+    lastError = error;
+    runtimeState = 'stopped';
+    turnPhase = 'idle';
+    activeTurnId = null;
+    return error;
+}
+
+async function stopAssistantForDisabledFeature() {
+    await shutdownAgentAssistant();
+    return markAssistantDisabledError();
 }
 
 function tomlString(value: string) {
@@ -822,6 +847,11 @@ async function refreshAuthStateAndRuntimeAvailability(options: { recoverFromErro
 }
 
 async function ensureAssistantRuntime() {
+    if (!(await isAssistantFeatureEnabled())) {
+        await shutdownAgentAssistant();
+        throw new Error(createAssistantDisabledError());
+    }
+
     if (runtime) {
         return runtime;
     }
@@ -1036,6 +1066,11 @@ function normalizeOutgoingMessageRequest(request: IAgentAssistantSendMessageRequ
 }
 
 export async function getAgentAssistantState(): Promise<IAgentAssistantState> {
+    if (!(await isAssistantFeatureEnabled())) {
+        await shutdownAgentAssistant();
+        return currentState();
+    }
+
     await refreshCodexInfo();
     if (codexInfoCache?.installed && codexInfoCache.isVersionSupported) {
         try {
@@ -1049,6 +1084,15 @@ export async function getAgentAssistantState(): Promise<IAgentAssistantState> {
 }
 
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
+    if (!(await isAssistantFeatureEnabled())) {
+        const error = await stopAssistantForDisabledFeature();
+        return {
+            ok: false,
+            state: currentState(),
+            error,
+        };
+    }
+
     if (installPromise) {
         return installPromise;
     }
@@ -1160,6 +1204,15 @@ export async function cancelAgentAssistantLogin(): Promise<IAgentAssistantState>
 export async function sendAgentAssistantMessage(
     request: IAgentAssistantSendMessageRequest,
 ): Promise<IAgentAssistantSendMessageResult> {
+    if (!(await isAssistantFeatureEnabled())) {
+        const error = await stopAssistantForDisabledFeature();
+        return {
+            ok: false,
+            state: currentState(),
+            error,
+        };
+    }
+
     let normalizedRequest: ReturnType<typeof normalizeOutgoingMessageRequest>;
     try {
         normalizedRequest = normalizeOutgoingMessageRequest(request);
@@ -1306,11 +1359,13 @@ export async function resetAgentAssistantChat(): Promise<IAgentAssistantState> {
 
 export async function shutdownAgentAssistant() {
     authReturnWindow = null;
+    pendingLoginId = null;
     runtime?.client.shutdown();
     runtime = null;
     runtimeState = 'stopped';
     turnPhase = 'idle';
     activeTurnId = null;
     threadId = null;
+    mcpToolCount = 0;
     await shutdownEmbeddedMcpServer();
 }

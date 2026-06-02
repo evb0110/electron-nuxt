@@ -49,7 +49,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
     tabMemoryPolicy: 'conservative',
-    assistantPanelEnabled: true,
+    assistantPanelEnabled: false,
     agentMcpEnabled: false,
 };
 

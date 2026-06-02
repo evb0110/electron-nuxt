@@ -491,6 +491,7 @@ export default {
             'codexMissingMessage': 'Установите Codex, чтобы использовать MCP-интеграцию EVB Viewer.',
             'codexMissingDetail': 'После установки Codex вернитесь сюда и включите настройку снова.',
         },
+        'agentAssistant': {'disabledMessage': 'Enable EVB Assistant in Settings to use assistant chat.'},
     },
     'combinePdf': {
         'title': 'Combine Files to PDF',
@@ -865,8 +866,8 @@ export default {
         'checkForUpdates': 'Проверить обновления',
         'checkForUpdatesDescription': 'Проверить сейчас и загрузить обновление в фоне.',
         'assistantPanel': 'EVB Assistant',
-        'assistantPanelDescription': 'Показывает встроенную боковую панель ассистента для вопросов о рабочей области и документах.',
-        'assistantPanelToggle': 'Показывать панель',
+        'assistantPanelDescription': 'Enable the in-app assistant sidebar for workspace and document questions.',
+        'assistantPanelToggle': 'Enable assistant',
         'assistantPanelStatusEnabled': 'Панель ассистента доступна',
         'assistantPanelStatusDisabled': 'Панель ассистента скрыта',
         'agentMcp': 'Внешний MCP-сервер',
