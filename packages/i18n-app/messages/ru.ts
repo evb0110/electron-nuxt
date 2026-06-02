@@ -56,6 +56,12 @@ export default {
         'imageTooLarge': '{name} превышает лимит {size}.',
         'imageAttachmentLimit': 'Можно прикрепить до {count} изображений в одном сообщении.',
         'imageReadFailed': 'Не удалось прочитать {name}.',
+        'previewImage': 'Просмотреть {name}',
+        'expandedImagePreview': 'Увеличенный просмотр изображения',
+        'closeImagePreview': 'Закрыть просмотр изображения',
+        'previousImage': 'Предыдущее изображение',
+        'nextImage': 'Следующее изображение',
+        'imagePreviewPosition': '{name} ({current}/{total})',
     },
     'seo': {
         'title': 'EVB Viewer Web',
