@@ -43,6 +43,8 @@ const CAPABILITY_DOMAIN_SCHEMA = {
         'document',
         'annotation',
         'toc',
+        'page_labels',
+        'bookmarks',
         'ocr',
         'ui',
         'view',
@@ -54,18 +56,18 @@ const CAPABILITY_DOMAIN_SCHEMA = {
 };
 const CAPABILITY_ID_SCHEMA = {
     type: 'string',
-    description: 'Stable EVB capability id, for example document.search, annotation.open_note, ocr.start, or ocr.open_popup.',
+    description: 'Stable EVB capability id, for example document.search, annotation.open_note, page_labels.apply_range, bookmarks.add, ocr.start, or ocr.open_popup.',
 };
 const RESOURCE_URI_SCHEMA = {
     type: 'string',
-    description: 'EVB resource URI such as evb://document/{tabId}/annotations or evb://document/{tabId}/toc.',
+    description: 'EVB resource URI such as evb://document/{tabId}/annotations, /bookmarks, /page-labels, or /toc.',
 };
 
 const EVB_MCP_TOOLS = [
     {
         name: 'evb_list_capabilities',
         title: 'EVB Viewer list capabilities',
-        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, TOC, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
+        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, bookmark, page-label, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -98,7 +100,7 @@ const EVB_MCP_TOOLS = [
     {
         name: 'evb_read_resource',
         title: 'EVB Viewer read resource',
-        description: 'Read an EVB resource URI as JSON or text. Useful resources include workspace/current, document page text, text status, annotations, notes, and TOC/bookmarks.',
+        description: 'Read an EVB resource URI as JSON or text. Useful resources include workspace/current, document page text, text status, annotations, notes, TOC/bookmarks, and page labels.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -397,6 +399,20 @@ const EVB_MCP_RESOURCE_TEMPLATES = [
         description: 'Read the document TOC/bookmarks when present, including titles and one-based page numbers.',
         mimeType: 'application/json',
     },
+    {
+        name: 'evb_document_bookmarks',
+        title: 'EVB PDF bookmarks',
+        uriTemplate: 'evb://document/{tabId}/bookmarks',
+        description: 'Read editable PDF bookmarks as a nested tree with zero-based paths and one-based page numbers.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_page_labels',
+        title: 'EVB PDF page labels',
+        uriTemplate: 'evb://document/{tabId}/page-labels',
+        description: 'Read PDF page numbering ranges and materialized page labels for an open EVB Viewer document.',
+        mimeType: 'application/json',
+    },
 ];
 
 const EVB_MCP_PROMPTS = [
@@ -517,11 +533,11 @@ function getClientProtocolVersion(params) {
 function createInitializeInstructions() {
     return [
         'EVB Viewer exposes the live PDF workspace. If the user mentions EVB Viewer, evb-viewer, the viewer app, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, or debug ports.',
-        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/TOC/page text, and evb_run_action for visible app actions.',
+        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/bookmarks/page-labels/page text, and evb_run_action for visible app actions.',
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree.',
         'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
-        'For annotations, notes, and TOC/bookmarks, read evb://document/{tabId}/annotations, evb://document/{tabId}/notes, and evb://document/{tabId}/toc through evb_read_resource or MCP resources/read.',
+        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits.',
         'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
         'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',

@@ -547,11 +547,19 @@ import type {
 } from '@contracts/platformApi';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startPage';
-import type { IPdfPageMatches } from '@app/types/pdf';
+import type {
+    IPdfBookmarkEntry,
+    IPdfPageLabelRange,
+    IPdfPageMatches,
+    TPageLabelStyle,
+} from '@app/types/pdf';
 import type {
     IAnnotationCommentSummary,
+    IShapePoint,
     TAnnotationTool,
+    TDrawableShapeType,
 } from '@app/types/annotations';
+import type { TAgentTextMarkupKind } from '@app/composables/pdf/annotations/useAnnotationHighlight';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
@@ -559,6 +567,12 @@ import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import {
+    buildPageLabelsFromRanges,
+    derivePageLabelRangesFromLabels,
+    normalizePageLabelRanges,
+} from '@app/utils/pdfPageLabels';
+import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
@@ -736,6 +750,7 @@ const {
     exportScopeDialogSelectedPages,
     pageLabels,
     pageLabelRanges,
+    pageLabelsDirty,
     pageLabelsResolved,
     handlePageLabelRangesUpdate,
     bookmarkEditMode,
@@ -1372,6 +1387,28 @@ const AGENT_SIDEBAR_TABS = [
     'thumbnails',
     'search',
 ] as const;
+const AGENT_TEXT_MARKUP_KINDS = [
+    'highlight',
+    'underline',
+    'strikethrough',
+    'squiggly',
+] as const satisfies readonly TAgentTextMarkupKind[];
+
+const AGENT_SHAPE_TOOLS = [
+    'draw',
+    'rectangle',
+    'circle',
+    'line',
+    'arrow',
+] as const satisfies readonly TDrawableShapeType[];
+
+const AGENT_PAGE_LABEL_STYLES = [
+    'D',
+    'R',
+    'r',
+    'A',
+    'a',
+] as const satisfies ReadonlyArray<Exclude<TPageLabelStyle, null>>;
 
 function isAgentRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -1384,11 +1421,21 @@ function getAgentStringInput(input: Record<string, unknown> | undefined, key: st
         : null;
 }
 
+function getAgentRawStringInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    return typeof value === 'string' ? value : null;
+}
+
 function getAgentNumberInput(input: Record<string, unknown> | undefined, key: string) {
     const value = input?.[key];
     return typeof value === 'number' && Number.isFinite(value)
         ? value
         : null;
+}
+
+function getAgentBooleanInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    return typeof value === 'boolean' ? value : null;
 }
 
 function getAgentStringArrayInput(input: Record<string, unknown> | undefined, key: string) {
@@ -1403,6 +1450,19 @@ function getAgentStringArrayInput(input: Record<string, unknown> | undefined, ke
     return strings.length > 0 ? Array.from(new Set(strings)) : undefined;
 }
 
+function getAgentNumberArrayInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const numbers = value.filter((item): item is number => typeof item === 'number' && Number.isFinite(item));
+    return numbers.length === value.length ? numbers : undefined;
+}
+
+function hasAgentInputKey(input: Record<string, unknown>, key: string) {
+    return Object.prototype.hasOwnProperty.call(input, key);
+}
+
 function isAgentAnnotationTool(value: unknown): value is TAnnotationTool {
     return typeof value === 'string' && AGENT_ANNOTATION_TOOLS.includes(value as TAnnotationTool);
 }
@@ -1411,8 +1471,480 @@ function isAgentSidebarTab(value: unknown): value is typeof AGENT_SIDEBAR_TABS[n
     return typeof value === 'string' && AGENT_SIDEBAR_TABS.includes(value as typeof AGENT_SIDEBAR_TABS[number]);
 }
 
+function isAgentTextMarkupKind(value: unknown): value is TAgentTextMarkupKind {
+    return typeof value === 'string' && AGENT_TEXT_MARKUP_KINDS.includes(value as TAgentTextMarkupKind);
+}
+
+function isAgentShapeTool(value: unknown): value is TDrawableShapeType {
+    return typeof value === 'string' && AGENT_SHAPE_TOOLS.includes(value as TDrawableShapeType);
+}
+
+function isAgentPageLabelStyle(value: unknown): value is Exclude<TPageLabelStyle, null> {
+    return typeof value === 'string' && AGENT_PAGE_LABEL_STYLES.includes(value as Exclude<TPageLabelStyle, null>);
+}
+
 function isAgentOcrPageRange(value: unknown): value is TAgentOcrPageRange {
     return value === 'all' || value === 'current' || value === 'custom';
+}
+
+function getAgentNullableStringInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    if (value === null) {
+        return null;
+    }
+    return typeof value === 'string' ? value.trim() : undefined;
+}
+
+function getAgentPointInput(value: unknown): IShapePoint | null {
+    if (!isAgentRecord(value)) {
+        return null;
+    }
+    const x = getAgentNumberInput(value, 'x') ?? getAgentNumberInput(value, 'pageX');
+    const y = getAgentNumberInput(value, 'y') ?? getAgentNumberInput(value, 'pageY');
+    if (x === null || y === null) {
+        return null;
+    }
+    return {
+        x,
+        y,
+    };
+}
+
+function getAgentPointArrayInput(input: Record<string, unknown>, key: string) {
+    const value = input[key];
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const points = value
+        .map(getAgentPointInput)
+        .filter((point): point is IShapePoint => point !== null);
+    return points.length > 0 ? points : undefined;
+}
+
+function getAgentStrokeArrayInput(input: Record<string, unknown>, key: string) {
+    const value = input[key];
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const strokes = value
+        .filter(Array.isArray)
+        .map(points => points
+            .map(getAgentPointInput)
+            .filter((point): point is IShapePoint => point !== null))
+        .filter(points => points.length > 0);
+    return strokes.length > 0 ? strokes : undefined;
+}
+
+function requireAgentPdfPageCount(actionId: string) {
+    if (totalPages.value <= 0) {
+        throw new Error(`${actionId} requires an open PDF document.`);
+    }
+    return totalPages.value;
+}
+
+function normalizeAgentPageNumber(value: number | null | undefined, actionId: string) {
+    const pageCount = requireAgentPdfPageCount(actionId);
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new Error(`${actionId} requires a valid one-based page number.`);
+    }
+    const page = Math.trunc(value);
+    if (page < 1 || page > pageCount) {
+        throw new Error(`${actionId} page ${page} is outside the document.`);
+    }
+    return page;
+}
+
+function getAgentPageNumberInput(input: Record<string, unknown>, actionId: string) {
+    return normalizeAgentPageNumber(
+        getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber'),
+        actionId,
+    );
+}
+
+function normalizeAgentBookmarkPageIndex(input: Record<string, unknown>, actionId: string) {
+    const pageNumber = getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber');
+    if (pageNumber !== null) {
+        return normalizeAgentPageNumber(pageNumber, actionId) - 1;
+    }
+
+    const pageIndex = getAgentNumberInput(input, 'pageIndex');
+    if (pageIndex === null) {
+        return null;
+    }
+    const normalizedPageIndex = Math.trunc(pageIndex);
+    if (normalizedPageIndex < 0 || normalizedPageIndex >= requireAgentPdfPageCount(actionId)) {
+        throw new Error(`${actionId} pageIndex ${normalizedPageIndex} is outside the document.`);
+    }
+    return normalizedPageIndex;
+}
+
+function normalizeAgentPageLabelStyle(value: unknown): TPageLabelStyle {
+    if (value === null) {
+        return null;
+    }
+    if (isAgentPageLabelStyle(value)) {
+        return value;
+    }
+    if (typeof value !== 'string') {
+        return 'D';
+    }
+
+    switch (value.trim().toLowerCase()) {
+        case 'decimal':
+        case 'number':
+        case 'numbers':
+        case 'arabic':
+            return 'D';
+        case 'roman':
+        case 'roman-upper':
+        case 'uppercase-roman':
+            return 'R';
+        case 'roman-lower':
+        case 'lowercase-roman':
+            return 'r';
+        case 'letters':
+        case 'letters-upper':
+        case 'alpha':
+        case 'alpha-upper':
+        case 'uppercase-alpha':
+            return 'A';
+        case 'letters-lower':
+        case 'alpha-lower':
+        case 'lowercase-alpha':
+            return 'a';
+        case 'literal':
+        case 'none':
+        case 'prefix':
+        case '':
+            return null;
+        default:
+            return 'D';
+    }
+}
+
+function normalizeAgentPageLabelRange(input: Record<string, unknown>, actionId: string): IPdfPageLabelRange {
+    return {
+        startPage: getAgentPageNumberInput(input, actionId),
+        style: normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format),
+        prefix: getAgentRawStringInput(input, 'prefix') ?? '',
+        startNumber: Math.max(1, Math.trunc(
+            getAgentNumberInput(input, 'startNumber')
+            ?? getAgentNumberInput(input, 'number')
+            ?? 1,
+        )),
+    };
+}
+
+function getEffectiveAgentPageLabels() {
+    const pageCount = totalPages.value;
+    if (pageCount <= 0) {
+        return [];
+    }
+    if (pageLabels.value && pageLabels.value.length === pageCount) {
+        return pageLabels.value;
+    }
+    return buildPageLabelsFromRanges(pageCount, pageLabelRanges.value);
+}
+
+function createAgentPageLabelSnapshot() {
+    const pageCount = totalPages.value;
+    const ranges = normalizePageLabelRanges(pageLabelRanges.value, pageCount);
+    return {
+        totalPages: pageCount,
+        dirty: pageLabelsDirty.value,
+        ranges,
+        labels: getEffectiveAgentPageLabels(),
+    };
+}
+
+function updateAgentPageLabelRanges(ranges: IPdfPageLabelRange[]) {
+    handlePageLabelRangesUpdate(ranges);
+    return createAgentPageLabelSnapshot();
+}
+
+function getAgentPageLabelRangesInput(input: Record<string, unknown>, actionId: string) {
+    const rawRanges = input.ranges;
+    if (!Array.isArray(rawRanges)) {
+        throw new Error(`${actionId} requires input.ranges.`);
+    }
+    return rawRanges
+        .filter(isAgentRecord)
+        .map(range => normalizeAgentPageLabelRange(range, actionId));
+}
+
+function getAgentPageLabelApplyRangeOptions(input: Record<string, unknown>, actionId: string) {
+    const startPage = normalizeAgentPageNumber(
+        getAgentNumberInput(input, 'startPage') ?? getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber'),
+        actionId,
+    );
+    const endPage = normalizeAgentPageNumber(
+        getAgentNumberInput(input, 'endPage') ?? getAgentNumberInput(input, 'toPage') ?? startPage,
+        actionId,
+    );
+    if (endPage < startPage) {
+        throw new Error(`${actionId} endPage must be greater than or equal to startPage.`);
+    }
+    return {
+        startPage,
+        endPage,
+        style: normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format),
+        prefix: getAgentRawStringInput(input, 'prefix') ?? '',
+        startNumber: Math.max(1, Math.trunc(
+            getAgentNumberInput(input, 'startNumber')
+            ?? getAgentNumberInput(input, 'number')
+            ?? 1,
+        )),
+    };
+}
+
+function applyAgentPageLabelsToRange(input: Record<string, unknown>, actionId: string) {
+    const {
+        startPage,
+        endPage,
+        style,
+        prefix,
+        startNumber,
+    } = getAgentPageLabelApplyRangeOptions(input, actionId);
+    const labels = [...getEffectiveAgentPageLabels()];
+    const segmentLabels = buildPageLabelsFromRanges(
+        endPage - startPage + 1,
+        [{
+            startPage: 1,
+            style,
+            prefix,
+            startNumber,
+        }],
+    );
+    segmentLabels.forEach((label, index) => {
+        labels[startPage - 1 + index] = label;
+    });
+    return updateAgentPageLabelRanges(derivePageLabelRangesFromLabels(labels, totalPages.value));
+}
+
+function setAgentPageLabels(input: Record<string, unknown>, actionId: string) {
+    const pageCount = requireAgentPdfPageCount(actionId);
+    const labels = [...getEffectiveAgentPageLabels()];
+    const rawLabels = input.labels;
+    if (Array.isArray(rawLabels)) {
+        rawLabels.slice(0, pageCount).forEach((label, index) => {
+            labels[index] = typeof label === 'string' ? label : '';
+        });
+    }
+
+    const updates = input.updates;
+    if (Array.isArray(updates)) {
+        updates
+            .filter(isAgentRecord)
+            .forEach((update) => {
+                const page = getAgentPageNumberInput(update, actionId);
+                labels[page - 1] = getAgentRawStringInput(update, 'label') ?? '';
+            });
+    }
+
+    if (!Array.isArray(rawLabels) && !Array.isArray(updates)) {
+        const page = getAgentPageNumberInput(input, actionId);
+        labels[page - 1] = getAgentRawStringInput(input, 'label') ?? '';
+    }
+
+    return updateAgentPageLabelRanges(derivePageLabelRangesFromLabels(labels, totalPages.value));
+}
+
+function cloneAgentBookmarkEntry(bookmark: IPdfBookmarkEntry): IPdfBookmarkEntry {
+    return {
+        ...bookmark,
+        items: bookmark.items.map(cloneAgentBookmarkEntry),
+    };
+}
+
+function cloneAgentBookmarks() {
+    return bookmarkItems.value.map(cloneAgentBookmarkEntry);
+}
+
+function getAgentBookmarkPathInput(input: Record<string, unknown>, key = 'path') {
+    const path = getAgentNumberArrayInput(input, key);
+    return path?.map(index => Math.max(0, Math.trunc(index))) ?? null;
+}
+
+function getBookmarkListAtPath(
+    bookmarks: IPdfBookmarkEntry[],
+    path: number[],
+    actionId: string,
+) {
+    let list = bookmarks;
+    for (const index of path) {
+        const bookmark = list[index];
+        if (!bookmark) {
+            throw new Error(`${actionId} bookmark path was not found.`);
+        }
+        list = bookmark.items;
+    }
+    return list;
+}
+
+function getBookmarkLocationAtPath(
+    bookmarks: IPdfBookmarkEntry[],
+    path: number[] | null,
+    actionId: string,
+) {
+    if (!path || path.length === 0) {
+        throw new Error(`${actionId} requires input.path.`);
+    }
+    const parentPath = path.slice(0, -1);
+    const index = path[path.length - 1]!;
+    const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
+    const bookmark = list[index];
+    if (!bookmark) {
+        throw new Error(`${actionId} bookmark path was not found.`);
+    }
+    return {
+        list,
+        index,
+        bookmark,
+    };
+}
+
+function normalizeAgentBookmarkEntry(input: Record<string, unknown>, actionId: string): IPdfBookmarkEntry {
+    const title = getAgentRawStringInput(input, 'title')?.trim() || t('bookmarks.untitled');
+    const namedDest = getAgentRawStringInput(input, 'namedDest')
+        ?? getAgentRawStringInput(input, 'dest')
+        ?? null;
+    const items = Array.isArray(input.items)
+        ? input.items
+            .filter(isAgentRecord)
+            .map(item => normalizeAgentBookmarkEntry(item, actionId))
+        : [];
+    const color = getAgentNullableStringInput(input, 'color');
+    return {
+        title,
+        pageIndex: normalizeAgentBookmarkPageIndex(input, actionId),
+        namedDest: namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null,
+        bold: getAgentBooleanInput(input, 'bold') ?? false,
+        italic: getAgentBooleanInput(input, 'italic') ?? false,
+        color: color === null ? null : normalizeBookmarkColor(color),
+        items,
+    };
+}
+
+function normalizeAgentBookmarkInput(input: Record<string, unknown>, actionId: string) {
+    const rawBookmark = input.bookmark;
+    return normalizeAgentBookmarkEntry(
+        isAgentRecord(rawBookmark) ? rawBookmark : input,
+        actionId,
+    );
+}
+
+function normalizeAgentBookmarkBatchInput(input: Record<string, unknown>, actionId: string) {
+    const rawItems = input.bookmarks ?? input.items ?? input.tree;
+    if (!Array.isArray(rawItems)) {
+        throw new Error(`${actionId} requires input.bookmarks or input.items.`);
+    }
+    return rawItems
+        .filter(isAgentRecord)
+        .map(item => normalizeAgentBookmarkEntry(item, actionId));
+}
+
+function createAgentBookmarkSnapshot() {
+    return {
+        count: bookmarkItems.value.length,
+        dirty: bookmarksDirty.value,
+        bookmarks: bookmarkItems.value.map((bookmark, index) => normalizeAgentBookmark(bookmark, [index])),
+    };
+}
+
+function updateAgentBookmarks(bookmarks: IPdfBookmarkEntry[]) {
+    handleBookmarksChange({
+        bookmarks,
+        dirty: true,
+    });
+    return createAgentBookmarkSnapshot();
+}
+
+function setAgentBookmarkTree(input: Record<string, unknown>, actionId: string) {
+    return updateAgentBookmarks(normalizeAgentBookmarkBatchInput(input, actionId));
+}
+
+function addAgentBookmark(input: Record<string, unknown>, actionId: string) {
+    const bookmarks = cloneAgentBookmarks();
+    const parentPath = getAgentBookmarkPathInput(input, 'parentPath') ?? [];
+    const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
+    const bookmark = normalizeAgentBookmarkInput(input, actionId);
+    const index = getAgentNumberInput(input, 'index');
+    const insertIndex = index === null
+        ? list.length
+        : Math.min(list.length, Math.max(0, Math.trunc(index)));
+    list.splice(insertIndex, 0, bookmark);
+    return updateAgentBookmarks(bookmarks);
+}
+
+function addAgentBookmarks(input: Record<string, unknown>, actionId: string) {
+    const bookmarks = cloneAgentBookmarks();
+    const batchParentPath = getAgentBookmarkPathInput(input, 'parentPath') ?? [];
+    const rawItems = input.bookmarks ?? input.items;
+    if (!Array.isArray(rawItems)) {
+        throw new Error(`${actionId} requires input.bookmarks or input.items.`);
+    }
+
+    rawItems
+        .filter(isAgentRecord)
+        .forEach((item) => {
+            const parentPath = getAgentBookmarkPathInput(item, 'parentPath') ?? batchParentPath;
+            const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
+            const insertIndex = getAgentNumberInput(item, 'index');
+            const bookmark = normalizeAgentBookmarkEntry(item, actionId);
+            list.splice(
+                insertIndex === null ? list.length : Math.min(list.length, Math.max(0, Math.trunc(insertIndex))),
+                0,
+                bookmark,
+            );
+        });
+    return updateAgentBookmarks(bookmarks);
+}
+
+function updateAgentBookmark(input: Record<string, unknown>, actionId: string) {
+    const bookmarks = cloneAgentBookmarks();
+    const location = getBookmarkLocationAtPath(bookmarks, getAgentBookmarkPathInput(input), actionId);
+    const bookmarkUpdates = isAgentRecord(input.bookmark) ? input.bookmark : input;
+    const updated = {...location.bookmark};
+    if (hasAgentInputKey(bookmarkUpdates, 'title')) {
+        updated.title = getAgentRawStringInput(bookmarkUpdates, 'title')?.trim() || t('bookmarks.untitled');
+    }
+    if (
+        hasAgentInputKey(bookmarkUpdates, 'page')
+        || hasAgentInputKey(bookmarkUpdates, 'pageNumber')
+        || hasAgentInputKey(bookmarkUpdates, 'pageIndex')
+    ) {
+        updated.pageIndex = normalizeAgentBookmarkPageIndex(bookmarkUpdates, actionId);
+    }
+    if (hasAgentInputKey(bookmarkUpdates, 'namedDest') || hasAgentInputKey(bookmarkUpdates, 'dest')) {
+        const namedDest = getAgentRawStringInput(bookmarkUpdates, 'namedDest')
+            ?? getAgentRawStringInput(bookmarkUpdates, 'dest')
+            ?? null;
+        updated.namedDest = namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null;
+    }
+    if (hasAgentInputKey(bookmarkUpdates, 'bold')) {
+        updated.bold = getAgentBooleanInput(bookmarkUpdates, 'bold') ?? false;
+    }
+    if (hasAgentInputKey(bookmarkUpdates, 'italic')) {
+        updated.italic = getAgentBooleanInput(bookmarkUpdates, 'italic') ?? false;
+    }
+    if (hasAgentInputKey(bookmarkUpdates, 'color')) {
+        const color = getAgentNullableStringInput(bookmarkUpdates, 'color');
+        updated.color = color === null ? null : normalizeBookmarkColor(color);
+    }
+    if (Array.isArray(bookmarkUpdates.items)) {
+        updated.items = bookmarkUpdates.items
+            .filter(isAgentRecord)
+            .map(item => normalizeAgentBookmarkEntry(item, actionId));
+    }
+    location.list.splice(location.index, 1, updated);
+    return updateAgentBookmarks(bookmarks);
+}
+
+function deleteAgentBookmark(input: Record<string, unknown>, actionId: string) {
+    const bookmarks = cloneAgentBookmarks();
+    const location = getBookmarkLocationAtPath(bookmarks, getAgentBookmarkPathInput(input), actionId);
+    location.list.splice(location.index, 1);
+    return updateAgentBookmarks(bookmarks);
 }
 
 function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOptions {
@@ -1425,6 +1957,101 @@ function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOpti
         ...(customRange === null ? {} : {customRange}),
         ...(languages === undefined ? {} : {languages}),
         open: true,
+    };
+}
+
+function getAgentTextMarkupCreateOptions(input: Record<string, unknown>) {
+    const text = getAgentStringInput(input, 'text')
+        ?? getAgentStringInput(input, 'query')
+        ?? getAgentStringInput(input, 'selectionText');
+    if (!text) {
+        throw new Error('annotation.create_text_markup requires input.text.');
+    }
+
+    const pageNumber = getAgentNumberInput(input, 'page')
+        ?? getAgentNumberInput(input, 'pageNumber')
+        ?? currentPage.value;
+    const occurrence = getAgentNumberInput(input, 'occurrence')
+        ?? getAgentNumberInput(input, 'matchIndex')
+        ?? 1;
+    const markup = getAgentStringInput(input, 'markup')
+        ?? getAgentStringInput(input, 'tool')
+        ?? getAgentStringInput(input, 'kind');
+    const withNote = getAgentBooleanInput(input, 'withNote')
+        ?? getAgentBooleanInput(input, 'openNote')
+        ?? false;
+    const caseSensitive = getAgentBooleanInput(input, 'caseSensitive')
+        ?? getAgentBooleanInput(input, 'matchCase')
+        ?? false;
+    const wholeWord = getAgentBooleanInput(input, 'wholeWord') ?? false;
+
+    if (!isAgentTextMarkupKind(markup ?? 'highlight')) {
+        throw new Error('annotation.create_text_markup requires input.markup: highlight, underline, strikethrough, or squiggly.');
+    }
+
+    return {
+        pageNumber,
+        text,
+        occurrence,
+        markup: (markup ?? 'highlight') as TAgentTextMarkupKind,
+        caseSensitive,
+        wholeWord,
+        withNote,
+    };
+}
+
+function getAgentPointNoteCreateOptions(input: Record<string, unknown>) {
+    const pageNumber = getAgentNumberInput(input, 'page')
+        ?? getAgentNumberInput(input, 'pageNumber')
+        ?? currentPage.value;
+    const pageX = getAgentNumberInput(input, 'pageX') ?? getAgentNumberInput(input, 'x');
+    const pageY = getAgentNumberInput(input, 'pageY') ?? getAgentNumberInput(input, 'y');
+    if (pageX === null || pageY === null) {
+        throw new Error('annotation.create_note_at_point requires input.pageX and input.pageY.');
+    }
+
+    return {
+        pageNumber,
+        pageX,
+        pageY,
+        preferTextAnchor: getAgentBooleanInput(input, 'preferTextAnchor') ?? true,
+    };
+}
+
+function getAgentShapeCreateOptions(input: Record<string, unknown>) {
+    const tool = getAgentStringInput(input, 'shape')
+        ?? getAgentStringInput(input, 'tool')
+        ?? getAgentStringInput(input, 'kind');
+    if (!isAgentShapeTool(tool)) {
+        throw new Error('annotation.create_shape requires input.shape: draw, rectangle, circle, line, or arrow.');
+    }
+
+    const points = getAgentPointArrayInput(input, 'points');
+    const strokes = getAgentStrokeArrayInput(input, 'strokes');
+    const firstPoint = points?.[0] ?? strokes?.[0]?.[0] ?? null;
+    const x = getAgentNumberInput(input, 'x') ?? getAgentNumberInput(input, 'pageX') ?? firstPoint?.x ?? null;
+    const y = getAgentNumberInput(input, 'y') ?? getAgentNumberInput(input, 'pageY') ?? firstPoint?.y ?? null;
+    if (x === null || y === null) {
+        throw new Error('annotation.create_shape requires normalized input.x and input.y coordinates.');
+    }
+
+    return {
+        pageNumber: getAgentNumberInput(input, 'page')
+            ?? getAgentNumberInput(input, 'pageNumber')
+            ?? currentPage.value,
+        tool,
+        x,
+        y,
+        width: getAgentNumberInput(input, 'width') ?? undefined,
+        height: getAgentNumberInput(input, 'height') ?? undefined,
+        x2: getAgentNumberInput(input, 'x2') ?? getAgentNumberInput(input, 'endX') ?? undefined,
+        y2: getAgentNumberInput(input, 'y2') ?? getAgentNumberInput(input, 'endY') ?? undefined,
+        points,
+        strokes,
+        color: getAgentStringInput(input, 'color') ?? undefined,
+        fillColor: getAgentNullableStringInput(input, 'fillColor'),
+        opacity: getAgentNumberInput(input, 'opacity') ?? undefined,
+        strokeWidth: getAgentNumberInput(input, 'strokeWidth') ?? undefined,
     };
 }
 
@@ -1456,8 +2083,11 @@ function normalizeAgentAnnotationComment(comment: IAnnotationCommentSummary) {
 
 function normalizeAgentBookmark(
     bookmark: typeof bookmarkItems.value[number],
+    path: number[] = [],
 ): Record<string, unknown> {
     return {
+        path,
+        depth: path.length,
         title: bookmark.title,
         pageIndex: bookmark.pageIndex,
         pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
@@ -1465,7 +2095,10 @@ function normalizeAgentBookmark(
         bold: bookmark.bold,
         italic: bookmark.italic,
         color: bookmark.color,
-        items: bookmark.items.map(normalizeAgentBookmark),
+        items: bookmark.items.map((child, index) => normalizeAgentBookmark(child, [
+            ...path,
+            index,
+        ])),
     };
 }
 
@@ -1562,13 +2195,24 @@ function createAgentResource(uri: string): Record<string, unknown> {
     }
 
     if (resourceKind === 'toc' || resourceKind === 'bookmarks') {
+        const snapshot = createAgentBookmarkSnapshot();
         return {
             uri,
             tabId,
             status: 'ready',
-            count: bookmarkItems.value.length,
-            dirty: bookmarksDirty.value,
-            toc: bookmarkItems.value.map(normalizeAgentBookmark),
+            count: snapshot.count,
+            dirty: snapshot.dirty,
+            toc: snapshot.bookmarks,
+            bookmarks: snapshot.bookmarks,
+        };
+    }
+
+    if (resourceKind === 'page-labels' || resourceKind === 'page-numbering') {
+        return {
+            uri,
+            tabId,
+            status: 'ready',
+            ...createAgentPageLabelSnapshot(),
         };
     }
 
@@ -1658,6 +2302,71 @@ async function runAgentAction(
                 ok: false,
                 error: 'OCR popup is not mounted.',
             });
+        case 'page_labels.read':
+        case 'page_numbering.read':
+            return createAgentActionResult(actionId, createAgentPageLabelSnapshot());
+        case 'page_labels.set_ranges':
+        case 'page_numbering.set_ranges': {
+            const snapshot = updateAgentPageLabelRanges(getAgentPageLabelRangesInput(input, actionId));
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'page_labels.apply_range':
+        case 'page_numbering.apply_range': {
+            const snapshot = applyAgentPageLabelsToRange(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'page_labels.set_labels':
+        case 'page_numbering.set_labels': {
+            const snapshot = setAgentPageLabels(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'page_labels.clear':
+        case 'page_numbering.clear': {
+            const snapshot = updateAgentPageLabelRanges([{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }]);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'bookmarks.read':
+        case 'toc.read':
+            return createAgentActionResult(actionId, createAgentBookmarkSnapshot());
+        case 'bookmarks.set_tree':
+        case 'toc.set_tree': {
+            const snapshot = setAgentBookmarkTree(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'bookmarks.add':
+        case 'toc.add': {
+            const snapshot = addAgentBookmark(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'bookmarks.add_batch':
+        case 'toc.add_batch': {
+            const snapshot = addAgentBookmarks(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'bookmarks.update':
+        case 'toc.update': {
+            const snapshot = updateAgentBookmark(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
+        case 'bookmarks.delete':
+        case 'toc.delete': {
+            const snapshot = deleteAgentBookmark(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
         case 'annotation.open_note': {
             const comment = findAgentAnnotationComment(input);
             handleOpenAnnotationNote(comment);
@@ -1669,6 +2378,48 @@ async function runAgentAction(
             await handleAnnotationFocusComment(comment);
             return createAgentActionResult(actionId, {comment: normalizeAgentAnnotationComment(comment)});
         }
+        case 'annotation.update_note': {
+            const comment = findAgentAnnotationComment(input);
+            const text = getAgentRawStringInput(input, 'text')
+                ?? getAgentRawStringInput(input, 'note')
+                ?? getAgentRawStringInput(input, 'noteText');
+            if (text === null) {
+                throw new Error('annotation.update_note requires input.text.');
+            }
+            const updated = pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false;
+            if (!updated) {
+                throw new Error('Annotation note could not be updated.');
+            }
+            await nextTick();
+            return createAgentActionResult(actionId, {
+                updated,
+                comment: normalizeAgentAnnotationComment({
+                    ...comment,
+                    text,
+                    hasNote: text.trim().length > 0 || comment.hasNote === true,
+                }),
+            });
+        }
+        case 'annotation.update_text_markup_color': {
+            const comment = findAgentAnnotationComment(input);
+            const color = getAgentStringInput(input, 'color');
+            if (!color) {
+                throw new Error('annotation.update_text_markup_color requires input.color.');
+            }
+            const updated = pdfViewerRef.value?.updateTextMarkupAnnotationColor?.(comment, color) ?? false;
+            if (!updated) {
+                throw new Error('Text markup annotation color could not be updated.');
+            }
+            await nextTick();
+            return createAgentActionResult(actionId, {
+                updated,
+                comment: normalizeAgentAnnotationComment({
+                    ...comment,
+                    color,
+                    colorEdited: true,
+                }),
+            });
+        }
         case 'annotation.delete': {
             const comment = findAgentAnnotationComment(input);
             await handleDeleteAnnotationComment(comment);
@@ -1679,6 +2430,17 @@ async function runAgentAction(
             await handleQuickNoteAction();
             await nextTick();
             return createAgentActionResult(actionId, {isPlacingPageNote: annotationPlacingPageNote.value});
+        case 'annotation.create_note_at_point':
+        case 'annotation.place_note': {
+            const result = await pdfViewerRef.value?.createPointNoteAnnotation(
+                getAgentPointNoteCreateOptions(input),
+            );
+            if (!result) {
+                throw new Error('PDF viewer is not ready for annotation.create_note_at_point.');
+            }
+            await nextTick();
+            return createAgentActionResult(actionId, {...result});
+        }
         case 'annotation.select_tool':
         case 'annotation.set_tool': {
             const tool = input.tool;
@@ -1688,6 +2450,31 @@ async function runAgentAction(
             handleAnnotationToolChange(tool);
             await nextTick();
             return createAgentActionResult(actionId, {annotationTool: annotationTool.value});
+        }
+        case 'annotation.create_text_markup':
+        case 'annotation.mark_text': {
+            const result = await pdfViewerRef.value?.createTextMarkupFromText(
+                getAgentTextMarkupCreateOptions(input),
+            );
+            if (!result) {
+                throw new Error('PDF viewer is not ready for annotation.create_text_markup.');
+            }
+            await nextTick();
+            return createAgentActionResult(actionId, {...result});
+        }
+        case 'annotation.create_shape':
+        case 'annotation.draw_shape': {
+            const result = await pdfViewerRef.value?.createShapeAnnotation(
+                getAgentShapeCreateOptions(input),
+            );
+            if (!result) {
+                throw new Error('PDF viewer is not ready for annotation.create_shape.');
+            }
+            await nextTick();
+            return createAgentActionResult(actionId, {
+                ...result,
+                shape: result.shape ? normalizeAgentAnnotationComment(result.shape) : null,
+            });
         }
         case 'file.save':
             await handleSave();

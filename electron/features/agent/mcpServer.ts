@@ -179,6 +179,8 @@ const CAPABILITY_DOMAIN_SCHEMA = {
         'document',
         'annotation',
         'toc',
+        'page_labels',
+        'bookmarks',
         'ocr',
         'ui',
         'view',
@@ -190,18 +192,18 @@ const CAPABILITY_DOMAIN_SCHEMA = {
 };
 const CAPABILITY_ID_SCHEMA = {
     type: 'string',
-    description: 'Stable EVB capability id, for example document.search, annotation.open_note, ocr.start, or ocr.open_popup.',
+    description: 'Stable EVB capability id, for example document.search, annotation.open_note, page_labels.apply_range, bookmarks.add, ocr.start, or ocr.open_popup.',
 };
 const RESOURCE_URI_SCHEMA = {
     type: 'string',
-    description: 'EVB resource URI such as evb://document/{tabId}/annotations or evb://document/{tabId}/toc.',
+    description: 'EVB resource URI such as evb://document/{tabId}/annotations, /bookmarks, /page-labels, or /toc.',
 };
 
 const MCP_TOOLS = [
     {
         name: 'evb_list_capabilities',
         title: 'EVB Viewer list capabilities',
-        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, TOC, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
+        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, bookmark, page-label, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -234,7 +236,7 @@ const MCP_TOOLS = [
     {
         name: 'evb_read_resource',
         title: 'EVB Viewer read resource',
-        description: 'Read an EVB resource URI as JSON or text. Useful resources include workspace/current, document page text, text status, annotations, notes, and TOC/bookmarks.',
+        description: 'Read an EVB resource URI as JSON or text. Useful resources include workspace/current, document page text, text status, annotations, notes, TOC/bookmarks, and page labels.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -533,6 +535,20 @@ const MCP_RESOURCE_TEMPLATES = [
         description: 'Read the document TOC/bookmarks when present, including titles and one-based page numbers.',
         mimeType: 'application/json',
     },
+    {
+        name: 'evb_document_bookmarks',
+        title: 'EVB PDF bookmarks',
+        uriTemplate: 'evb://document/{tabId}/bookmarks',
+        description: 'Read editable PDF bookmarks as a nested tree with zero-based paths and one-based page numbers.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_page_labels',
+        title: 'EVB PDF page labels',
+        uriTemplate: 'evb://document/{tabId}/page-labels',
+        description: 'Read PDF page numbering ranges and materialized page labels for an open EVB Viewer document.',
+        mimeType: 'application/json',
+    },
 ] as const satisfies readonly IMcpResourceTemplateDefinition[];
 
 const MCP_PROMPTS = [
@@ -654,6 +670,40 @@ const ANNOTATION_REF_INPUT_SCHEMA = {
     },
     additionalProperties: false,
 };
+const ANNOTATION_UPDATE_NOTE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        stableKey: {
+            type: 'string',
+            description: 'Stable annotation key from evb://document/{tabId}/annotations or /notes.',
+        },
+        annotationId: {type: 'string'},
+        id: {type: 'string'},
+        text: {
+            type: 'string',
+            description: 'New note text. Use an empty string to clear the note.',
+        },
+    },
+    required: ['text'],
+    additionalProperties: false,
+};
+const ANNOTATION_COLOR_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        stableKey: {
+            type: 'string',
+            description: 'Stable annotation key from evb://document/{tabId}/annotations or /notes.',
+        },
+        annotationId: {type: 'string'},
+        id: {type: 'string'},
+        color: {
+            type: 'string',
+            description: 'CSS color to apply to a text markup annotation, for example #ffd54f.',
+        },
+    },
+    required: ['color'],
+    additionalProperties: false,
+};
 const ANNOTATION_TOOL_INPUT_SCHEMA = {
     type: 'object',
     properties: {tool: {
@@ -675,6 +725,404 @@ const ANNOTATION_TOOL_INPUT_SCHEMA = {
         ],
     }},
     required: ['tool'],
+    additionalProperties: false,
+};
+const ANNOTATION_TEXT_MARKUP_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        page: {
+            type: 'number',
+            description: 'One-based PDF page number containing the text. Defaults to the current page.',
+        },
+        pageNumber: {
+            type: 'number',
+            description: 'Alias for page.',
+        },
+        text: {
+            type: 'string',
+            description: 'Exact visible page text to mark. Use document.search/read_pages first when uncertain.',
+        },
+        query: {
+            type: 'string',
+            description: 'Alias for text.',
+        },
+        occurrence: {
+            type: 'number',
+            description: 'One-based occurrence of text on the page. Defaults to 1.',
+        },
+        markup: {
+            type: 'string',
+            enum: [
+                'highlight',
+                'underline',
+                'strikethrough',
+                'squiggly',
+            ],
+            description: 'Text markup to create. Defaults to highlight.',
+        },
+        tool: {
+            type: 'string',
+            enum: [
+                'highlight',
+                'underline',
+                'strikethrough',
+                'squiggly',
+            ],
+            description: 'Alias for markup.',
+        },
+        matchCase: {
+            type: 'boolean',
+            description: 'Whether text matching must preserve case exactly.',
+        },
+        caseSensitive: {
+            type: 'boolean',
+            description: 'Alias for matchCase.',
+        },
+        wholeWord: {
+            type: 'boolean',
+            description: 'Only match text on word boundaries.',
+        },
+        withNote: {
+            type: 'boolean',
+            description: 'Open a note on the created text markup, matching the user comment-selection workflow.',
+        },
+        openNote: {
+            type: 'boolean',
+            description: 'Alias for withNote.',
+        },
+    },
+    required: ['text'],
+    additionalProperties: false,
+};
+const ANNOTATION_POINT_NOTE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        page: {
+            type: 'number',
+            description: 'One-based PDF page number. Defaults to the current page.',
+        },
+        pageNumber: {
+            type: 'number',
+            description: 'Alias for page.',
+        },
+        pageX: {
+            type: 'number',
+            description: 'Normalized horizontal page coordinate from 0 to 1.',
+        },
+        pageY: {
+            type: 'number',
+            description: 'Normalized vertical page coordinate from 0 to 1.',
+        },
+        x: {
+            type: 'number',
+            description: 'Alias for pageX.',
+        },
+        y: {
+            type: 'number',
+            description: 'Alias for pageY.',
+        },
+        preferTextAnchor: {
+            type: 'boolean',
+            description: 'Prefer anchoring the note to nearby text when possible. Defaults to true.',
+        },
+    },
+    additionalProperties: false,
+};
+const ANNOTATION_SHAPE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        page: {
+            type: 'number',
+            description: 'One-based PDF page number. Defaults to the current page.',
+        },
+        pageNumber: {
+            type: 'number',
+            description: 'Alias for page.',
+        },
+        shape: {
+            type: 'string',
+            enum: [
+                'draw',
+                'rectangle',
+                'circle',
+                'line',
+                'arrow',
+            ],
+            description: 'Shape type to create.',
+        },
+        tool: {
+            type: 'string',
+            enum: [
+                'draw',
+                'rectangle',
+                'circle',
+                'line',
+                'arrow',
+            ],
+            description: 'Alias for shape.',
+        },
+        x: {
+            type: 'number',
+            description: 'Normalized start/left page coordinate from 0 to 1.',
+        },
+        y: {
+            type: 'number',
+            description: 'Normalized start/top page coordinate from 0 to 1.',
+        },
+        width: {
+            type: 'number',
+            description: 'Normalized width for rectangle/circle, or fallback line delta.',
+        },
+        height: {
+            type: 'number',
+            description: 'Normalized height for rectangle/circle, or fallback line delta.',
+        },
+        x2: {
+            type: 'number',
+            description: 'Normalized end/right page coordinate for line/arrow or box corner.',
+        },
+        y2: {
+            type: 'number',
+            description: 'Normalized end/bottom page coordinate for line/arrow or box corner.',
+        },
+        points: {
+            type: 'array',
+            items: {type: 'object'},
+            description: 'Freehand draw points as normalized {x,y} objects.',
+        },
+        strokes: {
+            type: 'array',
+            items: {
+                type: 'array',
+                items: {type: 'object'},
+            },
+            description: 'Freehand draw strokes as arrays of normalized {x,y} objects.',
+        },
+        color: {
+            type: 'string',
+            description: 'CSS stroke color override. Defaults to current viewer annotation settings.',
+        },
+        fillColor: {
+            type: [
+                'string',
+                'null',
+            ],
+            description: 'CSS fill color override; null or transparent means no fill.',
+        },
+        opacity: {
+            type: 'number',
+            description: 'Opacity from 0 to 1.',
+        },
+        strokeWidth: {
+            type: 'number',
+            description: 'Stroke width in viewer annotation units.',
+        },
+    },
+    required: ['shape'],
+    additionalProperties: false,
+};
+const PAGE_LABEL_RANGE_SCHEMA = {
+    type: 'object',
+    properties: {
+        startPage: {
+            type: 'number',
+            description: 'One-based page where this numbering range starts.',
+        },
+        style: {
+            type: [
+                'string',
+                'null',
+            ],
+            enum: [
+                'D',
+                'R',
+                'r',
+                'A',
+                'a',
+                'decimal',
+                'roman-upper',
+                'roman-lower',
+                'letters-upper',
+                'letters-lower',
+                'literal',
+                null,
+            ],
+            description: 'Numbering style: decimal, roman, letters, or null/literal for prefix-only labels.',
+        },
+        prefix: {
+            type: 'string',
+            description: 'Prefix prepended to generated numbers, or the literal label when style is null.',
+        },
+        startNumber: {
+            type: 'number',
+            description: 'First generated number for startPage. Defaults to 1.',
+        },
+    },
+    required: ['startPage'],
+    additionalProperties: false,
+};
+const PAGE_LABEL_SET_RANGES_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {ranges: {
+        type: 'array',
+        items: PAGE_LABEL_RANGE_SCHEMA,
+        description: 'Complete replacement set of page-label ranges.',
+    }},
+    required: ['ranges'],
+    additionalProperties: false,
+};
+const PAGE_LABEL_APPLY_RANGE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        startPage: {type: 'number'},
+        endPage: {type: 'number'},
+        page: {
+            type: 'number',
+            description: 'Alias for a single-page startPage.',
+        },
+        pageNumber: {
+            type: 'number',
+            description: 'Alias for page.',
+        },
+        style: PAGE_LABEL_RANGE_SCHEMA.properties.style,
+        prefix: PAGE_LABEL_RANGE_SCHEMA.properties.prefix,
+        startNumber: PAGE_LABEL_RANGE_SCHEMA.properties.startNumber,
+    },
+    additionalProperties: false,
+};
+const PAGE_LABEL_SET_LABELS_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        labels: {
+            type: 'array',
+            items: {type: 'string'},
+            description: 'Explicit labels starting at physical page 1; omitted pages keep their current labels.',
+        },
+        updates: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    page: {type: 'number'},
+                    pageNumber: {type: 'number'},
+                    label: {type: 'string'},
+                },
+                additionalProperties: false,
+            },
+            description: 'Batch of explicit per-page label updates.',
+        },
+        page: {type: 'number'},
+        pageNumber: {type: 'number'},
+        label: {type: 'string'},
+    },
+    additionalProperties: false,
+};
+const BOOKMARK_PATH_SCHEMA = {
+    type: 'array',
+    items: {type: 'number'},
+    description: 'Zero-based path in the bookmark tree, for example [0,2] for the third child of the first root bookmark.',
+};
+const BOOKMARK_ENTRY_SCHEMA = {
+    type: 'object',
+    properties: {
+        title: {type: 'string'},
+        page: {
+            type: 'number',
+            description: 'One-based destination page.',
+        },
+        pageNumber: {
+            type: 'number',
+            description: 'Alias for page.',
+        },
+        pageIndex: {
+            type: 'number',
+            description: 'Zero-based destination page index.',
+        },
+        namedDest: {type: 'string'},
+        dest: {
+            type: 'string',
+            description: 'Alias for namedDest.',
+        },
+        bold: {type: 'boolean'},
+        italic: {type: 'boolean'},
+        color: {
+            type: [
+                'string',
+                'null',
+            ],
+            description: 'Hex color such as #336699, or null to clear.',
+        },
+        items: {
+            type: 'array',
+            items: {type: 'object'},
+            description: 'Nested child bookmarks using the same entry shape.',
+        },
+        parentPath: BOOKMARK_PATH_SCHEMA,
+        index: {
+            type: 'number',
+            description: 'Zero-based insert index within the parent. Defaults to append.',
+        },
+    },
+    additionalProperties: false,
+};
+const BOOKMARK_TREE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        bookmarks: {
+            type: 'array',
+            items: BOOKMARK_ENTRY_SCHEMA,
+            description: 'Complete replacement bookmark tree.',
+        },
+        items: {
+            type: 'array',
+            items: BOOKMARK_ENTRY_SCHEMA,
+            description: 'Alias for bookmarks.',
+        },
+        tree: {
+            type: 'array',
+            items: BOOKMARK_ENTRY_SCHEMA,
+            description: 'Alias for bookmarks.',
+        },
+    },
+    additionalProperties: false,
+};
+const BOOKMARK_ADD_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        ...BOOKMARK_ENTRY_SCHEMA.properties,
+        bookmark: BOOKMARK_ENTRY_SCHEMA,
+    },
+    additionalProperties: false,
+};
+const BOOKMARK_ADD_BATCH_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        parentPath: BOOKMARK_PATH_SCHEMA,
+        bookmarks: {
+            type: 'array',
+            items: BOOKMARK_ENTRY_SCHEMA,
+        },
+        items: {
+            type: 'array',
+            items: BOOKMARK_ENTRY_SCHEMA,
+        },
+    },
+    additionalProperties: false,
+};
+const BOOKMARK_UPDATE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        path: BOOKMARK_PATH_SCHEMA,
+        ...BOOKMARK_ENTRY_SCHEMA.properties,
+        bookmark: BOOKMARK_ENTRY_SCHEMA,
+    },
+    required: ['path'],
+    additionalProperties: false,
+};
+const BOOKMARK_DELETE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {path: BOOKMARK_PATH_SCHEMA},
+    required: ['path'],
     additionalProperties: false,
 };
 const VIEW_MODE_INPUT_SCHEMA = {
@@ -821,6 +1269,129 @@ const AGENT_CAPABILITY_TEMPLATES = [
         resourceTemplates: ['evb://document/{tabId}/toc'],
     },
     {
+        id: 'page_labels.read',
+        domain: 'page_labels',
+        title: 'Read page labels',
+        summary: 'Read current PDF page numbering ranges and materialized page labels.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+        resourceTemplates: ['evb://document/{tabId}/page-labels'],
+    },
+    {
+        id: 'page_labels.set_ranges',
+        domain: 'page_labels',
+        title: 'Replace page label ranges',
+        summary: 'Replace all PDF page numbering ranges in one batch.',
+        risk: 'write',
+        inputSchema: PAGE_LABEL_SET_RANGES_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'page_labels.apply_range',
+        domain: 'page_labels',
+        title: 'Apply page numbering range',
+        summary: 'Apply decimal, roman, alphabetic, or literal numbering to one page range while preserving labels outside it.',
+        risk: 'write',
+        inputSchema: PAGE_LABEL_APPLY_RANGE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'page_labels.set_labels',
+        domain: 'page_labels',
+        title: 'Set explicit page labels',
+        summary: 'Set one or many explicit physical-page labels and derive compact numbering ranges from them.',
+        risk: 'write',
+        inputSchema: PAGE_LABEL_SET_LABELS_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'page_labels.clear',
+        domain: 'page_labels',
+        title: 'Reset page labels',
+        summary: 'Reset page numbering to default physical decimal pages starting at 1.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'bookmarks.read',
+        domain: 'bookmarks',
+        title: 'Read bookmarks',
+        summary: 'Read editable PDF bookmarks as a nested tree with zero-based paths.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+        resourceTemplates: ['evb://document/{tabId}/bookmarks'],
+    },
+    {
+        id: 'bookmarks.set_tree',
+        domain: 'bookmarks',
+        title: 'Replace bookmark tree',
+        summary: 'Replace the full multi-level bookmark tree in one batch.',
+        risk: 'write',
+        inputSchema: BOOKMARK_TREE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'bookmarks.add',
+        domain: 'bookmarks',
+        title: 'Add bookmark',
+        summary: 'Add one bookmark at a root or child path, with optional style and nested children.',
+        risk: 'write',
+        inputSchema: BOOKMARK_ADD_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'bookmarks.add_batch',
+        domain: 'bookmarks',
+        title: 'Add bookmarks in batch',
+        summary: 'Add multiple bookmarks, each optionally targeting a different parent path and insert index.',
+        risk: 'write',
+        inputSchema: BOOKMARK_ADD_BATCH_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'bookmarks.update',
+        domain: 'bookmarks',
+        title: 'Update bookmark',
+        summary: 'Update one bookmark by zero-based tree path, including title, destination, style, color, or children.',
+        risk: 'write',
+        inputSchema: BOOKMARK_UPDATE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'bookmarks.delete',
+        domain: 'bookmarks',
+        title: 'Delete bookmark',
+        summary: 'Delete one bookmark subtree by zero-based tree path.',
+        risk: 'destructive',
+        inputSchema: BOOKMARK_DELETE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_ALL_WRITES,
+        availabilityKind: 'renderer-document',
+    },
+    {
         id: 'annotation.list',
         domain: 'annotation',
         title: 'Read annotations',
@@ -867,6 +1438,28 @@ const AGENT_CAPABILITY_TEMPLATES = [
         availabilityKind: 'renderer-document',
     },
     {
+        id: 'annotation.update_note',
+        domain: 'annotation',
+        title: 'Update annotation note',
+        summary: 'Replace the note text for an annotation using a stable key, annotation id, or id.',
+        risk: 'write',
+        inputSchema: ANNOTATION_UPDATE_NOTE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'annotation.update_text_markup_color',
+        domain: 'annotation',
+        title: 'Update text markup color',
+        summary: 'Apply a CSS color to an existing highlight, underline, strikethrough, or squiggly annotation.',
+        risk: 'write',
+        inputSchema: ANNOTATION_COLOR_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
         id: 'annotation.create_note',
         domain: 'annotation',
         title: 'Start note creation',
@@ -876,6 +1469,39 @@ const AGENT_CAPABILITY_TEMPLATES = [
         outputSchema: OBJECT_OUTPUT_SCHEMA,
         policy: CONFIRM_EXTERNAL,
         availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'annotation.create_note_at_point',
+        domain: 'annotation',
+        title: 'Create point note',
+        summary: 'Create a page note at normalized PDF page coordinates, matching user quick-note placement.',
+        risk: 'write',
+        inputSchema: ANNOTATION_POINT_NOTE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'annotation.create_text_markup',
+        domain: 'annotation',
+        title: 'Create text markup',
+        summary: 'Create highlight, underline, strikethrough, or squiggly markup on matching visible PDF text by page and occurrence.',
+        risk: 'write',
+        inputSchema: ANNOTATION_TEXT_MARKUP_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'annotation.create_shape',
+        domain: 'annotation',
+        title: 'Create shape annotation',
+        summary: 'Create rectangle, circle, line, arrow, or freehand draw annotations from normalized page geometry.',
+        risk: 'write',
+        inputSchema: ANNOTATION_SHAPE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
     },
     {
         id: 'annotation.select_tool',
@@ -1290,12 +1916,12 @@ function createHealthResponse(identity: ILocalMcpServerIdentity) {
 function createInitializeInstructions() {
     return [
         'EVB Viewer exposes the live viewer workspace. A document may or may not be open. If the user mentions EVB Viewer, evb-viewer, the viewer app, the workspace, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, debug ports, or the repository.',
-        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/TOC/page text, and evb_run_action for visible app actions.',
+        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/bookmarks/page-labels/page text, and evb_run_action for visible app actions.',
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree or need to determine whether any document is open.',
         'When the workspace is empty, evb_workspace_snapshot and evb_viewer_open_documents may still include recent files shown by EVB Viewer. Treat those as file-list metadata only; do not claim to know their contents unless a document is opened and read through EVB tools.',
         'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
-        'For annotations, notes, and TOC/bookmarks, read evb://document/{tabId}/annotations, evb://document/{tabId}/notes, and evb://document/{tabId}/toc through evb_read_resource or MCP resources/read.',
+        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits.',
         'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
         'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
@@ -1735,14 +2361,25 @@ async function runAgentActionTool(params: unknown, options: IProcessMcpRequestOp
         }, windowId);
     }
 
-    if (id === 'toc.read' || id === 'annotation.list' || id === 'annotation.list_notes') {
+    if (
+        id === 'toc.read'
+        || id === 'bookmarks.read'
+        || id === 'page_labels.read'
+        || id === 'annotation.list'
+        || id === 'annotation.list_notes'
+    ) {
         const snapshot = await options.getWorkspaceSnapshot(windowId);
         const tab = getTargetTab(snapshot, getOptionalTabId(actionParams));
-        const resourceKind = id === 'toc.read'
-            ? 'toc'
-            : id === 'annotation.list'
-                ? 'annotations'
-                : 'notes';
+        let resourceKind = 'notes';
+        if (id === 'toc.read') {
+            resourceKind = 'toc';
+        } else if (id === 'bookmarks.read') {
+            resourceKind = 'bookmarks';
+        } else if (id === 'page_labels.read') {
+            resourceKind = 'page-labels';
+        } else if (id === 'annotation.list') {
+            resourceKind = 'annotations';
+        }
         const resource = await readMcpResource({
             windowId,
             uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
@@ -1916,7 +2553,7 @@ function createDocumentStatusResource(tab: IAgentTabSnapshot): IMcpResourceDefin
 
 function createDocumentJsonResource(
     tab: IAgentTabSnapshot,
-    kind: 'ocr-status' | 'annotations' | 'notes' | 'toc',
+    kind: 'ocr-status' | 'annotations' | 'notes' | 'toc' | 'bookmarks' | 'page-labels',
     titleSuffix: string,
     description: string,
 ): IMcpResourceDefinition {
@@ -1955,6 +2592,18 @@ function createDocumentResources(tab: IAgentTabSnapshot) {
             'toc',
             'TOC',
             'Document TOC/bookmarks with titles and one-based page numbers when present.',
+        ),
+        createDocumentJsonResource(
+            tab,
+            'bookmarks',
+            'bookmarks',
+            'Editable nested bookmark tree with zero-based paths and one-based page numbers.',
+        ),
+        createDocumentJsonResource(
+            tab,
+            'page-labels',
+            'page labels',
+            'Page numbering ranges and materialized page labels for this EVB Viewer tab.',
         ),
     ];
 }
@@ -2071,6 +2720,8 @@ async function readMcpResource(
         || resourceKind === 'notes'
         || resourceKind === 'toc'
         || resourceKind === 'bookmarks'
+        || resourceKind === 'page-labels'
+        || resourceKind === 'page-numbering'
     ) {
         const result = await options.runCommand({
             name: 'read_resource',
