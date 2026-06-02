@@ -99,6 +99,23 @@ export interface IShapeStateSnapshot {
     selectedShapeId: string | null;
 }
 
+export interface IBuildShapeAnnotationOptions {
+    pageIndex: number;
+    tool: TDrawableShapeType;
+    x: number;
+    y: number;
+    width?: number | undefined;
+    height?: number | undefined;
+    x2?: number | undefined;
+    y2?: number | undefined;
+    points?: IShapePoint[] | undefined;
+    strokes?: IShapePoint[][] | undefined;
+    color?: string | undefined;
+    fillColor?: string | null | undefined;
+    opacity?: number | undefined;
+    strokeWidth?: number | undefined;
+}
+
 export const useAnnotationShapes = () => {
     const shapes = ref<Map<number, IShapeAnnotation[]>>(new Map());
     const selectedShapeId = ref<string | null>(null);
@@ -265,6 +282,161 @@ export const useAnnotationShapes = () => {
         };
     }
 
+    function clampUnit(value: number) {
+        if (!Number.isFinite(value)) {
+            return 0;
+        }
+        return Math.min(1, Math.max(0, value));
+    }
+
+    function normalizeOptionalPoint(value: number | undefined, fallback: number) {
+        return typeof value === 'number' && Number.isFinite(value)
+            ? clampUnit(value)
+            : fallback;
+    }
+
+    function normalizeOptionalPositiveNumber(value: number | undefined, fallback: number) {
+        return typeof value === 'number' && Number.isFinite(value)
+            ? Math.max(0, value)
+            : fallback;
+    }
+
+    function normalizeStyleColor(value: string | undefined, fallback: string) {
+        const color = value?.trim();
+        return color ? color : fallback;
+    }
+
+    function normalizeGeometryPoint(point: IShapePoint): IShapePoint {
+        return {
+            x: clampUnit(point.x),
+            y: clampUnit(point.y),
+        };
+    }
+
+    function normalizeGeometryPoints(points: IShapePoint[] | undefined) {
+        const normalized = points
+            ?.filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+            .map(normalizeGeometryPoint)
+            ?? [];
+        return normalized.length > 0 ? normalized : null;
+    }
+
+    function normalizeGeometryStrokes(strokes: IShapePoint[][] | undefined) {
+        const normalized = strokes
+            ?.map(points => normalizeGeometryPoints(points) ?? [])
+            .filter(points => points.length > 0)
+            ?? [];
+        return normalized.length > 0 ? normalized : null;
+    }
+
+    function resolveGeometryFillColor(
+        tool: TDrawableShapeType,
+        settings: IAnnotationSettings,
+        fillColor: string | null | undefined,
+    ) {
+        if (fillColor === null || fillColor === 'transparent') {
+            return undefined;
+        }
+
+        const normalized = fillColor?.trim();
+        return normalized || resolveDrawingFillColor(tool, settings);
+    }
+
+    function applyGeometryStyle(
+        shape: IShapeAnnotation,
+        tool: TDrawableShapeType,
+        settings: IAnnotationSettings,
+        options: IBuildShapeAnnotationOptions,
+    ): IShapeAnnotation {
+        const style = resolveDrawingStyle(tool, settings);
+        return {
+            ...shape,
+            color: normalizeStyleColor(options.color, style.color),
+            fillColor: resolveGeometryFillColor(tool, settings, options.fillColor),
+            opacity: Math.min(1, normalizeOptionalPositiveNumber(options.opacity, style.opacity)),
+            strokeWidth: normalizeOptionalPositiveNumber(options.strokeWidth, style.strokeWidth),
+        };
+    }
+
+    function applyBoxGeometry(shape: IShapeAnnotation, options: IBuildShapeAnnotationOptions): IShapeAnnotation {
+        const startX = clampUnit(options.x);
+        const startY = clampUnit(options.y);
+        const hasEndPoint = typeof options.x2 === 'number' || typeof options.y2 === 'number';
+        if (hasEndPoint) {
+            const endX = normalizeOptionalPoint(options.x2, startX);
+            const endY = normalizeOptionalPoint(options.y2, startY);
+            const minX = Math.min(startX, endX);
+            const minY = Math.min(startY, endY);
+            return {
+                ...shape,
+                x: minX,
+                y: minY,
+                width: Math.abs(endX - startX),
+                height: Math.abs(endY - startY),
+            };
+        }
+
+        return {
+            ...shape,
+            x: startX,
+            y: startY,
+            width: Math.min(1 - startX, normalizeOptionalPositiveNumber(options.width, 0)),
+            height: Math.min(1 - startY, normalizeOptionalPositiveNumber(options.height, 0)),
+        };
+    }
+
+    function applyLineGeometry(shape: IShapeAnnotation, options: IBuildShapeAnnotationOptions): IShapeAnnotation {
+        const x = clampUnit(options.x);
+        const y = clampUnit(options.y);
+        const x2 = normalizeOptionalPoint(
+            options.x2,
+            Math.min(1, x + normalizeOptionalPositiveNumber(options.width, 0)),
+        );
+        const y2 = normalizeOptionalPoint(
+            options.y2,
+            Math.min(1, y + normalizeOptionalPositiveNumber(options.height, 0)),
+        );
+
+        return {
+            ...shape,
+            x,
+            y,
+            x2,
+            y2,
+            width: Math.abs(x2 - x),
+            height: Math.abs(y2 - y),
+        };
+    }
+
+    function applyInkGeometry(shape: IShapeAnnotation, options: IBuildShapeAnnotationOptions): IShapeAnnotation {
+        const fallbackPoints = [
+            {
+                x: clampUnit(options.x),
+                y: clampUnit(options.y),
+            },
+            {
+                x: normalizeOptionalPoint(options.x2, clampUnit(options.x)),
+                y: normalizeOptionalPoint(options.y2, clampUnit(options.y)),
+            },
+        ];
+        const strokes = normalizeGeometryStrokes(options.strokes)
+            ?? (normalizeGeometryPoints(options.points)
+                ? [normalizeGeometryPoints(options.points)!]
+                : [fallbackPoints]);
+        const points = strokes[0] ?? fallbackPoints;
+        return {
+            ...shape,
+            ...resolveShapeBounds({
+                ...shape,
+                points,
+                strokes,
+            }),
+            points,
+            strokes,
+            pdfSubtype: 'Ink',
+        };
+    }
+
     function createLineDrawingGeometry(tool: TDrawableShapeType, x: number, y: number) {
         if (tool !== 'line' && tool !== 'arrow') {
             return {};
@@ -322,6 +494,37 @@ export const useAnnotationShapes = () => {
             createdAt,
             modifiedAt: createdAt,
         };
+    }
+
+    function buildShapeAnnotation(
+        options: IBuildShapeAnnotationOptions,
+        settings: IAnnotationSettings,
+    ): IShapeAnnotation | null {
+        const baseShape = applyGeometryStyle(
+            createDrawingShape(
+                Math.max(0, Math.trunc(options.pageIndex)),
+                options.tool,
+                clampUnit(options.x),
+                clampUnit(options.y),
+                settings,
+            ),
+            options.tool,
+            settings,
+            options,
+        );
+        const shape = (() => {
+            if (options.tool === 'draw') {
+                return applyInkGeometry(baseShape, options);
+            }
+            if (options.tool === 'line' || options.tool === 'arrow') {
+                return applyLineGeometry(baseShape, options);
+            }
+            return applyBoxGeometry(baseShape, options);
+        })();
+
+        return isDrawableFinishedShape(shape)
+            ? shape
+            : null;
     }
 
     function isDrawableFinishedShape(shape: IShapeAnnotation) {
@@ -1131,6 +1334,7 @@ export const useAnnotationShapes = () => {
         markSavedShapeState,
         captureShapeStateSnapshot,
         restoreShapeStateSnapshot,
+        buildShapeAnnotation,
         startDrawing,
         continueDrawing,
         finishDrawing,

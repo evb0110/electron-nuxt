@@ -329,6 +329,233 @@ describe('processMcpRequest', () => {
         }});
     });
 
+    it('exposes text-markup annotation creation as a discoverable capability', async () => {
+        const options = createOptions();
+        const shapeTools = [
+            'draw',
+            'rectangle',
+            'circle',
+            'line',
+            'arrow',
+        ];
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'annotation-capabilities',
+            method: 'tools/call',
+            params: {
+                name: 'evb_list_capabilities',
+                arguments: {domain: 'annotation'},
+            },
+        }, options);
+
+        expect(response?.result).toMatchObject({structuredContent: {
+            domain: 'annotation',
+            capabilities: expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'annotation.create_text_markup',
+                    risk: 'write',
+                    inputSchema: expect.objectContaining({
+                        required: ['text'],
+                        properties: expect.objectContaining({
+                            text: expect.objectContaining({type: 'string'}),
+                            page: expect.objectContaining({type: 'number'}),
+                            markup: expect.objectContaining({enum: [
+                                'highlight',
+                                'underline',
+                                'strikethrough',
+                                'squiggly',
+                            ]}),
+                        }),
+                    }),
+                }),
+                expect.objectContaining({
+                    id: 'annotation.create_note_at_point',
+                    inputSchema: expect.objectContaining({properties: expect.objectContaining({
+                        pageX: expect.objectContaining({type: 'number'}),
+                        pageY: expect.objectContaining({type: 'number'}),
+                    })}),
+                }),
+                expect.objectContaining({
+                    id: 'annotation.create_shape',
+                    inputSchema: expect.objectContaining({
+                        properties: expect.objectContaining({shape: expect.objectContaining({enum: shapeTools})}),
+                        required: ['shape'],
+                    }),
+                }),
+                expect.objectContaining({
+                    id: 'annotation.update_note',
+                    inputSchema: expect.objectContaining({required: ['text']}),
+                }),
+                expect.objectContaining({
+                    id: 'annotation.update_text_markup_color',
+                    inputSchema: expect.objectContaining({required: ['color']}),
+                }),
+            ]),
+        }});
+    });
+
+    it('dispatches text-markup annotation creation through run action', async () => {
+        const options = createOptions();
+
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'create-markup',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'annotation.create_text_markup',
+                    input: {
+                        page: 12,
+                        text: 'broken plural',
+                        markup: 'underline',
+                        occurrence: 2,
+                    },
+                },
+            },
+        }, options);
+
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'annotation.create_text_markup',
+                input: {
+                    page: 12,
+                    text: 'broken plural',
+                    markup: 'underline',
+                    occurrence: 2,
+                },
+            },
+        }, undefined);
+    });
+
+    it('exposes page-label and bookmark editing capabilities', async () => {
+        const options = createOptions();
+
+        const [
+            pageLabelsResponse,
+            bookmarksResponse,
+        ] = await Promise.all([
+            processMcpRequest({
+                jsonrpc: '2.0',
+                id: 'page-label-capabilities',
+                method: 'tools/call',
+                params: {
+                    name: 'evb_list_capabilities',
+                    arguments: {domain: 'page_labels'},
+                },
+            }, options),
+            processMcpRequest({
+                jsonrpc: '2.0',
+                id: 'bookmark-capabilities',
+                method: 'tools/call',
+                params: {
+                    name: 'evb_list_capabilities',
+                    arguments: {domain: 'bookmarks'},
+                },
+            }, options),
+        ]);
+
+        expect(pageLabelsResponse?.result).toMatchObject({structuredContent: {
+            domain: 'page_labels',
+            capabilities: expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'page_labels.set_ranges',
+                    inputSchema: expect.objectContaining({required: ['ranges']}),
+                }),
+                expect.objectContaining({id: 'page_labels.apply_range'}),
+                expect.objectContaining({id: 'page_labels.set_labels'}),
+            ]),
+        }});
+        expect(bookmarksResponse?.result).toMatchObject({structuredContent: {
+            domain: 'bookmarks',
+            capabilities: expect.arrayContaining([
+                expect.objectContaining({id: 'bookmarks.set_tree'}),
+                expect.objectContaining({id: 'bookmarks.add'}),
+                expect.objectContaining({id: 'bookmarks.add_batch'}),
+                expect.objectContaining({
+                    id: 'bookmarks.update',
+                    inputSchema: expect.objectContaining({required: ['path']}),
+                }),
+                expect.objectContaining({
+                    id: 'bookmarks.delete',
+                    inputSchema: expect.objectContaining({required: ['path']}),
+                }),
+            ]),
+        }});
+    });
+
+    it('dispatches page-label and bookmark mutations through run action', async () => {
+        const options = createOptions();
+        const bookmarkBatchInput = {bookmarks: [{
+            title: 'Chapter 1',
+            page: 5,
+            items: [{
+                title: 'Section 1.1',
+                page: 6,
+            }],
+        }]};
+
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'set-page-labels',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'page_labels.apply_range',
+                    input: {
+                        startPage: 1,
+                        endPage: 4,
+                        style: 'r',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                },
+            },
+        }, options);
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'add-bookmarks',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.add_batch',
+                    input: bookmarkBatchInput,
+                },
+            },
+        }, options);
+
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'page_labels.apply_range',
+                input: {
+                    startPage: 1,
+                    endPage: 4,
+                    style: 'r',
+                    prefix: '',
+                    startNumber: 1,
+                },
+            },
+        }, undefined);
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'bookmarks.add_batch',
+                input: bookmarkBatchInput,
+            },
+        }, undefined);
+    });
+
     it('searches the active PDF through the document text handler', async () => {
         const options = createOptions();
 
@@ -386,6 +613,8 @@ describe('processMcpRequest', () => {
         }, options);
 
         expect(JSON.stringify(resources?.result)).toContain('evb://workspace/current');
+        expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/bookmarks');
+        expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/page-labels');
         expect(pageText?.result).toMatchObject({contents: [{
             uri: 'evb://document/tab-1/page/7',
             mimeType: 'text/plain',

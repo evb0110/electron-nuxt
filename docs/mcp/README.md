@@ -192,6 +192,10 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 
 | Tool | Purpose | Mutation |
 | --- | --- | --- |
+| `evb_list_capabilities` | Discover semantic EVB Viewer capabilities by domain, including document, annotation, bookmarks, page labels, OCR, view, file, export, and page operations. | Read-only |
+| `evb_describe_capability` | Inspect one capability's input schema, risk, policy, availability, and related resources. | Read-only |
+| `evb_run_action` | Run a semantic capability action, such as navigation, OCR, sidebar actions, or annotation creation. | Depends on capability |
+| `evb_read_resource` | Read EVB resource URIs such as workspace, page text, text status, annotations, notes, TOC/bookmarks, and page labels. | Read-only |
 | `evb_workspace_snapshot` | Full live workspace: summary mode, panes, tabs, active ids, layout tree, document kind, page numbers, readiness, and recent-file list metadata. | Read-only |
 | `evb_viewer_open_documents` | Fast answer for "what document is open?" including workspace mode, real open documents, active document, pane/tab mapping, and recent-file list metadata. Empty tabs are not reported as documents. | Read-only |
 | `evb_document_readiness` | Preparation hints for all tabs or a selected tab. | Read-only |
@@ -204,6 +208,44 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 
 Read-only tools set MCP annotations with `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`. Navigation tools are non-destructive but not read-only.
 
+### Annotation Capabilities
+
+Agents should use the compact capability workflow for annotation work:
+
+1. Search or read the target page with `document.search` / `document.read_pages`.
+2. Inspect annotation capabilities with `evb_describe_capability` when the schema is needed.
+3. Run `evb_run_action` with `id: "annotation.create_text_markup"` and input such as `{ "page": 45, "text": "Sound Plurals", "markup": "highlight" }`.
+
+`annotation.create_text_markup` supports `highlight`, `underline`, `strikethrough`, and `squiggly`, with optional `occurrence`, `matchCase`, `wholeWord`, and `withNote`. It uses the same viewer/PDF.js annotation editor route as a user-created text markup, so saves and undo/redo follow the normal annotation path.
+
+`annotation.create_note_at_point` creates a page note at normalized page coordinates (`pageX`, `pageY` from `0` to `1`). `annotation.create_shape` creates `rectangle`, `circle`, `line`, `arrow`, or freehand `draw` annotations from normalized geometry. Both use the viewer's normal annotation state, dirty tracking, and save path.
+
+For existing annotations, use `annotation.update_note` to replace note text and `annotation.update_text_markup_color` to recolor highlight/underline/strikethrough/squiggly annotations. Both accept the stable keys returned by `evb://document/{tabId}/annotations` or `/notes`.
+
+### Page Label Capabilities
+
+Page numbering tools use PDF page-label ranges:
+
+- `page_labels.read` or `evb://document/{tabId}/page-labels` returns normalized ranges and materialized labels.
+- `page_labels.set_ranges` replaces all ranges in one batch.
+- `page_labels.apply_range` applies one numbering style to a page span while preserving labels outside that span.
+- `page_labels.set_labels` sets one explicit page label or a batch of `{ "page": n, "label": "..." }` updates.
+- `page_labels.clear` resets to physical decimal pages starting at 1.
+
+Supported styles are `D` decimal, `R`/`r` roman, `A`/`a` alphabetic, or `null`/`literal` for prefix-only labels.
+
+### Bookmark Capabilities
+
+Bookmark tools work with a recursive tree. Read `bookmarks.read` or `evb://document/{tabId}/bookmarks` first; returned bookmarks include zero-based `path` arrays such as `[0, 2]`.
+
+- `bookmarks.set_tree` replaces the full nested tree.
+- `bookmarks.add` adds one bookmark under an optional `parentPath`.
+- `bookmarks.add_batch` adds many bookmarks, each optionally carrying its own `parentPath` and `index`.
+- `bookmarks.update` updates one bookmark by `path`.
+- `bookmarks.delete` deletes one bookmark subtree by `path`.
+
+Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`.
+
 ## Resources And Prompts
 
 Resources:
@@ -214,8 +256,18 @@ Resources:
   JSON searchable text coverage and OCR recommendations for an open PDF tab.
 - `evb://document/{tabId}/page/{page}`
   Extracted searchable text for one PDF page.
+- `evb://document/{tabId}/annotations`
+  JSON annotation summaries with stable keys and note/color metadata.
+- `evb://document/{tabId}/notes`
+  JSON note-bearing annotations plus open note-window state.
+- `evb://document/{tabId}/toc`
+  JSON document TOC/bookmarks.
+- `evb://document/{tabId}/bookmarks`
+  JSON editable nested bookmark tree with path arrays.
+- `evb://document/{tabId}/page-labels`
+  JSON page-label ranges and materialized page labels.
 
-Resource templates are exposed for page text and text status. `resources/list` also adds concrete text-status resources for currently open PDF tabs.
+Resource templates are exposed for page text, text status, annotations, notes, bookmarks, and page labels. `resources/list` also adds concrete JSON resources for currently open PDF tabs.
 
 Prompts:
 
@@ -422,7 +474,7 @@ pnpm run release:verify
 
 - The external local HTTP MCP server has no token/auth layer.
 - Web runtime has no MCP server; it only has no-op typed APIs.
-- OCR and convert-to-PDF are recommendations, not MCP-callable actions yet.
+- Convert-to-PDF is still a recommendation rather than an MCP-callable action; OCR is callable through the `ocr.*` capabilities with the normal policy checks.
 - PDF readiness starts as `unknown` until `evb_inspect_document_text` builds or reads the index.
 - Port collisions are logged as server errors; there is no automatic fallback port.
 - The stdio proxy duplicates descriptor metadata.
@@ -434,5 +486,5 @@ pnpm run release:verify
 - Share MCP tool/resource/prompt descriptors between HTTP server and stdio proxy.
 - Add MCP actions for OCR all pages and convert to PDF once the user-confirmation model is designed.
 - Add a status indicator outside Settings if users need to know MCP is active during normal document work.
-- Expand resource support for bookmarks, annotations, and selected text.
+- Expand resource support for selected text if agents need selection inspection beyond current annotation context actions.
 - Add better port-conflict UX and a self-healing re-registration flow when the port changes.

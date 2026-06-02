@@ -43,7 +43,10 @@ import {
     markerRectFromPoint,
 } from '@app/composables/pdf/annotations/pdfPagePointResolver';
 import type { INotePlacementDiagnosticsContext } from '@app/composables/pdf/annotations/pdfPagePointResolver';
-import { buildRangeFromPagePoint } from '@app/composables/pdf/annotations/pdfTextAnchorResolver';
+import {
+    buildRangeFromPagePoint,
+    buildRangeFromPageText,
+} from '@app/composables/pdf/annotations/pdfTextAnchorResolver';
 import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/composables/pdf/annotations/annotationDomRemoval';
 
 interface IHighlightIdentity {
@@ -83,7 +86,7 @@ interface IHighlightToolManager {
 interface IUseAnnotationHighlightOptions {
     viewerContainer: Ref<HTMLElement | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
-    numPages: Ref<number>;
+    numPages: {value: number};
     currentPage: Ref<number>;
     annotationTool: Ref<TAnnotationTool>;
     getIdentity: () => IHighlightIdentity;
@@ -118,10 +121,33 @@ interface IEditorSnapshot {
     editorsBeforeIds: Set<string>;
 }
 
+export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
+
+export interface ICreateTextMarkupFromTextOptions {
+    pageNumber: number;
+    text: string;
+    occurrence?: number | undefined;
+    markup?: TAgentTextMarkupKind | undefined;
+    caseSensitive?: boolean | undefined;
+    wholeWord?: boolean | undefined;
+    withNote?: boolean | undefined;
+}
+
+export interface ICreateTextMarkupFromTextResult {
+    created: boolean;
+    pageNumber: number;
+    requestedText: string;
+    matchedText: string | null;
+    occurrence: number;
+    subtype: TMarkupSubtype;
+    reason?: string | undefined;
+}
+
 export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) => {
     const {
         viewerContainer,
         annotationUiManager,
+        numPages,
         currentPage,
         annotationTool,
         getIdentity,
@@ -359,7 +385,11 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         return summary;
     }
 
-    async function highlightSelectionInternal(withComment: boolean, explicitRange: Range | null = null): Promise<boolean> {
+    async function highlightSelectionInternal(
+        withComment: boolean,
+        explicitRange: Range | null = null,
+        selectionOptions: {markupSubtype?: TMarkupSubtype | null} = {},
+    ): Promise<boolean> {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
             return false;
@@ -405,7 +435,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         cachedSelectionTimestamp = 0;
 
         const previousMode = uiManager.getMode();
-        const markupSubtypeOverride = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
+        const markupSubtypeOverride = selectionOptions.markupSubtype
+            ?? markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value]
+            ?? null;
         let createdAnnotation = false;
         let deferredNoteSummary: IAnnotationCommentSummary | null = null;
         let editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
@@ -757,6 +789,91 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         throw modeError instanceof Error
             ? modeError
             : new Error(String(modeError));
+    }
+
+    function resolveTextMarkupSubtype(markup: TAgentTextMarkupKind | undefined): TMarkupSubtype {
+        switch (markup) {
+            case 'underline':
+                return 'Underline';
+            case 'strikethrough':
+                return 'StrikeOut';
+            case 'squiggly':
+                return 'Squiggly';
+            case 'highlight':
+            default:
+                return 'Highlight';
+        }
+    }
+
+    function getPageContainerByNumber(pageNumber: number) {
+        return viewerContainer.value?.querySelector<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"]`,
+        ) ?? null;
+    }
+
+    function normalizePositiveInteger(value: number | undefined, fallback: number) {
+        return typeof value === 'number' && Number.isFinite(value)
+            ? Math.max(1, Math.trunc(value))
+            : fallback;
+    }
+
+    async function createTextMarkupFromText(
+        textMarkupOptions: ICreateTextMarkupFromTextOptions,
+    ): Promise<ICreateTextMarkupFromTextResult> {
+        const pageNumber = normalizePositiveInteger(textMarkupOptions.pageNumber, currentPage.value);
+        const occurrence = normalizePositiveInteger(textMarkupOptions.occurrence, 1);
+        const requestedText = textMarkupOptions.text.trim();
+        const subtype = resolveTextMarkupSubtype(textMarkupOptions.markup);
+        const createResult = (
+            created: boolean,
+            matchedText: string | null,
+            reason?: string,
+        ): ICreateTextMarkupFromTextResult => ({
+            created,
+            pageNumber,
+            requestedText,
+            matchedText,
+            occurrence,
+            subtype,
+            ...(reason ? {reason} : {}),
+        });
+
+        if (!requestedText) {
+            return createResult(false, null, 'Text is required.');
+        }
+
+        if (pageNumber > numPages.value) {
+            return createResult(false, null, `Page ${pageNumber} is outside the document.`);
+        }
+
+        try {
+            await ensureAnnotationEditorLayerReady?.(pageNumber);
+            await nextTick();
+        } catch (error) {
+            BrowserLogger.warn('annotations', `Failed to prepare page ${pageNumber} for text markup: ${errorToLogText(error)}`);
+        }
+
+        const pageContainer = getPageContainerByNumber(pageNumber);
+        if (!pageContainer) {
+            return createResult(false, null, `Page ${pageNumber} is not rendered.`);
+        }
+
+        const match = buildRangeFromPageText(pageContainer, {
+            text: requestedText,
+            occurrence,
+            caseSensitive: textMarkupOptions.caseSensitive,
+            wholeWord: textMarkupOptions.wholeWord,
+        });
+        if (!match) {
+            return createResult(false, null, `Text was not found on page ${pageNumber}.`);
+        }
+
+        const created = await highlightSelectionInternal(
+            textMarkupOptions.withNote === true,
+            match.range,
+            {markupSubtype: subtype},
+        );
+        return createResult(created, match.matchedText, created ? undefined : 'Text markup could not be created.');
     }
 
     async function waitForEditorsRenderedWithTimeout(
@@ -1291,6 +1408,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         isPlacingComment,
         highlightSelection,
         commentSelection,
+        createTextMarkupFromText,
         commentAtPoint,
         placeCommentAtClientPoint,
         startCommentPlacement,

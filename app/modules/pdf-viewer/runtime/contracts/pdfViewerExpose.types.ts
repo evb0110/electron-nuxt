@@ -5,9 +5,15 @@ import type {
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
+    IShapePoint,
     ITextMarkupAnnotationProperties,
+    TDrawableShapeType,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type {
+    ICreateTextMarkupFromTextOptions,
+    ICreateTextMarkupFromTextResult,
+} from '@app/composables/pdf/annotations/useAnnotationHighlight';
 import type { ICropSelectionResult } from '@app/types/crop';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import type {
@@ -17,6 +23,45 @@ import type {
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+
+export interface ICreatePointNoteAnnotationOptions {
+    pageNumber: number;
+    pageX: number;
+    pageY: number;
+    preferTextAnchor?: boolean | undefined;
+}
+
+export interface ICreatePointNoteAnnotationResult {
+    created: boolean;
+    pageNumber: number;
+    pageX: number;
+    pageY: number;
+    reason?: string | undefined;
+}
+
+export interface ICreateShapeAnnotationOptions {
+    pageNumber: number;
+    tool: TDrawableShapeType;
+    x: number;
+    y: number;
+    width?: number | undefined;
+    height?: number | undefined;
+    x2?: number | undefined;
+    y2?: number | undefined;
+    points?: IShapePoint[] | undefined;
+    strokes?: IShapePoint[][] | undefined;
+    color?: string | undefined;
+    fillColor?: string | null | undefined;
+    opacity?: number | undefined;
+    strokeWidth?: number | undefined;
+}
+
+export interface ICreateShapeAnnotationResult {
+    created: boolean;
+    pageNumber: number;
+    shape: IAnnotationCommentSummary | null;
+    reason?: string | undefined;
+}
 
 export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
@@ -58,12 +103,21 @@ export interface IPdfViewerExpose extends IDocumentViewerExpose {
     ) => Promise<void>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
+    createTextMarkupFromText: (
+        options: ICreateTextMarkupFromTextOptions,
+    ) => Promise<ICreateTextMarkupFromTextResult>;
     commentAtPoint: (
         pageNumber: number,
         pageX: number,
         pageY: number,
         options?: { preferTextAnchor?: boolean },
     ) => Promise<boolean>;
+    createPointNoteAnnotation: (
+        options: ICreatePointNoteAnnotationOptions,
+    ) => Promise<ICreatePointNoteAnnotationResult>;
+    createShapeAnnotation: (
+        options: ICreateShapeAnnotationOptions,
+    ) => Promise<ICreateShapeAnnotationResult>;
     startCommentPlacement: () => void;
     cancelCommentPlacement: () => void;
     undoAnnotation: () => void;

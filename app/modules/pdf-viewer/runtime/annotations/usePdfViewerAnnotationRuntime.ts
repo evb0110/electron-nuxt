@@ -318,6 +318,7 @@ export function usePdfViewerAnnotationRuntime(options: IUsePdfViewerAnnotationRu
         shapeComposable,
         selectedShapeCommands,
         managedEmbeddedPdfShapes,
+        annotationSettings: options.annotationSettings,
         managedEmbeddedAnnotationIds: managedEmbeddedPdfShapes.managedEmbeddedAnnotationIds,
         hiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.hiddenEmbeddedAnnotationIds,
         suppressAnnotationId: managedEmbeddedPdfShapes.suppressAnnotationId,

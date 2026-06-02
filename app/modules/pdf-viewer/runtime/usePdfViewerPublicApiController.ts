@@ -9,6 +9,8 @@ import {
 } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import { toShapeAnnotationCommentSummary } from '@app/composables/pdf/annotations/shapeAnnotationComments';
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -47,8 +49,10 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         annotations,
         annotationCommentModel,
         annotationColorCommands,
+        annotationSettings,
         focusAnnotationComment,
         deleteAnnotationComment,
+        shapeTool,
         shapeComposable,
         selectedShapeCommands,
         managedEmbeddedPdfShapes,
@@ -79,7 +83,99 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         markSavedShapeState: shapeComposable.markSavedShapeState,
         highlightSelection: annotationRuntime.highlightComposable.highlightSelection,
         commentSelection: annotationRuntime.highlightComposable.commentSelection,
+        createTextMarkupFromText: async (target) => {
+            const pageNumber = Number.isFinite(target.pageNumber)
+                ? Math.max(1, Math.trunc(target.pageNumber))
+                : currentPage.value;
+            const normalizedTarget = {
+                ...target,
+                pageNumber,
+            };
+            options.cancelPendingSearchScroll();
+            options.singlePageScroll.scrollToPage(pageNumber);
+            await nextTick();
+            await options.waitForViewerLoadSettled();
+            await viewerRuntime.document.ensurePageMetricsInRange(pageNumber, pageNumber);
+            return annotationRuntime.highlightComposable.createTextMarkupFromText(normalizedTarget);
+        },
         commentAtPoint: annotationRuntime.highlightComposable.commentAtPoint,
+        createPointNoteAnnotation: async (target) => {
+            const pageNumber = Number.isFinite(target.pageNumber)
+                ? Math.max(1, Math.trunc(target.pageNumber))
+                : currentPage.value;
+            const pageX = Number.isFinite(target.pageX) ? target.pageX : 0;
+            const pageY = Number.isFinite(target.pageY) ? target.pageY : 0;
+            const result = (
+                created: boolean,
+                reason?: string,
+            ) => ({
+                created,
+                pageNumber,
+                pageX,
+                pageY,
+                ...(reason ? {reason} : {}),
+            });
+
+            if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+                return result(false, `Page ${pageNumber} is outside the document.`);
+            }
+
+            options.cancelPendingSearchScroll();
+            options.singlePageScroll.scrollToPage(pageNumber);
+            await nextTick();
+            await options.waitForViewerLoadSettled();
+            await viewerRuntime.document.ensurePageMetricsInRange(pageNumber, pageNumber);
+            const pointOptions = target.preferTextAnchor === undefined
+                ? {}
+                : {preferTextAnchor: target.preferTextAnchor};
+            const created = await annotationRuntime.highlightComposable.commentAtPoint(
+                pageNumber,
+                pageX,
+                pageY,
+                pointOptions,
+            );
+            return result(created, created ? undefined : 'Point note could not be created.');
+        },
+        createShapeAnnotation: async (target) => {
+            const pageNumber = Number.isFinite(target.pageNumber)
+                ? Math.max(1, Math.trunc(target.pageNumber))
+                : currentPage.value;
+            const result = (
+                created: boolean,
+                shape: ReturnType<typeof toShapeAnnotationCommentSummary> | null,
+                reason?: string,
+            ) => ({
+                created,
+                pageNumber,
+                shape,
+                ...(reason ? {reason} : {}),
+            });
+
+            if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+                return result(false, null, `Page ${pageNumber} is outside the document.`);
+            }
+
+            options.cancelPendingSearchScroll();
+            options.singlePageScroll.scrollToPage(pageNumber);
+            await nextTick();
+            await options.waitForViewerLoadSettled();
+            await viewerRuntime.document.ensurePageMetricsInRange(pageNumber, pageNumber);
+
+            const shape = shapeComposable.buildShapeAnnotation(
+                {
+                    ...target,
+                    pageIndex: pageNumber - 1,
+                },
+                annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS,
+            );
+            if (!shape) {
+                return result(false, null, 'Shape geometry is too small or invalid.');
+            }
+
+            shapeComposable.addShape(shape);
+            shapeTool.handleShapeCreated(shape);
+            return result(true, toShapeAnnotationCommentSummary(shape));
+        },
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         undoAnnotation: options.undoAnnotation,
