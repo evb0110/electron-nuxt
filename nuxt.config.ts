@@ -605,6 +605,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'ph:files',
             'ph:folder',
             'ph:folder-open',
+            'ph:globe',
             'ph:hand',
             'ph:hard-drive',
             'ph:hash',
