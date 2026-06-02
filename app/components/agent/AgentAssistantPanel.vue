@@ -139,14 +139,6 @@
             </section>
 
             <template v-else-if="panelView === 'ready'">
-                <div class="agent-assistant-context-strip">
-                    <UIcon :name="contextIcon" class="agent-assistant-context-icon" />
-                    <div class="agent-assistant-context-copy">
-                        <strong>{{ contextTitle }}</strong>
-                        <span>{{ contextDescription }}</span>
-                    </div>
-                </div>
-
                 <div
                     ref="messagesRef"
                     class="agent-assistant-messages"
@@ -294,14 +286,10 @@ const {
     activeDocumentName = null,
     hasActiveDocument = false,
     hasAnyDocument = false,
-    recentFileCount = 0,
-    recentFilesResolved = false,
 } = defineProps<{
     activeDocumentName?: string | null;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
-    recentFileCount?: number;
-    recentFilesResolved?: boolean;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -407,40 +395,6 @@ const turnStatusText = computed(() => {
         return t('assistant.startingTurn');
     }
     return t('assistant.working');
-});
-const contextIcon = computed(() => {
-    if (hasActiveDocument) {
-        return 'i-ph-file-text';
-    }
-    if (hasAnyDocument) {
-        return 'i-ph-folder-open';
-    }
-    return 'i-ph-lightbulb';
-});
-const contextTitle = computed(() => {
-    if (hasActiveDocument) {
-        return activeDocumentName
-            ? t('assistant.contextDocumentNamed', { name: activeDocumentName })
-            : t('assistant.contextDocument');
-    }
-    if (hasAnyDocument) {
-        return t('assistant.contextDocumentsOpen');
-    }
-    return t('assistant.contextWorkspaceEmpty');
-});
-const contextDescription = computed(() => {
-    if (hasActiveDocument) {
-        return t('assistant.contextDocumentDescription');
-    }
-    if (hasAnyDocument) {
-        return t('assistant.contextDocumentsOpenDescription');
-    }
-    if (!recentFilesResolved) {
-        return t('assistant.contextRecentFilesLoading');
-    }
-    return recentFileCount > 0
-        ? t('assistant.contextRecentFilesCount', { count: recentFileCount })
-        : t('assistant.contextNoRecentFiles');
 });
 
 function applyState(nextState: IAgentAssistantState) {
@@ -713,7 +667,6 @@ onUnmounted(() => {
 .agent-assistant-header-actions,
 .agent-assistant-setup-actions,
 .agent-assistant-composer-actions,
-.agent-assistant-context-strip,
 .agent-assistant-turn-progress {
     display: flex;
     align-items: center;
@@ -756,8 +709,7 @@ onUnmounted(() => {
 }
 
 .agent-assistant-setup-icon,
-.agent-assistant-empty-icon,
-.agent-assistant-context-icon {
+.agent-assistant-empty-icon {
     width: 1.25rem;
     height: 1.25rem;
     color: var(--ui-primary);
@@ -778,7 +730,6 @@ onUnmounted(() => {
 .agent-assistant-setup p,
 .agent-assistant-empty p,
 .agent-assistant-message p,
-.agent-assistant-context-copy span,
 .agent-assistant-turn-progress,
 .agent-assistant-composer-error,
 .agent-assistant-progress,
@@ -787,30 +738,6 @@ onUnmounted(() => {
     color: var(--ui-text-muted);
     font-size: 0.8125rem;
     line-height: 1.45;
-}
-
-.agent-assistant-context-strip {
-    gap: 0.65rem;
-    padding: 0.65rem 0.75rem;
-    border-bottom: 1px solid var(--ui-border);
-    background: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-muted) 12%);
-}
-
-.agent-assistant-context-copy {
-    display: flex;
-    min-width: 0;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 0.1rem;
-}
-
-.agent-assistant-context-copy strong {
-    overflow: hidden;
-    color: var(--ui-text);
-    font-size: 0.8125rem;
-    font-weight: 650;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .agent-assistant-messages {
