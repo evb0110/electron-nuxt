@@ -21,6 +21,8 @@ import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/r
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
+const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
+const CURRENT_PAGE_FIT_CANCEL_SETTLE_MS = 150;
 
 interface IPageRange {
     start: number;
@@ -79,6 +81,16 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
         syncOptions?: ICurrentPageSyncOptions,
     ) => void;
     cancelInFlightPageRenders?: (() => void) | undefined;
+    /**
+     * Hydrates the target row's real dimensions before fit scale recomputes.
+     *
+     * Fit-height scale is based on the current page's measured
+     * height. If we compute while the last page is still using fallback
+     * document metrics, both the skeleton and the eventual canvas are sized
+     * for the wrong page; the Girgas repro exposed that as an infinite-looking
+     * skeleton after a rapid jump to page 928.
+     */
+    ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     syncHorizontalScrollForZoomMode?: (() => boolean) | undefined;
     setupPagePlaceholders: () => void;
@@ -89,6 +101,15 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
     consumeSuppressedZoomRerender?: ((nextZoom: number) => boolean) | undefined;
+    /**
+     * Marks the brief window where current-page fit rerendering owns the row.
+     *
+     * The paged buffer renderer normally keeps neighboring pages warm, but
+     * while fit-height/fit-width navigation is cancelling stale PDF.js tasks
+     * and force-rendering the new current page, another buffer render can
+     * restart the same target page and starve the authoritative render.
+     */
+    setCurrentPageFitRerenderTransitionActive?: ((active: boolean) => void) | undefined;
 }
 
 export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCoordinatorOptions) => {
@@ -117,6 +138,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         enqueueZoomSync,
         scheduleResizeAwareRerender,
         cancelInFlightPageRenders,
+        ensurePageMetricsInRange,
         computeFitWidthScale,
         syncHorizontalScrollForZoomMode,
         setupPagePlaceholders,
@@ -127,13 +149,16 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         consumeZoomViewportAnchor,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
+        setCurrentPageFitRerenderTransitionActive,
     } = options;
 
     let reRenderSyncRunId = 0;
     let fitModeRunId = 0;
+    let currentPageFitRerenderRunId = 0;
     let viewModeRunId = 0;
     let continuousScrollRunId = 0;
     let resizeSettleRunId = 0;
+    let isCurrentPageFitRerenderTransitionMarkedActive = false;
 
     function isViewerAsyncRunActive(
         runId: number,
@@ -196,6 +221,88 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
         const range = visibleRange.value;
         return page >= range.start && page <= range.end;
+    }
+
+    function isCurrentPageFitRerenderModeActive() {
+        return (
+            (fitMode.value === 'width' && isFitWidthZoomModeActive())
+            || (fitMode.value === 'height' && isFitHeightZoomModeActive())
+        );
+    }
+
+    function isCurrentPageFitRerenderRunActive(
+        runId: number,
+        document: PDFDocumentProxy | null,
+        page: number,
+    ) {
+        return isViewerAsyncRunActive(runId, currentPageFitRerenderRunId, document)
+            && currentPage.value === page
+            && isCurrentPageFitRerenderModeActive()
+            && !continuousScroll.value
+            && !isResizing.value;
+    }
+
+    /**
+     * Give PDF.js enough time to settle cancelled page renders.
+     *
+     * PDF.js 5.x intentionally waits 100ms before aborting the operator-list
+     * stream for a cancelled render. Restarting the same large page during
+     * that window can clear PDF.js's abort timer and leave the replacement
+     * render waiting on a half-cancelled stream, which is how rapid fit-height
+     * navigation to page 928 produced an infinite skeleton.
+     */
+    async function waitForCurrentPageFitCancellationToSettle() {
+        await nextTick();
+        await delay(CURRENT_PAGE_FIT_CANCEL_SETTLE_MS);
+    }
+
+    async function runCurrentPageFitRerenderTransition(
+        runId: number,
+        task: () => Promise<void>,
+    ) {
+        setCurrentPageFitRerenderTransitionMarkedActive(true);
+        try {
+            await task();
+        } finally {
+            if (runId === currentPageFitRerenderRunId) {
+                setCurrentPageFitRerenderTransitionMarkedActive(false);
+            }
+        }
+    }
+
+    function setCurrentPageFitRerenderTransitionMarkedActive(active: boolean) {
+        if (isCurrentPageFitRerenderTransitionMarkedActive === active) {
+            return;
+        }
+
+        isCurrentPageFitRerenderTransitionMarkedActive = active;
+        setCurrentPageFitRerenderTransitionActive?.(active);
+    }
+
+    /**
+     * Prepare the row before fit-current rendering takes over from navigation.
+     *
+     * The normal paged renderer is suppressed in fit-height/fit-width mode, so
+     * this watcher must perform the whole sequence: select the current row,
+     * hydrate its page metrics, recompute the fit scale, and refresh skeleton
+     * dimensions before starting the only canvas render for that row.
+     */
+    async function prepareCurrentPageFitRerenderLayout(
+        runId: number,
+        document: PDFDocumentProxy | null,
+        page: number,
+    ) {
+        const range = getVisibleRange();
+        await ensurePageMetricsInRange?.(range.start, range.end);
+        await nextTick();
+        if (!isCurrentPageFitRerenderRunActive(runId, document, page)) {
+            return null;
+        }
+
+        computeFitWidthScale(viewerContainer.value);
+        setupPagePlaceholders();
+        syncHorizontalScrollAfterLayoutUpdate();
+        return range;
     }
 
     function buildRerenderSyncNavLogPayload(runId: number, source: string) {
@@ -370,71 +477,103 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     });
 
     watch(currentPage, async (next, previous) => {
+        const runId = ++currentPageFitRerenderRunId;
+        const document = pdfDocument.value;
         if (
             next === previous
-            || !(
-                (fitMode.value === 'width' && isFitWidthZoomModeActive())
-                || (fitMode.value === 'height' && isFitHeightZoomModeActive())
-            )
+            || !isCurrentPageFitRerenderModeActive()
             || continuousScroll.value
-            || !pdfDocument.value
+            || !document
             || isLoading.value
             || isResizing.value
         ) {
+            setCurrentPageFitRerenderTransitionMarkedActive(false);
             return;
         }
 
-        const updated = computeFitWidthScale(viewerContainer.value);
-        syncHorizontalScrollAfterLayoutUpdate();
-        if (!updated) {
-            return;
-        }
+        await runCurrentPageFitRerenderTransition(runId, async () => {
+            /**
+             * Coalesce rapid paged toolbar navigation before rerendering fit modes.
+             *
+             * Fit-height and fit-width recompute scale on every current-page change.
+             * If page 2, 3, ..., 30 each starts its own rerender, those stale jobs can
+             * keep bumping the renderer version after a later last-page jump and
+             * repeatedly cancel the final page. Waiting a short settle window and
+             * checking the run id lets ordinary single-page navigation stay prompt
+             * while making the last requested page the only rerender authority.
+             */
+            await delay(CURRENT_PAGE_FIT_RERENDER_SETTLE_MS);
+            await nextTick();
+            if (!isCurrentPageFitRerenderRunActive(runId, document, next)) {
+                return;
+            }
 
-        if (fitMode.value === 'height') {
-            const document = pdfDocument.value;
-            cancelInFlightPageRenders?.();
-            await reRenderAllVisiblePages(getVisibleRange, {
-                preserveExistingPages: true,
-                disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
-                disableVerticalAnchorRestore: true,
-                disablePageAnchorRestore: true,
-                rerenderSource: 'fit-height-current-page',
-                renderBufferOverride: 0,
+            const range = await prepareCurrentPageFitRerenderLayout(runId, document, next);
+            if (!range || !isCurrentPageFitRerenderRunActive(runId, document, next)) {
+                return;
+            }
+
+            if (fitMode.value === 'height') {
+                cancelInFlightPageRenders?.();
+                await waitForCurrentPageFitCancellationToSettle();
+                if (
+                    !isCurrentPageFitRerenderRunActive(runId, document, next)
+                    || fitMode.value !== 'height'
+                ) {
+                    return;
+                }
+                await reRenderAllVisiblePages(() => range, {
+                    preserveExistingPages: true,
+                    disableHorizontalAnchorRestore: shouldDisableHorizontalAnchorRestore(),
+                    disableVerticalAnchorRestore: true,
+                    disablePageAnchorRestore: true,
+                    rerenderSource: 'fit-height-current-page',
+                    renderBufferOverride: 0,
+                });
+                if (
+                    !isCurrentPageFitRerenderRunActive(runId, document, next)
+                    || fitMode.value !== 'height'
+                ) {
+                    return;
+                }
+                await nextTick();
+                if (
+                    !isCurrentPageFitRerenderRunActive(runId, document, next)
+                    || fitMode.value !== 'height'
+                ) {
+                    return;
+                }
+                scrollToPage(next, {
+                    preferExactDom: true,
+                    suppressRenderAfterSnap: true,
+                });
+                syncHorizontalScrollAfterLayoutUpdate();
+                return;
+            }
+
+            const resizeAnchor = buildResizeAnchorContext({
+                preferredAnchorPage: next,
+                trustPreferredAnchorPage: true,
             });
             if (
-                document === null
-                || pdfDocument.value !== document
-                || isLoading.value
-                || currentPage.value !== next
-                || fitMode.value !== 'height'
-                || continuousScroll.value
+                !isCurrentPageFitRerenderRunActive(runId, document, next)
+                || fitMode.value !== 'width'
             ) {
                 return;
             }
-            await nextTick();
+            cancelInFlightPageRenders?.();
+            await waitForCurrentPageFitCancellationToSettle();
             if (
-                pdfDocument.value !== document
-                || isLoading.value
-                || currentPage.value !== next
-                || fitMode.value !== 'height'
-                || continuousScroll.value
+                !isCurrentPageFitRerenderRunActive(runId, document, next)
+                || fitMode.value !== 'width'
             ) {
                 return;
             }
-            scrollToPage(next, { preferExactDom: true });
-            syncHorizontalScrollAfterLayoutUpdate();
-            return;
-        }
-
-        const resizeAnchor = buildResizeAnchorContext({
-            preferredAnchorPage: next,
-            trustPreferredAnchorPage: true,
-        });
-        cancelInFlightPageRenders?.();
-        await reRenderVisiblePagesAndSyncCurrentPage({
-            source: 'fit-width-current-page',
-            stabilize: true,
-            resizeAnchor,
+            await reRenderVisiblePagesAndSyncCurrentPage({
+                source: 'fit-width-current-page',
+                stabilize: true,
+                resizeAnchor,
+            });
         });
     });
 

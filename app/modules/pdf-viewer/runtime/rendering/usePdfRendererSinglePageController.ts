@@ -480,6 +480,12 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         );
         const target = getSinglePageRenderTarget(containerRoot, pageNumber);
         if (!target) {
+            logPdfRenderTrace('renderer-single-page-missing-target', {
+                pageNumber,
+                version,
+                requestId,
+                required: requiredPages.has(pageNumber),
+            });
             scheduleMissingRenderTargetRetry(
                 pageNumber,
                 version,
@@ -491,21 +497,64 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         clearMissingRenderTargetRetry(pageNumber);
 
         if (shouldSkipSingleVisiblePageRender(pageNumber, version, forceRerender, target, requestId)) {
+            logPdfRenderTrace('renderer-single-page-skip', {
+                pageNumber,
+                version,
+                requestId,
+                forceRerender,
+                page: summarizePageDom(pageNumber),
+            });
             return;
         }
 
+        logPdfRenderTrace('renderer-single-page-begin', {
+            pageNumber,
+            version,
+            requestId,
+            forceRerender,
+            scale,
+            page: summarizePageDom(pageNumber),
+        });
         renderingPages.set(pageNumber, version);
         renderingPageRequestIds.set(pageNumber, requestId);
         clearSelectionBeforePageLayerTeardown(pageNumber);
         try {
+            logPdfRenderTrace('renderer-page-load-begin', {
+                pageNumber,
+                version,
+                requestId,
+            });
             const pdfPage = await loadPageForRender(pageNumber, version, shouldContinuePage);
             if (!pdfPage) {
+                logPdfRenderTrace('renderer-page-load-stale', {
+                    pageNumber,
+                    version,
+                    requestId,
+                    renderVersion: getRenderVersion(),
+                });
                 return;
             }
+            logPdfRenderTrace('renderer-page-load-end', {
+                pageNumber,
+                version,
+                requestId,
+            });
             if (!shouldContinuePage()) {
+                logPdfRenderTrace('renderer-page-load-skip-stale', {
+                    pageNumber,
+                    version,
+                    requestId,
+                    renderVersion: getRenderVersion(),
+                });
                 releasePageResources(pageNumber, pdfPage);
                 return;
             }
+            logPdfRenderTrace('renderer-canvas-prepare-begin', {
+                pageNumber,
+                version,
+                requestId,
+                scale,
+            });
             const renderResult = await prepareCanvasForRender(
                 pdfPage,
                 pageNumber,
@@ -516,9 +565,20 @@ export function usePdfRendererSinglePageController<TRenderResult>(
                 renderOptions,
             );
             if (!renderResult) {
+                logPdfRenderTrace('renderer-canvas-prepare-stale', {
+                    pageNumber,
+                    version,
+                    requestId,
+                    renderVersion: getRenderVersion(),
+                });
                 releasePageResources(pageNumber, pdfPage);
                 return;
             }
+            logPdfRenderTrace('renderer-canvas-prepare-end', {
+                pageNumber,
+                version,
+                requestId,
+            });
             await mountSingleVisiblePageLayers(
                 pageNumber,
                 version,
@@ -530,9 +590,22 @@ export function usePdfRendererSinglePageController<TRenderResult>(
                 shouldContinuePage,
             );
         } catch (error) {
+            logPdfRenderTrace('renderer-single-page-error', {
+                pageNumber,
+                version,
+                requestId,
+                errorName: error instanceof Error ? error.name : null,
+                errorMessage: error instanceof Error ? error.message : String(error),
+            });
             handleSinglePageRenderError(pageNumber, error, version, requestId);
         } finally {
             clearSinglePageRenderTracking(pageNumber, version, requestId);
+            logPdfRenderTrace('renderer-single-page-end', {
+                pageNumber,
+                version,
+                requestId,
+                page: summarizePageDom(pageNumber),
+            });
         }
     }
 

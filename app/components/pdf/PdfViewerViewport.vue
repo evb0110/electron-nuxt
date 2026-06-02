@@ -32,6 +32,7 @@
             :placeholder-style="getPagePlaceholderStyle(page)"
             :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
             :placed-image-busy="isPendingImagePlacementFinalizing"
+            @page-container-mounted="emit('page-container-mounted', $event)"
             @update-placed-image-rect="emit('update-placed-image-rect', $event)"
             @finalize-placed-image="emit('finalize-placed-image')"
             @cancel-placed-image="emit('cancel-placed-image')"
@@ -98,6 +99,7 @@ const emit = defineEmits<{
     dblclick: [event: MouseEvent];
     contextmenu: [event: MouseEvent];
     selectstart: [event: Event];
+    'page-container-mounted': [page: number];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];

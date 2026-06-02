@@ -246,6 +246,61 @@ describe('usePdfDocument range loading', () => {
         expect(documentState.pageMetrics.value[1]).toBeUndefined();
     });
 
+    it('keeps metric-loaded page proxies cached for the later render path', async () => {
+        const pageCleanup = vi.fn();
+        const page2 = {
+            cleanup: pageCleanup,
+            getViewport: vi.fn(() => ({
+                width: 202,
+                height: 402,
+            })),
+        };
+        const pages = new Map<number, unknown>([
+            [
+                1,
+                {
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 201,
+                        height: 401,
+                    })),
+                },
+            ],
+            [
+                2,
+                page2,
+            ],
+        ]);
+        const getPage = vi.fn(async (pageNumber: number) => pages.get(pageNumber));
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 2,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/cache-metrics-for-render.pdf',
+            size: 2048,
+        });
+
+        await expect(documentState.ensurePageMetricsInRange(2, 2)).resolves.toBe(true);
+        await expect(documentState.getPage(2)).resolves.toBe(page2);
+
+        expect(pageCleanup).not.toHaveBeenCalled();
+        expect(getPage).toHaveBeenCalledTimes(2);
+    });
+
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {
         delete pdfjsState.PDFDataRangeTransport;
         electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
@@ -345,6 +400,86 @@ describe('usePdfDocument range loading', () => {
             'Failed to load PDF',
             expect.any(Error),
         );
+    });
+
+    it('fulfills a PDF.js range request with multiple platform reads when a read is short', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => Promise.resolve());
+
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        });
+
+        const requestedStart = 5 * 1024 * 1024;
+        const requestedEnd = requestedStart + 12;
+        electronApi.documents.readFileRange.mockImplementation(async (
+            _path: string,
+            offset: number,
+            length: number,
+        ) => {
+            if (offset === requestedStart) {
+                expect(length).toBe(12);
+                return new Uint8Array(8);
+            }
+            if (offset === requestedStart + 8) {
+                expect(length).toBe(4);
+                return new Uint8Array(4);
+            }
+            return new Uint8Array(Math.min(length, 4));
+        });
+
+        const documentState = usePdfDocument();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/short-range-read.pdf',
+            size: 20 * 1024 * 1024,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const range = getDocumentArg?.range;
+        expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
+        range?.onDataRange.mockClear();
+
+        await range?.requestDataRange?.(requestedStart, requestedEnd);
+        await vi.waitFor(() => {
+            expect(range?.onDataRange).toHaveBeenCalledTimes(1);
+        });
+
+        expect(electronApi.documents.readFileRange).toHaveBeenCalledWith(
+            '/tmp/short-range-read.pdf',
+            requestedStart,
+            12,
+        );
+        expect(electronApi.documents.readFileRange).toHaveBeenCalledWith(
+            '/tmp/short-range-read.pdf',
+            requestedStart + 8,
+            4,
+        );
+        expect(range?.onDataRange.mock.calls[0]?.[0]).toBe(requestedStart);
+        expect(range?.onDataRange.mock.calls[0]?.[1]).toHaveLength(12);
+
+        deferred.resolve({
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            destroy,
+        });
+
+        await expect(loadPromise).resolves.not.toBeNull();
     });
 
     it('destroys the PDF.js loading task and aborts range transport when document parsing fails', async () => {

@@ -28,6 +28,7 @@
             @dblclick="handleViewerDblClick"
             @contextmenu="handleViewerContextMenu"
             @selectstart="handleSelectStart"
+            @page-container-mounted="handlePageContainerMounted"
             @update-placed-image-rect="updatePendingImagePlacementRect"
             @finalize-placed-image="requestPendingImagePlacementFinalize"
             @cancel-placed-image="clearPendingImagePlacement"
@@ -108,6 +109,7 @@ const {
     handleViewerDblClick,
     handleViewerContextMenu,
     handleSelectStart,
+    handlePageContainerMounted,
     updatePendingImagePlacementRect,
     requestPendingImagePlacementFinalize,
     clearPendingImagePlacement,

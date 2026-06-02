@@ -294,6 +294,15 @@ interface IUsePdfSinglePageScrollOptions {
             bufferOverride?: number;
         },
     ) => Promise<void>;
+    /**
+     * Suppress ordinary paged row renders while another controller owns them.
+     *
+     * Fit-height/fit-width navigation must hydrate the target page metrics,
+     * recompute scale, and then force-render the current row. Letting the
+     * generic paged navigation render at the previous scale creates a same-page
+     * cancel/restart race in PDF.js on very large pages.
+     */
+    suppressPagedRowRender?: (() => boolean) | undefined;
     visibleRange: Ref<{
         start: number;
         end: number;
@@ -318,6 +327,7 @@ export const usePdfSinglePageScroll = (
         updateVisibleRange,
         updateCurrentPage,
         renderVisiblePages,
+        suppressPagedRowRender,
         visibleRange,
         emitCurrentPage,
     } = options;
@@ -553,11 +563,25 @@ export const usePdfSinglePageScroll = (
         return targetPage;
     }
 
-    function queuePagedRowRenderAfterNavigation(pageNumber: number, message: string) {
+    /**
+     * Render the row selected by the currently active paged navigation run.
+     *
+     * Rapid toolbar clicks can queue several `nextTick` row renders before Vue
+     * has mounted the final row. Without the run guard, an older page can write
+     * `visibleRange` after a newer last-page jump and start a render that
+     * cancels the real target. The current-page check handles external syncs
+     * that supersede this run before the callback fires.
+     */
+    function queuePagedRowRenderAfterNavigation(
+        pageNumber: number,
+        message: string,
+        runId: number,
+    ) {
         const targetPage = clamp(pageNumber, 1, numPages.value);
         logPdfRenderTrace('single-page-queue-row-render', {
             targetPage,
             message,
+            runId,
             currentPage: currentPage.value,
             visibleRange: {
                 start: visibleRange.value.start,
@@ -565,19 +589,27 @@ export const usePdfSinglePageScroll = (
             },
         });
         void nextTick(() => {
+            const isPagedRowRenderSuppressed = suppressPagedRowRender?.() === true;
             if (
                 isDisposed
+                || runId !== pagedNavigationRunId
                 || continuousScroll.value
                 || isLoading.value
                 || !pdfDocument.value
+                || currentPage.value !== targetPage
+                || isPagedRowRenderSuppressed
             ) {
                 logPdfRenderTrace('single-page-row-render-skipped', {
                     targetPage,
                     message,
+                    runId,
+                    activeRunId: pagedNavigationRunId,
                     isDisposed,
                     continuousScroll: continuousScroll.value,
                     isLoading: isLoading.value,
                     hasDocument: Boolean(pdfDocument.value),
+                    currentPage: currentPage.value,
+                    suppressPagedRowRender: isPagedRowRenderSuppressed,
                 });
                 return;
             }
@@ -830,7 +862,11 @@ export const usePdfSinglePageScroll = (
         return true;
     }
 
-    function snapToPage(pageNumber: number, anchor: TPageSnapAnchor = 'center') {
+    function snapToPage(
+        pageNumber: number,
+        anchor: TPageSnapAnchor = 'center',
+        options?: Pick<IScrollToPageOptions, 'suppressRenderAfterSnap'>,
+    ) {
         if (!viewerContainer.value || numPages.value === 0) {
             return;
         }
@@ -841,6 +877,7 @@ export const usePdfSinglePageScroll = (
             targetPage,
             anchor,
             continuousScroll: continuousScroll.value,
+            suppressRenderAfterSnap: options?.suppressRenderAfterSnap === true,
             currentPage: currentPage.value,
             visibleRange: {
                 start: visibleRange.value.start,
@@ -858,16 +895,26 @@ export const usePdfSinglePageScroll = (
                     runId,
                 });
                 setVisibleRangeToPageRow(targetPage);
-                queuePagedRowRenderAfterNavigation(
-                    targetPage,
-                    'Failed to render visible pages after paged snap',
-                );
+                if (!options?.suppressRenderAfterSnap) {
+                    queuePagedRowRenderAfterNavigation(
+                        targetPage,
+                        'Failed to render visible pages after paged snap',
+                        runId,
+                    );
+                } else {
+                    logPdfRenderTrace('single-page-snap-mounted-render-suppressed', {
+                        targetPage,
+                        anchor,
+                        runId,
+                    });
+                }
                 return;
             }
 
             queuePagedRowRenderAfterNavigation(
                 targetPage,
                 'Failed to render visible pages after paged navigation',
+                runId,
             );
             isSnapping.value = true;
             void nextTick(() => {
@@ -1181,7 +1228,7 @@ export const usePdfSinglePageScroll = (
             // bleeds in). pdf.js's scrollMode setter snaps to top-left of the
             // current page; mirror that behavior uniformly.
             const anchor: TPageSnapAnchor = isTallPage(pageNumber) ? 'center' : 'top';
-            snapToPage(pageNumber, anchor);
+            snapToPage(pageNumber, anchor, options);
         }
     }
 

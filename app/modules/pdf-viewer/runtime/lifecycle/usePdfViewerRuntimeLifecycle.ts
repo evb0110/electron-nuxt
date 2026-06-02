@@ -142,6 +142,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     ) => void;
     beginVisualReloadTransition: (reason: string) => number;
     endVisualReloadTransition: (token: number, reason: string) => void;
+    setCurrentPageFitRerenderTransitionActive?: ((active: boolean) => void) | undefined;
     emit: {
         (e: 'update:zoom', value: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -224,6 +225,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         pinCurrentPageDuringRecovery,
         beginVisualReloadTransition,
         endVisualReloadTransition,
+        setCurrentPageFitRerenderTransitionActive,
         emit,
     } = options;
     const isActive = computed(() => isActiveOption?.value ?? true);
@@ -484,6 +486,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         enqueueZoomSync: (syncOptions) => enqueueZoomSync(syncOptions),
         scheduleResizeAwareRerender: (stage, syncOptions) => scheduleResizeAwareRerender(stage, syncOptions),
         cancelInFlightPageRenders,
+        ensurePageMetricsInRange,
         computeFitWidthScale,
         zoomMode,
         syncHorizontalScrollForZoomMode,
@@ -495,6 +498,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         consumeZoomViewportAnchor,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
+        setCurrentPageFitRerenderTransitionActive,
     });
     rerenderVisiblePagesAndSyncCurrentPage = reRenderVisiblePagesAndSyncCurrentPageFromCoordinator;
 

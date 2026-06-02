@@ -32,6 +32,11 @@ const DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH = resolve(
     '.devkit',
     'girgas-page-500-input-skeleton-diagnostics.json',
 );
+const RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'girgas-rapid-next-to-last-skeleton-diagnostics.json',
+);
 
 interface IWorkspaceComponentElement extends HTMLElement {__vueParentComponent?: {
     exposed?: IWorkspaceExpose;
@@ -41,12 +46,18 @@ interface IWorkspaceComponentElement extends HTMLElement {__vueParentComponent?:
 interface IWorkspaceToolbarSnapshot {
     effectiveZoom: number;
     continuousScroll: boolean;
+    fitMode?: 'width' | 'height';
+    zoomMode?: 'custom' | 'fit-width' | 'fit-height';
+    currentPage?: number;
+    totalPages?: number;
 }
 
 interface IWorkspaceExpose {
     getToolbarSnapshot?: () => IWorkspaceToolbarSnapshot;
     handleActualSize?: () => void;
     handleZoomIn?: () => void;
+    handleFitHeight?: () => void;
+    handleGoToPage?: (page: number) => void;
     handleViewModeSingle?: () => void;
     handleToggleContinuousScroll?: () => void;
 }
@@ -70,6 +81,28 @@ type TNavigationSample = {
     canvasPages: number[];
 };
 
+interface IVisiblePageDiagnostics {
+    page: number;
+    className: string;
+    rendered: boolean;
+    buffered: boolean;
+    hasSkeleton: boolean;
+    hasCanvas: boolean;
+    canvasCount: number;
+    textSpanCount: number;
+    rectTop: number;
+    rectBottom: number;
+    rectHeight: number;
+}
+
+interface INavigationDiagnosticsSnapshot {
+    pageControlsText: string;
+    scrollTop: number | null;
+    visibleRangeText: string | null;
+    toolbarSnapshot: IWorkspaceToolbarSnapshot | null;
+    visiblePages: IVisiblePageDiagnostics[];
+}
+
 function writeDiagnosticArtifact(payload: unknown) {
     mkdirSync(dirname(DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
     writeFileSync(DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
@@ -78,6 +111,11 @@ function writeDiagnosticArtifact(payload: unknown) {
 function writeDirectJumpDiagnosticArtifact(payload: unknown) {
     mkdirSync(dirname(DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
     writeFileSync(DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function writeRapidNextToLastDiagnosticArtifact(payload: unknown) {
+    mkdirSync(dirname(RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
+    writeFileSync(RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 async function enablePdfNavLog(session: IElectronE2ESession) {
@@ -114,6 +152,126 @@ async function collectPdfRenderTrace(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
         const traceWindow = window as Window & { __getPdfRenderTrace?: () => TPdfRenderTraceEntry[]; };
         return traceWindow.__getPdfRenderTrace?.() ?? [];
+    });
+}
+
+async function goToPageViaWorkspace(session: IElectronE2ESession, pageNumber: number) {
+    const didNavigate = await session.page.evaluate((targetPage: number) => {
+        function isVisibleElement(element: HTMLElement) {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && rect.width > 100
+                && rect.height > 100;
+        }
+
+        function findWorkspaceExpose() {
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const hosts = [
+                ...(activeHost ? [activeHost] : []),
+                ...Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')),
+                ...Array.from(document.querySelectorAll<HTMLElement>('*')),
+            ];
+            for (const element of hosts) {
+                if (!isVisibleElement(element)) {
+                    continue;
+                }
+
+                let component = (element as IWorkspaceComponentElement).__vueParentComponent ?? null;
+                while (component) {
+                    const exposed = component.exposed;
+                    if (
+                        typeof exposed?.getToolbarSnapshot === 'function'
+                        && typeof exposed.handleGoToPage === 'function'
+                    ) {
+                        return exposed;
+                    }
+                    component = component.parent ?? null;
+                }
+            }
+            return null;
+        }
+
+        const workspace = findWorkspaceExpose();
+        workspace?.handleGoToPage?.(targetPage);
+        return Boolean(workspace);
+    }, pageNumber);
+
+    if (!didNavigate) {
+        await enterPageInToolbar(session, String(pageNumber));
+    }
+}
+
+async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession) {
+    return session.page.evaluate((): INavigationDiagnosticsSnapshot => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        };
+        function findWorkspaceExpose() {
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const hosts = [
+                ...(activeHost ? [activeHost] : []),
+                ...Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')),
+                ...Array.from(document.querySelectorAll<HTMLElement>('*')),
+            ];
+            for (const element of hosts) {
+                if (!isVisibleElement(element)) {
+                    continue;
+                }
+
+                let component = (element as IWorkspaceComponentElement).__vueParentComponent ?? null;
+                while (component) {
+                    const exposed = component.exposed;
+                    if (typeof exposed?.getToolbarSnapshot === 'function') {
+                        return exposed;
+                    }
+                    component = component.parent ?? null;
+                }
+            }
+            return null;
+        }
+
+        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+        const viewportRect = viewer?.getBoundingClientRect() ?? {
+            top: 0,
+            bottom: window.innerHeight,
+        };
+        const visiblePageControls = Array.from(document.querySelectorAll<HTMLElement>('.page-controls'))
+            .find(isVisibleElement);
+        const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+            .find(isVisibleElement);
+        const visiblePages = Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
+            .map((container): IVisiblePageDiagnostics => {
+                const rect = container.getBoundingClientRect();
+                return {
+                    page: Number(container.dataset.page) || 0,
+                    className: container.className,
+                    rendered: container.classList.contains('page_container--rendered'),
+                    buffered: container.classList.contains('page_container--buffered'),
+                    hasSkeleton: Boolean(container.querySelector('.pdf-page-skeleton')),
+                    hasCanvas: Boolean(container.querySelector('.page_canvas canvas')),
+                    canvasCount: container.querySelectorAll('.page_canvas canvas').length,
+                    textSpanCount: container.querySelectorAll('.text-layer span, .textLayer span').length,
+                    rectTop: rect.top,
+                    rectBottom: rect.bottom,
+                    rectHeight: rect.height,
+                };
+            })
+            .filter(page => page.rectBottom >= viewportRect.top && page.rectTop <= viewportRect.bottom);
+
+        return {
+            pageControlsText: visiblePageControls?.innerText ?? '',
+            scrollTop: viewer?.scrollTop ?? null,
+            visibleRangeText: visibleCurrentPageLabel?.textContent?.trim() ?? null,
+            toolbarSnapshot: findWorkspaceExpose()?.getToolbarSnapshot?.() ?? null,
+            visiblePages,
+        };
     });
 }
 
@@ -164,11 +322,133 @@ async function configureHighZoom(session: IElectronE2ESession, options: { contin
     await delay(500);
 }
 
+async function configureSinglePagedFitHeightMode(session: IElectronE2ESession) {
+    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 20_000 });
+    const configured = await session.page.evaluate(() => {
+        function findWorkspaceExpose() {
+            for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
+                let component = (element as IWorkspaceComponentElement).__vueParentComponent ?? null;
+                while (component) {
+                    const exposed = component.exposed;
+                    if (
+                        typeof exposed?.getToolbarSnapshot === 'function'
+                        && typeof exposed.handleFitHeight === 'function'
+                        && typeof exposed.handleViewModeSingle === 'function'
+                    ) {
+                        return exposed;
+                    }
+                    component = component.parent ?? null;
+                }
+            }
+            return null;
+        }
+
+        const workspace = findWorkspaceExpose();
+        if (!workspace) {
+            return false;
+        }
+
+        workspace.handleViewModeSingle?.();
+        if (workspace.getToolbarSnapshot?.().continuousScroll === true) {
+            workspace.handleToggleContinuousScroll?.();
+        }
+        workspace.handleFitHeight?.();
+        return true;
+    });
+
+    if (!configured) {
+        throw new Error('Unable to configure single-page paged fit-height mode');
+    }
+
+    await delay(500);
+}
+
 async function waitForToolbarPage(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction((targetPage: number) => {
+        function isVisibleElement(element: HTMLElement) {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        }
+
+        function findWorkspaceExpose() {
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const hosts = [
+                ...(activeHost ? [activeHost] : []),
+                ...Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')),
+                ...Array.from(document.querySelectorAll<HTMLElement>('*')),
+            ];
+            for (const element of hosts) {
+                if (!isVisibleElement(element)) {
+                    continue;
+                }
+
+                let component = (element as IWorkspaceComponentElement).__vueParentComponent ?? null;
+                while (component) {
+                    const exposed = component.exposed;
+                    if (typeof exposed?.getToolbarSnapshot === 'function') {
+                        return exposed;
+                    }
+                    component = component.parent ?? null;
+                }
+            }
+            return null;
+        }
+
+        const snapshot = findWorkspaceExpose()?.getToolbarSnapshot?.();
+        if (snapshot?.currentPage === targetPage) {
+            return true;
+        }
+
         return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-            .some(element => element.textContent?.trim() === String(targetPage));
+            .some((element) => {
+                return element.textContent?.trim() === String(targetPage)
+                    && isVisibleElement(element);
+            });
     }, { timeout: 15_000 }, pageNumber);
+}
+
+async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
+    await session.page.waitForFunction((targetLabel: string) => {
+        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
+            .some(button => {
+                const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
+                const rect = button.getBoundingClientRect();
+                const style = window.getComputedStyle(button);
+                return (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
+                    && !button.disabled
+                    && button.getAttribute('aria-disabled') !== 'true'
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+    }, { timeout: 30_000 }, label);
+
+    const clicked = await session.page.evaluate((targetLabel: string) => {
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
+            .find((candidate) => {
+                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
+                    && !candidate.disabled
+                    && candidate.getAttribute('aria-disabled') !== 'true'
+                    && rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        button?.click();
+        return Boolean(button);
+    }, label);
+
+    if (!clicked) {
+        throw new Error(`Unable to click the ${label} toolbar button`);
+    }
 }
 
 async function clickNextPage(session: IElectronE2ESession) {
@@ -222,6 +502,12 @@ async function clickNextPage(session: IElectronE2ESession) {
                 .slice(0, 50),
         }));
         throw new Error(`Unable to click the Next Page toolbar button: ${JSON.stringify(state)}`);
+    }
+}
+
+async function rapidClickNextPages(session: IElectronE2ESession, count: number) {
+    for (let index = 0; index < count; index += 1) {
+        await clickPageNavigationButton(session, 'Next Page');
     }
 }
 
@@ -304,10 +590,18 @@ async function navigateForwardWithNextButton(session: IElectronE2ESession, steps
     }
 }
 
-async function sampleNavigation(session: IElectronE2ESession) {
+async function sampleNavigation(
+    session: IElectronE2ESession,
+    options: {
+        count?: number;
+        delayMs?: number;
+    } = {},
+) {
     const samples: TNavigationSample[] = [];
     const startedAt = Date.now();
-    for (let index = 0; index < 180; index += 1) {
+    const count = options.count ?? 180;
+    const delayMs = options.delayMs ?? 10;
+    for (let index = 0; index < count; index += 1) {
         samples.push(await session.page.evaluate((startedAtMs: number): TNavigationSample => {
             const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'));
             const visiblePageContainers = pageContainers.filter((container) => {
@@ -324,15 +618,24 @@ async function sampleNavigation(session: IElectronE2ESession) {
             const canvasPages = visiblePageContainers
                 .filter(container => Boolean(container.querySelector('.page_canvas canvas')))
                 .map(pageNumber);
+            const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+                .find((element) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 0
+                        && rect.height > 0
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden';
+                });
             return {
                 sampledAtMs: Date.now() - startedAtMs,
-                currentPageText: document.querySelector<HTMLElement>('.page-controls-current-primary')?.textContent?.trim() ?? null,
+                currentPageText: visibleCurrentPageLabel?.textContent?.trim() ?? null,
                 skeletonPages,
                 renderedPages,
                 canvasPages,
             };
         }, startedAt));
-        await delay(10);
+        await delay(delayMs);
     }
     return samples;
 }
@@ -443,4 +746,70 @@ describe('Electron E2E - PDF Navigation Skeleton Diagnostics', () => {
         expect(lastSample?.skeletonPages).toEqual([]);
         expect(lastSample?.canvasPages.length ?? 0).toBeGreaterThan(0);
     }, 90_000);
+
+    it.runIf(existsSync(TARGET_PDF_PATH))('renders the last page after rapid next-page navigation', async () => {
+        if (!session) {
+            throw new Error('Diagnostic session was not initialized');
+        }
+
+        let samples: TNavigationSample[] = [];
+        let navLog: TPdfNavLogEntry[] = [];
+        let renderTrace: TPdfRenderTraceEntry[] = [];
+        let finalSnapshot: INavigationDiagnosticsSnapshot | null = null;
+        try {
+            await delay(2_000);
+            await goToPageViaWorkspace(session, 1);
+            await waitForToolbarPage(session, 1);
+            await configureSinglePagedFitHeightMode(session);
+            await waitForToolbarPage(session, 1);
+            await delay(500);
+            await enablePdfNavLog(session);
+
+            await rapidClickNextPages(session, 29);
+            await waitForToolbarPage(session, 30);
+            await clickPageNavigationButton(session, 'Last Page');
+            await waitForToolbarPage(session, 928);
+
+            samples = await sampleNavigation(session, {
+                count: 500,
+                delayMs: 25,
+            });
+            finalSnapshot = await collectNavigationDiagnosticsSnapshot(session);
+            navLog = await collectPdfNavLog(session);
+            renderTrace = await collectPdfRenderTrace(session);
+        } finally {
+            if (samples.length === 0) {
+                samples = await sampleNavigation(session, {
+                    count: 120,
+                    delayMs: 25,
+                }).catch(() => []);
+            }
+            finalSnapshot ??= await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
+            if (navLog.length === 0) {
+                navLog = await collectPdfNavLog(session).catch(() => []);
+            }
+            if (renderTrace.length === 0) {
+                renderTrace = await collectPdfRenderTrace(session).catch(() => []);
+            }
+            writeRapidNextToLastDiagnosticArtifact({
+                pdfPath: TARGET_PDF_PATH,
+                scenario: 'fit-height-rapid-next-1-to-30-then-last-page',
+                samples,
+                finalSnapshot,
+                navLog,
+                renderTrace,
+                skeletonSamples: samples.filter(sample => sample.skeletonPages.length > 0),
+                canvasSamples: samples.filter(sample => sample.canvasPages.length > 0),
+                lastSample: samples.at(-1) ?? null,
+                skeletonLogEntries: navLog.filter(entry => entry.message.includes('page skeleton visible')),
+            });
+        }
+
+        const lastSample = samples.at(-1);
+        expect(lastSample?.skeletonPages).toEqual([]);
+        expect(finalSnapshot?.toolbarSnapshot?.currentPage).toBe(928);
+        expect(finalSnapshot?.toolbarSnapshot?.fitMode).toBe('height');
+        expect(finalSnapshot?.visiblePages.some(page => page.page === 928 && page.hasSkeleton)).toBe(false);
+        expect(finalSnapshot?.visiblePages.some(page => page.page === 928 && page.hasCanvas)).toBe(true);
+    }, 130_000);
 });

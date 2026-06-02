@@ -508,6 +508,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             annotationLayerRenderer.hideHiddenManagedEditors(pageNumber);
         },
         isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
+        isPageRendering: (pageNumber: number) => renderingPages.has(pageNumber),
         requestScrollToCurrentResult,
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         cancelInFlightRenders,
