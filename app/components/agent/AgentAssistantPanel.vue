@@ -1,40 +1,56 @@
 <template>
     <aside
         class="agent-assistant-panel"
+        :style="{ '--assistant-panel-width': widthVar }"
         :aria-label="t('assistant.title')"
     >
+        <div
+            class="agent-assistant-resizer"
+            :class="{ 'is-active': isResizing }"
+            role="separator"
+            aria-orientation="vertical"
+            :aria-label="t('sidebar.resize')"
+            @pointerdown.prevent="emit('resize-start', $event)"
+        />
+
         <header class="agent-assistant-header">
-            <div class="agent-assistant-title">
+            <span class="agent-assistant-title">
                 <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-title-icon" />
-            </div>
+            </span>
             <div class="agent-assistant-header-actions">
-                <UButton
-                    :aria-label="t('assistant.newChat')"
-                    icon="i-ph-plus"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    :loading="isResetting"
-                    :disabled="!canResetChat"
-                    @click="resetChat"
-                />
-                <UButton
-                    :aria-label="t('assistant.refresh')"
-                    icon="i-ph-arrows-clockwise"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    :loading="isRefreshing"
-                    @click="refreshState"
-                />
-                <UButton
-                    :aria-label="t('assistant.close')"
-                    icon="i-ph-x"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    @click="emit('close')"
-                />
+                <AppTooltip :text="t('assistant.newChat')" :delay-duration="300">
+                    <UButton
+                        :aria-label="t('assistant.newChat')"
+                        icon="i-ph-plus"
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        :loading="isResetting"
+                        :disabled="!canResetChat"
+                        @click="resetChat"
+                    />
+                </AppTooltip>
+                <AppTooltip :text="t('assistant.refresh')" :delay-duration="300">
+                    <UButton
+                        :aria-label="t('assistant.refresh')"
+                        icon="i-ph-arrows-clockwise"
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        :loading="isRefreshing"
+                        @click="refreshState"
+                    />
+                </AppTooltip>
+                <AppTooltip :text="t('assistant.close')" :delay-duration="300">
+                    <UButton
+                        :aria-label="t('assistant.close')"
+                        icon="i-ph-x"
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        @click="emit('close')"
+                    />
+                </AppTooltip>
             </div>
         </header>
 
@@ -43,7 +59,9 @@
                 v-if="panelView === 'checking'"
                 class="agent-assistant-setup"
             >
-                <UIcon name="i-ph-circle-notch" class="agent-assistant-setup-icon is-spinning" />
+                <span class="agent-assistant-glyph">
+                    <UIcon name="i-ph-circle-notch" class="agent-assistant-glyph-icon is-spinning" />
+                </span>
                 <h2>{{ t('assistant.checkingTitle') }}</h2>
                 <p>{{ t('assistant.checkingDescription') }}</p>
             </section>
@@ -52,7 +70,9 @@
                 v-else-if="panelView === 'unsupported'"
                 class="agent-assistant-setup"
             >
-                <UIcon name="i-ph-warning-circle" class="agent-assistant-setup-icon" />
+                <span class="agent-assistant-glyph">
+                    <UIcon name="i-ph-warning-circle" class="agent-assistant-glyph-icon" />
+                </span>
                 <h2>{{ t('assistant.unsupportedTitle') }}</h2>
                 <p>{{ t('assistant.unsupportedDescription') }}</p>
             </section>
@@ -61,7 +81,9 @@
                 v-else-if="panelView === 'install'"
                 class="agent-assistant-setup"
             >
-                <UIcon name="i-ph-download-simple" class="agent-assistant-setup-icon" />
+                <span class="agent-assistant-glyph">
+                    <UIcon name="i-ph-download-simple" class="agent-assistant-glyph-icon" />
+                </span>
                 <h2>{{ t('assistant.installTitle') }}</h2>
                 <p>{{ t('assistant.installDescription') }}</p>
                 <UButton
@@ -84,7 +106,9 @@
                 v-else-if="panelView === 'update'"
                 class="agent-assistant-setup"
             >
-                <UIcon name="i-ph-warning-circle" class="agent-assistant-setup-icon" />
+                <span class="agent-assistant-glyph">
+                    <UIcon name="i-ph-warning-circle" class="agent-assistant-glyph-icon" />
+                </span>
                 <h2>{{ t('assistant.updateTitle') }}</h2>
                 <p>{{ t('assistant.updateDescription', { version: status.minimumCodexVersion }) }}</p>
                 <UButton
@@ -101,7 +125,9 @@
                 v-else-if="panelView === 'sign-in'"
                 class="agent-assistant-setup"
             >
-                <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-setup-icon" />
+                <span class="agent-assistant-glyph">
+                    <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-glyph-icon" />
+                </span>
                 <h2>{{ t('assistant.signInTitle') }}</h2>
                 <p>{{ t('assistant.signInDescription') }}</p>
                 <div class="agent-assistant-setup-actions">
@@ -147,7 +173,9 @@
                         v-if="messages.length === 0"
                         class="agent-assistant-empty"
                     >
-                        <UIcon name="i-ph-lightbulb" class="agent-assistant-empty-icon" />
+                        <span class="agent-assistant-glyph">
+                            <UIcon name="i-ph-lightbulb" class="agent-assistant-glyph-icon" />
+                        </span>
                         <h2>{{ emptyTitle }}</h2>
                         <p>{{ emptyDescription }}</p>
                     </div>
@@ -286,13 +314,22 @@ const {
     activeDocumentName = null,
     hasActiveDocument = false,
     hasAnyDocument = false,
+    width = undefined,
+    isResizing = false,
 } = defineProps<{
     activeDocumentName?: string | null;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
+    width?: number | undefined;
+    isResizing?: boolean;
 }>();
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{
+    close: [];
+    'resize-start': [event: PointerEvent];
+}>();
+
+const widthVar = computed(() => (width != null ? `${width}px` : undefined));
 
 const { t } = useTypedI18n();
 const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
@@ -643,50 +680,68 @@ onUnmounted(() => {
 
 <style scoped>
 .agent-assistant-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
-    flex: 0 0 min(24rem, 42vw);
-    min-width: 20rem;
-    max-width: 26rem;
+    flex: 0 0 var(--assistant-panel-width, 24rem);
+    width: var(--assistant-panel-width, 24rem);
+    min-width: 0;
     min-height: 0;
     border-left: 1px solid var(--ui-border);
-    background: var(--ui-bg);
+    background: var(--app-sidebar-bg);
+}
+
+.agent-assistant-resizer {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 2;
+    width: var(--app-editor-sash-size, 6px);
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+    background: transparent;
+    border-left: 1px solid transparent;
+    transition: border-color 0.15s ease;
+    -webkit-app-region: no-drag;
+}
+
+.agent-assistant-resizer:hover,
+.agent-assistant-resizer.is-active {
+    border-left-color: var(--ui-primary);
 }
 
 .agent-assistant-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.5rem;
     width: 100%;
-    padding: 0.625rem 0.75rem;
+    height: var(--app-tabbar-height);
+    min-height: var(--app-tabbar-height);
+    padding: 0 0.375rem 0 0.75rem;
     border-bottom: 1px solid var(--ui-border);
-}
-
-.agent-assistant-title,
-.agent-assistant-header-actions,
-.agent-assistant-setup-actions,
-.agent-assistant-composer-actions,
-.agent-assistant-turn-progress {
-    display: flex;
-    align-items: center;
+    background: var(--app-tabbar-bg);
+    -webkit-app-region: drag;
 }
 
 .agent-assistant-title {
+    display: flex;
+    align-items: center;
     gap: 0.45rem;
     min-width: 0;
 }
 
 .agent-assistant-title-icon {
-    width: 1rem;
-    height: 1rem;
-    color: var(--ui-primary);
+    width: 1.05rem;
+    height: 1.05rem;
+    color: var(--ui-text-muted);
 }
 
-.agent-assistant-header-actions,
-.agent-assistant-setup-actions,
-.agent-assistant-composer-actions {
-    gap: 0.35rem;
+.agent-assistant-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.0625rem;
+    -webkit-app-region: no-drag;
 }
 
 .agent-assistant-body {
@@ -695,21 +750,37 @@ onUnmounted(() => {
     min-width: 0;
     min-height: 0;
     flex-direction: column;
+
+    /* The app locks user-select globally; opt the assistant content back in so
+       answers, setup copy, and device codes can be selected and copied. */
+    user-select: text;
 }
 
-.agent-assistant-setup {
+.agent-assistant-setup,
+.agent-assistant-empty {
     display: flex;
-    min-height: 0;
     flex: 1 1 auto;
+    min-height: 0;
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
-    gap: 0.75rem;
-    padding: 1rem;
+    gap: 0.65rem;
+    padding: 1.25rem;
 }
 
-.agent-assistant-setup-icon,
-.agent-assistant-empty-icon {
+.agent-assistant-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: var(--ui-bg);
+    box-shadow: var(--app-pdf-popover-shadow);
+}
+
+.agent-assistant-glyph-icon {
     width: 1.25rem;
     height: 1.25rem;
     color: var(--ui-primary);
@@ -725,19 +796,24 @@ onUnmounted(() => {
     color: var(--ui-text);
     font-size: 0.95rem;
     font-weight: 650;
+    letter-spacing: -0.01em;
 }
 
 .agent-assistant-setup p,
 .agent-assistant-empty p,
 .agent-assistant-message p,
-.agent-assistant-turn-progress,
-.agent-assistant-composer-error,
-.agent-assistant-progress,
-.agent-assistant-error {
+.agent-assistant-progress {
     margin: 0;
     color: var(--ui-text-muted);
     font-size: 0.8125rem;
-    line-height: 1.45;
+    line-height: 1.5;
+}
+
+.agent-assistant-setup-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .agent-assistant-messages {
@@ -745,29 +821,22 @@ onUnmounted(() => {
     flex: 1 1 auto;
     min-height: 0;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.625rem;
     overflow: auto;
-    padding: 0.75rem;
-}
-
-.agent-assistant-empty {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 0.65rem;
+    padding: 0.875rem;
+    scroll-behavior: smooth;
 }
 
 .agent-assistant-message {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    max-width: 92%;
+    gap: 0.3rem;
+    max-width: 88%;
 }
 
 .agent-assistant-message.is-user {
     align-self: flex-end;
+    align-items: flex-end;
 }
 
 .agent-assistant-message.is-assistant,
@@ -799,11 +868,28 @@ onUnmounted(() => {
 .agent-assistant-message p {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    padding: 0.55rem 0.65rem;
+    padding: 0.5rem 0.7rem;
     border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    background: var(--ui-bg-elevated);
+    border-radius: 0.9rem;
+    background: var(--ui-bg);
     color: var(--ui-text);
+}
+
+.agent-assistant-message.is-assistant p {
+    border-bottom-left-radius: 0.3rem;
+}
+
+.agent-assistant-message.is-user p {
+    border-color: transparent;
+    border-bottom-right-radius: 0.3rem;
+    background: var(--ui-primary);
+    color: var(--ui-primary-fg);
+}
+
+.agent-assistant-message.is-system p {
+    border-color: color-mix(in oklab, var(--ui-error) 30%, var(--ui-border) 70%);
+    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
+    color: var(--ui-error);
 }
 
 .agent-assistant-message.is-pending p {
@@ -811,33 +897,22 @@ onUnmounted(() => {
 }
 
 .agent-assistant-turn-progress {
-    gap: 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 0.4rem;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: var(--ui-bg);
     color: var(--ui-text-dimmed);
     font-size: 0.75rem;
-}
-
-.agent-assistant-turn-progress {
-    align-self: flex-start;
-    padding: 0.45rem 0.55rem;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    background: var(--ui-bg-elevated);
 }
 
 .agent-assistant-working-icon {
     width: 0.875rem;
     height: 0.875rem;
     flex: 0 0 auto;
-}
-
-.agent-assistant-message.is-user p {
-    background: var(--ui-primary);
-    color: var(--ui-primary-fg);
-}
-
-.agent-assistant-message.is-system p,
-.agent-assistant-error {
-    color: var(--ui-error);
 }
 
 .agent-assistant-composer {
@@ -847,14 +922,22 @@ onUnmounted(() => {
 
 .agent-assistant-composer-field {
     position: relative;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.85rem;
+    background: var(--ui-bg);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.agent-assistant-composer-field:focus-within {
+    border-color: var(--ui-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-primary) 18%, transparent);
 }
 
 .agent-assistant-composer-attachments {
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
-    margin-bottom: 0.5rem;
-    padding-right: 2.75rem;
+    padding: 0.5rem 0.5rem 0;
 }
 
 .agent-assistant-composer-attachment {
@@ -882,28 +965,27 @@ onUnmounted(() => {
 }
 
 .agent-assistant-composer-error {
-    margin-bottom: 0.5rem;
+    margin: 0;
+    padding: 0.4rem 0.7rem 0;
     color: var(--ui-error);
+    font-size: 0.8125rem;
+    line-height: 1.45;
 }
 
 .agent-assistant-input {
     display: block;
     width: 100%;
-    min-height: 4.5rem;
+    min-height: 4.25rem;
     resize: none;
-    padding: 0.55rem 2.75rem 0.55rem 0.65rem;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius);
-    background: var(--ui-bg);
+    padding: 0.55rem 2.75rem 0.55rem 0.7rem;
+    border: 0;
+    border-radius: 0.85rem;
+    background: transparent;
     color: var(--ui-text);
     font: inherit;
     font-size: 0.8125rem;
-    line-height: 1.45;
+    line-height: 1.5;
     outline: none;
-}
-
-.agent-assistant-input:focus {
-    border-color: var(--ui-primary);
 }
 
 .agent-assistant-input:disabled {
@@ -912,8 +994,11 @@ onUnmounted(() => {
 
 .agent-assistant-composer-actions {
     position: absolute;
-    right: 0.5rem;
-    bottom: 0.5rem;
+    right: 0.4rem;
+    bottom: 0.4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .agent-assistant-device-code {
@@ -923,6 +1008,7 @@ onUnmounted(() => {
     padding: 0.5rem 0.625rem;
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
+    background: var(--ui-bg);
     color: var(--ui-text);
     font-size: 0.8125rem;
 }
@@ -932,7 +1018,14 @@ onUnmounted(() => {
 }
 
 .agent-assistant-error {
-    padding: 0 0.75rem 0.75rem;
+    margin: 0 0.875rem 0.875rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid color-mix(in oklab, var(--ui-error) 30%, var(--ui-border) 70%);
+    border-radius: var(--ui-radius);
+    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
+    color: var(--ui-error);
+    font-size: 0.8125rem;
+    line-height: 1.45;
 }
 
 @keyframes agent-assistant-spin {
@@ -944,11 +1037,16 @@ onUnmounted(() => {
 @media (width <= 50rem) {
     .agent-assistant-panel {
         position: absolute;
-        inset: 2.5rem 0 0 auto;
+        inset: var(--app-tabbar-height) 0 0 auto;
         z-index: 30;
         width: min(100vw, 24rem);
+        flex: none;
         max-width: none;
         box-shadow: var(--app-pdf-context-menu-panel-shadow);
+    }
+
+    .agent-assistant-resizer {
+        display: none;
     }
 }
 </style>
