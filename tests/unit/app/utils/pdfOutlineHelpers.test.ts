@@ -5,9 +5,11 @@ import {
     vi,
 } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IBookmarkItem } from '@app/types/pdfOutline';
 import {
     convertOutlineColorToHex,
     normalizeBookmarkColor,
+    resolveActiveBookmarkForPage,
     resolveBookmarkDestinationPage,
     resolvePageIndex,
 } from '@app/utils/pdfOutlineHelpers';
@@ -24,6 +26,19 @@ function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {})
         ...base,
         ...overrides,
     } as PDFDocumentProxy;
+}
+
+function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
+    return {
+        id,
+        title: id,
+        dest: null,
+        pageIndex,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    };
 }
 
 describe('pdfOutlineHelpers', () => {
@@ -98,5 +113,26 @@ describe('pdfOutlineHelpers', () => {
 
         await expect(resolveBookmarkDestinationPage(pdfDoc, 'toc')).resolves.toBe(4);
         await expect(resolveBookmarkDestinationPage(pdfDoc, [6])).resolves.toBe(6);
+    });
+
+    it('preserves an explicitly active bookmark when multiple entries share the current page', () => {
+        const bookmarks = [
+            createBookmark('first-on-page', 4),
+            createBookmark('last-on-page', 4),
+            createBookmark('next-page', 5),
+        ];
+
+        expect(resolveActiveBookmarkForPage(bookmarks, 5, 'first-on-page')?.id).toBe('first-on-page');
+    });
+
+    it('uses the last bookmark at or before the page when the active bookmark is elsewhere', () => {
+        const bookmarks = [
+            createBookmark('intro', 0),
+            createBookmark('first-on-page', 4),
+            createBookmark('last-on-page', 4),
+            createBookmark('next-page', 5),
+        ];
+
+        expect(resolveActiveBookmarkForPage(bookmarks, 5, 'intro')?.id).toBe('last-on-page');
     });
 });

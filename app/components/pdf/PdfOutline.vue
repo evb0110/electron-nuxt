@@ -104,6 +104,7 @@ import {
     buildResolvedOutline,
     flattenBookmarks,
     parseOutlineItems,
+    resolveActiveBookmarkForPage,
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -374,15 +375,11 @@ function setBookmarkBaseline() {
 }
 
 function updateActiveItemFromCurrentPage() {
-    const pageIndex = Math.max(0, (currentPage || 1) - 1);
-    let active: IBookmarkItem | null = null;
-
-    for (const item of flatBookmarks.value) {
-        if (typeof item.pageIndex === 'number' && item.pageIndex <= pageIndex) {
-            active = item;
-        }
-    }
-
+    const active = resolveActiveBookmarkForPage(
+        flatBookmarks.value,
+        currentPage,
+        activeItemId.value,
+    );
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
         if (activeItemId.value) {

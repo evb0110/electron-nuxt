@@ -326,6 +326,31 @@ export function flattenBookmarks(items: IBookmarkItem[]) {
     return flattened;
 }
 
+export function resolveActiveBookmarkForPage(
+    flatBookmarks: IBookmarkItem[],
+    currentPage: number,
+    currentActiveItemId: string | null,
+) {
+    const pageIndex = Math.max(0, (Number.isFinite(currentPage) ? currentPage : 1) - 1);
+    const currentActive = currentActiveItemId
+        ? flatBookmarks.find(item => item.id === currentActiveItemId) ?? null
+        : null;
+
+    if (currentActive?.pageIndex === pageIndex) {
+        return currentActive;
+    }
+
+    let active: IBookmarkItem | null = null;
+
+    for (const item of flatBookmarks) {
+        if (typeof item.pageIndex === 'number' && item.pageIndex <= pageIndex) {
+            active = item;
+        }
+    }
+
+    return active;
+}
+
 export function normalizeBookmarkColor(color: string | null | undefined): string | null {
     if (typeof color !== 'string') {
         return null;
