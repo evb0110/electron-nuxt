@@ -36,8 +36,122 @@ const OBJECT_OUTPUT_SCHEMA = {
     type: 'object',
     additionalProperties: true,
 };
+const CAPABILITY_DOMAIN_SCHEMA = {
+    type: 'string',
+    enum: [
+        'workspace',
+        'document',
+        'annotation',
+        'toc',
+        'ocr',
+        'ui',
+        'view',
+        'file',
+        'export',
+        'pageOps',
+    ],
+    description: 'Optional capability domain filter.',
+};
+const CAPABILITY_ID_SCHEMA = {
+    type: 'string',
+    description: 'Stable EVB capability id, for example document.search, annotation.open_note, ocr.start, or ocr.open_popup.',
+};
+const RESOURCE_URI_SCHEMA = {
+    type: 'string',
+    description: 'EVB resource URI such as evb://document/{tabId}/annotations or evb://document/{tabId}/toc.',
+};
 
 const EVB_MCP_TOOLS = [
+    {
+        name: 'evb_list_capabilities',
+        title: 'EVB Viewer list capabilities',
+        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, TOC, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                tabId: TAB_ID_SCHEMA,
+                domain: CAPABILITY_DOMAIN_SCHEMA,
+            },
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
+    {
+        name: 'evb_describe_capability',
+        title: 'EVB Viewer describe capability',
+        description: 'Describe one EVB Viewer capability, including its input schema, side-effect risk, availability, policy, and related resource templates. Call evb_list_capabilities first when the id is unknown.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                tabId: TAB_ID_SCHEMA,
+                id: CAPABILITY_ID_SCHEMA,
+            },
+            required: ['id'],
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
+    {
+        name: 'evb_read_resource',
+        title: 'EVB Viewer read resource',
+        description: 'Read an EVB resource URI as JSON or text. Useful resources include workspace/current, document page text, text status, annotations, notes, and TOC/bookmarks.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                uri: RESOURCE_URI_SCHEMA,
+            },
+            required: ['uri'],
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
+    {
+        name: 'evb_run_action',
+        title: 'EVB Viewer run action',
+        description: 'Run a semantic EVB Viewer action by capability id. Use evb_describe_capability to inspect the expected input. For write, destructive, or long-running actions, prefer dryRun first when available.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                tabId: TAB_ID_SCHEMA,
+                id: CAPABILITY_ID_SCHEMA,
+                input: {
+                    type: 'object',
+                    description: 'Capability-specific input object.',
+                    additionalProperties: true,
+                },
+                dryRun: {
+                    type: 'boolean',
+                    description: 'Validate and preview without mutating visible app state when supported.',
+                },
+            },
+            required: ['id'],
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: UI_NAVIGATION_ANNOTATIONS,
+    },
+    {
+        name: 'evb_job_status',
+        title: 'EVB Viewer job status',
+        description: 'Read status for a long-running EVB action job if an action returned a job id. OCR progress is exposed through capability ocr.status; current EVB MCP jobs are otherwise not tracked here.',
+        inputSchema: {
+            type: 'object',
+            properties: {jobId: {
+                type: 'string',
+                description: 'Optional job id returned by evb_run_action.',
+            }},
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
     {
         name: 'evb_workspace_snapshot',
         title: 'EVB Viewer workspace snapshot',
@@ -255,6 +369,34 @@ const EVB_MCP_RESOURCE_TEMPLATES = [
         description: 'Read searchable text coverage and OCR recommendations for an open PDF tab.',
         mimeType: 'application/json',
     },
+    {
+        name: 'evb_document_ocr_status',
+        title: 'EVB PDF OCR status',
+        uriTemplate: 'evb://document/{tabId}/ocr-status',
+        description: 'Read OCR/searchable-text status for an open PDF tab. Alias of text status for agents thinking in OCR terms.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_annotations',
+        title: 'EVB PDF annotations',
+        uriTemplate: 'evb://document/{tabId}/annotations',
+        description: 'Read annotation summaries, stable keys, pages, subtype, colors, and note flags for an open EVB Viewer document.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_notes',
+        title: 'EVB PDF notes',
+        uriTemplate: 'evb://document/{tabId}/notes',
+        description: 'Read note-bearing annotation summaries plus open note-window state for an open EVB Viewer document.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_toc',
+        title: 'EVB PDF table of contents',
+        uriTemplate: 'evb://document/{tabId}/toc',
+        description: 'Read the document TOC/bookmarks when present, including titles and one-based page numbers.',
+        mimeType: 'application/json',
+    },
 ];
 
 const EVB_MCP_PROMPTS = [
@@ -375,9 +517,13 @@ function getClientProtocolVersion(params) {
 function createInitializeInstructions() {
     return [
         'EVB Viewer exposes the live PDF workspace. If the user mentions EVB Viewer, evb-viewer, the viewer app, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, or debug ports.',
+        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/TOC/page text, and evb_run_action for visible app actions.',
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree.',
-        'For questions like "find X in this PDF" or "navigate to X", call evb_viewer_search_open_document or evb_search_document first. They use EVB Viewer search indexes and return page numbers plus excerpts.',
-        'After search, call evb_read_document_pages for candidate pages if you need surrounding text, then evb_go_to_page to navigate the visible viewer.',
+        'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
+        'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
+        'For annotations, notes, and TOC/bookmarks, read evb://document/{tabId}/annotations, evb://document/{tabId}/notes, and evb://document/{tabId}/toc through evb_read_resource or MCP resources/read.',
+        'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
+        'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
         'For DjVu or image documents, tell the user to convert to PDF before deep text analysis.',
     ].join('\n');

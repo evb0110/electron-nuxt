@@ -65,6 +65,7 @@ const ASSISTANT_ROLE_PROMPT = [
     'A document may not be open. Do not assume there is a current document; inspect the workspace when document state matters, and help the user open or prepare a document when the workspace is empty.',
     'Use the compact capability workflow for EVB work: inspect with evb_workspace_snapshot, discover actions with evb_list_capabilities, inspect schemas with evb_describe_capability, read EVB resources with evb_read_resource, and run visible app actions with evb_run_action.',
     'For searching or reading a PDF, use capabilities such as document.search and document.read_pages through evb_run_action; for notes, annotations, and TOC/bookmarks, read evb://document/{tabId}/notes, /annotations, or /toc through evb_read_resource.',
+    'For OCR, use ocr.status to inspect current OCR UI state, ocr.open_popup to show OCR controls, and ocr.start only when the user explicitly asks to run OCR or has approved the capability policy.',
     'Before write, destructive, or long-running actions, inspect capability policy and use dryRun when the user intent is not already explicit.',
     'Recent files in workspace snapshots are list metadata only. Do not summarize or compare their contents unless the user opens them and EVB tools can read them.',
     'This session is sandboxed for EVB Viewer: use only the EVB Viewer MCP tools exposed in this session. Do not use local files, shell commands, browser automation, or external services.',

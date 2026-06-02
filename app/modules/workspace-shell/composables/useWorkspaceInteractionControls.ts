@@ -129,6 +129,14 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         pdfSrc,
     });
 
+    function handleZoomIn() {
+        setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
+    }
+
+    function handleZoomOut() {
+        setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
+    }
+
     usePageShortcuts({
         isActive,
         pdfSrc,
@@ -146,12 +154,8 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         openSearch,
         openAnnotations,
         handleAnnotationToolChange,
-        handleZoomIn: () => {
-            setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
-        },
-        handleZoomOut: () => {
-            setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
-        },
+        handleZoomIn,
+        handleZoomOut,
         handleActualSize: () => {
             setCustomZoomFromDisplay(1);
         },
@@ -224,6 +228,8 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
 
     return {
         isCapturingRegion,
+        handleZoomIn,
+        handleZoomOut,
         handleCaptureRegion,
         handleActualSize,
         cropDialogOpen,

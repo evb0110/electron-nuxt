@@ -1408,6 +1408,26 @@ const workspaceExpose: IWorkspaceExpose = {
     waitForDocumentOpenSettled: async () => {
         await withLoadedWorkspace('waitForDocumentOpenSettled', workspace => workspace.waitForDocumentOpenSettled());
     },
+    runAgentAction: async (actionId, input, options) => {
+        return await withLoadedWorkspace(
+            'runAgentAction',
+            workspace => workspace.runAgentAction(actionId, input, options),
+        ) ?? {
+            ok: false,
+            actionId,
+            error: 'Workspace is not available.',
+        };
+    },
+    readAgentResource: async (uri) => {
+        return await withLoadedWorkspace(
+            'readAgentResource',
+            workspace => workspace.readAgentResource(uri),
+        ) ?? {
+            ok: false,
+            uri,
+            error: 'Workspace is not available.',
+        };
+    },
     getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
 };
 

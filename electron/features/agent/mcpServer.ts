@@ -10,9 +10,11 @@ import {
 } from 'http';
 import type { AddressInfo } from 'net';
 import type {
+    IAgentCapabilityDescriptor,
     IAgentTabSnapshot,
     IAgentWorkspaceSnapshot,
     TAgentCommand,
+    TAgentCapabilityDomain,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
@@ -170,8 +172,122 @@ const OBJECT_OUTPUT_SCHEMA = {
     type: 'object',
     additionalProperties: true,
 };
+const CAPABILITY_DOMAIN_SCHEMA = {
+    type: 'string',
+    enum: [
+        'workspace',
+        'document',
+        'annotation',
+        'toc',
+        'ocr',
+        'ui',
+        'view',
+        'file',
+        'export',
+        'pageOps',
+    ],
+    description: 'Optional capability domain filter.',
+};
+const CAPABILITY_ID_SCHEMA = {
+    type: 'string',
+    description: 'Stable EVB capability id, for example document.search, annotation.open_note, ocr.start, or ocr.open_popup.',
+};
+const RESOURCE_URI_SCHEMA = {
+    type: 'string',
+    description: 'EVB resource URI such as evb://document/{tabId}/annotations or evb://document/{tabId}/toc.',
+};
 
 const MCP_TOOLS = [
+    {
+        name: 'evb_list_capabilities',
+        title: 'EVB Viewer list capabilities',
+        description: 'List semantic EVB Viewer capabilities for the current workspace or a specific tab. Use this to discover annotation, note, TOC, OCR, UI, file, export, page, search, and navigation actions without bloating the top-level MCP tool list.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                tabId: TAB_ID_SCHEMA,
+                domain: CAPABILITY_DOMAIN_SCHEMA,
+            },
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
+    {
+        name: 'evb_describe_capability',
+        title: 'EVB Viewer describe capability',
+        description: 'Describe one EVB Viewer capability, including its input schema, side-effect risk, availability, policy, and related resource templates. Call evb_list_capabilities first when the id is unknown.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                tabId: TAB_ID_SCHEMA,
+                id: CAPABILITY_ID_SCHEMA,
+            },
+            required: ['id'],
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
+    {
+        name: 'evb_read_resource',
+        title: 'EVB Viewer read resource',
+        description: 'Read an EVB resource URI as JSON or text. Useful resources include workspace/current, document page text, text status, annotations, notes, and TOC/bookmarks.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                uri: RESOURCE_URI_SCHEMA,
+            },
+            required: ['uri'],
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
+    {
+        name: 'evb_run_action',
+        title: 'EVB Viewer run action',
+        description: 'Run a semantic EVB Viewer action by capability id. Use evb_describe_capability to inspect the expected input. For write, destructive, or long-running actions, prefer dryRun first when available.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                windowId: WINDOW_ID_SCHEMA,
+                tabId: TAB_ID_SCHEMA,
+                id: CAPABILITY_ID_SCHEMA,
+                input: {
+                    type: 'object',
+                    description: 'Capability-specific input object.',
+                    additionalProperties: true,
+                },
+                dryRun: {
+                    type: 'boolean',
+                    description: 'Validate and preview without mutating visible app state when supported.',
+                },
+            },
+            required: ['id'],
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: UI_NAVIGATION_ANNOTATIONS,
+    },
+    {
+        name: 'evb_job_status',
+        title: 'EVB Viewer job status',
+        description: 'Read status for a long-running EVB action job if an action returned a job id. OCR progress is exposed through capability ocr.status; current EVB MCP jobs are otherwise not tracked here.',
+        inputSchema: {
+            type: 'object',
+            properties: {jobId: {
+                type: 'string',
+                description: 'Optional job id returned by evb_run_action.',
+            }},
+            additionalProperties: false,
+        },
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        annotations: READ_ONLY_CLOSED_ANNOTATIONS,
+    },
     {
         name: 'evb_workspace_snapshot',
         title: 'EVB Viewer workspace snapshot',
@@ -389,6 +505,34 @@ const MCP_RESOURCE_TEMPLATES = [
         description: 'Read searchable text coverage and OCR recommendations for an open PDF tab.',
         mimeType: 'application/json',
     },
+    {
+        name: 'evb_document_ocr_status',
+        title: 'EVB PDF OCR status',
+        uriTemplate: 'evb://document/{tabId}/ocr-status',
+        description: 'Read OCR/searchable-text status for an open PDF tab. Alias of text status for agents thinking in OCR terms.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_annotations',
+        title: 'EVB PDF annotations',
+        uriTemplate: 'evb://document/{tabId}/annotations',
+        description: 'Read annotation summaries, stable keys, pages, subtype, colors, and note flags for an open EVB Viewer document.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_notes',
+        title: 'EVB PDF notes',
+        uriTemplate: 'evb://document/{tabId}/notes',
+        description: 'Read note-bearing annotation summaries plus open note-window state for an open EVB Viewer document.',
+        mimeType: 'application/json',
+    },
+    {
+        name: 'evb_document_toc',
+        title: 'EVB PDF table of contents',
+        uriTemplate: 'evb://document/{tabId}/toc',
+        description: 'Read the document TOC/bookmarks when present, including titles and one-based page numbers.',
+        mimeType: 'application/json',
+    },
 ] as const satisfies readonly IMcpResourceTemplateDefinition[];
 
 const MCP_PROMPTS = [
@@ -409,6 +553,672 @@ const MCP_PROMPTS = [
         description: 'Workflow for determining whether an open PDF has enough searchable text for agent analysis.',
     },
 ] as const satisfies readonly IMcpPromptDefinition[];
+
+type TCapabilityAvailabilityKind =
+    | 'always'
+    | 'document'
+    | 'pdf'
+    | 'pdf-path'
+    | 'renderer-document'
+    | 'renderer-pdf';
+interface IAgentCapabilityTemplate extends Omit<IAgentCapabilityDescriptor, 'availability'> {availabilityKind: TCapabilityAvailabilityKind;}
+
+const EMPTY_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+};
+const TAB_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {tabId: TAB_ID_SCHEMA},
+    additionalProperties: false,
+};
+const PAGE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        tabId: TAB_ID_SCHEMA,
+        page: {
+            type: 'number',
+            description: 'One-based page number.',
+        },
+    },
+    required: ['page'],
+    additionalProperties: false,
+};
+const SEARCH_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        tabId: TAB_ID_SCHEMA,
+        query: {
+            type: 'string',
+            description: 'Text or regex query to search for in the PDF.',
+        },
+        maxResults: {
+            type: 'number',
+            description: 'Maximum results to return. Defaults to 25 and is capped at 100.',
+        },
+        matchCase: {type: 'boolean'},
+        wholeWord: {type: 'boolean'},
+        useRegex: {type: 'boolean'},
+    },
+    required: ['query'],
+    additionalProperties: false,
+};
+const READ_PAGES_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        tabId: TAB_ID_SCHEMA,
+        pages: {
+            type: 'array',
+            items: {type: 'number'},
+            description: 'One-based page numbers to read. If omitted, reads the current page.',
+        },
+        startPage: {
+            type: 'number',
+            description: 'Optional first page in a one-based inclusive range.',
+        },
+        endPage: {
+            type: 'number',
+            description: 'Optional last page in a one-based inclusive range.',
+        },
+        maxCharsPerPage: {
+            type: 'number',
+            description: 'Maximum characters to return per page. Defaults to 6000 and is capped at 30000.',
+        },
+    },
+    additionalProperties: false,
+};
+const OPEN_SIDEBAR_TAB_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {tab: {
+        type: 'string',
+        enum: [
+            'annotations',
+            'bookmarks',
+            'thumbnails',
+            'search',
+        ],
+    }},
+    required: ['tab'],
+    additionalProperties: false,
+};
+const ANNOTATION_REF_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        stableKey: {
+            type: 'string',
+            description: 'Stable annotation key from evb://document/{tabId}/annotations or /notes.',
+        },
+        annotationId: {type: 'string'},
+        id: {type: 'string'},
+    },
+    additionalProperties: false,
+};
+const ANNOTATION_TOOL_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {tool: {
+        type: 'string',
+        enum: [
+            'none',
+            'select',
+            'highlight',
+            'underline',
+            'strikethrough',
+            'squiggly',
+            'text',
+            'draw',
+            'rectangle',
+            'circle',
+            'line',
+            'arrow',
+            'stamp',
+        ],
+    }},
+    required: ['tool'],
+    additionalProperties: false,
+};
+const VIEW_MODE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {mode: {
+        type: 'string',
+        enum: [
+            'single',
+            'facing',
+            'facing-first-single',
+        ],
+    }},
+    required: ['mode'],
+    additionalProperties: false,
+};
+const INSERT_PAGES_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {afterPage: {
+        type: 'number',
+        description: 'One-based page after which selected files should be inserted. Defaults to the end of the document.',
+    }},
+    additionalProperties: false,
+};
+const OCR_RUN_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        pageRange: {
+            type: 'string',
+            enum: [
+                'all',
+                'current',
+                'custom',
+            ],
+            description: 'Pages to OCR. Defaults to the OCR popup current setting.',
+        },
+        customRange: {
+            type: 'string',
+            description: 'Custom page range such as 1-3,7. Used when pageRange is custom.',
+        },
+        languages: {
+            type: 'array',
+            items: {type: 'string'},
+            description: 'OCR language codes such as eng, deu, tur. Defaults to the OCR popup current setting.',
+        },
+    },
+    additionalProperties: false,
+};
+const ALLOW_INTERNAL_AND_EXTERNAL = {
+    internal: 'allow',
+    external: 'allow',
+} as const;
+const CONFIRM_EXTERNAL = {
+    internal: 'allow',
+    external: 'confirm',
+} as const;
+const CONFIRM_ALL_WRITES = {
+    internal: 'confirm',
+    external: 'confirm',
+} as const;
+
+const AGENT_CAPABILITY_TEMPLATES = [
+    {
+        id: 'workspace.snapshot',
+        domain: 'workspace',
+        title: 'Read workspace snapshot',
+        summary: 'Read panes, tabs, active document, recent-file metadata, page numbers, and readiness hints.',
+        risk: 'read',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'always',
+        resourceTemplates: ['evb://workspace/current'],
+    },
+    {
+        id: 'document.open_documents',
+        domain: 'document',
+        title: 'List open documents',
+        summary: 'Read open EVB Viewer documents with active tab, page, dirty state, kind, and readiness.',
+        risk: 'read',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'always',
+    },
+    {
+        id: 'document.readiness',
+        domain: 'document',
+        title: 'Read document readiness',
+        summary: 'Read document preparation hints for all tabs or a specific tab.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'always',
+    },
+    {
+        id: 'document.inspect_text',
+        domain: 'document',
+        title: 'Inspect PDF text coverage',
+        summary: 'Build or reuse EVB Viewer search index and report searchable text/OCR coverage by page.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'pdf-path',
+        resourceTemplates: [
+            'evb://document/{tabId}/text-status',
+            'evb://document/{tabId}/ocr-status',
+        ],
+    },
+    {
+        id: 'document.search',
+        domain: 'document',
+        title: 'Search open PDF',
+        summary: 'Search the open PDF using EVB Viewer cached search indexes and return page candidates with excerpts.',
+        risk: 'read',
+        inputSchema: SEARCH_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'pdf-path',
+    },
+    {
+        id: 'document.read_pages',
+        domain: 'document',
+        title: 'Read PDF page text',
+        summary: 'Read extracted searchable text for one or more one-based PDF pages.',
+        risk: 'read',
+        inputSchema: READ_PAGES_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'pdf-path',
+        resourceTemplates: ['evb://document/{tabId}/page/{page}'],
+    },
+    {
+        id: 'toc.read',
+        domain: 'toc',
+        title: 'Read TOC/bookmarks',
+        summary: 'Read the active document table of contents/bookmarks when present.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+        resourceTemplates: ['evb://document/{tabId}/toc'],
+    },
+    {
+        id: 'annotation.list',
+        domain: 'annotation',
+        title: 'Read annotations',
+        summary: 'Read annotation summaries with stable keys, pages, subtype, color, and note flags.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+        resourceTemplates: ['evb://document/{tabId}/annotations'],
+    },
+    {
+        id: 'annotation.list_notes',
+        domain: 'annotation',
+        title: 'Read notes',
+        summary: 'Read note-bearing annotations and currently open note-window state.',
+        risk: 'read',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+        resourceTemplates: ['evb://document/{tabId}/notes'],
+    },
+    {
+        id: 'annotation.open_note',
+        domain: 'annotation',
+        title: 'Open annotation note',
+        summary: 'Open the note popup/window for an annotation using a stable key from the annotations or notes resource.',
+        risk: 'navigate',
+        inputSchema: ANNOTATION_REF_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'annotation.focus',
+        domain: 'annotation',
+        title: 'Focus annotation',
+        summary: 'Focus an annotation in the visible viewer using a stable key from the annotations resource.',
+        risk: 'navigate',
+        inputSchema: ANNOTATION_REF_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'annotation.create_note',
+        domain: 'annotation',
+        title: 'Start note creation',
+        summary: 'Start EVB Viewer quick-note behavior for the current selection or page placement.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'annotation.select_tool',
+        domain: 'annotation',
+        title: 'Select annotation tool',
+        summary: 'Select an annotation tool such as highlight, underline, text, draw, rectangle, circle, line, or arrow.',
+        risk: 'write',
+        inputSchema: ANNOTATION_TOOL_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'annotation.delete',
+        domain: 'annotation',
+        title: 'Delete annotation',
+        summary: 'Delete an annotation/comment by stable key, annotation id, or id.',
+        risk: 'destructive',
+        inputSchema: ANNOTATION_REF_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_ALL_WRITES,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'ocr.open_popup',
+        domain: 'ocr',
+        title: 'Open OCR popup',
+        summary: 'Open EVB Viewer OCR controls so OCR can be started with visible page/language options.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'ocr.status',
+        domain: 'ocr',
+        title: 'Read OCR popup status',
+        summary: 'Read visible OCR popup state, selected page range/languages, progress, errors, and running status.',
+        risk: 'read',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'ocr.start',
+        domain: 'ocr',
+        title: 'Start OCR',
+        summary: 'Start OCR for the target PDF using the current OCR settings or supplied page range and language codes.',
+        risk: 'longRunning',
+        inputSchema: OCR_RUN_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'ocr.cancel',
+        domain: 'ocr',
+        title: 'Cancel OCR',
+        summary: 'Cancel the currently running OCR job for the target document when one is active.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'ui.open_sidebar_tab',
+        domain: 'ui',
+        title: 'Open sidebar tab',
+        summary: 'Open a visible sidebar tab: annotations, bookmarks, thumbnails, or search.',
+        risk: 'navigate',
+        inputSchema: OPEN_SIDEBAR_TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'ui.toggle_sidebar',
+        domain: 'ui',
+        title: 'Toggle sidebar',
+        summary: 'Toggle the visible document sidebar.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'ui.close_popups',
+        domain: 'ui',
+        title: 'Close popups',
+        summary: 'Close open EVB Viewer dropdowns and annotation property popups.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.activate_tab',
+        domain: 'view',
+        title: 'Activate tab',
+        summary: 'Activate an open EVB Viewer tab by id.',
+        risk: 'navigate',
+        inputSchema: TAB_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'document',
+    },
+    {
+        id: 'view.go_to_page',
+        domain: 'view',
+        title: 'Go to page',
+        summary: 'Activate a tab if needed and navigate its PDF viewer to a one-based page number.',
+        risk: 'navigate',
+        inputSchema: PAGE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'view.zoom_in',
+        domain: 'view',
+        title: 'Zoom in',
+        summary: 'Increase visible zoom for the target document.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.zoom_out',
+        domain: 'view',
+        title: 'Zoom out',
+        summary: 'Decrease visible zoom for the target document.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.fit_width',
+        domain: 'view',
+        title: 'Fit width',
+        summary: 'Set the visible PDF fit mode to width.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.fit_height',
+        domain: 'view',
+        title: 'Fit height',
+        summary: 'Set the visible PDF fit mode to height.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.actual_size',
+        domain: 'view',
+        title: 'Actual size',
+        summary: 'Set the visible PDF zoom to 100%.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.toggle_continuous_scroll',
+        domain: 'view',
+        title: 'Toggle continuous scroll',
+        summary: 'Toggle continuous scrolling for the target document.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'view.set_mode',
+        domain: 'view',
+        title: 'Set page view mode',
+        summary: 'Set page view mode to single, facing, or facing-first-single.',
+        risk: 'navigate',
+        inputSchema: VIEW_MODE_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'file.save',
+        domain: 'file',
+        title: 'Save',
+        summary: 'Save the current document when EVB Viewer reports it can be saved.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'file.save_as',
+        domain: 'file',
+        title: 'Save as',
+        summary: 'Open Save As for the current document.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'file.print',
+        domain: 'file',
+        title: 'Print',
+        summary: 'Open print for the current document.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'file.print_current_page',
+        domain: 'file',
+        title: 'Print current page',
+        summary: 'Open print for the current page.',
+        risk: 'navigate',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'export.docx',
+        domain: 'export',
+        title: 'Export DOCX',
+        summary: 'Start DOCX export for the current document.',
+        risk: 'longRunning',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'export.images',
+        domain: 'export',
+        title: 'Export images',
+        summary: 'Open image export for the current document.',
+        risk: 'longRunning',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'export.multi_page_tiff',
+        domain: 'export',
+        title: 'Export multi-page TIFF',
+        summary: 'Open multi-page TIFF export for the current document.',
+        risk: 'longRunning',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'page_ops.delete_selected',
+        domain: 'pageOps',
+        title: 'Delete selected pages',
+        summary: 'Delete pages currently selected in the thumbnails sidebar.',
+        risk: 'destructive',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_ALL_WRITES,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'page_ops.extract_selected',
+        domain: 'pageOps',
+        title: 'Extract selected pages',
+        summary: 'Extract pages currently selected in the thumbnails sidebar.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'page_ops.rotate_cw_selected',
+        domain: 'pageOps',
+        title: 'Rotate selected pages clockwise',
+        summary: 'Rotate currently selected thumbnail pages clockwise.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'page_ops.rotate_ccw_selected',
+        domain: 'pageOps',
+        title: 'Rotate selected pages counterclockwise',
+        summary: 'Rotate currently selected thumbnail pages counterclockwise.',
+        risk: 'write',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'page_ops.insert_pages',
+        domain: 'pageOps',
+        title: 'Insert pages',
+        summary: 'Open page insertion for the current document.',
+        risk: 'write',
+        inputSchema: INSERT_PAGES_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-pdf',
+    },
+    {
+        id: 'page_ops.convert_to_pdf',
+        domain: 'pageOps',
+        title: 'Convert to PDF',
+        summary: 'Open conversion flow for DjVu/image documents or the file open flow for PDF conversion.',
+        risk: 'longRunning',
+        inputSchema: EMPTY_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'document',
+    },
+] as const satisfies readonly IAgentCapabilityTemplate[];
 
 function getJsonRpcId(value: unknown): TJsonRpcId {
     if (typeof value === 'string' || typeof value === 'number' || value === null) {
@@ -480,13 +1290,162 @@ function createHealthResponse(identity: ILocalMcpServerIdentity) {
 function createInitializeInstructions() {
     return [
         'EVB Viewer exposes the live viewer workspace. A document may or may not be open. If the user mentions EVB Viewer, evb-viewer, the viewer app, the workspace, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, debug ports, or the repository.',
+        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/TOC/page text, and evb_run_action for visible app actions.',
         'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree or need to determine whether any document is open.',
         'When the workspace is empty, evb_workspace_snapshot and evb_viewer_open_documents may still include recent files shown by EVB Viewer. Treat those as file-list metadata only; do not claim to know their contents unless a document is opened and read through EVB tools.',
-        'For questions like "find X in this PDF" or "navigate to X", call evb_viewer_search_open_document or evb_search_document first. They use EVB Viewer search indexes and return page numbers plus excerpts.',
-        'After search, call evb_read_document_pages for candidate pages if you need surrounding text, then evb_go_to_page to navigate the visible viewer.',
+        'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
+        'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
+        'For annotations, notes, and TOC/bookmarks, read evb://document/{tabId}/annotations, evb://document/{tabId}/notes, and evb://document/{tabId}/toc through evb_read_resource or MCP resources/read.',
+        'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
+        'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
         'For DjVu or image documents, tell the user to convert to PDF before deep text analysis.',
     ].join('\n');
+}
+
+function getOptionalCapabilityDomain(params: unknown): TAgentCapabilityDomain | undefined {
+    const value = getParamsObject(params).domain;
+    return typeof value === 'string' && AGENT_CAPABILITY_TEMPLATES.some(template => template.domain === value)
+        ? value as TAgentCapabilityDomain
+        : undefined;
+}
+
+function getRequiredCapabilityId(params: unknown) {
+    const value = getParamsObject(params).id;
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error('Capability id is required.');
+    }
+    return value.trim();
+}
+
+function getOptionalActionInput(params: unknown) {
+    const input = getParamsObject(params).input;
+    return isRecord(input) ? input : undefined;
+}
+
+function getCapabilityTemplate(id: string) {
+    return AGENT_CAPABILITY_TEMPLATES.find(template => template.id === id) ?? null;
+}
+
+function findCapabilityTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: string) {
+    const targetTabId = tabId ?? snapshot.activeTabId;
+    if (!targetTabId) {
+        return null;
+    }
+    return snapshot.tabs.find(tab => tab.tabId === targetTabId) ?? null;
+}
+
+function createCapabilityAvailability(
+    template: IAgentCapabilityTemplate,
+    tab: IAgentTabSnapshot | null,
+) {
+    if (template.availabilityKind === 'always') {
+        return {available: true};
+    }
+
+    if (!tab) {
+        return {
+            available: false,
+            reason: 'No target tab is available.',
+        };
+    }
+
+    if (template.availabilityKind === 'document' && !isAgentDocumentTab(tab)) {
+        return {
+            available: false,
+            reason: `Tab ${tab.tabId} does not have an open document.`,
+        };
+    }
+
+    if ((template.availabilityKind === 'pdf' || template.availabilityKind === 'pdf-path') && tab.kind !== 'pdf') {
+        return {
+            available: false,
+            reason: `Tab ${tab.tabId} is a ${tab.kind} document; convert/open it as PDF first.`,
+        };
+    }
+
+    if (template.availabilityKind === 'pdf-path' && !tab.originalPath) {
+        return {
+            available: false,
+            reason: `Tab ${tab.tabId} does not expose a readable PDF path yet.`,
+        };
+    }
+
+    if (template.availabilityKind === 'renderer-document' || template.availabilityKind === 'renderer-pdf') {
+        if (!isAgentDocumentTab(tab)) {
+            return {
+                available: false,
+                reason: `Tab ${tab.tabId} does not have an open document.`,
+            };
+        }
+        if (!tab.workspaceAttached) {
+            return {
+                available: false,
+                reason: `Workspace for tab ${tab.tabId} is not attached yet.`,
+            };
+        }
+    }
+
+    if (template.availabilityKind === 'renderer-pdf' && tab.kind !== 'pdf') {
+        return {
+            available: false,
+            reason: `Tab ${tab.tabId} is a ${tab.kind} document; convert/open it as PDF first.`,
+        };
+    }
+
+    return {available: true};
+}
+
+function createCapabilityDescriptor(
+    template: IAgentCapabilityTemplate,
+    tab: IAgentTabSnapshot | null,
+): IAgentCapabilityDescriptor {
+    return {
+        id: template.id,
+        domain: template.domain,
+        title: template.title,
+        summary: template.summary,
+        risk: template.risk,
+        inputSchema: template.inputSchema,
+        ...(template.outputSchema === undefined ? {} : {outputSchema: template.outputSchema}),
+        policy: template.policy,
+        ...(template.resourceTemplates === undefined ? {} : {resourceTemplates: template.resourceTemplates}),
+        availability: createCapabilityAvailability(template, tab),
+    };
+}
+
+async function listAgentCapabilities(params: unknown, options: IProcessMcpRequestOptions) {
+    const windowId = getOptionalWindowId(params);
+    const snapshot = await options.getWorkspaceSnapshot(windowId);
+    const targetTab = findCapabilityTargetTab(snapshot, getOptionalTabId(params));
+    const domain = getOptionalCapabilityDomain(params);
+    const capabilities = AGENT_CAPABILITY_TEMPLATES
+        .filter(template => domain === undefined || template.domain === domain)
+        .map(template => createCapabilityDescriptor(template, targetTab));
+    return {
+        activeTabId: snapshot.activeTabId,
+        targetTabId: targetTab?.tabId ?? null,
+        domain: domain ?? null,
+        capabilityCount: capabilities.length,
+        capabilities,
+    };
+}
+
+async function describeAgentCapability(params: unknown, options: IProcessMcpRequestOptions) {
+    const id = getRequiredCapabilityId(params);
+    const template = getCapabilityTemplate(id);
+    if (!template) {
+        throw new Error(`Unknown EVB capability: ${id}`);
+    }
+
+    const windowId = getOptionalWindowId(params);
+    const snapshot = await options.getWorkspaceSnapshot(windowId);
+    const targetTab = findCapabilityTargetTab(snapshot, getOptionalTabId(params));
+    return {
+        activeTabId: snapshot.activeTabId,
+        targetTabId: targetTab?.tabId ?? null,
+        capability: createCapabilityDescriptor(template, targetTab),
+    };
 }
 
 function getRequiredCapability<TCapability>(
@@ -541,6 +1500,14 @@ function getRequiredQuery(params: unknown) {
         throw new Error('query is required.');
     }
     return query;
+}
+
+function getRequiredResourceUri(params: unknown) {
+    const uri = getParamsObject(params).uri;
+    if (typeof uri !== 'string' || uri.trim().length === 0) {
+        throw new Error('uri is required.');
+    }
+    return uri.trim();
 }
 
 function getOptionalBoolean(params: unknown, key: string) {
@@ -710,8 +1677,152 @@ async function getTargetTabFromParams(
     };
 }
 
+function createActionParams(params: unknown) {
+    const input = getOptionalActionInput(params) ?? {};
+    const tabId = getOptionalTabId(params);
+    return {
+        ...input,
+        ...(tabId ? {tabId} : {}),
+    };
+}
+
+async function runAgentActionTool(params: unknown, options: IProcessMcpRequestOptions) {
+    const id = getRequiredCapabilityId(params);
+    const template = getCapabilityTemplate(id);
+    if (!template) {
+        throw new Error(`Unknown EVB capability: ${id}`);
+    }
+
+    const windowId = getOptionalWindowId(params);
+    const actionParams = createActionParams(params);
+    if (id === 'workspace.snapshot') {
+        return options.getWorkspaceSnapshot(windowId);
+    }
+
+    if (id === 'document.open_documents') {
+        return createOpenDocumentsResponse(await options.getWorkspaceSnapshot(windowId));
+    }
+
+    if (id === 'document.readiness') {
+        const snapshot = await options.getWorkspaceSnapshot(windowId);
+        return selectDocumentsFromSnapshot(snapshot, getOptionalTabId(actionParams));
+    }
+
+    if (id === 'document.inspect_text') {
+        const {tab} = await getTargetTabFromParams(actionParams, options);
+        const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, id);
+        return inspectDocumentText({
+            tab,
+            options: {},
+        }, windowId);
+    }
+
+    if (id === 'document.search') {
+        const {tab} = await getTargetTabFromParams(actionParams, options);
+        const searchDocument = getRequiredCapability(options.searchDocument, id);
+        return searchDocument({
+            tab,
+            options: getDocumentSearchOptions(actionParams),
+        }, windowId);
+    }
+
+    if (id === 'document.read_pages') {
+        const {tab} = await getTargetTabFromParams(actionParams, options);
+        const readDocumentPages = getRequiredCapability(options.readDocumentPages, id);
+        return readDocumentPages({
+            tab,
+            options: getDocumentPageReadOptions(actionParams, tab),
+        }, windowId);
+    }
+
+    if (id === 'toc.read' || id === 'annotation.list' || id === 'annotation.list_notes') {
+        const snapshot = await options.getWorkspaceSnapshot(windowId);
+        const tab = getTargetTab(snapshot, getOptionalTabId(actionParams));
+        const resourceKind = id === 'toc.read'
+            ? 'toc'
+            : id === 'annotation.list'
+                ? 'annotations'
+                : 'notes';
+        const resource = await readMcpResource({
+            windowId,
+            uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
+        }, options);
+        const content = Array.isArray(resource.contents) ? resource.contents[0] : null;
+        return isRecord(content) && typeof content.text === 'string'
+            ? JSON.parse(content.text)
+            : resource;
+    }
+
+    if (id === 'view.activate_tab') {
+        return options.runCommand({
+            name: 'activate_tab',
+            arguments: {tabId: getRequiredTabId(actionParams)},
+        }, windowId);
+    }
+
+    if (id === 'view.go_to_page') {
+        const tabId = getOptionalTabId(actionParams);
+        const command: TAgentCommand = {
+            name: 'go_to_page',
+            arguments: {
+                page: getRequiredPage(actionParams),
+                ...(tabId ? {tabId} : {}),
+            },
+        };
+        return options.runCommand(command, windowId);
+    }
+
+    const tabId = getOptionalTabId(params);
+    const input = getOptionalActionInput(params);
+    const dryRun = getOptionalBoolean(params, 'dryRun');
+    const actionCommand: TAgentCommand = {
+        name: 'run_action',
+        arguments: {
+            id,
+            ...(tabId ? {tabId} : {}),
+            ...(input ? {input} : {}),
+            ...(dryRun === undefined ? {} : {dryRun}),
+        },
+    };
+    return options.runCommand(actionCommand, windowId);
+}
+
+function getJobStatus(params: unknown) {
+    const jobId = getParamsObject(params).jobId;
+    return {
+        ok: true,
+        jobId: typeof jobId === 'string' && jobId.trim().length > 0 ? jobId.trim() : null,
+        status: 'not-found',
+        tracked: false,
+        message: 'No tracked EVB MCP job was found. OCR progress is available through evb_run_action with id ocr.status; other EVB MCP actions complete inline or expose progress in the EVB Viewer UI.',
+    };
+}
+
 async function callTool(name: string, params: unknown, options: IProcessMcpRequestOptions) {
     const windowId = getOptionalWindowId(params);
+    if (name === 'evb_list_capabilities') {
+        return createToolResult(await listAgentCapabilities(params, options));
+    }
+
+    if (name === 'evb_describe_capability') {
+        return createToolResult(await describeAgentCapability(params, options));
+    }
+
+    if (name === 'evb_read_resource') {
+        return createToolResult(await readMcpResource({
+            windowId,
+            uri: getRequiredResourceUri(params),
+        }, options));
+    }
+
+    if (name === 'evb_run_action') {
+        return createToolResult(await runAgentActionTool(params, options));
+    }
+
+    if (name === 'evb_job_status') {
+        return createToolResult(getJobStatus(params));
+    }
+
     if (name === 'evb_workspace_snapshot') {
         return createToolResult(await options.getWorkspaceSnapshot(windowId));
     }
@@ -803,13 +1914,58 @@ function createDocumentStatusResource(tab: IAgentTabSnapshot): IMcpResourceDefin
     };
 }
 
+function createDocumentJsonResource(
+    tab: IAgentTabSnapshot,
+    kind: 'ocr-status' | 'annotations' | 'notes' | 'toc',
+    titleSuffix: string,
+    description: string,
+): IMcpResourceDefinition {
+    return {
+        name: `evb_document_${tab.tabId.replaceAll(/[^a-zA-Z0-9_]/gu, '_')}_${kind.replaceAll('-', '_')}`,
+        title: `${tab.fileName ?? tab.tabId} ${titleSuffix}`,
+        uri: `evb://document/${encodeURIComponent(tab.tabId)}/${kind}`,
+        description,
+        mimeType: 'application/json',
+    };
+}
+
+function createDocumentResources(tab: IAgentTabSnapshot) {
+    return [
+        createDocumentStatusResource(tab),
+        createDocumentJsonResource(
+            tab,
+            'ocr-status',
+            'OCR status',
+            'OCR/searchable text coverage and recommendations for this open EVB Viewer tab.',
+        ),
+        createDocumentJsonResource(
+            tab,
+            'annotations',
+            'annotations',
+            'Annotation summaries with stable keys, pages, subtype, colors, and note flags.',
+        ),
+        createDocumentJsonResource(
+            tab,
+            'notes',
+            'notes',
+            'Note-bearing annotations and open note-window state for this EVB Viewer tab.',
+        ),
+        createDocumentJsonResource(
+            tab,
+            'toc',
+            'TOC',
+            'Document TOC/bookmarks with titles and one-based page numbers when present.',
+        ),
+    ];
+}
+
 async function listMcpResources(options: IProcessMcpRequestOptions) {
     const snapshot = await options.getWorkspaceSnapshot();
     return {resources: [
         createWorkspaceResource(),
         ...snapshot.tabs
             .filter(tab => tab.kind === 'pdf' && isAgentDocumentTab(tab))
-            .map(createDocumentStatusResource),
+            .flatMap(createDocumentResources),
     ]};
 }
 
@@ -852,9 +2008,10 @@ async function readMcpResource(
     params: unknown,
     options: IProcessMcpRequestOptions,
 ) {
+    const windowId = getOptionalWindowId(params);
     const parsed = parseResourceUri(getParamsObject(params).uri);
     if (parsed.host === 'workspace' && parsed.parts[0] === 'current') {
-        const snapshot = await options.getWorkspaceSnapshot();
+        const snapshot = await options.getWorkspaceSnapshot(windowId);
         return {contents: [createTextResourceContent(
             parsed.uri,
             JSON.stringify(snapshot, null, 2),
@@ -875,14 +2032,14 @@ async function readMcpResource(
         throw new Error(`Invalid EVB document resource URI: ${parsed.uri}`);
     }
 
-    const snapshot = await options.getWorkspaceSnapshot();
+    const snapshot = await options.getWorkspaceSnapshot(windowId);
     const tab = getTargetTab(snapshot, tabId);
-    if (resourceKind === 'text-status') {
+    if (resourceKind === 'text-status' || resourceKind === 'ocr-status') {
         const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, 'resources/read text-status');
         const result = await inspectDocumentText({
             tab,
             options: {},
-        });
+        }, windowId);
         return {contents: [createTextResourceContent(
             parsed.uri,
             JSON.stringify(result, null, 2),
@@ -899,7 +2056,7 @@ async function readMcpResource(
         const result = await readDocumentPages({
             tab,
             options: {pages: [page]},
-        });
+        }, windowId);
         const pageResult = Array.isArray(result.pages)
             ? result.pages.find(candidate => isRecord(candidate) && candidate.page === page)
             : null;
@@ -907,6 +2064,26 @@ async function readMcpResource(
             ? pageResult.text
             : '';
         return {contents: [createTextResourceContent(parsed.uri, text, 'text/plain')]};
+    }
+
+    if (
+        resourceKind === 'annotations'
+        || resourceKind === 'notes'
+        || resourceKind === 'toc'
+        || resourceKind === 'bookmarks'
+    ) {
+        const result = await options.runCommand({
+            name: 'read_resource',
+            arguments: {
+                tabId: tab.tabId,
+                uri: parsed.uri,
+            },
+        }, windowId);
+        return {contents: [createTextResourceContent(
+            parsed.uri,
+            JSON.stringify(result, null, 2),
+            'application/json',
+        )]};
     }
 
     throw new Error(`Unknown EVB document resource kind: ${resourceKind}`);

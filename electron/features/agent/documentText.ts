@@ -168,7 +168,7 @@ function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus
             reason: textStatus.status === 'none'
                 ? 'No searchable page text was found, so document search and page reading will be unreliable until OCR is run.'
                 : 'Some pages lack searchable text; OCRing all pages gives agents consistent page text.',
-            toolName: 'evb.ocr_all_pages',
+            toolName: 'ocr.start',
         }];
     }
 
@@ -176,7 +176,7 @@ function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus
         id: 'ocr_all_pages',
         title: 'OCR all pages',
         reason: 'If important pages have no searchable text, OCR all pages before deeper agent analysis.',
-        toolName: 'evb.ocr_all_pages',
+        toolName: 'ocr.start',
     }];
 }
 

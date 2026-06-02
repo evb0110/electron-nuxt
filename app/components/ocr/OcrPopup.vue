@@ -288,10 +288,17 @@ import type { TTranslationKey } from '@i18n-app';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/platformSettings';
+import type { TOcrPageRange } from '@app/utils/ocr/languages';
 
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
+type TAgentOcrRunOptions = {
+    pageRange?: TOcrPageRange;
+    customRange?: string;
+    languages?: string[];
+    open?: boolean;
+};
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -402,6 +409,55 @@ function translateLanguageName(code: string) {
     return t(getLanguageNameKey(code), undefined);
 }
 
+function isOcrPageRange(value: unknown): value is TOcrPageRange {
+    return value === 'all' || value === 'current' || value === 'custom';
+}
+
+function normalizeAgentLanguages(value: unknown) {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const languages = value
+        .filter((language): language is string => typeof language === 'string')
+        .map(language => language.trim())
+        .filter(Boolean);
+    return languages.length > 0 ? Array.from(new Set(languages)) : null;
+}
+
+function applyAgentOcrOptions(options: TAgentOcrRunOptions) {
+    const nextSettings = {...settings.value};
+    if (isOcrPageRange(options.pageRange)) {
+        nextSettings.pageRange = options.pageRange;
+    }
+    if (typeof options.customRange === 'string') {
+        nextSettings.customRange = options.customRange;
+    }
+    const languages = normalizeAgentLanguages(options.languages);
+    if (languages) {
+        nextSettings.selectedLanguages = languages;
+    }
+    settings.value = nextSettings;
+}
+
+function createAgentOcrSnapshot() {
+    return {
+        isOpen: isOpen.value,
+        isRunning: progress.value.isRunning,
+        phase: progress.value.phase,
+        currentPage,
+        totalPages,
+        processedCount: progress.value.processedCount,
+        progressCurrentPage: progress.value.currentPage,
+        progressTotalPages: progress.value.totalPages,
+        selectedLanguages: [...settings.value.selectedLanguages],
+        pageRange: settings.value.pageRange,
+        customRange: settings.value.customRange,
+        hasWorkingCopy: Boolean(workingCopyPath),
+        error: effectiveError.value,
+        hasResults: hasResults.value,
+    };
+}
+
 watch(isOpen, (value) => {
     if (value) {
         void loadLanguages();
@@ -477,9 +533,41 @@ function handleRunOcr() {
     void runOcr(currentPage, totalPages, workingCopyPath);
 }
 
+async function runOcrForAgent(options: TAgentOcrRunOptions = {}) {
+    applyAgentOcrOptions(options);
+    if (options.open !== false) {
+        isOpen.value = true;
+    }
+    await loadLanguages();
+
+    if (!pdfDocument || !workingCopyPath) {
+        return {
+            ok: false,
+            error: 'No OCR-ready PDF document is available.',
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
+    activeOcrSourcePath.value = workingCopyPath;
+    void runOcr(currentPage, totalPages, workingCopyPath);
+    await nextTick();
+    return {
+        ok: effectiveError.value === null,
+        ocr: createAgentOcrSnapshot(),
+    };
+}
+
 function handleCancel() {
     activeOcrSourcePath.value = null;
     cancelOcr();
+}
+
+function cancelOcrForAgent() {
+    handleCancel();
+    return {
+        ok: true,
+        ocr: createAgentOcrSnapshot(),
+    };
 }
 
 function handleExportDocx() {
@@ -501,6 +589,12 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
         activeOcrSourcePath.value = null;
         clearResults();
     }
+});
+
+defineExpose({
+    runOcrForAgent,
+    cancelOcrForAgent,
+    getAgentOcrSnapshot: createAgentOcrSnapshot,
 });
 </script>
 
