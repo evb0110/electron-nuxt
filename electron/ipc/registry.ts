@@ -66,6 +66,7 @@ import {
     resetAgentAssistantChat,
     sendAgentAssistantMessage,
     startAgentAssistantLogin,
+    shutdownAgentAssistant,
 } from '@electron/features/agent/codexAssistant';
 import {
     loadSettings,
@@ -358,11 +359,13 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
             throw new Error('Invalid settings payload');
         }
 
+        let shouldShutdownAssistant = false;
         await updateSettings((currentSettings) => {
             const incoming = sanitizeSettings({
                 ...currentSettings,
                 ...settingsPayload,
             });
+            shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
             return {
                 ...incoming,
                 // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
@@ -371,6 +374,9 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
                 agentMcpEnabled: currentSettings.agentMcpEnabled,
             };
         });
+        if (shouldShutdownAssistant) {
+            await shutdownAgentAssistant();
+        }
         updateRecentFilesMenu();
     });
 

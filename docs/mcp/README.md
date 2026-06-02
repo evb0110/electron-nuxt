@@ -8,10 +8,10 @@ EVB Viewer exposes a local, desktop-only MCP server from the Electron main proce
 
 There are two agent-facing entry points:
 
-- **Embedded EVB Assistant**: EVB Viewer owns a sandboxed `codex app-server` child process, an isolated `CODEX_HOME`, and a private random-port MCP server protected by a bearer token. This powers the in-app assistant panel, works with empty workspaces as well as open documents, uses the system browser for ChatGPT sign-in, and does not mutate global Codex configuration.
+- **Embedded EVB Assistant**: When the user enables the assistant setting and opens the assistant panel, EVB Viewer owns a sandboxed `codex app-server` child process, an isolated `CODEX_HOME`, and a private random-port MCP server protected by a bearer token. This powers the in-app assistant panel, works with empty workspaces as well as open documents, uses the system browser for ChatGPT sign-in, and does not mutate global Codex configuration.
 - **External MCP Server**: the advanced Settings switch starts the fixed-port MCP server and registers it in global Codex settings using the Codex CLI. The same HTTP server URL can be configured manually in other MCP clients such as Claude Code or Cursor.
 
-The embedded assistant panel has its own normal app preference, separate from the external MCP switch. Disabling the in-app assistant hides the sidebar and launcher only; it does not start, stop, or register the external MCP server.
+The embedded assistant panel has its own normal app preference, separate from the external MCP switch. The assistant preference defaults off; enabling it makes the sidebar and launcher available, and disabling it hides the UI and shuts down the embedded Codex runtime and private MCP server. It does not start, stop, or register the external MCP server.
 
 When the external switch is enabled, EVB Viewer starts the local MCP server and registers it in global Codex settings using the Codex CLI. When disabled, EVB Viewer removes the Codex MCP entry and shuts the local server down. Other clients use the same local URL while EVB Viewer is running and external MCP is enabled.
 
@@ -107,7 +107,7 @@ The `/health` endpoint returns identity plus available tools, resources, and pro
 
 The persisted settings are:
 
-- `assistantPanelEnabled`, defaulting to `true`. This is a normal renderer-managed app preference. It only controls whether the embedded assistant sidebar and launcher are available.
+- `assistantPanelEnabled`, defaulting to `false`. This is a normal renderer-managed app preference. It controls whether the embedded assistant sidebar and launcher are available; the main process also refuses to start the assistant runtime while it is disabled.
 - `agentMcpEnabled`, defaulting to `false`. This is managed by the Electron Codex MCP flow because toggling it starts/stops the external server and mutates global Codex configuration.
 
 When the user enables MCP:
@@ -155,7 +155,7 @@ claude mcp add --transport http --scope user evb_viewer_dev http://127.0.0.1:386
 }
 ```
 
-Renderer settings saves intentionally preserve `agentMcpEnabled` in `electron/ipc/registry.ts` so stale renderer settings snapshots cannot clobber a value managed by the Codex mutation flow. `assistantPanelEnabled` is allowed through normal settings saves because it has no external side effects.
+Renderer settings saves intentionally preserve `agentMcpEnabled` in `electron/ipc/registry.ts` so stale renderer settings snapshots cannot clobber a value managed by the Codex mutation flow. `assistantPanelEnabled` is allowed through normal settings saves because it does not mutate external Codex configuration; when it is saved as `false`, the main process shuts down the embedded assistant runtime.
 
 ## Startup And Shutdown
 

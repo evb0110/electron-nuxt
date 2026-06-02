@@ -66,8 +66,8 @@ describe('settings-sanitizer', () => {
     });
 
     it('normalizes assistant panel setting', () => {
-        expect(sanitizeSettings({assistantPanelEnabled: false}).assistantPanelEnabled).toBe(false);
-        expect(sanitizeSettings({assistantPanelEnabled: 'no'}).assistantPanelEnabled).toBe(true);
+        expect(sanitizeSettings({assistantPanelEnabled: true}).assistantPanelEnabled).toBe(true);
+        expect(sanitizeSettings({assistantPanelEnabled: 'no'}).assistantPanelEnabled).toBe(false);
     });
 
     it('trims and clamps unbounded string settings', () => {
