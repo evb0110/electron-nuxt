@@ -24,6 +24,12 @@ const fileOperationMocks = vi.hoisted((): {
     handleSave: vi.fn(),
     handleSaveAs: vi.fn(),
 }));
+const platformMocks = vi.hoisted(() => ({
+    replaceWorkingCopyFromPath: vi.fn(),
+    cleanupOcrTemp: vi.fn(),
+    acknowledgeResultFile: vi.fn(),
+    warmIndex: vi.fn(),
+}));
 
 vi.mock('@app/composables/useFileOperations', () => ({useFileOperations: vi.fn((deps: unknown) => {
     fileOperationMocks.capturedDeps = deps;
@@ -32,6 +38,12 @@ vi.mock('@app/composables/useFileOperations', () => ({useFileOperations: vi.fn((
         handleSaveAs: fileOperationMocks.handleSaveAs,
     };
 })}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({
+    replaceWorkingCopyFromPath: platformMocks.replaceWorkingCopyFromPath,
+    cleanupOcrTemp: platformMocks.cleanupOcrTemp,
+})}));
+vi.mock('@app/utils/platformOcr', () => ({getOcrCapability: () => ({acknowledgeResultFile: platformMocks.acknowledgeResultFile})}));
+vi.mock('@app/utils/platformSearch', () => ({getSearchCapability: () => ({warmIndex: platformMocks.warmIndex})}));
 
 vi.mock('@app/composables/pdf/usePdfSerialization', () => ({usePdfSerialization: () => ({
     getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
@@ -48,6 +60,10 @@ describe('usePageSaveOrchestration', () => {
     beforeEach(() => {
         fileOperationMocks.capturedDeps = null;
         vi.clearAllMocks();
+        platformMocks.replaceWorkingCopyFromPath.mockResolvedValue(true);
+        platformMocks.cleanupOcrTemp.mockResolvedValue(undefined);
+        platformMocks.acknowledgeResultFile.mockResolvedValue({ cleaned: true });
+        platformMocks.warmIndex.mockResolvedValue(undefined);
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
         vi.stubGlobal('useToast', () => ({ add: vi.fn() }));
     });
@@ -153,5 +169,98 @@ describe('usePageSaveOrchestration', () => {
             scrollSnapshot,
             pageToRestore: 42,
         });
+    });
+
+    it('applies OCR results by replacing the working copy from the temp PDF path', async () => {
+        const clearOcrCache = vi.fn();
+        const resetSearchCache = vi.fn();
+        const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
+        const waitForPdfReload = vi.fn(async () => {});
+        const orchestration = usePageSaveOrchestration(cast({
+            pdfData: ref(null),
+            pdfDocument: shallowRef({ numPages: 12 } as PDFDocumentProxy),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                saveDocument: vi.fn(async () => new Uint8Array([1])),
+                getMarkupSubtypeOverrides: vi.fn(() => undefined),
+                getAllShapes: vi.fn(() => []),
+                getDeletedEmbeddedShapeAnnotationIds: vi.fn(() => []),
+            }),
+            requestDocxExport: vi.fn(async () => true),
+            openOcrPopup: vi.fn(),
+            isExportingDocx: ref(false),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            annotationComments: ref([]),
+            totalPages: ref(12),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            bookmarksDirty: ref(false),
+            bookmarkItems: ref([]),
+            isSaving: ref(false),
+            isSavingAs: ref(false),
+            annotationDirty: ref(false),
+            annotationNoteWindowsCount: ref(0),
+            hasAnnotationChanges: vi.fn(() => false),
+            markAnnotationSaved: vi.fn(),
+            markPageLabelsSaved: vi.fn(),
+            markBookmarksSaved: vi.fn(),
+            isDirty: ref(false),
+            hasPendingUnsavedChanges: computed(() => false),
+            persistAllAnnotationNotes: vi.fn(async () => true),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
+            loadRecentFiles: vi.fn(),
+            clearOcrCache,
+            reloadWorkingCopyIntoHistory,
+            currentPage: ref(7),
+            waitForPdfReload,
+            resetSearchCache,
+            validatePdfPath: vi.fn(async () => ({
+                isValid: true,
+                tool: 'qpdf',
+                errors: [],
+                warnings: [],
+            })),
+            saveFile: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            })),
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/document-copy.pdf',
+                saveMode: 'save_as_rewrite',
+                didSaveAs: true,
+            })),
+        }));
+
+        await orchestration.handleOcrComplete({
+            requestId: 'ocr-1',
+            pdfPath: '/tmp/ocr-1-merged.pdf',
+            requiresCleanupAck: true,
+            sourceWorkingCopyPath: '/tmp/work.pdf',
+        });
+
+        expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(resetSearchCache).toHaveBeenCalledTimes(1);
+        expect(waitForPdfReload).toHaveBeenCalledWith(7);
+        expect(platformMocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            '/tmp/ocr-1-merged.pdf',
+        );
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
+        expect(platformMocks.acknowledgeResultFile).toHaveBeenCalledWith(
+            'ocr-1',
+            '/tmp/ocr-1-merged.pdf',
+        );
+        expect(platformMocks.cleanupOcrTemp).not.toHaveBeenCalled();
+        expect(platformMocks.warmIndex).toHaveBeenCalledWith('/tmp/work.pdf', { pageCount: 12 });
     });
 });

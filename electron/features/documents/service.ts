@@ -32,6 +32,7 @@ import {
 import {
     handleFileWrite,
     handleFileWriteDocx,
+    handleReplaceWorkingCopyFromPath,
 } from '@electron/features/documents/main/documentFileWriteHandlers';
 import {
     handleAnalyzePdfConformance,
@@ -102,6 +103,8 @@ export function createDocumentsService(): IDocumentsService {
         printPdfData: (event, data, fileName) => handlePrintPdfData(event, data, fileName),
         printPdfPath: (event, filePath, fileName, pageNumbers) => handlePrintPdfPath(event, filePath, fileName, pageNumbers),
         writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
+        replaceWorkingCopyFromPath: (event, workingCopyPath, sourcePath) =>
+            handleReplaceWorkingCopyFromPath(event, workingCopyPath, sourcePath),
         writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
         saveFile: (event, workingPath) => handleFileSave(event, workingPath),
         savePdfData: (event, workingPath, data) => handleSerializedPdfSave(event, workingPath, data),

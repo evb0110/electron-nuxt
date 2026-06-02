@@ -398,6 +398,11 @@ export function createBrowserDocumentsFileCapability(
             clearSearchCaches();
             return browserDocumentStore.write(path, data);
         },
+        async replaceWorkingCopyFromPath(workingCopyPath, sourcePath) {
+            const bytes = await browserDocumentStore.read(sourcePath);
+            clearSearchCaches(workingCopyPath);
+            return browserDocumentStore.write(workingCopyPath, bytes);
+        },
         async savePdfData(path, data) {
             const validation = await validateBrowserPdfData(data);
             if (!validation.isValid) {

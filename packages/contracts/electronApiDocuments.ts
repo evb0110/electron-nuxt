@@ -119,6 +119,7 @@ export interface IDocumentsFileCapability {
         error?: string;
     }>;
     writeFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
+    replaceWorkingCopyFromPath: (workingCopyPath: TDocumentRef, sourcePath: TDocumentRef) => Promise<boolean>;
     writeDocxFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;

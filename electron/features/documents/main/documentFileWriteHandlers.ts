@@ -1,13 +1,31 @@
-import { resolve } from 'path';
+import {
+    basename,
+    extname,
+    resolve,
+} from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
+import {
+    resolveAllowedReadPath,
+    resolveAllowedWritePath,
+} from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import {
+    copyFileAtomic,
     normalizeIpcWritePayload,
     writeFileAtomic,
 } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
+
+function assertOcrPdfResultSourcePath(resolvedPath: string) {
+    const fileName = basename(resolvedPath).toLowerCase();
+    if (extname(fileName) !== '.pdf') {
+        throw new Error('Invalid source path: OCR result must be a PDF');
+    }
+    if (!fileName.startsWith('ocr-') && !fileName.startsWith('searchable-')) {
+        throw new Error('Invalid source path: only OCR result files can replace a working copy');
+    }
+}
 
 export async function handleFileWrite(
     event: Electron.IpcMainInvokeEvent,
@@ -36,6 +54,43 @@ export async function handleFileWrite(
             throw new Error('Invalid file path: writes require a managed working copy');
         }
         await writeFileAtomic(resolvedPath, payload);
+    }
+    return true;
+}
+
+export async function handleReplaceWorkingCopyFromPath(
+    event: Electron.IpcMainInvokeEvent,
+    workingCopyPath: unknown,
+    sourcePath: unknown,
+): Promise<boolean> {
+    const normalizedWorkingCopyPath = normalizeNonEmptyPath(workingCopyPath);
+    const normalizedSourcePath = normalizeNonEmptyPath(sourcePath);
+
+    const resolvedWorkingCopyPath = await resolveAllowedWritePath(normalizedWorkingCopyPath);
+    if (!resolvedWorkingCopyPath) {
+        throw new Error('Invalid file path: writes only allowed within temp directory');
+    }
+    if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, event.sender?.id)) {
+        throw new Error('Invalid file path: writes require a managed working copy');
+    }
+
+    const resolvedSourcePath = await resolveAllowedReadPath(normalizedSourcePath);
+    if (!resolvedSourcePath) {
+        throw new Error('Invalid source path: OCR result must be within temp directory');
+    }
+    assertOcrPdfResultSourcePath(resolvedSourcePath);
+
+    try {
+        await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+    } catch (error) {
+        const code = isErrnoException(error) ? error.code : undefined;
+        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+            throw error;
+        }
+        if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, event.sender?.id)) {
+            throw new Error('Invalid file path: writes require a managed working copy');
+        }
+        await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
     }
     return true;
 }

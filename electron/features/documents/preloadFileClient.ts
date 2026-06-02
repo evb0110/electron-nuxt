@@ -324,6 +324,12 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'writeFile.path'),
                 assertWriteData(data, 'writeFile.data'),
             ),
+        replaceWorkingCopyFromPath: (workingCopyPath: string, sourcePath: string) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath,
+                assertAbsolutePath(workingCopyPath, 'replaceWorkingCopyFromPath.workingCopyPath'),
+                assertAbsolutePath(sourcePath, 'replaceWorkingCopyFromPath.sourcePath'),
+            ),
         writeDocxFile: (path: string, data: Uint8Array) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileWriteDocx,

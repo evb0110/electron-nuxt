@@ -394,7 +394,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             void loadRecentFiles();
         },
         clearOcrCache: (path: string) => clearOcrCache(path),
-        loadPdfFromData,
+        reloadWorkingCopyIntoHistory,
         currentPage,
         waitForPdfReload: (page: number) => waitForPdfReload(page),
         resetSearchCache,

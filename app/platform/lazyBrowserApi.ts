@@ -222,6 +222,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'writeFile',
     ]),
+    replaceWorkingCopyFromPath: lazyAsync<IDocumentsCapability['replaceWorkingCopyFromPath']>([
+        'documents',
+        'replaceWorkingCopyFromPath',
+    ]),
     writeDocxFile: lazyAsync<IDocumentsCapability['writeDocxFile']>([
         'documents',
         'writeDocxFile',

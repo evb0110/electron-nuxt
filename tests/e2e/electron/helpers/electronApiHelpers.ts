@@ -184,27 +184,40 @@ export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPat
 
 export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: string) {
     return evaluateInPage(page, async (path: string) => {
-        const api = (window as Window & {electronAPI?: {documents?: {readFile?: (filePath: string) => Promise<ArrayBuffer | Uint8Array>;};};}).electronAPI;
-
-        const readFile = api?.documents?.readFile;
-        if (typeof readFile !== 'function') {
-            throw new Error('electronAPI.documents.readFile is unavailable');
-        }
-
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!host) {
             throw new Error('Active workspace host not found');
         }
 
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: { handleOcrComplete?: (pdfData: Uint8Array) => Promise<void>; }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-        const handleOcrComplete = workspaceInstance?.$?.setupState?.handleOcrComplete;
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: {
+            handleOcrComplete?: (payload: {
+                requestId: string;
+                pdfPath: string;
+                requiresCleanupAck: boolean;
+                sourceWorkingCopyPath: string;
+            }) => Promise<void>;
+            workingCopyPath?: string | { value?: string | null } | null;
+        }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+        const setupState = workspaceInstance?.$?.setupState;
+        const handleOcrComplete = setupState?.handleOcrComplete;
         if (typeof handleOcrComplete !== 'function') {
             throw new Error('handleOcrComplete is unavailable on the active workspace');
         }
+        const rawWorkingCopyPath = setupState?.workingCopyPath;
+        const workingCopyPath = typeof rawWorkingCopyPath === 'string'
+            ? rawWorkingCopyPath
+            : rawWorkingCopyPath?.value;
+        if (!workingCopyPath) {
+            throw new Error('workingCopyPath is unavailable on the active workspace');
+        }
 
-        const bytes = new Uint8Array(await readFile(path));
-        await handleOcrComplete(bytes);
+        await handleOcrComplete({
+            requestId: `e2e-ocr-${Date.now()}`,
+            pdfPath: path,
+            requiresCleanupAck: false,
+            sourceWorkingCopyPath: workingCopyPath,
+        });
         return true;
     }, pdfPath);
 }
@@ -214,49 +227,43 @@ export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId:
         id,
         path,
     }) => {
-        const api = (window as Window & {electronAPI?: {
-            documents?: {readFile?: (filePath: string) => Promise<ArrayBuffer | Uint8Array>;};
-            ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
-                cleaned: boolean;
-                error?: string;
-            }>;};
-        };}).electronAPI;
-
-        const readFile = api?.documents?.readFile;
-        if (typeof readFile !== 'function') {
-            throw new Error('electronAPI.documents.readFile is unavailable');
-        }
-
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? document.querySelector<HTMLElement>('.workspace-host');
         if (!host) {
             throw new Error('Active workspace host not found');
         }
 
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: { handleOcrComplete?: (pdfData: Uint8Array) => Promise<void>; }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-        const handleOcrComplete = workspaceInstance?.$?.setupState?.handleOcrComplete;
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: {
+            handleOcrComplete?: (payload: {
+                requestId: string;
+                pdfPath: string;
+                requiresCleanupAck: boolean;
+                sourceWorkingCopyPath: string;
+            }) => Promise<void>;
+            workingCopyPath?: string | { value?: string | null } | null;
+        }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+        const setupState = workspaceInstance?.$?.setupState;
+        const handleOcrComplete = setupState?.handleOcrComplete;
         if (typeof handleOcrComplete !== 'function') {
             throw new Error('handleOcrComplete is unavailable on the active workspace');
         }
-
-        const bytes = new Uint8Array(await readFile(path));
-        const acknowledgeResultFile = api?.ocr?.acknowledgeResultFile;
-        let cleanupResult: {
-            cleaned: boolean;
-            error?: string;
-        } | null = null;
-
-        if (typeof acknowledgeResultFile === 'function') {
-            cleanupResult = await acknowledgeResultFile(id, path);
-            if (!cleanupResult.cleaned && cleanupResult.error) {
-                throw new Error(cleanupResult.error);
-            }
+        const rawWorkingCopyPath = setupState?.workingCopyPath;
+        const workingCopyPath = typeof rawWorkingCopyPath === 'string'
+            ? rawWorkingCopyPath
+            : rawWorkingCopyPath?.value;
+        if (!workingCopyPath) {
+            throw new Error('workingCopyPath is unavailable on the active workspace');
         }
 
-        await handleOcrComplete(bytes);
+        await handleOcrComplete({
+            requestId: id,
+            pdfPath: path,
+            requiresCleanupAck: true,
+            sourceWorkingCopyPath: workingCopyPath,
+        });
         return {
             applied: true,
-            cleaned: cleanupResult?.cleaned ?? false,
+            cleaned: true,
         };
     }, {
         id: requestId,

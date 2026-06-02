@@ -377,6 +377,7 @@ export function installHostEnvironmentDisplayWatcher() {
 }
 
 export function attachHostEnvironmentToWindow(window: BrowserWindow) {
+    const webContents = window.webContents;
     const handleMove = () => {
         broadcastHostEnvironmentForWindow(window);
     };
@@ -407,13 +408,15 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     window.on('moved', handleMove);
     window.on('enter-full-screen', handleZenModeChange);
     window.on('leave-full-screen', handleZenModeChange);
-    window.webContents.on('before-input-event', handleBeforeInputEvent);
+    webContents.on('before-input-event', handleBeforeInputEvent);
     window.once('closed', () => {
         window.removeListener('move', handleMove);
         window.removeListener('moved', handleMove);
         window.removeListener('enter-full-screen', handleZenModeChange);
         window.removeListener('leave-full-screen', handleZenModeChange);
-        window.webContents.removeListener('before-input-event', handleBeforeInputEvent);
+        if (!webContents.isDestroyed()) {
+            webContents.removeListener('before-input-event', handleBeforeInputEvent);
+        }
         zenWindowPlacementByWindow.delete(window);
         zenExitInProgressByWindow.delete(window);
         unregisterZenEscapeShortcut(window);
