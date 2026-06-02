@@ -133,7 +133,7 @@ function buildDocumentReadiness(
                 reason: kind === 'djvu'
                     ? 'DjVu documents should be converted to PDF before deeper agent analysis.'
                     : 'Image documents should be converted to PDF before deeper agent analysis.',
-                toolName: 'evb.convert_to_pdf',
+                toolName: 'page_ops.convert_to_pdf',
             }],
         };
     }
@@ -151,7 +151,7 @@ function buildDocumentReadiness(
                 id: 'ocr_all_pages',
                 title: 'OCR all pages',
                 reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
-                toolName: 'evb.ocr_all_pages',
+                toolName: 'ocr.start',
             }],
         };
     }
@@ -325,6 +325,53 @@ export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOpt
             return {
                 activePaneId: paneId,
                 activeTabId: request.command.arguments.tabId,
+            };
+        }
+
+        if (request.command.name === 'read_resource') {
+            const tabId = request.command.arguments.tabId ?? options.activeTabId.value;
+            if (!tabId) {
+                throw new Error('No active tab is available for resource reads.');
+            }
+
+            const workspace = await options.waitForWorkspace(tabId);
+            if (!workspace) {
+                throw new Error(`Workspace for tab ${tabId} is not available.`);
+            }
+
+            const result = await workspace.readAgentResource(request.command.arguments.uri);
+            return {
+                activePaneId: options.activePaneId.value,
+                activeTabId: options.activeTabId.value,
+                targetTabId: tabId,
+                ...result,
+            };
+        }
+
+        if (request.command.name === 'run_action') {
+            const tabId = request.command.arguments.tabId ?? options.activeTabId.value;
+            if (!tabId) {
+                throw new Error('No active tab is available for agent actions.');
+            }
+
+            const paneId = await activateTabForAgent(tabId);
+            const workspace = await options.waitForWorkspace(tabId);
+            if (!workspace) {
+                throw new Error(`Workspace for tab ${tabId} is not available.`);
+            }
+
+            const result = await workspace.runAgentAction(
+                request.command.arguments.id,
+                request.command.arguments.input,
+                request.command.arguments.dryRun === undefined
+                    ? {}
+                    : {dryRun: request.command.arguments.dryRun},
+            );
+            await nextTick();
+            return {
+                activePaneId: paneId,
+                activeTabId: tabId,
+                ...result,
             };
         }
 

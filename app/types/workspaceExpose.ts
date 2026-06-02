@@ -140,6 +140,15 @@ export interface IWorkspaceUiPort {
     waitForDocumentOpenSettled: () => Promise<void>;
 }
 
+export interface IWorkspaceAgentPort {
+    runAgentAction: (
+        actionId: string,
+        input?: Record<string, unknown>,
+        options?: {dryRun?: boolean},
+    ) => Promise<Record<string, unknown>>;
+    readAgentResource: (uri: string) => Promise<Record<string, unknown>>;
+}
+
 interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 
 export interface IWorkspaceExpose extends
@@ -149,4 +158,5 @@ export interface IWorkspaceExpose extends
     IWorkspacePageOpsPort,
     IWorkspaceSplitTransferPort,
     IWorkspaceUiPort,
+    IWorkspaceAgentPort,
     IWorkspaceStatePort {}

@@ -91,6 +91,7 @@
                 </template>
                 <template v-if="canUseOcr" #ocr="{ isCollapsed }">
                     <OcrPopup
+                        ref="ocrPopupRef"
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
                         :total-pages="totalPages"
@@ -547,7 +548,10 @@ import type {
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startPage';
 import type { IPdfPageMatches } from '@app/types/pdf';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    TAnnotationTool,
+} from '@app/types/annotations';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
@@ -560,6 +564,22 @@ const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
 const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));
+
+type TAgentOcrPageRange = 'all' | 'current' | 'custom';
+
+interface IAgentOcrRunOptions {
+    pageRange?: TAgentOcrPageRange;
+    customRange?: string;
+    languages?: string[];
+    open?: boolean;
+}
+
+interface IOcrPopupAgentExpose {
+    runOcrForAgent: (options?: IAgentOcrRunOptions) => Promise<Record<string, unknown>>;
+    cancelOcrForAgent: () => Record<string, unknown>;
+    getAgentOcrSnapshot: () => Record<string, unknown>;
+}
+
 const {
     fullscreenSupported,
     isActive,
@@ -610,6 +630,7 @@ const canUseOcr = hasDesktopRuntime;
 const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
+const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
@@ -718,6 +739,8 @@ const {
     pageLabelsResolved,
     handlePageLabelRangesUpdate,
     bookmarkEditMode,
+    bookmarkItems,
+    bookmarksDirty,
     handleBookmarksChange,
     annotationContextMenu,
     annotationContextMenuStyle,
@@ -882,6 +905,8 @@ const {
     handleOpenFileDirectBatchWithPersist,
     handleOpenFileWithResult,
     handleCloseFileFromUi,
+    handleZoomIn,
+    handleZoomOut,
     handleActualSize,
     openRecentFile,
     captureSplitPayload,
@@ -1326,6 +1351,424 @@ watch([
     resolveDocumentOpenVisualSettleIfReady();
 });
 
+const AGENT_ANNOTATION_TOOLS = [
+    'none',
+    'select',
+    'highlight',
+    'underline',
+    'strikethrough',
+    'squiggly',
+    'text',
+    'draw',
+    'rectangle',
+    'circle',
+    'line',
+    'arrow',
+    'stamp',
+] as const satisfies readonly TAnnotationTool[];
+const AGENT_SIDEBAR_TABS = [
+    'annotations',
+    'bookmarks',
+    'thumbnails',
+    'search',
+] as const;
+
+function isAgentRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getAgentStringInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    return typeof value === 'string' && value.trim().length > 0
+        ? value.trim()
+        : null;
+}
+
+function getAgentNumberInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : null;
+}
+
+function getAgentStringArrayInput(input: Record<string, unknown> | undefined, key: string) {
+    const value = input?.[key];
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const strings = value
+        .filter((item): item is string => typeof item === 'string')
+        .map(item => item.trim())
+        .filter(Boolean);
+    return strings.length > 0 ? Array.from(new Set(strings)) : undefined;
+}
+
+function isAgentAnnotationTool(value: unknown): value is TAnnotationTool {
+    return typeof value === 'string' && AGENT_ANNOTATION_TOOLS.includes(value as TAnnotationTool);
+}
+
+function isAgentSidebarTab(value: unknown): value is typeof AGENT_SIDEBAR_TABS[number] {
+    return typeof value === 'string' && AGENT_SIDEBAR_TABS.includes(value as typeof AGENT_SIDEBAR_TABS[number]);
+}
+
+function isAgentOcrPageRange(value: unknown): value is TAgentOcrPageRange {
+    return value === 'all' || value === 'current' || value === 'custom';
+}
+
+function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOptions {
+    const pageRange = getAgentStringInput(input, 'pageRange');
+    const customRange = getAgentStringInput(input, 'customRange');
+    const languages = getAgentStringArrayInput(input, 'languages')
+        ?? getAgentStringArrayInput(input, 'selectedLanguages');
+    return {
+        ...(isAgentOcrPageRange(pageRange) ? {pageRange} : {}),
+        ...(customRange === null ? {} : {customRange}),
+        ...(languages === undefined ? {} : {languages}),
+        open: true,
+    };
+}
+
+function normalizeAgentAnnotationComment(comment: IAnnotationCommentSummary) {
+    return {
+        id: comment.id,
+        stableKey: comment.stableKey,
+        pageIndex: comment.pageIndex,
+        pageNumber: comment.pageNumber,
+        text: comment.text,
+        displayText: comment.displayText ?? null,
+        previewText: comment.previewText ?? null,
+        kindLabel: comment.kindLabel ?? null,
+        subtype: comment.subtype ?? null,
+        author: comment.author,
+        createdAt: comment.createdAt ?? null,
+        modifiedAt: comment.modifiedAt,
+        color: comment.color,
+        fillColor: comment.fillColor ?? null,
+        opacity: comment.opacity ?? null,
+        strokeWidth: comment.strokeWidth ?? null,
+        uid: comment.uid,
+        annotationId: comment.annotationId,
+        source: comment.source,
+        hasNote: comment.hasNote === true,
+        markerRect: comment.markerRect ?? null,
+    };
+}
+
+function normalizeAgentBookmark(
+    bookmark: typeof bookmarkItems.value[number],
+): Record<string, unknown> {
+    return {
+        title: bookmark.title,
+        pageIndex: bookmark.pageIndex,
+        pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
+        namedDest: bookmark.namedDest,
+        bold: bookmark.bold,
+        italic: bookmark.italic,
+        color: bookmark.color,
+        items: bookmark.items.map(normalizeAgentBookmark),
+    };
+}
+
+function findAgentAnnotationComment(input: Record<string, unknown> | undefined) {
+    const stableKey = getAgentStringInput(input, 'stableKey');
+    const annotationId = getAgentStringInput(input, 'annotationId');
+    const id = getAgentStringInput(input, 'id');
+    const comment = annotationComments.value.find(candidate => (
+        (stableKey !== null && candidate.stableKey === stableKey)
+        || (annotationId !== null && candidate.annotationId === annotationId)
+        || (id !== null && candidate.id === id)
+    ));
+    if (!comment) {
+        throw new Error('Annotation comment was not found. Use evb://document/{tabId}/annotations to get stable keys.');
+    }
+    return comment;
+}
+
+function parseAgentResourceUri(uri: string) {
+    let parsed: URL;
+    try {
+        parsed = new URL(uri);
+    } catch {
+        throw new Error(`Invalid EVB resource URI: ${uri}`);
+    }
+    if (parsed.protocol !== 'evb:') {
+        throw new Error(`Unsupported EVB resource URI protocol: ${parsed.protocol}`);
+    }
+    const parts = parsed.pathname
+        .split('/')
+        .filter(Boolean)
+        .map(part => decodeURIComponent(part));
+    return {
+        host: parsed.hostname,
+        parts,
+    };
+}
+
+function createAgentResource(uri: string): Record<string, unknown> {
+    const parsed = parseAgentResourceUri(uri);
+    if (parsed.host !== 'document') {
+        throw new Error(`Unsupported workspace resource host: ${parsed.host}`);
+    }
+    const [
+        resourceTabId,
+        resourceKind,
+    ] = parsed.parts;
+    if (resourceTabId && resourceTabId !== tabId) {
+        throw new Error(`Resource tab ${resourceTabId} does not match workspace tab ${tabId}.`);
+    }
+
+    if (resourceKind === 'annotations') {
+        return {
+            uri,
+            tabId,
+            status: annotationCommentsStatus.value,
+            count: annotationComments.value.length,
+            annotations: annotationComments.value.map(normalizeAgentAnnotationComment),
+        };
+    }
+
+    if (resourceKind === 'notes') {
+        const openNoteByStableKey = new Map(
+            sortedAnnotationNoteWindows.value.map(note => [
+                note.comment.stableKey,
+                note,
+            ] as const),
+        );
+        const notes = annotationComments.value
+            .filter(comment => (
+                comment.hasNote === true
+                || comment.text.trim().length > 0
+                || openNoteByStableKey.has(comment.stableKey)
+            ))
+            .map((comment) => {
+                const openNote = openNoteByStableKey.get(comment.stableKey) ?? null;
+                return {
+                    ...normalizeAgentAnnotationComment(comment),
+                    text: openNote?.text ?? comment.text,
+                    isOpen: openNote !== null,
+                    isMinimized: openNote?.isMinimized ?? false,
+                    saving: openNote?.saving ?? false,
+                    error: openNote?.error ?? null,
+                    saveMode: openNote?.saveMode ?? null,
+                };
+            });
+        return {
+            uri,
+            tabId,
+            status: annotationCommentsStatus.value,
+            count: notes.length,
+            notes,
+        };
+    }
+
+    if (resourceKind === 'toc' || resourceKind === 'bookmarks') {
+        return {
+            uri,
+            tabId,
+            status: 'ready',
+            count: bookmarkItems.value.length,
+            dirty: bookmarksDirty.value,
+            toc: bookmarkItems.value.map(normalizeAgentBookmark),
+        };
+    }
+
+    throw new Error(`Unsupported workspace document resource: ${resourceKind}`);
+}
+
+function readAgentResource(uri: string): Promise<Record<string, unknown>> {
+    return Promise.resolve(createAgentResource(uri));
+}
+
+function createAgentActionResult(
+    actionId: string,
+    extra: Record<string, unknown> = {},
+) {
+    return {
+        ok: true,
+        actionId,
+        tabId,
+        currentPage: currentPage.value,
+        totalPages: totalPages.value,
+        ...extra,
+    };
+}
+
+async function runAgentAction(
+    actionId: string,
+    input: Record<string, unknown> | undefined = {},
+    options: {dryRun?: boolean} = {},
+): Promise<Record<string, unknown>> {
+    if (!isAgentRecord(input)) {
+        throw new Error('Agent action input must be an object.');
+    }
+    if (options.dryRun) {
+        return createAgentActionResult(actionId, {
+            dryRun: true,
+            wouldRun: true,
+        });
+    }
+
+    switch (actionId) {
+        case 'ui.open_sidebar_tab': {
+            const nextTab = getAgentStringInput(input, 'tab') ?? getAgentStringInput(input, 'sidebarTab');
+            if (!isAgentSidebarTab(nextTab)) {
+                throw new Error('ui.open_sidebar_tab requires input.tab: annotations, bookmarks, thumbnails, or search.');
+            }
+            showSidebar.value = true;
+            sidebarTab.value = nextTab;
+            await nextTick();
+            return createAgentActionResult(actionId, {
+                showSidebar: showSidebar.value,
+                sidebarTab: sidebarTab.value,
+            });
+        }
+        case 'ui.toggle_sidebar':
+            showSidebar.value = !showSidebar.value;
+            await nextTick();
+            return createAgentActionResult(actionId, {showSidebar: showSidebar.value});
+        case 'ui.close_popups':
+            closeAllDropdowns();
+            closeShapeProperties();
+            closeTextMarkupProperties();
+            await nextTick();
+            return createAgentActionResult(actionId);
+        case 'ocr.open_popup':
+            handleDropdownOpen('ocr', true);
+            await nextTick();
+            return createAgentActionResult(actionId, {ocrPopupOpen: ocrPopupOpen.value});
+        case 'ocr.status':
+            return createAgentActionResult(actionId, {
+                ocrPopupOpen: ocrPopupOpen.value,
+                ocr: ocrPopupRef.value?.getAgentOcrSnapshot() ?? null,
+            });
+        case 'ocr.start': {
+            handleDropdownOpen('ocr', true);
+            await nextTick();
+            const result = await ocrPopupRef.value?.runOcrForAgent(getAgentOcrRunOptions(input));
+            if (!result) {
+                return createAgentActionResult(actionId, {
+                    ok: false,
+                    error: 'OCR popup is not mounted.',
+                });
+            }
+            return createAgentActionResult(actionId, result);
+        }
+        case 'ocr.cancel':
+            return createAgentActionResult(actionId, ocrPopupRef.value?.cancelOcrForAgent() ?? {
+                ok: false,
+                error: 'OCR popup is not mounted.',
+            });
+        case 'annotation.open_note': {
+            const comment = findAgentAnnotationComment(input);
+            handleOpenAnnotationNote(comment);
+            await nextTick();
+            return createAgentActionResult(actionId, {comment: normalizeAgentAnnotationComment(comment)});
+        }
+        case 'annotation.focus': {
+            const comment = findAgentAnnotationComment(input);
+            await handleAnnotationFocusComment(comment);
+            return createAgentActionResult(actionId, {comment: normalizeAgentAnnotationComment(comment)});
+        }
+        case 'annotation.delete': {
+            const comment = findAgentAnnotationComment(input);
+            await handleDeleteAnnotationComment(comment);
+            return createAgentActionResult(actionId, {deletedStableKey: comment.stableKey});
+        }
+        case 'annotation.create_note':
+        case 'annotation.start_note_placement':
+            await handleQuickNoteAction();
+            await nextTick();
+            return createAgentActionResult(actionId, {isPlacingPageNote: annotationPlacingPageNote.value});
+        case 'annotation.select_tool':
+        case 'annotation.set_tool': {
+            const tool = input.tool;
+            if (!isAgentAnnotationTool(tool)) {
+                throw new Error('annotation.select_tool requires input.tool to be a supported annotation tool.');
+            }
+            handleAnnotationToolChange(tool);
+            await nextTick();
+            return createAgentActionResult(actionId, {annotationTool: annotationTool.value});
+        }
+        case 'file.save':
+            await handleSave();
+            return createAgentActionResult(actionId, {canSave: canSave.value});
+        case 'file.save_as':
+            await handleSaveAs();
+            return createAgentActionResult(actionId);
+        case 'file.print':
+            handlePrint();
+            return createAgentActionResult(actionId);
+        case 'file.print_current_page':
+            await handlePrintCurrentPage();
+            return createAgentActionResult(actionId);
+        case 'export.docx':
+            await handleExportDocx();
+            return createAgentActionResult(actionId);
+        case 'export.images':
+            await handleExportImages();
+            return createAgentActionResult(actionId);
+        case 'export.multi_page_tiff':
+            await handleExportMultiPageTiff();
+            return createAgentActionResult(actionId);
+        case 'view.zoom_in':
+            handleZoomIn();
+            return createAgentActionResult(actionId, {zoom: zoom.value});
+        case 'view.zoom_out':
+            handleZoomOut();
+            return createAgentActionResult(actionId, {zoom: zoom.value});
+        case 'view.fit_width':
+            handleFitMode('width');
+            return createAgentActionResult(actionId, {fitMode: fitMode.value});
+        case 'view.fit_height':
+            handleFitMode('height');
+            return createAgentActionResult(actionId, {fitMode: fitMode.value});
+        case 'view.actual_size':
+            handleActualSize();
+            return createAgentActionResult(actionId, {zoom: zoom.value});
+        case 'view.toggle_continuous_scroll':
+            continuousScroll.value = !continuousScroll.value;
+            return createAgentActionResult(actionId, {continuousScroll: continuousScroll.value});
+        case 'view.enable_drag_mode':
+            enableDragMode();
+            return createAgentActionResult(actionId, {dragMode: dragMode.value});
+        case 'view.disable_drag_mode':
+            handleAnnotationToolChange('none');
+            return createAgentActionResult(actionId, {dragMode: dragMode.value});
+        case 'view.set_mode': {
+            const mode = getAgentStringInput(input, 'mode');
+            if (mode !== 'single' && mode !== 'facing' && mode !== 'facing-first-single') {
+                throw new Error('view.set_mode requires input.mode: single, facing, or facing-first-single.');
+            }
+            viewMode.value = mode;
+            return createAgentActionResult(actionId, {viewMode: viewMode.value});
+        }
+        case 'page_ops.delete_selected':
+            await pageOpsDelete(selectedThumbnailPages.value, totalPages.value);
+            return createAgentActionResult(actionId, {selectedPages: selectedThumbnailPages.value});
+        case 'page_ops.extract_selected':
+            await pageOpsExtract(selectedThumbnailPages.value);
+            return createAgentActionResult(actionId, {selectedPages: selectedThumbnailPages.value});
+        case 'page_ops.rotate_cw_selected':
+            await handlePageRotate(selectedThumbnailPages.value, 90);
+            return createAgentActionResult(actionId, {selectedPages: selectedThumbnailPages.value});
+        case 'page_ops.rotate_ccw_selected':
+            await handlePageRotate(selectedThumbnailPages.value, 270);
+            return createAgentActionResult(actionId, {selectedPages: selectedThumbnailPages.value});
+        case 'page_ops.insert_pages':
+            await pageOpsInsert(totalPages.value, getAgentNumberInput(input, 'afterPage') ?? totalPages.value);
+            return createAgentActionResult(actionId);
+        case 'page_ops.convert_to_pdf':
+            if (isDjvuMode.value) {
+                openConvertDialog();
+            } else {
+                await handleOpenFileFromUi();
+            }
+            return createAgentActionResult(actionId, {showConvertDialog: showConvertDialog.value});
+        default:
+            throw new Error(`Unsupported EVB agent action: ${actionId}`);
+    }
+}
+
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleSaveAs,
@@ -1416,6 +1859,8 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     captureSplitPayload,
     restoreSplitPayload,
     waitForDocumentOpenSettled,
+    runAgentAction,
+    readAgentResource,
 });
 
 defineExpose(workspaceExpose);

@@ -2,6 +2,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceExportPort,
     IWorkspaceFilePort,
+    IWorkspaceAgentPort,
     IWorkspacePageOpsPort,
     IWorkspaceSplitTransferPort,
     IWorkspaceUiPort,
@@ -68,6 +69,11 @@ const UI_METHODS = [
     'waitForDocumentOpenSettled',
 ] as const satisfies ReadonlyArray<keyof IWorkspaceUiPort>;
 
+const AGENT_METHODS = [
+    'runAgentAction',
+    'readAgentResource',
+] as const satisfies ReadonlyArray<keyof IWorkspaceAgentPort>;
+
 type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;
 
 export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
@@ -77,6 +83,7 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
     ...PAGE_OPS_METHODS,
     ...SPLIT_TRANSFER_METHODS,
     ...UI_METHODS,
+    ...AGENT_METHODS,
 ] as const satisfies readonly TWorkspaceExposeMethod[];
 
 function isHasPdfField(value: unknown): value is IWorkspaceExpose['hasPdf'] {

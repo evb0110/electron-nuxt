@@ -10,13 +10,15 @@ import type {
     IWorkspaceExportPort,
     IWorkspaceExpose,
     IWorkspaceFilePort,
+    IWorkspaceAgentPort,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
-    IWorkspaceExportPort {
+    IWorkspaceExportPort,
+    IWorkspaceAgentPort {
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
     hasOpenError: Ref<boolean>;
@@ -274,6 +276,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         captureSplitPayload: deps.captureSplitPayload,
         restoreSplitPayload: deps.restoreSplitPayload,
         waitForDocumentOpenSettled: deps.waitForDocumentOpenSettled,
+        runAgentAction: deps.runAgentAction,
+        readAgentResource: deps.readAgentResource,
         closeAllDropdowns: deps.closeAllDropdowns,
         getToolbarSnapshot,
     };
