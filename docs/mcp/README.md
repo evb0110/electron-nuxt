@@ -234,6 +234,8 @@ Page numbering tools use PDF page-label ranges:
 
 Supported styles are `D` decimal, `R`/`r` roman, `A`/`a` alphabetic, or `null`/`literal` for prefix-only labels.
 
+When agents reconstruct page labels from printed paper-page numbers, OCR/searchable text is only the starting hypothesis. They should verify range boundaries, restarts, front matter, appendices, and doubtful OCR hits with `document.capture_page_image` before writing labels. Page-label edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
+
 ### Bookmark Capabilities
 
 Bookmark tools work with a recursive tree. Read `bookmarks.read` or `evb://document/{tabId}/bookmarks` first; returned bookmarks include zero-based `path` arrays such as `[0, 2]`.
@@ -245,6 +247,12 @@ Bookmark tools work with a recursive tree. Read `bookmarks.read` or `evb://docum
 - `bookmarks.delete` deletes one bookmark subtree by `path`.
 
 Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`.
+
+When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches before mutating the tree. Bookmark edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
+
+### Visual Verification Capability
+
+`document.capture_page_image` navigates/renders a PDF page and returns PNG image content plus crop metadata. It accepts `page`/`pageNumber`, a preset `region` (`full`, `top`, `bottom`, `left`, `right`, or `center`), or normalized crop coordinates (`x`, `y`, `width`, `height`) from `0` to `1`. Use it when OCR, TOC, bookmark, or page-label evidence is ambiguous.
 
 ## Resources And Prompts
 
@@ -275,6 +283,10 @@ Prompts:
   Guides an agent to identify the active tab, search for topic variants, inspect candidate pages, and navigate only after choosing the best page.
 - `evb_check_document_prep`
   Guides an agent to inspect readiness and recommend OCR or conversion when needed.
+- `evb_number_pages_from_printed_pages`
+  Guides an agent to infer page-label ranges from printed page numbers, visually verify uncertain boundaries, apply undoable metadata edits, and save.
+- `evb_rebuild_verified_bookmarks`
+  Guides an agent to rebuild bookmarks from TOC/search hints, visually verify doubtful targets, apply undoable metadata edits, and save.
 
 ## Workspace Snapshot Model
 

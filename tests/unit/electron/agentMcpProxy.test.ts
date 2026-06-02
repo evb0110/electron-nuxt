@@ -118,9 +118,15 @@ describe('evb-mcp-proxy', () => {
                 id: 2,
                 method: 'tools/list',
             });
+            client.send({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'prompts/list',
+            });
 
             const initialized = await client.waitForResponse(1);
             const tools = await client.waitForResponse(2);
+            const prompts = await client.waitForResponse(3);
             const initializedResult = asRecord(initialized.result);
             const serverInfo = asRecord(initializedResult.serverInfo);
 
@@ -130,6 +136,9 @@ describe('evb-mcp-proxy', () => {
             });
             expect(JSON.stringify(tools.result)).toContain('evb_viewer_open_documents');
             expect(JSON.stringify(tools.result)).toContain('evb_search_document');
+            expect(JSON.stringify(initialized.result)).toContain('document.capture_page_image');
+            expect(JSON.stringify(prompts.result)).toContain('evb_number_pages_from_printed_pages');
+            expect(JSON.stringify(prompts.result)).toContain('evb_rebuild_verified_bookmarks');
         } finally {
             await client.stop();
         }

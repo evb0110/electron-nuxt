@@ -147,7 +147,10 @@ function createOptions() {
             port: 38672,
         },
         getWorkspaceSnapshot: vi.fn(async (_windowId?: number) => workspaceSnapshot),
-        runCommand: vi.fn(async (_command: TAgentCommand, _windowId?: number) => ({ ok: true })),
+        runCommand: vi.fn(async (
+            _command: TAgentCommand,
+            _windowId?: number,
+        ): Promise<Record<string, unknown>> => ({ ok: true })),
         inspectDocumentText: vi.fn(async ({tab}: IAgentDocumentTextOperationInput<Record<never, never>>) => ({
             tabId: tab.tabId,
             textStatus: {
@@ -267,6 +270,7 @@ describe('processMcpRequest', () => {
         expect(JSON.stringify(tools?.result)).toContain('evb_search_document');
         expect(JSON.stringify(tools?.result)).toContain('readOnlyHint');
         expect(JSON.stringify(tools?.result)).toContain('evb_go_to_page');
+        expect(JSON.stringify(initialized?.result)).toContain('document.capture_page_image');
     });
 
     it('returns open documents through the discoverable EVB Viewer tool', async () => {
@@ -488,6 +492,99 @@ describe('processMcpRequest', () => {
         }});
     });
 
+    it('exposes visual page capture as a document verification capability', async () => {
+        const options = createOptions();
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'document-capabilities',
+            method: 'tools/call',
+            params: {
+                name: 'evb_list_capabilities',
+                arguments: {domain: 'document'},
+            },
+        }, options);
+
+        expect(response?.result).toMatchObject({structuredContent: {
+            domain: 'document',
+            capabilities: expect.arrayContaining([expect.objectContaining({
+                id: 'document.capture_page_image',
+                risk: 'navigate',
+                inputSchema: expect.objectContaining({properties: expect.objectContaining({
+                    page: expect.objectContaining({type: 'number'}),
+                    region: expect.objectContaining({enum: expect.arrayContaining([
+                        'full',
+                        'top',
+                        'bottom',
+                    ])}),
+                })}),
+            })]),
+        }});
+    });
+
+    it('returns MCP image content for rendered page capture results', async () => {
+        const options = createOptions();
+        options.runCommand.mockResolvedValueOnce({
+            ok: true,
+            actionId: 'document.capture_page_image',
+            pageNumber: 4,
+            image: {
+                mimeType: 'image/png',
+                sizeBytes: 3,
+                data: 'aW1n',
+            },
+        });
+
+        const response = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'capture-page',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'document.capture_page_image',
+                    input: {
+                        page: 4,
+                        region: 'top',
+                    },
+                },
+            },
+        }, options);
+
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'document.capture_page_image',
+                input: {
+                    page: 4,
+                    region: 'top',
+                },
+            },
+        }, undefined);
+        expect(response?.result).toMatchObject({
+            structuredContent: {image: {
+                mimeType: 'image/png',
+                sizeBytes: 3,
+            }},
+            content: expect.arrayContaining([expect.objectContaining({
+                type: 'image',
+                mimeType: 'image/png',
+                data: 'aW1n',
+            })]),
+        });
+        const result = response?.result as {
+            content?: Array<{
+                type: string;
+                text?: string;
+            }>;
+            structuredContent?: unknown;
+        };
+        expect(JSON.stringify(result.structuredContent)).not.toContain('"data":"aW1n"');
+        expect(result.content?.find(item => item.type === 'text')?.text).not.toContain('"data"');
+    });
+
     it('dispatches page-label and bookmark mutations through run action', async () => {
         const options = createOptions();
         const bookmarkBatchInput = {bookmarks: [{
@@ -611,6 +708,18 @@ describe('processMcpRequest', () => {
                 arguments: {topic: 'seventh stem tables'},
             },
         }, options);
+        const pageNumberingPrompt = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'page-numbering-prompt',
+            method: 'prompts/get',
+            params: {name: 'evb_number_pages_from_printed_pages'},
+        }, options);
+        const bookmarkPrompt = await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'bookmark-prompt',
+            method: 'prompts/get',
+            params: {name: 'evb_rebuild_verified_bookmarks'},
+        }, options);
 
         expect(JSON.stringify(resources?.result)).toContain('evb://workspace/current');
         expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/bookmarks');
@@ -622,6 +731,10 @@ describe('processMcpRequest', () => {
         }]});
         expect(JSON.stringify(prompt?.result)).toContain('seventh stem tables');
         expect(JSON.stringify(prompt?.result)).toContain('evb_search_document');
+        expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('document.capture_page_image');
+        expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('file.save');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.set_tree');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('file.save');
     });
 
     it('dispatches go-to-page commands with normalized page numbers', async () => {
