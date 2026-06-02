@@ -194,13 +194,21 @@
                             v-if="message.attachments?.length"
                             class="agent-assistant-message-attachments"
                         >
-                            <img
+                            <button
                                 v-for="attachment in message.attachments"
                                 :key="attachment.id"
-                                class="agent-assistant-message-image"
-                                :src="attachment.dataUrl"
-                                :alt="attachment.name"
+                                class="agent-assistant-message-image-button"
+                                type="button"
+                                :aria-label="t('assistant.previewImage', { name: attachment.name })"
+                                @click="expandImage(message.attachments, attachment.id)"
                             >
+                                <img
+                                    class="agent-assistant-message-image"
+                                    :src="attachment.dataUrl"
+                                    :alt="attachment.name"
+                                    draggable="false"
+                                >
+                            </button>
                         </div>
                         <p v-if="message.text || message.pending">
                             {{ message.text || (message.pending ? t('assistant.working') : '') }}
@@ -231,11 +239,19 @@
                                 :key="image.id"
                                 class="agent-assistant-composer-attachment"
                             >
-                                <img
-                                    class="agent-assistant-composer-attachment-image"
-                                    :src="image.dataUrl"
-                                    :alt="image.name"
+                                <button
+                                    class="agent-assistant-composer-attachment-preview"
+                                    type="button"
+                                    :aria-label="t('assistant.previewImage', { name: image.name })"
+                                    @click="expandImage(composerImages, image.id)"
                                 >
+                                    <img
+                                        class="agent-assistant-composer-attachment-image"
+                                        :src="image.dataUrl"
+                                        :alt="image.name"
+                                        draggable="false"
+                                    >
+                                </button>
                                 <UButton
                                     class="agent-assistant-composer-attachment-remove"
                                     :aria-label="t('assistant.removeImageAttachment', { name: image.name })"
@@ -296,6 +312,69 @@
             </p>
         </div>
     </aside>
+
+    <Teleport to="body">
+        <div
+            v-if="expandedImage"
+            class="agent-assistant-image-preview"
+            role="dialog"
+            aria-modal="true"
+            :aria-label="t('assistant.expandedImagePreview')"
+        >
+            <button
+                class="agent-assistant-image-preview-backdrop"
+                type="button"
+                :aria-label="t('assistant.closeImagePreview')"
+                @click="closeExpandedImage"
+            />
+            <UButton
+                v-if="expandedImage.images.length > 1"
+                class="agent-assistant-image-preview-nav is-previous"
+                :aria-label="t('assistant.previousImage')"
+                icon="i-ph-caret-left"
+                color="neutral"
+                variant="soft"
+                size="lg"
+                type="button"
+                @click="navigateExpandedImage(-1)"
+            />
+            <figure class="agent-assistant-image-preview-content">
+                <UButton
+                    class="agent-assistant-image-preview-close"
+                    :aria-label="t('assistant.closeImagePreview')"
+                    icon="i-ph-x"
+                    color="neutral"
+                    variant="solid"
+                    size="sm"
+                    type="button"
+                    @click="closeExpandedImage"
+                />
+                <img
+                    class="agent-assistant-image-preview-image"
+                    :src="expandedImageItem?.src"
+                    :alt="expandedImageItem?.name ?? ''"
+                    draggable="false"
+                >
+                <figcaption
+                    v-if="expandedImageItem"
+                    class="agent-assistant-image-preview-caption"
+                >
+                    {{ expandedImageCaption }}
+                </figcaption>
+            </figure>
+            <UButton
+                v-if="expandedImage.images.length > 1"
+                class="agent-assistant-image-preview-nav is-next"
+                :aria-label="t('assistant.nextImage')"
+                icon="i-ph-caret-right"
+                color="neutral"
+                variant="soft"
+                size="lg"
+                type="button"
+                @click="navigateExpandedImage(1)"
+            />
+        </div>
+    </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -350,6 +429,16 @@ const composerError = ref('');
 const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
 let sendGeneration = 0;
+
+interface IExpandedImageItem {
+    src: string;
+    name: string;
+}
+
+interface IExpandedImagePreview {
+    images: IExpandedImageItem[];
+    index: number;
+}
 
 const emptyState = computed<IAgentAssistantState>(() => ({
     status: {
@@ -432,6 +521,26 @@ const turnStatusText = computed(() => {
         return t('assistant.startingTurn');
     }
     return t('assistant.working');
+});
+const expandedImage = ref<IExpandedImagePreview | null>(null);
+const expandedImageItem = computed(() => {
+    const preview = expandedImage.value;
+    return preview?.images[preview.index] ?? null;
+});
+const expandedImageCaption = computed(() => {
+    const preview = expandedImage.value;
+    const item = expandedImageItem.value;
+    if (!preview || !item) {
+        return '';
+    }
+    if (preview.images.length <= 1) {
+        return item.name;
+    }
+    return t('assistant.imagePreviewPosition', {
+        name: item.name,
+        current: preview.index + 1,
+        total: preview.images.length,
+    });
 });
 
 function applyState(nextState: IAgentAssistantState) {
@@ -607,6 +716,78 @@ function removeComposerImage(imageId: string) {
     composerError.value = '';
 }
 
+function buildExpandedImagePreview(
+    images: readonly IAgentAssistantImageAttachment[],
+    selectedImageId: string,
+): IExpandedImagePreview | null {
+    const previewableImages = images
+        .filter(image => image.dataUrl.startsWith('data:image/'))
+        .map(image => ({
+            id: image.id,
+            src: image.dataUrl,
+            name: image.name,
+        }));
+    if (previewableImages.length === 0) {
+        return null;
+    }
+    const selectedIndex = previewableImages.findIndex(image => image.id === selectedImageId);
+    if (selectedIndex < 0) {
+        return null;
+    }
+    return {
+        images: previewableImages.map(image => ({
+            src: image.src,
+            name: image.name,
+        })),
+        index: selectedIndex,
+    };
+}
+
+function expandImage(images: readonly IAgentAssistantImageAttachment[] | undefined, selectedImageId: string) {
+    if (!images) {
+        return;
+    }
+    expandedImage.value = buildExpandedImagePreview(images, selectedImageId);
+}
+
+function closeExpandedImage() {
+    expandedImage.value = null;
+}
+
+function navigateExpandedImage(direction: -1 | 1) {
+    const preview = expandedImage.value;
+    if (!preview || preview.images.length <= 1) {
+        return;
+    }
+    expandedImage.value = {
+        ...preview,
+        index: (preview.index + direction + preview.images.length) % preview.images.length,
+    };
+}
+
+function handleExpandedImageKeydown(event: KeyboardEvent) {
+    if (!expandedImage.value) {
+        return;
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeExpandedImage();
+        return;
+    }
+    if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        event.stopPropagation();
+        navigateExpandedImage(-1);
+        return;
+    }
+    if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        event.stopPropagation();
+        navigateExpandedImage(1);
+    }
+}
+
 async function sendMessage() {
     if (!canSend.value) {
         return;
@@ -666,6 +847,7 @@ function roleLabel(role: TAgentAssistantMessageRole) {
 let unsubscribe: (() => void) | null = null;
 onMounted(() => {
     unsubscribe = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
+    window.addEventListener('keydown', handleExpandedImageKeydown);
     guardAsync(refreshState(), {
         scope: 'assistant',
         message: 'Failed to load assistant state',
@@ -673,6 +855,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    window.removeEventListener('keydown', handleExpandedImageKeydown);
     unsubscribe?.();
     unsubscribe = null;
 });
@@ -857,12 +1040,21 @@ onUnmounted(() => {
 
 .agent-assistant-message-image {
     display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.agent-assistant-message-image-button {
+    display: block;
     width: 4.5rem;
     height: 4.5rem;
+    padding: 0;
+    overflow: hidden;
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     background: var(--ui-bg-muted);
-    object-fit: cover;
+    cursor: zoom-in;
 }
 
 .agent-assistant-message p {
@@ -958,10 +1150,21 @@ onUnmounted(() => {
     object-fit: cover;
 }
 
+.agent-assistant-composer-attachment-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: zoom-in;
+}
+
 .agent-assistant-composer-attachment-remove {
     position: absolute;
     top: 0.2rem;
     right: 0.2rem;
+    z-index: 1;
 }
 
 .agent-assistant-composer-error {
@@ -1026,6 +1229,85 @@ onUnmounted(() => {
     color: var(--ui-error);
     font-size: 0.8125rem;
     line-height: 1.45;
+}
+
+.agent-assistant-image-preview {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: color-mix(in oklab, var(--ui-bg-inverted) 78%, transparent);
+    -webkit-app-region: no-drag;
+}
+
+.agent-assistant-image-preview-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: zoom-out;
+}
+
+.agent-assistant-image-preview-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    max-width: min(92vw, 72rem);
+    max-height: 92vh;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.agent-assistant-image-preview-image {
+    display: block;
+    max-width: min(92vw, 72rem);
+    max-height: 86vh;
+    border: 1px solid color-mix(in oklab, var(--ui-border) 72%, transparent);
+    border-radius: var(--ui-radius);
+    background: var(--ui-bg);
+    box-shadow: var(--app-pdf-popover-shadow);
+    object-fit: contain;
+    user-select: none;
+}
+
+.agent-assistant-image-preview-caption {
+    max-width: min(92vw, 72rem);
+    overflow: hidden;
+    color: color-mix(in oklab, var(--ui-bg) 82%, transparent);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-assistant-image-preview-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 2;
+}
+
+.agent-assistant-image-preview-nav {
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    transform: translateY(-50%);
+}
+
+.agent-assistant-image-preview-nav.is-previous {
+    left: 1rem;
+}
+
+.agent-assistant-image-preview-nav.is-next {
+    right: 1rem;
 }
 
 @keyframes agent-assistant-spin {

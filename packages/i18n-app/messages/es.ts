@@ -56,6 +56,12 @@ export default {
         'imageTooLarge': '{name} exceeds the {size} limit.',
         'imageAttachmentLimit': 'You can attach up to {count} images per message.',
         'imageReadFailed': 'Could not read {name}.',
+        'previewImage': 'Preview {name}',
+        'expandedImagePreview': 'Expanded image preview',
+        'closeImagePreview': 'Close image preview',
+        'previousImage': 'Previous image',
+        'nextImage': 'Next image',
+        'imagePreviewPosition': '{name} ({current}/{total})',
     },
     'seo': {
         'title': 'EVB Viewer Web',
