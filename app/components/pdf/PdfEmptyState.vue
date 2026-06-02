@@ -202,19 +202,13 @@
                                     class="recent-col recent-col--location"
                                     role="cell"
                                 >
-                                    <span class="recent-col--location-path">
-                                        <template v-if="!isBrowserDocumentRef(file.originalPath)">
-                                            {{ getParentFolder(file.originalPath) }}
-                                        </template>
-                                        <template v-else>{{ t('emptyState.locationBrowser') }}</template>
-                                    </span>
                                     <AppTooltip
                                         v-if="canRevealInFolder(file)"
                                         :text="t('status.showInFolder')"
                                         :delay-duration="1200"
                                     >
                                         <span
-                                            class="recent-action recent-action--reveal"
+                                            class="recent-location recent-location--reveal"
                                             role="button"
                                             tabindex="0"
                                             :aria-label="t('status.showInFolder')"
@@ -222,9 +216,14 @@
                                             @keydown.enter.stop="revealRecent(file)"
                                             @keydown.space.stop.prevent="revealRecent(file)"
                                         >
-                                            <UIcon name="i-ph-folder-open" />
+                                            <UIcon name="i-ph-folder" class="recent-location-icon" aria-hidden="true" />
+                                            <span class="recent-location-path">{{ getParentFolder(file.originalPath) }}</span>
                                         </span>
                                     </AppTooltip>
+                                    <span v-else class="recent-location recent-location--static">
+                                        <UIcon name="i-ph-globe" class="recent-location-icon" aria-hidden="true" />
+                                        <span class="recent-location-path">{{ t('emptyState.locationBrowser') }}</span>
+                                    </span>
                                 </span>
                                 <span class="recent-col recent-col--time" role="cell">
                                     {{ formatRelativeTimeLocalized(file.timestamp) }}
@@ -894,7 +893,7 @@ watch(() => startSection, (section) => {
     color: var(--ui-text);
 }
 
-.recent-row--data:hover:not(.is-disabled, :disabled, :has(.recent-action:hover)) {
+.recent-row--data:hover:not(.is-disabled, :disabled, :has(.recent-action:hover), :has(.recent-location--reveal:hover)) {
     background: var(--app-start-row-hover-bg);
 }
 
@@ -922,16 +921,7 @@ watch(() => startSection, (section) => {
 .recent-col--location {
     display: flex;
     align-items: center;
-    gap: 0.65rem;
     min-width: 0;
-    overflow: hidden;
-}
-
-.recent-col--location-path {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .recent-row--data .recent-col--location {
@@ -939,8 +929,45 @@ watch(() => startSection, (section) => {
     font-size: 0.8rem;
 }
 
-.recent-col--location .recent-action--reveal {
+.recent-location {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: -0.45rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 0.4rem;
+    color: var(--ui-text-muted);
+}
+
+.recent-location--reveal {
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.recent-location--reveal:hover {
+    background: var(--app-start-row-action-hover-bg);
+    color: var(--ui-text);
+}
+
+.recent-location--reveal:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: 1px;
+}
+
+.recent-location-icon {
+    width: 1rem;
+    height: 1rem;
     flex: 0 0 auto;
+    color: currentcolor;
+}
+
+.recent-location-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .recent-col--time {
