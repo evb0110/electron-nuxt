@@ -205,7 +205,8 @@
                                     <AppTooltip
                                         v-if="canRevealInFolder(file)"
                                         :text="t('status.showInFolder')"
-                                        :delay-duration="1200"
+                                        :delay-duration="600"
+                                        usefulness="always"
                                     >
                                         <span
                                             class="recent-location recent-location--reveal"
@@ -1056,10 +1057,10 @@ watch(() => startSection, (section) => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2.1rem;
-    height: 2.1rem;
+    width: 1.6rem;
+    height: 1.6rem;
     border: 0;
-    border-radius: 0.4rem;
+    border-radius: 0.35rem;
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;

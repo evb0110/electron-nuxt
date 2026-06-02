@@ -746,7 +746,7 @@ export default {
         'fileSizeValue': 'Size: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
-        'showInFolder': 'Show in folder',
+        'showInFolder': 'Reveal in folder',
         'showInFolderUnavailableWeb': 'Stored in this browser',
     },
     'relativeTime': {
