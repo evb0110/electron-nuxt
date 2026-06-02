@@ -1,4 +1,5 @@
 import { range } from 'es-toolkit/math';
+import type { TDocumentRef } from '@contracts/platformApi';
 
 export type TOcrPageRange = 'all' | 'current' | 'custom';
 
@@ -29,11 +30,17 @@ export interface IOcrQualityMetrics {
     embedError?: string;
 }
 
+export interface IOcrSearchablePdfResult {
+    requestId: string;
+    pdfPath: TDocumentRef;
+    requiresCleanupAck: boolean;
+}
+
 export interface IOcrResults {
     pages: Map<number, string>;
     languages: string[];
     completedAt: number | null;
-    searchablePdfData: Uint8Array | null;
+    searchablePdfResult: IOcrSearchablePdfResult | null;
     metrics?: IOcrQualityMetrics;
 }
 

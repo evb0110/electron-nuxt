@@ -3,6 +3,7 @@ import {
     realpathSync,
 } from 'fs';
 import {
+    copyFile,
     open as openFileHandle,
     rename,
     unlink,
@@ -127,6 +128,33 @@ export async function writeFileAtomic(resolvedPath: string, payload: Uint8Array)
     try {
         assertNoSymlinkPathSegments(resolvedPath);
         await rename(temporaryPath, resolvedPath);
+        await fsyncDirectoryBestEffort(directoryPath);
+    } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+    }
+}
+
+export async function copyFileAtomic(resolvedSourcePath: string, resolvedTargetPath: string) {
+    assertNoSymlinkPathSegments(resolvedSourcePath);
+    assertNoSymlinkPathSegments(resolvedTargetPath);
+
+    const directoryPath = dirname(resolvedTargetPath);
+    const temporaryPath = join(
+        directoryPath,
+        `.${basename(resolvedTargetPath)}.${process.pid}.${randomUUID()}.tmp`,
+    );
+
+    try {
+        await copyFile(resolvedSourcePath, temporaryPath);
+        const handle = await openFileHandle(temporaryPath, 'r');
+        try {
+            await handle.sync();
+        } finally {
+            await handle.close().catch(() => undefined);
+        }
+        assertNoSymlinkPathSegments(resolvedTargetPath);
+        await rename(temporaryPath, resolvedTargetPath);
         await fsyncDirectoryBestEffort(directoryPath);
     } catch (error) {
         await unlink(temporaryPath).catch(() => undefined);

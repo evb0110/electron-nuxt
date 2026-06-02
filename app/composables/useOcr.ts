@@ -4,7 +4,6 @@ import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
 import type {
-    IDocumentsCapability,
     IOcrCapability,
     TDocumentRef,
 } from '@contracts/platformApi';
@@ -20,7 +19,6 @@ import {
 } from '@app/utils/ocr/languages';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/textDirection';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { getOcrCapability } from '@app/utils/platformOcr';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {
@@ -84,7 +82,7 @@ export const useOcr = () => {
         pages: new Map(),
         languages: [],
         completedAt: null,
-        searchablePdfData: null,
+        searchablePdfResult: null,
     });
     const error = ref<string | null>(null);
     const isExporting = ref(false);
@@ -262,88 +260,29 @@ export const useOcr = () => {
         error.value = uniq(localizedErrors).join('; ');
     }
 
-    async function acknowledgeOrCleanupOcrResult(
-        ocr: IOcrCapability,
-        documents: IDocumentsCapability,
+    function storeOcrPdfResult(
         requestId: string,
         response: TOcrCompleteResult,
-    ) {
-        if (!response.pdfPath) {
-            return;
-        }
-
-        let didCleanupViaAck = false;
-        if (response.requiresCleanupAck) {
-            try {
-                const ackResult = await ocr.acknowledgeResultFile(requestId, response.pdfPath);
-                didCleanupViaAck = ackResult.cleaned;
-                if (!ackResult.cleaned && ackResult.error) {
-                    BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
-                        requestId,
-                        path: response.pdfPath,
-                        error: ackResult.error,
-                    });
-                }
-            } catch (ackErr) {
-                BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
-                    requestId,
-                    path: response.pdfPath,
-                    error: ackErr,
-                });
-            }
-        }
-
-        if (didCleanupViaAck) {
-            return;
-        }
-
-        try {
-            await documents.cleanupOcrTemp(response.pdfPath);
-        } catch (cleanupErr) {
-            BrowserLogger.warn('ocr', 'Failed to cleanup temp file', {
-                requestId,
-                path: response.pdfPath,
-                error: cleanupErr,
-            });
-        }
-    }
-
-    async function readOcrPdfResult(
-        ocr: IOcrCapability,
-        documents: IDocumentsCapability,
-        requestId: string,
-        response: TOcrCompleteResult,
-        ensureRunActive: TRunGuard,
     ) {
         if (!response.pdfPath) {
             throw new Error(t('errors.ocr.noPdfData'));
         }
 
-        BrowserLogger.debug('ocr', 'Reading OCR PDF from temp path', {
+        BrowserLogger.debug('ocr', 'Storing OCR PDF result path', {
             requestId,
             path: response.pdfPath,
+            requiresCleanupAck: response.requiresCleanupAck === true,
         });
 
-        try {
-            const fileData = await documents.readFile(response.pdfPath);
-            const pdfBytes = new Uint8Array(fileData);
-            BrowserLogger.debug('ocr', 'Loaded OCR PDF', {
-                requestId,
-                bytes: pdfBytes.length,
-            });
-            ensureRunActive();
-            return pdfBytes;
-        } finally {
-            await acknowledgeOrCleanupOcrResult(ocr, documents, requestId, response);
-        }
-    }
-
-    function storeOcrPdfResult(pdfBytes: Uint8Array) {
         results.value = {
             pages: new Map(),
             languages: [...settings.value.selectedLanguages],
             completedAt: Date.now(),
-            searchablePdfData: pdfBytes,
+            searchablePdfResult: {
+                requestId,
+                pdfPath: response.pdfPath,
+                requiresCleanupAck: response.requiresCleanupAck === true,
+            },
         };
     }
 
@@ -399,9 +338,7 @@ export const useOcr = () => {
         return requestId;
     }
 
-    async function handleOcrResponse(
-        ocr: IOcrCapability,
-        documents: IDocumentsCapability,
+    function handleOcrResponse(
         requestId: string,
         response: TOcrCompleteResult,
         ensureRunActive: TRunGuard,
@@ -409,14 +346,8 @@ export const useOcr = () => {
         applyOcrResponseErrors(response, requestId);
 
         if (response.success && response.pdfPath) {
-            const pdfBytes = await readOcrPdfResult(
-                ocr,
-                documents,
-                requestId,
-                response,
-                ensureRunActive,
-            );
-            storeOcrPdfResult(pdfBytes);
+            ensureRunActive();
+            storeOcrPdfResult(requestId, response);
         } else if (response.success) {
             throw new Error(t('errors.ocr.noPdfData'));
         } else if (!response.success) {
@@ -432,7 +363,6 @@ export const useOcr = () => {
         ensureRunActive: TRunGuard,
     ) {
         const ocr = getOcrCapability();
-        const documents = getDocumentsCapability();
         registerProgressListener(ocr, requestId, runToken);
         const pageRequests = buildPageRequests(pages);
 
@@ -473,7 +403,7 @@ export const useOcr = () => {
             errors: response.errors,
         });
 
-        await handleOcrResponse(ocr, documents, requestId, response, ensureRunActive);
+        handleOcrResponse(requestId, response, ensureRunActive);
     }
 
     async function runOcr(
@@ -567,7 +497,7 @@ export const useOcr = () => {
             pages: new Map(),
             languages: [],
             completedAt: null,
-            searchablePdfData: null,
+            searchablePdfResult: null,
         };
     }
 
@@ -589,7 +519,7 @@ export const useOcr = () => {
         watch(settings, value => saveBrowserOcrPreferences(value), { deep: true });
     }
 
-    const hasResults = computed(() => results.value.searchablePdfData !== null);
+    const hasResults = computed(() => results.value.searchablePdfResult !== null);
 
     const progressPercent = computed(() => {
         if (progress.value.phase === 'preparing') {

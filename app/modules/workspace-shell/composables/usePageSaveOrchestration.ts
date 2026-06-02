@@ -24,11 +24,14 @@ import {
 import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/pdfSaveBaseData';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/platformSearch';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { getOcrCapability } from '@app/utils/platformOcr';
 import {
     capturePdfReloadSnapshot,
     createPdfReloadWaiter,
 } from '@app/composables/pdf/pdfReloadWaiter';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
+import type { IOcrSearchablePdfResult } from '@app/utils/ocr/languages';
 
 interface IPdfViewerForSave {
     scrollToPage: (pageNumber: number) => void;
@@ -56,10 +59,7 @@ interface IPdfViewerForSave {
     hasShapes?: boolean | Ref<boolean>;
 }
 
-interface IOcrCompletePayload {
-    pdfData: Uint8Array;
-    sourceWorkingCopyPath: TDocumentRef;
-}
+interface IOcrCompletePayload extends IOcrSearchablePdfResult {sourceWorkingCopyPath: TDocumentRef;}
 
 type TSharedSaveOperationDeps = Pick<
     IFileOperationsDeps,
@@ -104,10 +104,7 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     clearAnnotationHistory?: () => void;
     loadRecentFiles: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
-    loadPdfFromData: (data: Uint8Array, opts?: {
-        pushHistory?: boolean;
-        persistWorkingCopy?: boolean;
-    }) => Promise<void>;
+    reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     currentPage: Ref<number>;
     waitForPdfReload: (page: number) => Promise<void>;
     resetSearchCache: () => void;
@@ -156,7 +153,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         clearAnnotationHistory,
         loadRecentFiles,
         clearOcrCache,
-        loadPdfFromData,
+        reloadWorkingCopyIntoHistory,
         currentPage,
         waitForPdfReload,
         resetSearchCache,
@@ -285,12 +282,50 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         return handleSaveWithReload();
     }
 
+    async function acknowledgeOcrResultFile(payload: IOcrCompletePayload) {
+        let didCleanupViaAck = false;
+        if (payload.requiresCleanupAck) {
+            try {
+                const ackResult = await getOcrCapability().acknowledgeResultFile(payload.requestId, payload.pdfPath);
+                didCleanupViaAck = ackResult.cleaned;
+                if (!ackResult.cleaned && ackResult.error) {
+                    BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
+                        requestId: payload.requestId,
+                        path: payload.pdfPath,
+                        error: ackResult.error,
+                    });
+                }
+            } catch (ackErr) {
+                BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
+                    requestId: payload.requestId,
+                    path: payload.pdfPath,
+                    error: ackErr,
+                });
+            }
+        }
+
+        if (didCleanupViaAck) {
+            return;
+        }
+
+        try {
+            await getDocumentsCapability().cleanupOcrTemp(payload.pdfPath);
+        } catch (cleanupErr) {
+            BrowserLogger.warn('ocr', 'Failed to cleanup temp OCR result file', {
+                requestId: payload.requestId,
+                path: payload.pdfPath,
+                error: cleanupErr,
+            });
+        }
+    }
+
     async function handleOcrComplete(payload: IOcrCompletePayload) {
         if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
             BrowserLogger.debug('ocr', 'Ignoring stale OCR result for inactive document', {
                 sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
                 currentWorkingCopyPath: workingCopyPath.value,
             });
+            await acknowledgeOcrResultFile(payload);
             return;
         }
 
@@ -307,10 +342,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         });
 
         try {
-            await loadPdfFromData(payload.pdfData, {
-                pushHistory: true,
-                persistWorkingCopy: true,
-            });
+            await getDocumentsCapability().replaceWorkingCopyFromPath(
+                payload.sourceWorkingCopyPath,
+                payload.pdfPath,
+            );
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
                 BrowserLogger.debug('ocr', 'Skipped stale OCR reload wait after document switch', {
                     sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
@@ -320,9 +355,20 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 return;
             }
 
+            const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
+            if (!didReload) {
+                BrowserLogger.debug('ocr', 'Skipped stale OCR reload after working copy replacement', {
+                    sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                    currentWorkingCopyPath: workingCopyPath.value,
+                });
+                void restorePromise;
+                return;
+            }
         } catch (error) {
             void restorePromise;
             throw error;
+        } finally {
+            await acknowledgeOcrResultFile(payload);
         }
 
         await restorePromise;

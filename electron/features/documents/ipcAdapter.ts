@@ -158,6 +158,8 @@ export function registerDocumentsIpcAdapter(
         service.printPdfPath(event, filePath, fileName, pageNumbers));
     register(DOCUMENTS_CHANNELS.fileWrite, (event, filePath, data) =>
         service.writeFile(event, filePath, data));
+    register(DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath, (event, workingCopyPath, sourcePath) =>
+        service.replaceWorkingCopyFromPath(event, workingCopyPath, sourcePath));
     register(DOCUMENTS_CHANNELS.fileWriteDocx, (event, filePath, data) =>
         service.writeDocxFile(event, filePath, data));
     register(DOCUMENTS_CHANNELS.fileSave, (event, workingPath) => service.saveFile(event, workingPath));

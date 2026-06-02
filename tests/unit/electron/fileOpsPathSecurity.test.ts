@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     statSync: vi.fn<(path: string) => { size: number }>(),
     readFile: vi.fn(),
     writeFile: vi.fn(),
+    copyFile: vi.fn(),
     stat: vi.fn(),
     unlink: vi.fn(),
     rename: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('fs/promises', () => ({
+    copyFile: mocks.copyFile,
     readFile: mocks.readFile,
     writeFile: mocks.writeFile,
     stat: mocks.stat,
@@ -75,6 +77,7 @@ const {
 const {
     handleFileWrite,
     handleFileWriteDocx,
+    handleReplaceWorkingCopyFromPath,
 } = await import('@electron/features/documents/main/documentFileWriteHandlers');
 const { handleAnalyzePdfConformance } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 
@@ -113,6 +116,7 @@ describe('fileOps path security', () => {
         mocks.statSync.mockReturnValue({ size: 123 });
         mocks.stat.mockResolvedValue({ size: 123 });
         mocks.writeFile.mockResolvedValue(undefined);
+        mocks.copyFile.mockResolvedValue(undefined);
         mocks.rename.mockResolvedValue(undefined);
         mocks.unlink.mockResolvedValue(undefined);
         mocks.open.mockImplementation(async () => ({
@@ -232,6 +236,42 @@ describe('fileOps path security', () => {
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(2);
         expect(mocks.writeFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('atomically replaces a managed working copy from an OCR result file path', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+
+        await handleReplaceWorkingCopyFromPath(
+            event,
+            '/tmp/electron-test/work.pdf',
+            '/tmp/electron-test/ocr-1-merged.pdf',
+        );
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 42);
+        expect(mocks.copyFile).toHaveBeenCalledWith(
+            '/tmp/electron-test/ocr-1-merged.pdf',
+            expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
+        );
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
+            '/tmp/electron-test/work.pdf',
+        );
+    });
+
+    it('rejects working-copy replacement from non-OCR source file names', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/unrelated.pdf');
+
+        await expect(
+            handleReplaceWorkingCopyFromPath(
+                event,
+                '/tmp/electron-test/work.pdf',
+                '/tmp/electron-test/unrelated.pdf',
+            ),
+        ).rejects.toThrow('Invalid source path: only OCR result files can replace a working copy');
+
+        expect(mocks.copyFile).not.toHaveBeenCalled();
     });
 
     it('falls back to mapped working copy for original file path reads', async () => {

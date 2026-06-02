@@ -29,7 +29,6 @@ const mockDocuments = {
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
     cleanupFile: vi.fn(),
-    readFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
 };
 const mockElectronAPI = {
@@ -143,13 +142,6 @@ describe('useOcr', () => {
             completeHandler = handler;
             return vi.fn();
         });
-        mockDocuments.readFile.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
-        mockOcr.acknowledgeResultFile.mockResolvedValue({ cleaned: true });
-
         const scope = effectScope();
         const ocr = scope.run(() => useOcr());
         if (!ocr) {
@@ -169,6 +161,12 @@ describe('useOcr', () => {
             });
             await firstRunPromise;
             expect(ocr.hasResults.value).toBe(true);
+            expect(ocr.results.value.searchablePdfResult).toEqual({
+                requestId: firstRequestId,
+                pdfPath: '/tmp/ocr-result.pdf',
+                requiresCleanupAck: true,
+            });
+            expect(mockOcr.acknowledgeResultFile).not.toHaveBeenCalled();
 
             const secondRunPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 1);

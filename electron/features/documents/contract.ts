@@ -37,6 +37,7 @@ export const DOCUMENTS_CHANNELS = {
     pdfPrintData: 'pdf:printData',
     pdfPrintPath: 'pdf:printPath',
     fileWrite: 'file:write',
+    fileReplaceWorkingCopyFromPath: 'file:replaceWorkingCopyFromPath',
     fileWriteDocx: 'file:writeDocx',
     fileSave: 'file:save',
     fileSavePdfData: 'file:savePdfData',
@@ -200,6 +201,10 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileWrite]: {
         args: [path: string, data: Uint8Array];
         result: Awaited<ReturnType<IDocumentsFileCapability['writeFile']>>;
+    };
+    [DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath]: {
+        args: [workingCopyPath: string, sourcePath: string];
+        result: Awaited<ReturnType<IDocumentsFileCapability['replaceWorkingCopyFromPath']>>;
     };
     [DOCUMENTS_CHANNELS.fileWriteDocx]: {
         args: [path: string, data: Uint8Array];

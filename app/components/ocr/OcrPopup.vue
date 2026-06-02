@@ -288,7 +288,10 @@ import type { TTranslationKey } from '@i18n-app';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/platformSettings';
-import type { TOcrPageRange } from '@app/utils/ocr/languages';
+import type {
+    IOcrSearchablePdfResult,
+    TOcrPageRange,
+} from '@app/utils/ocr/languages';
 
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();
@@ -325,10 +328,7 @@ const {
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void;
     (e: 'update:running', value: boolean): void;
-    (e: 'ocrComplete', payload: {
-        pdfData: Uint8Array;
-        sourceWorkingCopyPath: TDocumentRef;
-    }): void;
+    (e: 'ocrComplete', payload: IOcrSearchablePdfResult & {sourceWorkingCopyPath: TDocumentRef;}): void;
     (e: 'export-docx', selectedLanguages: string[]): void;
 }>();
 
@@ -574,16 +574,15 @@ function handleExportDocx() {
     emit('export-docx', [...settings.value.selectedLanguages]);
 }
 
-// Emit when OCR completes with PDF data
-watch(() => results.value.searchablePdfData, (pdfData) => {
+watch(() => results.value.searchablePdfResult, (searchablePdfResult) => {
     const sourceWorkingCopyPath = activeOcrSourcePath.value;
-    if (pdfData && sourceWorkingCopyPath) {
+    if (searchablePdfResult && sourceWorkingCopyPath) {
         isOpen.value = false;
         showSuccessState.value = true;
         stopSuccessStateReset();
         startSuccessStateReset();
         emit('ocrComplete', {
-            pdfData,
+            ...searchablePdfResult,
             sourceWorkingCopyPath,
         });
         activeOcrSourcePath.value = null;
