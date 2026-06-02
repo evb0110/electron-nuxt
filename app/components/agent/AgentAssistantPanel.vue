@@ -38,7 +38,7 @@
 
         <div class="agent-assistant-body">
             <section
-                v-if="!hasLoadedState"
+                v-if="panelView === 'checking'"
                 class="agent-assistant-setup"
             >
                 <UIcon name="i-ph-circle-notch" class="agent-assistant-setup-icon is-spinning" />
@@ -47,7 +47,7 @@
             </section>
 
             <section
-                v-else-if="!status.supported"
+                v-else-if="panelView === 'unsupported'"
                 class="agent-assistant-setup"
             >
                 <UIcon name="i-ph-warning-circle" class="agent-assistant-setup-icon" />
@@ -56,7 +56,7 @@
             </section>
 
             <section
-                v-else-if="!status.codexInstalled"
+                v-else-if="panelView === 'install'"
                 class="agent-assistant-setup"
             >
                 <UIcon name="i-ph-download-simple" class="agent-assistant-setup-icon" />
@@ -79,7 +79,7 @@
             </section>
 
             <section
-                v-else-if="!status.codexVersionSupported"
+                v-else-if="panelView === 'update'"
                 class="agent-assistant-setup"
             >
                 <UIcon name="i-ph-warning-circle" class="agent-assistant-setup-icon" />
@@ -96,7 +96,7 @@
             </section>
 
             <section
-                v-else-if="status.authState !== 'signed-in'"
+                v-else-if="panelView === 'sign-in'"
                 class="agent-assistant-setup"
             >
                 <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-setup-icon" />
@@ -136,7 +136,7 @@
                 </p>
             </section>
 
-            <template v-else>
+            <template v-else-if="panelView === 'ready'">
                 <div class="agent-assistant-status-line">
                     <span>{{ signedInLabel }}</span>
                     <span>{{ toolsLabel }}</span>
@@ -253,6 +253,7 @@ import type {
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
 } from '@contracts/agent';
+import { getAgentAssistantPanelView } from '@app/components/agent/agentAssistantPanelState';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getPlatformAPI } from '@app/utils/platform';
 
@@ -321,6 +322,7 @@ const emptyState = computed<IAgentAssistantState>(() => ({
 }));
 const status = computed(() => (state.value ?? emptyState.value).status);
 const messages = computed(() => (state.value ?? emptyState.value).messages);
+const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
 const canSend = computed(() => draft.value.trim().length > 0 && !isSending.value);
 const canResetChat = computed(() => (
     hasLoadedState.value
