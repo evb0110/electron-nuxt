@@ -21,6 +21,7 @@ import type {
 } from '@contracts/windowTabs';
 import type {
     IAgentAssistantLoginRequest,
+    IAgentAssistantImageAttachment,
     IAgentAssistantSendMessageRequest,
 } from '@contracts/agent';
 import { te } from '@electron/i18n';
@@ -134,8 +135,24 @@ function isAgentAssistantLoginRequest(request: unknown): request is IAgentAssist
     return isRecord(request) && (request.mode === 'chatgpt' || request.mode === 'device-code');
 }
 
+function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAgentAssistantImageAttachment {
+    return isRecord(attachment)
+        && attachment.type === 'image'
+        && typeof attachment.id === 'string'
+        && typeof attachment.name === 'string'
+        && typeof attachment.mimeType === 'string'
+        && typeof attachment.sizeBytes === 'number'
+        && Number.isFinite(attachment.sizeBytes)
+        && typeof attachment.dataUrl === 'string';
+}
+
 function isAgentAssistantSendMessageRequest(request: unknown): request is IAgentAssistantSendMessageRequest {
-    return isRecord(request) && typeof request.text === 'string';
+    return isRecord(request)
+        && typeof request.text === 'string'
+        && (
+            request.attachments === undefined
+            || (Array.isArray(request.attachments) && request.attachments.every(isAgentAssistantImageAttachment))
+        );
 }
 
 function sanitizeExternalUrl(rawUrl: unknown) {
