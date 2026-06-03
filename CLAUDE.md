@@ -1,51 +1,31 @@
 # evb-viewer Rules
 
-## OCR System
-- Optimize for quality and robustness — no constraints on tool choice, language, or bundle size
-- Always use `tessdata-best` models (~10-15MB per language) from `https://github.com/tesseract-ocr/tessdata_best`
-- Keep OCR language models and their canonical registry in sync.
+## OCR
 
-## Design System
-Never hardcode CSS values — use design tokens from `app/assets/css/main.css`.
-- Brand palette: `@theme` block (Tailwind v4)
-- Semantic tokens: `:root` block (with `.dark` override)
-- No raw color values in component `<style>` or inline styles
+- Prioritize OCR quality and robustness over tool, language, or bundle-size constraints.
+- Use `tessdata-best` models from `https://github.com/tesseract-ocr/tessdata_best`.
+- Keep OCR language models and the canonical registry in sync.
 
-## Localization
-Never hardcode UI-facing text. Use `t()` with keys in `packages/i18n-app/messages/en.ts` and `packages/i18n-app/messages/ru.ts`.
+## UI
 
-## Icon Bundling
-All icons must be in `clientBundle.icons` in `nuxt.config.ts`. Without this, icons fetch from Iconify API at runtime, violating CSP in Electron.
+- Use design tokens from `app/assets/css/main.css`; avoid raw CSS values in components.
+- Localize UI-facing text with `t()` and update the English and Russian message files together.
+- Register all icons in `clientBundle.icons` in `nuxt.config.ts`.
 
 ## Naming
-Use ecosystem-standard path naming:
-- Directories: lower kebab-case for Nuxt, Vue, Electron, package, and feature folders.
-- TypeScript files: camelCase, with dot suffixes only for established roles such as `.test.ts`, `.types.ts`, `.worker.ts`, `.service.ts`, `.client.ts`, `.config.ts`, and route method handlers like `.get.ts` or `.post.ts`.
-- Vue components: PascalCase. Nuxt route files under route directories may be lower kebab-case.
 
-`pnpm run check:naming` enforces these rules and is part of `pnpm lint`.
+- Use lower kebab-case for Nuxt, Vue, Electron, package, and feature directories.
+- Use camelCase for TypeScript files, with dot suffixes only for established roles.
+- Use PascalCase for Vue components.
+- Keep route files lower kebab-case when Nuxt route conventions call for it.
 
-## Electron Skill
-If the `electron-puppeteer` skill breaks, fix it and update `SKILL.md` — don't work around it.
+## Verification
 
-## Cross-Arch Packaging
-For native-tool or packaging changes, run `pnpm run check:resources:matrix` and verify with `scripts/verify-packaged-native-tools.sh`. No `eval` workers in production paths.
+- `pnpm run check:naming` is part of `pnpm lint`.
+- Run `pnpm validate` after major changes.
+- Use `pnpm run fallow:all` only when intentionally checking dead code, duplicates, and complexity together.
 
-## Code Health (Fallow)
-Run `pnpm validate` (includes `pnpm fallow`) after major changes. Remove unused code instead of suppressing with `_` prefixes.
-Use `pnpm run fallow:all` when intentionally checking dead code, duplicates, and complexity together.
+## PDF Notes
 
-## FreeText Note Persistence
-FreeText+Popup annotation persistence is non-trivial due to PDF.js reading `/Contents` from the parent dict. Review the project note-persistence documentation before modifying annotation serialization or note window code.
-
-## E2E
-Electron e2e (`pnpm run test:e2e:electron`, or `:smoke:no-build` when `dist-electron` is current) is part of release gates — run it rather than skipping. Each test starts its own isolated named session, so a running dev server and the `default` session stay untouched. Re-run startup failures (Electron `SIGKILL` / CDP-not-ready) in isolation; those are resource-contention flakes, not regressions.
-
-## Commands
-```bash
-pnpm run gate:commit           # Fast staged-file checks used by pre-commit
-pnpm lint && pnpm typecheck    # Baseline local verification
-pnpm validate                  # Full validation (includes fallow)
-pnpm run gate:pre-release      # Full pre-release validation + full tests
-pnpm run check:resources:matrix # Cross-arch resource check
-```
+- Read the FreeText note-persistence documentation before changing annotation serialization or note-window code.
+- Electron e2e is part of release gates; rerun Electron startup flakes in isolation before treating them as regressions.
