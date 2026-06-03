@@ -263,7 +263,8 @@ describe('processMcpRequest', () => {
                 },
             }},
         });
-        expect(JSON.stringify(initialized?.result)).toContain('evb_search_document');
+        expect(JSON.stringify(initialized?.result)).toContain('evb_run_action');
+        expect(JSON.stringify(initialized?.result)).toContain('document.search');
         expect(JSON.stringify(tools?.result)).toContain('evb_workspace_snapshot');
         expect(JSON.stringify(tools?.result)).toContain('evb_viewer_open_documents');
         expect(JSON.stringify(tools?.result)).toContain('evb_viewer_search_open_document');
@@ -841,7 +842,7 @@ describe('processMcpRequest', () => {
             text: 'Page 7 text',
         }]});
         expect(JSON.stringify(prompt?.result)).toContain('seventh stem tables');
-        expect(JSON.stringify(prompt?.result)).toContain('evb_search_document');
+        expect(JSON.stringify(prompt?.result)).toContain('document.search');
         expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('page_labels.preview');
         expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('page_labels.apply_plan');
         expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('document.capture_page_image');
