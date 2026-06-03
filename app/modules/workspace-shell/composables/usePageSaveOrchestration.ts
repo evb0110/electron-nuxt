@@ -188,6 +188,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     const {
         handleSave: handleSaveWithReload,
+        handleRepairSave: handleRepairSaveWithReload,
         handleSaveAs: handleSaveAsWithReload,
     } = useFileOperations({
         isSaving,
@@ -272,6 +273,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     async function handleSave() {
         await handleSaveWithReload();
+    }
+
+    async function handleRepairSave() {
+        await handleRepairSaveWithReload();
     }
 
     async function handleSaveAs() {
@@ -422,6 +427,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         deleteEmbeddedByRef,
         rewritePageLabels,
         handleSave,
+        handleRepairSave,
         handleSaveAs,
         saveForExternalRead,
         handleExportDocx,

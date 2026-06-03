@@ -306,6 +306,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'onMenuSave',
     ]),
+    onMenuRepairSave: lazyEvent<IDocumentsCapability['onMenuRepairSave']>([
+        'documents',
+        'onMenuRepairSave',
+    ]),
     onMenuSaveAs: lazyEvent<IDocumentsCapability['onMenuSaveAs']>([
         'documents',
         'onMenuSaveAs',

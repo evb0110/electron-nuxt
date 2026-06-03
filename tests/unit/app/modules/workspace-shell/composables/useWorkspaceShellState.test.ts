@@ -59,6 +59,7 @@ describe('useWorkspaceShellState', () => {
         });
 
         expect(shellState.activeWorkspaceCanSave.value).toBe(false);
+        expect(shellState.activeWorkspaceCanRepairSave.value).toBe(true);
 
         canSave.value = true;
 

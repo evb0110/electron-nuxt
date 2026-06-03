@@ -10,6 +10,7 @@ interface IUseDocumentWorkspaceToolbarOptions {
     emitOpenSettings: () => void;
     closeAllDropdowns: () => void;
     handleSave: () => unknown;
+    handleRepairSave: () => unknown;
     handleSaveAs: () => unknown;
     handleExportDocx: () => unknown;
     handleUndo: () => unknown;
@@ -181,6 +182,9 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
         },
         handleToolbarSave() {
             runToolbarAction(options.handleSave);
+        },
+        handleToolbarRepairSave() {
+            runToolbarAction(options.handleRepairSave);
         },
         handleToolbarSaveAs() {
             runToolbarAction(options.handleSaveAs);

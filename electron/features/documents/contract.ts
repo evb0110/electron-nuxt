@@ -59,6 +59,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuInsertImageFromFile: 'menu:insertImageFromFile',
     menuPasteImageFromClipboard: 'menu:pasteImageFromClipboard',
     menuSave: 'menu:save',
+    menuRepairSave: 'menu:repairSave',
     menuSaveAs: 'menu:saveAs',
     menuPrint: 'menu:print',
     menuPrintCurrentPage: 'menu:printCurrentPage',
@@ -265,6 +266,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuSave]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuRepairSave]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuSaveAs]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuPrint]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage]: undefined;

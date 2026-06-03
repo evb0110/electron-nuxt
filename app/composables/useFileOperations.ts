@@ -86,6 +86,7 @@ export interface IFileOperationsDeps {
     serializePdfForSave: (
         data: Uint8Array,
         options?: {
+            forceRewrite?: boolean;
             includeShapes?: boolean;
             rewriteShapeState?: boolean;
             pendingTexts?: Map<string, string> | null;
@@ -243,6 +244,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         pendingTexts: Map<string, string> | null,
         pendingDeletes: IAnnotationCommentSummary[] | null,
         opts?: {
+            forceRewrite?: boolean;
             includeShapes?: boolean;
             rewriteShapeState?: boolean;
             saveMode?: TPdfSaveMode;
@@ -258,6 +260,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (opts?.rewriteShapeState !== undefined) {
             serializeOptions.rewriteShapeState = opts.rewriteShapeState;
         }
+        if (opts?.forceRewrite !== undefined) {
+            serializeOptions.forceRewrite = opts.forceRewrite;
+        }
         const data = await timedSavePhase(
             'serialize-pdf-for-save',
             () => serializePdfForSave(rawData, serializeOptions),
@@ -268,6 +273,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 rewriteShapeState: Boolean(opts?.rewriteShapeState),
                 pendingTexts: pendingTexts?.size ?? 0,
                 pendingDeletes: pendingDeletes?.length ?? 0,
+                forceRewrite: Boolean(opts?.forceRewrite),
             }),
         );
 
@@ -739,7 +745,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode: TPdfSaveMode;
             persistOpenNotesAbortMessage: string;
             totalPhase: 'handle-save-total' | 'handle-save-as-total';
-            failureLogMessage: 'Save failed' | 'Save As failed';
+            failureLogMessage: 'Save failed' | 'Save As failed' | 'Repair save failed';
             saveIndicator: Ref<boolean>;
             persistSerialized: (
                 data: Uint8Array,
@@ -750,6 +756,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 expectedWorkingPath?: TDocumentRef | null;
             }) => Promise<IPdfPersistResult>;
             shouldPreferWorkingCopy: boolean;
+            forceSerialize?: boolean;
+            forceRewrite?: boolean;
         },
     ) {
         if (hasSaveOperationInProgress()) {
@@ -785,7 +793,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 hasPendingTexts,
                 hasPendingDeletes,
                 preservedAnnotationSourceDirty,
-            );
+            ) || config.forceSerialize === true;
             const preserveLivePdfjsAnnotationSession = shouldPreserveLiveAnnotationSession({
                 mode: config.mode,
                 shouldSerialize,
@@ -811,6 +819,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     hasShapeChanges: shapeStateDirty,
                     hasPendingTexts,
                     hasPendingDeletes,
+                    forceSerialize: config.forceSerialize === true,
+                    forceRewrite: config.forceRewrite === true,
                     preserveLivePdfjsAnnotationSession,
                     savedPdfjsAnnotationBaselineDirty,
                     preservedAnnotationSourceDirty,
@@ -869,6 +879,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     config.persistSerialized,
                     preserveLivePdfjsAnnotationSession,
                     includeManagedShapesForLiveSource,
+                    config.forceRewrite === true,
                     expectedWorkingPath,
                     () => clearSaveIndicator(config.mode),
                 );
@@ -925,6 +936,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         pendingDeletes: IAnnotationCommentSummary[] | null,
         shapeStateDirty: boolean,
         includeManagedShapesForLiveSource: boolean,
+        forceRewrite: boolean,
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         mode: 'save' | 'save_as',
         saveMode: TPdfSaveMode,
@@ -942,6 +954,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
             includeShapes: shapeStateDirty || includeManagedShapesForLiveSource,
             rewriteShapeState: shapeStateDirty,
+            forceRewrite,
             saveMode,
         });
         if (!saveResult) {
@@ -1064,6 +1077,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         ) => Promise<IPdfPersistResult>,
         preserveLoadedSource = false,
         includeManagedShapesForLiveSource = false,
+        forceRewrite = false,
         expectedWorkingPath: TDocumentRef | null,
         onPersistenceSettled?: () => void,
     ) {
@@ -1073,6 +1087,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             pendingDeletes,
             shapeStateDirty,
             includeManagedShapesForLiveSource,
+            forceRewrite,
             reloadWaiter,
             mode,
             saveMode,
@@ -1124,8 +1139,25 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         });
     }
 
+    async function handleRepairSave() {
+        return runSaveFlow({
+            mode: 'save',
+            saveMode: 'rewrite',
+            persistOpenNotesAbortMessage: 'Repair save aborted because annotation note persistence failed',
+            totalPhase: 'handle-save-total',
+            failureLogMessage: 'Repair save failed',
+            saveIndicator: isSaving,
+            persistSerialized: saveFile,
+            persistUnserialized: saveWorkingCopy,
+            shouldPreferWorkingCopy: true,
+            forceSerialize: true,
+            forceRewrite: true,
+        });
+    }
+
     return {
         handleSave,
+        handleRepairSave,
         handleSaveAs,
     };
 };

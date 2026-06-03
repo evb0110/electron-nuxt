@@ -51,6 +51,7 @@
                 :open="appMenuOpen"
                 :has-pdf="hasPdf"
                 :can-save="snapshot.canSave"
+                :can-repair-save="snapshot.canRepairSave"
                 :can-undo="snapshot.canUndo"
                 :can-redo="snapshot.canRedo"
                 :can-export-docx="snapshot.canExportDocx"
@@ -64,6 +65,7 @@
                 @update:open="handleAppMenuOpenUpdate"
                 @open-file="handleOpenFile"
                 @save="handleSave"
+                @repair-save="handleRepairSave"
                 @save-as="handleSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
@@ -228,6 +230,7 @@ const emit = defineEmits<{
     'open-file': [];
     'open-settings': [];
     'save': [];
+    'repair-save': [];
     'save-as': [];
     'print': [];
     'print-current-page': [];
@@ -295,6 +298,10 @@ function handleOpenSettings() {
 
 function handleSave() {
     emit('save');
+}
+
+function handleRepairSave() {
+    emit('repair-save');
 }
 
 function handleSaveAs() {

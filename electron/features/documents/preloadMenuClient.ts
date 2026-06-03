@@ -21,6 +21,7 @@ type TNoArgDocumentMenuSubscriptions = Pick<
     | 'onMenuInsertImageFromFile'
     | 'onMenuPasteImageFromClipboard'
     | 'onMenuSave'
+    | 'onMenuRepairSave'
     | 'onMenuSaveAs'
     | 'onMenuPrint'
     | 'onMenuPrintCurrentPage'
@@ -61,6 +62,7 @@ export function createDocumentsPreloadMenuClient(
         onMenuInsertImageFromFile: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile),
         onMenuPasteImageFromClipboard: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard),
         onMenuSave: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSave),
+        onMenuRepairSave: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRepairSave),
         onMenuSaveAs: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSaveAs),
         onMenuPrint: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrint),
         onMenuPrintCurrentPage: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage),
@@ -88,7 +90,8 @@ export function createDocumentsPreloadMenuClient(
     return {
         setMenuDocumentState: (state: boolean | {
             hasDocument: boolean;
-            canSave: boolean 
+            canSave: boolean;
+            canRepairSave?: boolean;
         }) =>
             invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, state),
         setMenuTabCount: (tabCount: number) =>

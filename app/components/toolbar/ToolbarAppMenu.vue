@@ -38,6 +38,14 @@
                         </button>
                         <button
                             class="app-menu-item toolbar-menu-item"
+                            :disabled="!hasInteractiveDocument || !canRepairSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                            @click="handleMenuCommand('repair-save')"
+                        >
+                            <UIcon name="i-ph-arrows-clockwise" class="app-menu-icon toolbar-menu-icon" />
+                            <span class="app-menu-label toolbar-menu-label">{{ t('menu.repairAndSave') }}</span>
+                        </button>
+                        <button
+                            class="app-menu-item toolbar-menu-item"
                             :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                             @click="handleMenuCommand('save-as')"
                         >
@@ -174,6 +182,7 @@ interface IProps {
     open: boolean
     hasPdf: boolean
     canSave: boolean
+    canRepairSave: boolean
     canUndo: boolean
     canRedo: boolean
     canExportDocx: boolean
@@ -197,6 +206,7 @@ const emit = defineEmits<{
     (e: 'update:open', value: boolean): void
     (e: 'open-file'): void
     (e: 'save'): void
+    (e: 'repair-save'): void
     (e: 'save-as'): void
     (e: 'print'): void
     (e: 'print-current-page'): void
@@ -214,6 +224,7 @@ const emit = defineEmits<{
 type TMenuCommand =
     | 'open-file'
     | 'save'
+    | 'repair-save'
     | 'save-as'
     | 'print'
     | 'print-current-page'
@@ -230,6 +241,7 @@ type TMenuCommand =
 const emitMenuCommand = {
     'open-file': () => emit('open-file'),
     save: () => emit('save'),
+    'repair-save': () => emit('repair-save'),
     'save-as': () => emit('save-as'),
     print: () => emit('print'),
     'print-current-page': () => emit('print-current-page'),

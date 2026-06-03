@@ -52,6 +52,7 @@
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
                 @save="handleFallbackSave"
+                @repair-save="handleFallbackRepairSave"
                 @save-as="handleFallbackSaveAs"
                 @print="handleFallbackPrint"
                 @print-current-page="handleFallbackPrintCurrentPage"
@@ -435,6 +436,10 @@ function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Pro
 
 function handleFallbackSave() {
     runFallbackWorkspaceAction(workspace => workspace.handleSave());
+}
+
+function handleFallbackRepairSave() {
+    runFallbackWorkspaceAction(workspace => workspace.handleRepairSave());
 }
 
 function handleFallbackSaveAs() {

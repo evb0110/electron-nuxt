@@ -49,13 +49,15 @@ export interface IImageExportCapability {
 export interface IDocumentsMenuCapability {
     setMenuDocumentState: (state: boolean | {
         hasDocument: boolean;
-        canSave: boolean 
+        canSave: boolean;
+        canRepairSave?: boolean;
     }) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuInsertImageFromFile: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuPasteImageFromClipboard: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuRepairSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuPrint: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuPrintCurrentPage: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

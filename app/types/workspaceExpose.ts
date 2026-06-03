@@ -16,6 +16,7 @@ export interface IWorkspaceToolbarSnapshot {
     hasOpenError: boolean;
     isPreparingPrint: boolean;
     canSave: boolean;
+    canRepairSave: boolean;
     canUndo: boolean;
     canRedo: boolean;
     canExportDocx: boolean;
@@ -49,6 +50,7 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         hasOpenError: false,
         isPreparingPrint: false,
         canSave: false,
+        canRepairSave: false,
         canUndo: false,
         canRedo: false,
         canExportDocx: false,
@@ -80,6 +82,7 @@ export interface ICloseFileFromUiOptions {persist?: boolean;}
 
 export interface IWorkspaceFilePort {
     handleSave: () => Promise<void>;
+    handleRepairSave: () => Promise<void>;
     handleSaveAs: () => Promise<void>;
     handlePrint: () => void | Promise<void>;
     handlePrintCurrentPage: () => void | Promise<void>;

@@ -377,6 +377,7 @@ export default {
         'openRecent': 'Открыть недавние',
         'edit': 'Правка',
         'save': 'Сохранить',
+        'repairAndSave': 'Восстановить и сохранить',
         'saveAs': 'Сохранить как...',
         'print': 'Печать...',
         'printCurrentPage': 'Печать текущей страницы...',

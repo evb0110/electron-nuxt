@@ -50,6 +50,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenCalledWith({
             hasDocument: false,
             canSave: false,
+            canRepairSave: false,
         });
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
@@ -66,6 +67,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: false,
+            canRepairSave: true,
         });
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
     });
@@ -92,6 +94,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: false,
+            canRepairSave: true,
         });
 
         canSaveRef.value = true;
@@ -100,6 +103,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith({
             hasDocument: true,
             canSave: true,
+            canRepairSave: true,
         });
     });
 

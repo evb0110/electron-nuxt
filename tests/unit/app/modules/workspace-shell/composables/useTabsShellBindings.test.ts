@@ -43,6 +43,7 @@ vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => 
 function createOptions() {
     const workspace = {
         handleSaveAs: vi.fn(),
+        handleRepairSave: vi.fn(),
         handleExportDocx: vi.fn(),
         handleUndo: vi.fn(),
         handleRedo: vi.fn(),

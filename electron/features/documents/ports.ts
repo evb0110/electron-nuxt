@@ -89,7 +89,8 @@ export interface IDocumentsService {
         event: IpcMainInvokeEvent,
         state: boolean | {
             hasDocument: boolean;
-            canSave: boolean 
+            canSave: boolean;
+            canRepairSave?: boolean;
         },
     ) => void;
     setMenuTabCount: (event: IpcMainInvokeEvent, tabCount: number) => void;

@@ -12,6 +12,7 @@ import { isRecord } from '@contracts/runtimeGuards';
 
 const FILE_PORT_METHODS = [
     'handleSave',
+    'handleRepairSave',
     'handleSaveAs',
     'handlePrint',
     'handleUndo',

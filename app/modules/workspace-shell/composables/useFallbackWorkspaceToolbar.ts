@@ -32,6 +32,7 @@ export const useFallbackWorkspaceToolbar = (options: IUseFallbackWorkspaceToolba
     const fallbackCurrentPage = ref(1);
     const fallbackTotalPages = ref(0);
     const fallbackCanSave = ref(false);
+    const fallbackCanRepairSave = ref(false);
     const fallbackCanUndo = ref(false);
     const fallbackCanRedo = ref(false);
     const fallbackCanExportDocx = ref(false);
@@ -72,6 +73,7 @@ export const useFallbackWorkspaceToolbar = (options: IUseFallbackWorkspaceToolba
             : 0;
 
         fallbackCanSave.value = snapshot.canSave;
+        fallbackCanRepairSave.value = snapshot.canRepairSave;
         fallbackCanUndo.value = snapshot.canUndo;
         fallbackCanRedo.value = snapshot.canRedo;
         fallbackCanExportDocx.value = snapshot.canExportDocx;
@@ -141,6 +143,7 @@ export const useFallbackWorkspaceToolbar = (options: IUseFallbackWorkspaceToolba
             hasOpenError: fallbackHasOpenError.value,
             isPreparingPrint: fallbackIsPreparingPrint.value,
             canSave: fallbackCanSave.value,
+            canRepairSave: fallbackCanRepairSave.value,
             canUndo: fallbackCanUndo.value,
             canRedo: fallbackCanRedo.value,
             canExportDocx: fallbackCanExportDocx.value,
