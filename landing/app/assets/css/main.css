@@ -460,6 +460,15 @@ a {
   color: var(--landing-ink-soft);
 }
 
+.hero-ai-note {
+  margin: 0.75rem auto 0;
+  max-width: 54ch;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--landing-muted);
+  text-wrap: balance;
+}
+
 .hero-cta {
   display: flex;
   flex-wrap: wrap;
