@@ -1027,6 +1027,26 @@ const PAGE_LABEL_RANGE_SCHEMA = {
     required: ['startPage'],
     additionalProperties: false,
 };
+const PAGE_LABEL_SEGMENT_SCHEMA = {
+    type: 'object',
+    properties: {
+        ...PAGE_LABEL_RANGE_SCHEMA.properties,
+        endPage: {
+            type: 'number',
+            description: 'One-based inclusive end page for this segment.',
+        },
+        toPage: {
+            type: 'number',
+            description: 'Alias for endPage.',
+        },
+        label: {
+            type: 'string',
+            description: 'Literal label for this segment when style/prefix are omitted.',
+        },
+    },
+    required: ['startPage'],
+    additionalProperties: false,
+};
 const PAGE_LABEL_SET_RANGES_INPUT_SCHEMA = {
     type: 'object',
     properties: {ranges: {
@@ -1083,6 +1103,40 @@ const PAGE_LABEL_SET_LABELS_INPUT_SCHEMA = {
     },
     additionalProperties: false,
 };
+const PAGE_LABEL_PLAN_INPUT_SCHEMA = {
+    type: 'object',
+    properties: {
+        ranges: {
+            type: 'array',
+            items: PAGE_LABEL_RANGE_SCHEMA,
+            description: 'Complete replacement PDF page-label ranges. Use for regular range plans.',
+        },
+        segments: {
+            type: 'array',
+            items: PAGE_LABEL_SEGMENT_SCHEMA,
+            description: 'Inclusive page spans with generated labels; easier for agents than raw PDF ranges because each segment may include endPage.',
+        },
+        labels: PAGE_LABEL_SET_LABELS_INPUT_SCHEMA.properties.labels,
+        updates: PAGE_LABEL_SET_LABELS_INPUT_SCHEMA.properties.updates,
+        page: PAGE_LABEL_SET_LABELS_INPUT_SCHEMA.properties.page,
+        pageNumber: PAGE_LABEL_SET_LABELS_INPUT_SCHEMA.properties.pageNumber,
+        label: PAGE_LABEL_SET_LABELS_INPUT_SCHEMA.properties.label,
+        startPage: {
+            type: 'number',
+            description: 'Starting page when labels is a partial explicit-label array.',
+        },
+        base: {
+            type: 'string',
+            enum: [
+                'current',
+                'default',
+                'physical',
+            ],
+            description: 'Base labels for segments or explicit updates. Defaults to current labels; default/physical starts from physical decimal pages.',
+        },
+    },
+    additionalProperties: false,
+};
 const BOOKMARK_PATH_SCHEMA = {
     type: 'array',
     items: {type: 'number'},
@@ -1123,10 +1177,30 @@ const BOOKMARK_ENTRY_SCHEMA = {
             items: {type: 'object'},
             description: 'Nested child bookmarks using the same entry shape.',
         },
+        children: {
+            type: 'array',
+            items: {type: 'object'},
+            description: 'Alias for items.',
+        },
         parentPath: BOOKMARK_PATH_SCHEMA,
         index: {
             type: 'number',
             description: 'Zero-based insert index within the parent. Defaults to append.',
+        },
+    },
+    additionalProperties: false,
+};
+const BOOKMARK_FLAT_ENTRY_SCHEMA = {
+    type: 'object',
+    properties: {
+        ...BOOKMARK_ENTRY_SCHEMA.properties,
+        level: {
+            type: 'number',
+            description: 'One-based outline level for flat TOC input; level 1 is a root bookmark.',
+        },
+        depth: {
+            type: 'number',
+            description: 'Zero-based outline depth for flat TOC input; depth 0 is a root bookmark.',
         },
     },
     additionalProperties: false,
@@ -1149,9 +1223,25 @@ const BOOKMARK_TREE_INPUT_SCHEMA = {
             items: BOOKMARK_ENTRY_SCHEMA,
             description: 'Alias for bookmarks.',
         },
+        entries: {
+            type: 'array',
+            items: BOOKMARK_FLAT_ENTRY_SCHEMA,
+            description: 'Flat TOC entries with level/depth values. The renderer converts them into nested bookmarks.',
+        },
+        flat: {
+            type: 'array',
+            items: BOOKMARK_FLAT_ENTRY_SCHEMA,
+            description: 'Alias for entries.',
+        },
+        outline: {
+            type: 'array',
+            items: BOOKMARK_FLAT_ENTRY_SCHEMA,
+            description: 'Alias for entries.',
+        },
     },
     additionalProperties: false,
 };
+const BOOKMARK_PLAN_INPUT_SCHEMA = BOOKMARK_TREE_INPUT_SCHEMA;
 const BOOKMARK_ADD_INPUT_SCHEMA = {
     type: 'object',
     properties: {
@@ -1349,13 +1439,35 @@ const AGENT_CAPABILITY_TEMPLATES = [
         id: 'page_labels.read',
         domain: 'page_labels',
         title: 'Read page labels',
-        summary: 'Read current PDF page numbering ranges and materialized page labels.',
+        summary: 'Read current PDF page numbering ranges, materialized labels, compact segments, samples, and validation hints.',
         risk: 'read',
         inputSchema: TAB_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
         policy: ALLOW_INTERNAL_AND_EXTERNAL,
         availabilityKind: 'renderer-document',
         resourceTemplates: ['evb://document/{tabId}/page-labels'],
+    },
+    {
+        id: 'page_labels.preview',
+        domain: 'page_labels',
+        title: 'Preview page label plan',
+        summary: 'Normalize proposed page-label ranges, inclusive segments, or explicit labels and return segments, samples, issues, and a changed-page diff without mutating the document.',
+        risk: 'read',
+        inputSchema: PAGE_LABEL_PLAN_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'page_labels.apply_plan',
+        domain: 'page_labels',
+        title: 'Apply page label plan',
+        summary: 'Apply a verified page-label plan from ranges, inclusive segments, or explicit labels, returning the normalized snapshot and diff while recording an undoable metadata edit.',
+        risk: 'write',
+        inputSchema: PAGE_LABEL_PLAN_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
     },
     {
         id: 'page_labels.set_ranges',
@@ -1405,7 +1517,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.read',
         domain: 'bookmarks',
         title: 'Read bookmarks',
-        summary: 'Read editable PDF bookmarks as a nested tree with zero-based paths.',
+        summary: 'Read editable PDF bookmarks as a nested tree plus flat path-indexed entries, summary counts, and validation hints.',
         risk: 'read',
         inputSchema: TAB_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -1414,10 +1526,32 @@ const AGENT_CAPABILITY_TEMPLATES = [
         resourceTemplates: ['evb://document/{tabId}/bookmarks'],
     },
     {
+        id: 'bookmarks.preview_tree',
+        domain: 'bookmarks',
+        title: 'Preview bookmark tree',
+        summary: 'Normalize a proposed nested bookmark tree with items/children or flat TOC entries with level/depth values and return the nested tree, flat view, issues, and path-level diff without mutating the document.',
+        risk: 'read',
+        inputSchema: BOOKMARK_PLAN_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: ALLOW_INTERNAL_AND_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
+        id: 'bookmarks.apply_plan',
+        domain: 'bookmarks',
+        title: 'Apply bookmark plan',
+        summary: 'Apply a verified nested bookmark tree with items/children or flat TOC-entry plan as an undoable metadata edit, returning the normalized tree, flat view, issues, and diff.',
+        risk: 'write',
+        inputSchema: BOOKMARK_PLAN_INPUT_SCHEMA,
+        outputSchema: OBJECT_OUTPUT_SCHEMA,
+        policy: CONFIRM_EXTERNAL,
+        availabilityKind: 'renderer-document',
+    },
+    {
         id: 'bookmarks.set_tree',
         domain: 'bookmarks',
         title: 'Replace bookmark tree',
-        summary: 'Replace the full multi-level bookmark tree in one batch.',
+        summary: 'Replace the full multi-level bookmark tree in one batch. Also accepts flat entries with level/depth values.',
         risk: 'write',
         inputSchema: BOOKMARK_TREE_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -2040,10 +2174,10 @@ function createInitializeInstructions() {
         'When the workspace is empty, evb_workspace_snapshot and evb_viewer_open_documents may still include recent files shown by EVB Viewer. Treat those as file-list metadata only; do not claim to know their contents unless a document is opened and read through EVB tools.',
         'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
         'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
-        'When reconstructing page labels, start from OCR/searchable text and current page labels, then verify visible printed page numbers across front matter, transition pages, appendices, and body pages. Use document.capture_page_image for uncertain pages or crops and inspect the returned image before writing page_labels.set_ranges/apply_range/set_labels.',
-        'When reconstructing bookmarks, start from the PDF TOC/bookmarks when present, then verify each title/page target against OCR/searchable text and visual screenshots for doubtful entries. Use bookmarks.set_tree/add/add_batch/update/delete only after checking that targets land on the visible section starts.',
+        'When reconstructing page labels, start from OCR/searchable text and current page labels, then verify visible printed page numbers across front matter, transition pages, appendices, and body pages. Use document.capture_page_image for uncertain pages or crops and inspect the returned image. Prefer page_labels.preview with inclusive segments or explicit labels before committing with page_labels.apply_plan; use low-level page_labels.set_ranges/apply_range/set_labels only for small edits.',
+        'When reconstructing bookmarks, start from the PDF TOC/bookmarks when present, then verify each title/page target against OCR/searchable text and visual screenshots for doubtful entries. Prefer bookmarks.preview_tree with flat entries carrying level/depth values before committing with bookmarks.apply_plan; use low-level bookmarks.set_tree/add/add_batch/update/delete only for small edits.',
         'For page-label and bookmark workflows, mutate only through EVB Viewer capabilities so edits enter the metadata undo stack. After all writes are verified, save the file with file.save and report any save failure.',
-        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits. Use document.capture_page_image when OCR, page labels, TOC, or search evidence is ambiguous.',
+        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.preview/apply_plan and bookmarks.preview_tree/apply_plan for rebuilds; use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits. Use document.capture_page_image when OCR, page labels, TOC, or search evidence is ambiguous.',
         'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
         'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
         'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
@@ -2896,7 +3030,7 @@ function createPromptText(name: string, params: unknown) {
             'Start by reading evb://document/{tabId}/page-labels and inspecting text coverage with document.inspect_text. Use OCR/searchable page text as evidence, but do not trust it blindly.',
             'Sample the beginning, front-matter/body transition, appendix or plate sections, and the end. Look for printed numerals such as iv, A, A-1, 1, or restarted numbering; search/read nearby pages to infer ranges.',
             'For every uncertain boundary or suspicious OCR result, call document.capture_page_image with full/top/bottom or normalized crops and visually inspect the returned image before deciding.',
-            'Apply the final numbering with page_labels.set_ranges when ranges are regular, or page_labels.set_labels for irregular explicit labels so the app records an undoable metadata step. Re-read page labels after the write, spot-check representative pages, then save with file.save.',
+            'Call page_labels.preview with ranges, inclusive segments, or explicit labels. Inspect the normalized segments, samples, issues, and changed-page diff. Only then commit with page_labels.apply_plan so the app records an undoable metadata step. Re-read page labels after the write, spot-check representative pages, then save with file.save.',
         ].join('\n');
     }
 
@@ -2906,7 +3040,7 @@ function createPromptText(name: string, params: unknown) {
             'Start by reading evb://document/{tabId}/toc and /bookmarks. Treat the existing PDF TOC/bookmarks as hints, not proof.',
             'Use document.search and document.read_pages to locate each section title from the TOC, printed contents pages, or the user-specified outline.',
             'For doubtful title/page matches, wrong-looking offsets, duplicated headings, or OCR gaps, call document.capture_page_image on candidate pages or crops and inspect the visible page before writing.',
-            'Apply the final tree with bookmarks.set_tree or use add/update/delete for smaller edits so the app records undoable metadata steps. Re-read bookmarks, verify a sample of root and nested targets after the write, then save with file.save.',
+            'Call bookmarks.preview_tree with a nested tree or flat entries that carry level/depth values. Inspect the normalized tree, flat path list, issues, and diff. Only then commit with bookmarks.apply_plan so the app records an undoable metadata step. Re-read bookmarks, verify a sample of root and nested targets after the write, then save with file.save.',
         ].join('\n');
     }
 

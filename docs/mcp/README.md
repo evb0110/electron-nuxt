@@ -226,7 +226,9 @@ For existing annotations, use `annotation.update_note` to replace note text and 
 
 Page numbering tools use PDF page-label ranges:
 
-- `page_labels.read` or `evb://document/{tabId}/page-labels` returns normalized ranges and materialized labels.
+- `page_labels.read` or `evb://document/{tabId}/page-labels` returns normalized ranges, materialized labels, compact segments, samples, duplicate/repeated-literal hints, and dirty state.
+- `page_labels.preview` normalizes a proposed plan without mutating the document. It accepts raw PDF `ranges`, inclusive `segments` with `startPage`/`endPage`, or explicit `labels`/`updates`, and returns segments, samples, issues, and a changed-page diff.
+- `page_labels.apply_plan` applies the same plan input as an undoable metadata edit.
 - `page_labels.set_ranges` replaces all ranges in one batch.
 - `page_labels.apply_range` applies one numbering style to a page span while preserving labels outside that span.
 - `page_labels.set_labels` sets one explicit page label or a batch of `{ "page": n, "label": "..." }` updates.
@@ -234,21 +236,23 @@ Page numbering tools use PDF page-label ranges:
 
 Supported styles are `D` decimal, `R`/`r` roman, `A`/`a` alphabetic, or `null`/`literal` for prefix-only labels.
 
-When agents reconstruct page labels from printed paper-page numbers, OCR/searchable text is only the starting hypothesis. They should verify range boundaries, restarts, front matter, appendices, and doubtful OCR hits with `document.capture_page_image` before writing labels. Page-label edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
+When agents reconstruct page labels from printed paper-page numbers, OCR/searchable text is only the starting hypothesis. They should verify range boundaries, restarts, front matter, appendices, and doubtful OCR hits with `document.capture_page_image`, run `page_labels.preview`, inspect the diff/issues/samples, then commit with `page_labels.apply_plan`. Page-label edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
 
 ### Bookmark Capabilities
 
-Bookmark tools work with a recursive tree. Read `bookmarks.read` or `evb://document/{tabId}/bookmarks` first; returned bookmarks include zero-based `path` arrays such as `[0, 2]`.
+Bookmark tools work with a recursive tree and a flat agent-friendly view. Read `bookmarks.read` or `evb://document/{tabId}/bookmarks` first; returned bookmarks include zero-based `path` arrays such as `[0, 2]`, a flattened list, summary counts, and validation hints.
 
+- `bookmarks.preview_tree` normalizes a proposed nested tree (`items` or `children`) or flat `entries`/`outline` list with `level` or `depth` values, returning the nested tree, flat path list, issues, and diff without mutating the document.
+- `bookmarks.apply_plan` applies the same nested or flat plan input as an undoable metadata edit.
 - `bookmarks.set_tree` replaces the full nested tree.
 - `bookmarks.add` adds one bookmark under an optional `parentPath`.
 - `bookmarks.add_batch` adds many bookmarks, each optionally carrying its own `parentPath` and `index`.
 - `bookmarks.update` updates one bookmark by `path`.
 - `bookmarks.delete` deletes one bookmark subtree by `path`.
 
-Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`.
+Bookmark entries accept `title`, `page`/`pageNumber`, `pageIndex`, `namedDest`, `bold`, `italic`, `color`, and nested `items`. Flat rebuild plans may use `entries`, `flat`, or `outline` arrays with `level` (1-based) or `depth` (0-based), so an extracted table of contents can be passed without hand-nesting.
 
-When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches before mutating the tree. Bookmark edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
+When agents rebuild bookmarks, the existing PDF TOC/bookmarks are hints rather than proof. Agents should verify each target with `document.search`, `document.read_pages`, and `document.capture_page_image` for doubtful matches, run `bookmarks.preview_tree`, inspect the diff/issues/flat paths, then commit with `bookmarks.apply_plan`. Bookmark edits made through these capabilities go through the metadata undo stack; after final verification the agent should save with `file.save`.
 
 ### Visual Verification Capability
 
