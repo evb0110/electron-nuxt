@@ -470,6 +470,11 @@ describe('processMcpRequest', () => {
                     id: 'page_labels.set_ranges',
                     inputSchema: expect.objectContaining({required: ['ranges']}),
                 }),
+                expect.objectContaining({
+                    id: 'page_labels.preview',
+                    inputSchema: expect.objectContaining({properties: expect.objectContaining({segments: expect.objectContaining({type: 'array'})})}),
+                }),
+                expect.objectContaining({id: 'page_labels.apply_plan'}),
                 expect.objectContaining({id: 'page_labels.apply_range'}),
                 expect.objectContaining({id: 'page_labels.set_labels'}),
             ]),
@@ -477,6 +482,11 @@ describe('processMcpRequest', () => {
         expect(bookmarksResponse?.result).toMatchObject({structuredContent: {
             domain: 'bookmarks',
             capabilities: expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'bookmarks.preview_tree',
+                    inputSchema: expect.objectContaining({properties: expect.objectContaining({entries: expect.objectContaining({type: 'array'})})}),
+                }),
+                expect.objectContaining({id: 'bookmarks.apply_plan'}),
                 expect.objectContaining({id: 'bookmarks.set_tree'}),
                 expect.objectContaining({id: 'bookmarks.add'}),
                 expect.objectContaining({id: 'bookmarks.add_batch'}),
@@ -587,6 +597,11 @@ describe('processMcpRequest', () => {
 
     it('dispatches page-label and bookmark mutations through run action', async () => {
         const options = createOptions();
+        const pageLabelPlanInput = {segments: [{
+            startPage: 1,
+            endPage: 4,
+            style: 'roman-lower',
+        }]};
         const bookmarkBatchInput = {bookmarks: [{
             title: 'Chapter 1',
             page: 5,
@@ -595,7 +610,45 @@ describe('processMcpRequest', () => {
                 page: 6,
             }],
         }]};
+        const bookmarkPlanInput = {entries: [
+            {
+                level: 1,
+                title: 'Chapter 1',
+                page: 5,
+            },
+            {
+                level: 2,
+                title: 'Section 1.1',
+                page: 6,
+            },
+        ]};
 
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'preview-page-labels',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'page_labels.preview',
+                    input: pageLabelPlanInput,
+                },
+            },
+        }, options);
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'apply-page-label-plan',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'page_labels.apply_plan',
+                    input: pageLabelPlanInput,
+                },
+            },
+        }, options);
         await processMcpRequest({
             jsonrpc: '2.0',
             id: 'set-page-labels',
@@ -617,6 +670,32 @@ describe('processMcpRequest', () => {
         }, options);
         await processMcpRequest({
             jsonrpc: '2.0',
+            id: 'preview-bookmarks',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.preview_tree',
+                    input: bookmarkPlanInput,
+                },
+            },
+        }, options);
+        await processMcpRequest({
+            jsonrpc: '2.0',
+            id: 'apply-bookmark-plan',
+            method: 'tools/call',
+            params: {
+                name: 'evb_run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.apply_plan',
+                    input: bookmarkPlanInput,
+                },
+            },
+        }, options);
+        await processMcpRequest({
+            jsonrpc: '2.0',
             id: 'add-bookmarks',
             method: 'tools/call',
             params: {
@@ -633,6 +712,22 @@ describe('processMcpRequest', () => {
             name: 'run_action',
             arguments: {
                 tabId: 'tab-1',
+                id: 'page_labels.preview',
+                input: pageLabelPlanInput,
+            },
+        }, undefined);
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'page_labels.apply_plan',
+                input: pageLabelPlanInput,
+            },
+        }, undefined);
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
                 id: 'page_labels.apply_range',
                 input: {
                     startPage: 1,
@@ -641,6 +736,22 @@ describe('processMcpRequest', () => {
                     prefix: '',
                     startNumber: 1,
                 },
+            },
+        }, undefined);
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'bookmarks.preview_tree',
+                input: bookmarkPlanInput,
+            },
+        }, undefined);
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-1',
+                id: 'bookmarks.apply_plan',
+                input: bookmarkPlanInput,
             },
         }, undefined);
         expect(options.runCommand).toHaveBeenCalledWith({
@@ -731,9 +842,12 @@ describe('processMcpRequest', () => {
         }]});
         expect(JSON.stringify(prompt?.result)).toContain('seventh stem tables');
         expect(JSON.stringify(prompt?.result)).toContain('evb_search_document');
+        expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('page_labels.preview');
+        expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('page_labels.apply_plan');
         expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('document.capture_page_image');
         expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('file.save');
-        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.set_tree');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.preview_tree');
+        expect(JSON.stringify(bookmarkPrompt?.result)).toContain('bookmarks.apply_plan');
         expect(JSON.stringify(bookmarkPrompt?.result)).toContain('file.save');
     });
 

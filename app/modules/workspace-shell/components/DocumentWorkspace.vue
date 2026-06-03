@@ -570,9 +570,14 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/composab
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
-    normalizePageLabelRanges,
 } from '@app/utils/pdfPageLabels';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
+import {
+    createAgentBookmarkPlan,
+    createAgentBookmarkSnapshot as createAgentBookmarkPlanSnapshot,
+    createAgentPageLabelPlan,
+    createAgentPageLabelSnapshot as createAgentPageLabelPlanSnapshot,
+} from '@app/utils/agentMetadataPlans';
 import { capturePdfRegionAsPngBlob } from '@app/composables/pdf/pdfRegionCapture';
 import {
     getRectHeight,
@@ -1836,14 +1841,12 @@ function getEffectiveAgentPageLabels() {
 }
 
 function createAgentPageLabelSnapshot() {
-    const pageCount = totalPages.value;
-    const ranges = normalizePageLabelRanges(pageLabelRanges.value, pageCount);
-    return {
-        totalPages: pageCount,
+    return createAgentPageLabelPlanSnapshot({
+        totalPages: totalPages.value,
         dirty: pageLabelsDirty.value,
-        ranges,
-        labels: getEffectiveAgentPageLabels(),
-    };
+        pageLabelRanges: pageLabelRanges.value,
+        pageLabels: pageLabels.value,
+    });
 }
 
 function updateAgentPageLabelRanges(ranges: IPdfPageLabelRange[]) {
@@ -1938,6 +1941,26 @@ function setAgentPageLabels(input: Record<string, unknown>, actionId: string) {
     return updateAgentPageLabelRanges(derivePageLabelRangesFromLabels(labels, totalPages.value));
 }
 
+function previewAgentPageLabelPlan(input: Record<string, unknown>, actionId: string) {
+    return createAgentPageLabelPlan({
+        input,
+        totalPages: totalPages.value,
+        currentRanges: pageLabelRanges.value,
+        currentLabels: pageLabels.value,
+        dirty: pageLabelsDirty.value,
+        actionId,
+    });
+}
+
+function applyAgentPageLabelPlan(input: Record<string, unknown>, actionId: string) {
+    const plan = previewAgentPageLabelPlan(input, actionId);
+    const snapshot = updateAgentPageLabelRanges(plan.ranges);
+    return {
+        ...snapshot,
+        plan,
+    };
+}
+
 function cloneAgentBookmarkEntry(bookmark: IPdfBookmarkEntry): IPdfBookmarkEntry {
     return {
         ...bookmark,
@@ -2022,22 +2045,8 @@ function normalizeAgentBookmarkInput(input: Record<string, unknown>, actionId: s
     );
 }
 
-function normalizeAgentBookmarkBatchInput(input: Record<string, unknown>, actionId: string) {
-    const rawItems = input.bookmarks ?? input.items ?? input.tree;
-    if (!Array.isArray(rawItems)) {
-        throw new Error(`${actionId} requires input.bookmarks or input.items.`);
-    }
-    return rawItems
-        .filter(isAgentRecord)
-        .map(item => normalizeAgentBookmarkEntry(item, actionId));
-}
-
 function createAgentBookmarkSnapshot() {
-    return {
-        count: bookmarkItems.value.length,
-        dirty: bookmarksDirty.value,
-        bookmarks: bookmarkItems.value.map((bookmark, index) => normalizeAgentBookmark(bookmark, [index])),
-    };
+    return createAgentBookmarkPlanSnapshot(bookmarkItems.value, {dirty: bookmarksDirty.value});
 }
 
 function updateAgentBookmarks(bookmarks: IPdfBookmarkEntry[]) {
@@ -2049,7 +2058,30 @@ function updateAgentBookmarks(bookmarks: IPdfBookmarkEntry[]) {
 }
 
 function setAgentBookmarkTree(input: Record<string, unknown>, actionId: string) {
-    return updateAgentBookmarks(normalizeAgentBookmarkBatchInput(input, actionId));
+    const plan = previewAgentBookmarkPlan(input, actionId);
+    return {
+        ...updateAgentBookmarks(plan.bookmarks),
+        plan,
+    };
+}
+
+function previewAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
+    return createAgentBookmarkPlan({
+        input,
+        currentBookmarks: bookmarkItems.value,
+        totalPages: totalPages.value,
+        dirty: bookmarksDirty.value,
+        untitledTitle: t('bookmarks.untitled'),
+        actionId,
+    });
+}
+
+function applyAgentBookmarkPlan(input: Record<string, unknown>, actionId: string) {
+    const plan = previewAgentBookmarkPlan(input, actionId);
+    return {
+        ...updateAgentBookmarks(plan.bookmarks),
+        plan,
+    };
 }
 
 function addAgentBookmark(input: Record<string, unknown>, actionId: string) {
@@ -2270,27 +2302,6 @@ function normalizeAgentAnnotationComment(comment: IAnnotationCommentSummary) {
     };
 }
 
-function normalizeAgentBookmark(
-    bookmark: typeof bookmarkItems.value[number],
-    path: number[] = [],
-): Record<string, unknown> {
-    return {
-        path,
-        depth: path.length,
-        title: bookmark.title,
-        pageIndex: bookmark.pageIndex,
-        pageNumber: bookmark.pageIndex === null ? null : bookmark.pageIndex + 1,
-        namedDest: bookmark.namedDest,
-        bold: bookmark.bold,
-        italic: bookmark.italic,
-        color: bookmark.color,
-        items: bookmark.items.map((child, index) => normalizeAgentBookmark(child, [
-            ...path,
-            index,
-        ])),
-    };
-}
-
 function findAgentAnnotationComment(input: Record<string, unknown> | undefined) {
     const stableKey = getAgentStringInput(input, 'stableKey');
     const annotationId = getAgentStringInput(input, 'annotationId');
@@ -2414,15 +2425,16 @@ function readAgentResource(uri: string): Promise<Record<string, unknown>> {
 
 function createAgentActionResult(
     actionId: string,
-    extra: Record<string, unknown> = {},
-) {
+    extra: object = {},
+): Record<string, unknown> {
+    const payload = extra as Record<string, unknown>;
     return {
         ok: true,
         actionId,
         tabId,
         currentPage: currentPage.value,
         totalPages: totalPages.value,
-        ...extra,
+        ...payload,
     };
 }
 
@@ -2499,6 +2511,15 @@ async function runAgentAction(
         case 'page_labels.read':
         case 'page_numbering.read':
             return createAgentActionResult(actionId, createAgentPageLabelSnapshot());
+        case 'page_labels.preview':
+        case 'page_numbering.preview':
+            return createAgentActionResult(actionId, previewAgentPageLabelPlan(input, actionId));
+        case 'page_labels.apply_plan':
+        case 'page_numbering.apply_plan': {
+            const snapshot = applyAgentPageLabelPlan(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
         case 'page_labels.set_ranges':
         case 'page_numbering.set_ranges': {
             const snapshot = updateAgentPageLabelRanges(getAgentPageLabelRangesInput(input, actionId));
@@ -2531,6 +2552,15 @@ async function runAgentAction(
         case 'bookmarks.read':
         case 'toc.read':
             return createAgentActionResult(actionId, createAgentBookmarkSnapshot());
+        case 'bookmarks.preview_tree':
+        case 'toc.preview_tree':
+            return createAgentActionResult(actionId, previewAgentBookmarkPlan(input, actionId));
+        case 'bookmarks.apply_plan':
+        case 'toc.apply_plan': {
+            const snapshot = applyAgentBookmarkPlan(input, actionId);
+            await nextTick();
+            return createAgentActionResult(actionId, snapshot);
+        }
         case 'bookmarks.set_tree':
         case 'toc.set_tree': {
             const snapshot = setAgentBookmarkTree(input, actionId);
