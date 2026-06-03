@@ -1,7 +1,7 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Document workspace for browser and desktop. Open local PDFs, DjVu files, and images in the browser; install the desktop app for searchable-PDF OCR and heavier native workflows.',
+        description: 'Document workspace for browser and desktop. Open local PDFs, DjVu files, and images in the browser; install the desktop app for searchable-PDF OCR, heavier native workflows, EVB Assistant via Codex, and optional local MCP support.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -22,12 +22,13 @@ export default {
         seo: {
             title: 'EVB Viewer web app and desktop downloads',
             ogTitle: 'EVB Viewer for web and desktop document work',
-            ogDescription: 'Use EVB Viewer in the browser for local PDF, DjVu, and image work, or install the desktop app for searchable-PDF OCR and heavier native workflows.',
+            ogDescription: 'Use EVB Viewer in the browser for local PDF, DjVu, and image work, or install the desktop app for searchable-PDF OCR, heavier native workflows, EVB Assistant via Codex, and optional local MCP support.',
         },
         hero: {
             badge: 'Browser app + desktop builds',
             title: 'PDF, DjVu, images',
             subtitle: 'Open local PDFs, DjVu files, and images in the browser. Use desktop builds for searchable-PDF OCR and larger merge jobs.',
+            aiNote: 'EVB Assistant integrates with your ChatGPT/OpenAI subscription through Codex under the hood. Technical users can also expose a local MCP server.',
             downloadFor: 'Download for {platform}',
             downloadForArch: 'Download for {platform} ({arch})',
             downloadInstaller: 'Download {installerLabel}',

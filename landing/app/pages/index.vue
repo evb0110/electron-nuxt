@@ -65,6 +65,10 @@
           <p class="hero-subtitle">
             {{ t('home.hero.subtitle') }}
           </p>
+
+          <p class="hero-ai-note">
+            {{ t('home.hero.aiNote') }}
+          </p>
         </div>
 
         <div
