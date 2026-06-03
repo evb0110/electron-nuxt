@@ -443,6 +443,29 @@ export interface IProjectNuxtRootProcessMetadata {
     descendantPids: number[];
 }
 
+export interface INuxtSessionShareMetadata {
+    name: string;
+    sessionAlive: boolean;
+    nuxtPid: number | null;
+    nuxtPort: number;
+}
+
+export function hasOtherAliveSessionUsingNuxt(
+    sessions: INuxtSessionShareMetadata[],
+    currentName: string,
+    nuxtPid: number,
+    nuxtPort: number,
+) {
+    return sessions.some(session =>
+        session.name !== currentName
+        && session.sessionAlive
+        && (
+            session.nuxtPid === nuxtPid
+            || session.nuxtPort === nuxtPort
+        ),
+    );
+}
+
 export function selectStaleNuxtPortOwnerCleanupTargets(
     pidsOnPort: number[],
     sessions: INuxtPortOwnerSessionMetadata[],
@@ -1612,10 +1635,11 @@ async function launchAutomationSessionWithRecovery(options: {
             console.log(`[Recovery] Retrying launch (attempt ${attempt + 1}/2) with CDP port ${cdpPort}`);
         }
 
-        const electronProcess = await startElectron(cdpPort);
-        options.logTiming('Electron process/CDP ready');
+        let electronProcess: ChildProcess | null = null;
 
         try {
+            electronProcess = await startElectron(cdpPort);
+            options.logTiming('Electron process/CDP ready');
             const {
                 browser,
                 page,
@@ -1631,8 +1655,13 @@ async function launchAutomationSessionWithRecovery(options: {
         } catch (error) {
             launchError = error;
             const message = error instanceof Error ? error.message : String(error);
-            console.error(`[Session] Failed to connect to browser: ${message}`);
-            await stopElectronLaunchAttempt(electronProcess, cdpPort);
+            const phase = electronProcess ? 'connect to browser' : 'start Electron';
+            console.error(`[Session] Failed to ${phase}: ${message}`);
+            if (electronProcess) {
+                await stopElectronLaunchAttempt(electronProcess, cdpPort);
+            } else {
+                await killElectronProcessesByCdpPort(cdpPort);
+            }
 
             if (attempt === 0 && isViteOptimizeDepError(error)) {
                 if (options.otherRunning.length > 0) {
@@ -1645,6 +1674,12 @@ async function launchAutomationSessionWithRecovery(options: {
 
             if (attempt === 0 && message.includes('frame was detached')) {
                 console.log('[Recovery] Frame detached during initial page load — retrying...');
+                await delay(2000);
+                continue;
+            }
+
+            if (attempt === 0) {
+                console.log('[Recovery] Electron launch failed before readiness — retrying...');
                 await delay(2000);
                 continue;
             }
@@ -1756,13 +1791,22 @@ function attachPageDiagnostics(page: Page) {
     };
 }
 
-function hasOtherAliveSessions() {
+function readNuxtSessionShareMetadata(): INuxtSessionShareMetadata[] {
     return listAllSessionNames()
-        .filter(name => name !== getCurrentSessionName())
-        .some((name) => {
+        .map((name): INuxtSessionShareMetadata | null => {
             const info = getSessionInfo(name);
-            return !!(info && isProcessAlive(info.pid));
-        });
+            if (!info) {
+                return null;
+            }
+
+            return {
+                name,
+                sessionAlive: isProcessAlive(info.pid),
+                nuxtPid: info.nuxtPid,
+                nuxtPort: info.nuxtPort,
+            };
+        })
+        .filter((session): session is INuxtSessionShareMetadata => session !== null);
 }
 
 async function stopSessionElectronProcess(state: ISessionState | null) {
@@ -1784,8 +1828,17 @@ async function stopSessionNuxtProcess(state: ISessionState | null, keepNuxtOnSto
         state.nuxtProcess.unref();
         return;
     }
-    if (hasOtherAliveSessions()) {
-        console.log('[Nuxt] Left running (other sessions active)');
+    const nuxtPid = state.nuxtProcess.pid ?? null;
+    if (
+        nuxtPid
+        && hasOtherAliveSessionUsingNuxt(
+            readNuxtSessionShareMetadata(),
+            getCurrentSessionName(),
+            nuxtPid,
+            getNuxtPort(),
+        )
+    ) {
+        console.log('[Nuxt] Left running (shared with other session)');
         return;
     }
     try {
@@ -2013,15 +2066,6 @@ async function stopSessionElectron(info: ISessionInfo) {
     await killElectronProcessesByCdpPort(info.cdpPort);
 }
 
-function hasOtherAliveSessionInfo(currentName: string) {
-    return listAllSessionNames()
-        .filter(sessionName => sessionName !== currentName)
-        .some((sessionName) => {
-            const otherInfo = getSessionInfo(sessionName);
-            return !!(otherInfo && isProcessAlive(otherInfo.pid));
-        });
-}
-
 async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt?: boolean) {
     if (!info.nuxtPid || !isProcessAlive(info.nuxtPid)) {
         return;
@@ -2030,8 +2074,13 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
         console.log('[Nuxt] Left running for fast restart');
         return;
     }
-    if (hasOtherAliveSessionInfo(name)) {
-        console.log('[Nuxt] Left running (other sessions active)');
+    if (hasOtherAliveSessionUsingNuxt(
+        readNuxtSessionShareMetadata(),
+        name,
+        info.nuxtPid,
+        info.nuxtPort,
+    )) {
+        console.log('[Nuxt] Left running (shared with other session)');
         return;
     }
     await killProcessTree(info.nuxtPid, 1200);

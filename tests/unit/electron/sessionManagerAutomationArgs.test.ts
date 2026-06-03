@@ -17,6 +17,7 @@ import {
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
 import {
+    hasOtherAliveSessionUsingNuxt,
     selectOrphanedProjectNuxtRootCleanupTargets,
     selectStaleNuxtPortOwnerCleanupTargets,
 } from '@scripts/electron-run/sessionManager';
@@ -110,15 +111,22 @@ describe('sessionManager automation launch args', () => {
         });
     });
 
-    it('prefers the hidden app launcher for macOS automation sessions', () => {
+    it('uses the hidden macOS app bundle only when explicitly requested', () => {
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
+        }, 'darwin')).toBe(false);
+
+        expect(shouldUseMacOSHiddenAppLauncher({
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         }, 'darwin')).toBe(true);
 
         expect(shouldUseMacOSHiddenAppLauncher({
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         }, 'linux')).toBe(false);
     });
 
@@ -277,6 +285,47 @@ describe('sessionManager automation launch args', () => {
 
     it('does not select unrelated Nuxt port owners with no stale session metadata', () => {
         expect(selectStaleNuxtPortOwnerCleanupTargets([4444], [], 3000)).toEqual([]);
+    });
+
+    it('preserves a Nuxt server only for live sessions sharing its process or port', () => {
+        const sessions = [
+            {
+                name: 'current',
+                sessionAlive: true,
+                nuxtPid: 1111,
+                nuxtPort: 3000,
+            },
+            {
+                name: 'same-process',
+                sessionAlive: true,
+                nuxtPid: 1111,
+                nuxtPort: 3100,
+            },
+            {
+                name: 'same-port',
+                sessionAlive: true,
+                nuxtPid: 2222,
+                nuxtPort: 3000,
+            },
+            {
+                name: 'other-isolated',
+                sessionAlive: true,
+                nuxtPid: 3333,
+                nuxtPort: 3200,
+            },
+            {
+                name: 'stale-same-port',
+                sessionAlive: false,
+                nuxtPid: 4444,
+                nuxtPort: 3000,
+            },
+        ];
+
+        expect(hasOtherAliveSessionUsingNuxt(sessions, 'current', 1111, 3000)).toBe(true);
+        expect(hasOtherAliveSessionUsingNuxt(sessions, 'current', 5555, 3000)).toBe(true);
+        expect(hasOtherAliveSessionUsingNuxt(sessions, 'current', 3333, 3200)).toBe(true);
+        expect(hasOtherAliveSessionUsingNuxt(sessions, 'current', 4444, 3300)).toBe(false);
+        expect(hasOtherAliveSessionUsingNuxt(sessions, 'current', 5555, 3400)).toBe(false);
     });
 
     it('cleans orphaned project Nuxt roots while preserving the active reusable dev-server port', () => {

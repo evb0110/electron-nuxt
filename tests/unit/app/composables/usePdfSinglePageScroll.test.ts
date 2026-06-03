@@ -535,6 +535,36 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('reapplies a continuous programmatic jump after the virtualized window settles', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                renderVisiblePages,
+                scrollToPageInternal,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                continuousScroll: true,
+                mountedPageNumbers: [
+                    10,
+                    11,
+                    12,
+                ],
+            });
+
+            singlePageScroll.scrollToPage(1, { preferExactDom: true });
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+
+            await vi.runOnlyPendingTimersAsync();
+            await nextTick();
+
+            expect(scrollToPageInternal.mock.calls.length).toBeGreaterThan(1);
+            expect(scrollToPageInternal.mock.calls[1]?.[4]).toEqual({ preferExactDom: true });
+            expect(renderVisiblePages).toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('skips stale queued paged row renders after a newer navigation wins', async () => {
         const {
             renderVisiblePages,

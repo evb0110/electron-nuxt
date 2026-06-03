@@ -88,17 +88,29 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
         }
     }
 
-    function canRecoverPage(pageNumber: number) {
+    function canTrackPendingPage(pageNumber: number) {
         return toValue(options.isActive)
             && !options.isLoading.value
             && toValue(options.hasDocument)
-            && !toValue(options.suppressRecovery ?? false)
             && options.shouldRecoverPage(pageNumber);
+    }
+
+    function canRecoverPage(pageNumber: number) {
+        return canTrackPendingPage(pageNumber)
+            && !toValue(options.suppressRecovery ?? false);
     }
 
     function getRecoverablePages() {
         return Array.from(pendingPages.keys())
             .filter(pageNumber => canRecoverPage(pageNumber));
+    }
+
+    function pruneUntrackablePendingPages() {
+        for (const pageNumber of Array.from(pendingPages.keys())) {
+            if (!canTrackPendingPage(pageNumber)) {
+                pendingPages.delete(pageNumber);
+            }
+        }
     }
 
     function scheduleRenderPass(delayMs = 0) {
@@ -152,7 +164,7 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
 
         const pages = getRecoverablePages();
         if (pages.length === 0) {
-            pendingPages.clear();
+            pruneUntrackablePendingPages();
             return;
         }
 
@@ -184,8 +196,17 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
         }
 
         const stillRecoverablePages = getRecoverablePages();
+        const stillRecoverablePageSet = new Set(stillRecoverablePages);
         for (const pageNumber of Array.from(pendingPages.keys())) {
-            if (!stillRecoverablePages.includes(pageNumber)) {
+            if (!canTrackPendingPage(pageNumber)) {
+                pendingPages.delete(pageNumber);
+                continue;
+            }
+
+            if (
+                !toValue(options.suppressRecovery ?? false)
+                && !stillRecoverablePageSet.has(pageNumber)
+            ) {
                 pendingPages.delete(pageNumber);
             }
         }
@@ -209,7 +230,7 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
      */
     function queueMountedPageRender(pageNumber: number) {
         const normalizedPage = normalizePageNumber(pageNumber, options.numPages.value);
-        if (normalizedPage === null || !canRecoverPage(normalizedPage)) {
+        if (normalizedPage === null || !canTrackPendingPage(normalizedPage)) {
             return;
         }
 
@@ -217,7 +238,9 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
             normalizedPage,
             pendingPages.get(normalizedPage) ?? 0,
         );
-        scheduleRetryForPages([normalizedPage]);
+        if (canRecoverPage(normalizedPage)) {
+            scheduleRetryForPages([normalizedPage]);
+        }
     }
 
     function cleanupMountedPageRenderRecovery() {
@@ -228,6 +251,23 @@ export function usePdfMountedPageRenderRecovery(options: IUsePdfMountedPageRende
     }
 
     onScopeDispose(cleanupMountedPageRenderRecovery);
+
+    watch(
+        () => [
+            toValue(options.isActive),
+            options.isLoading.value,
+            toValue(options.hasDocument),
+            toValue(options.suppressRecovery ?? false),
+        ] as const,
+        () => {
+            pruneUntrackablePendingPages();
+            const recoverablePages = getRecoverablePages();
+            if (recoverablePages.length > 0) {
+                scheduleRetryForPages(recoverablePages);
+            }
+        },
+        { flush: 'post' },
+    );
 
     return {
         queueMountedPageRender,
