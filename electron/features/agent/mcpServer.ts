@@ -2168,20 +2168,15 @@ function createHealthResponse(identity: ILocalMcpServerIdentity) {
 
 function createInitializeInstructions() {
     return [
-        'EVB Viewer exposes the live viewer workspace. A document may or may not be open. If the user mentions EVB Viewer, evb-viewer, the viewer app, the workspace, the open document, or the current PDF, use these MCP tools before inspecting processes, files, windows, debug ports, or the repository.',
-        'Prefer the compact capability workflow for broad app control: call evb_workspace_snapshot, then evb_list_capabilities, evb_describe_capability when needed, evb_read_resource for notes/annotations/bookmarks/page-labels/page text, and evb_run_action for visible app actions.',
-        'For questions like "what document is open in evb-viewer?", call evb_viewer_open_documents. Use evb_workspace_snapshot when you need the full pane/tab/layout tree or need to determine whether any document is open.',
-        'When the workspace is empty, evb_workspace_snapshot and evb_viewer_open_documents may still include recent files shown by EVB Viewer. Treat those as file-list metadata only; do not claim to know their contents unless a document is opened and read through EVB tools.',
-        'For questions like "find X in this PDF" or "navigate to X", use capability document.search or the compatibility tools evb_viewer_search_open_document / evb_search_document. They use EVB Viewer search indexes and return page numbers plus excerpts.',
-        'After search, read candidate pages with capability document.read_pages, evb_read_resource, or evb_read_document_pages, then navigate with capability view.go_to_page or evb_go_to_page only after choosing the best page.',
-        'When reconstructing page labels, start from OCR/searchable text and current page labels, then verify visible printed page numbers across front matter, transition pages, appendices, and body pages. Use document.capture_page_image for uncertain pages or crops and inspect the returned image. Prefer page_labels.preview with inclusive segments or explicit labels before committing with page_labels.apply_plan; use low-level page_labels.set_ranges/apply_range/set_labels only for small edits.',
-        'When reconstructing bookmarks, start from the PDF TOC/bookmarks when present, then verify each title/page target against OCR/searchable text and visual screenshots for doubtful entries. Prefer bookmarks.preview_tree with flat entries carrying level/depth values before committing with bookmarks.apply_plan; use low-level bookmarks.set_tree/add/add_batch/update/delete only for small edits.',
-        'For page-label and bookmark workflows, mutate only through EVB Viewer capabilities so edits enter the metadata undo stack. After all writes are verified, save the file with file.save and report any save failure.',
-        'For annotations, notes, bookmarks, and page labels, read evb://document/{tabId}/annotations, /notes, /bookmarks, /toc, and /page-labels through evb_read_resource or MCP resources/read. To create annotation content directly, use annotation.create_text_markup, annotation.create_note_at_point, and annotation.create_shape; use annotation.update_note and annotation.update_text_markup_color for existing annotations. For document metadata, use page_labels.preview/apply_plan and bookmarks.preview_tree/apply_plan for rebuilds; use page_labels.set_ranges/apply_range/set_labels and bookmarks.set_tree/add/add_batch/update/delete for individual or batch edits. Use document.capture_page_image when OCR, page labels, TOC, or search evidence is ambiguous.',
-        'For OCR, use capability ocr.status to inspect visible OCR state, ocr.open_popup to show controls, and ocr.start only when the user has explicitly asked to run OCR or has approved the capability policy.',
-        'For write, destructive, or long-running actions, inspect the capability policy and prefer dryRun before mutating visible app state.',
-        'If a PDF page has no text or search misses likely visual/OCR content, call evb_inspect_document_text and recommend OCR all pages when coverage is partial or none.',
-        'For DjVu or image documents, tell the user to convert to PDF before deep text analysis.',
+        'EVB Viewer exposes the live workspace. A document may or may not be open; inspect the workspace before answering questions about open tabs, current pages, or document contents.',
+        'Use the compact capability workflow: evb_workspace_snapshot for state; evb_list_capabilities to discover actions; evb_describe_capability for schemas, policy, and availability; evb_read_resource for notes, annotations, bookmarks, page labels, page text, and OCR status; evb_run_action for app actions.',
+        'Use semantic capability ids through evb_run_action: document.open_documents, document.readiness, document.inspect_text, document.search, document.read_pages, document.capture_page_image, view.go_to_page, annotation.*, page_labels.*, bookmarks.*, ocr.*, and file.save.',
+        'Recent files in workspace snapshots are metadata only; do not summarize contents until opened and read through EVB tools.',
+        'For search/navigation, search first, read candidate pages, then navigate only after selecting the best page. If text is missing or visual evidence matters, inspect text coverage or capture a page image.',
+        'For annotations, use direct create/update capabilities instead of only selecting toolbar tools. Read annotation/note resources first when updating existing content.',
+        'For page labels and bookmarks, read existing state, verify against text and screenshots when uncertain, preview first, apply only verified plans, re-read after writes, then save with file.save.',
+        'For OCR, use ocr.status before acting, ocr.open_popup for visible controls, and ocr.start only after explicit user request or policy approval.',
+        'For writes, destructive actions, or long-running actions, inspect policy/availability and prefer dryRun or preview when supported. For DjVu or image documents, recommend converting to PDF before deep text analysis.',
     ].join('\n');
 }
 
@@ -3018,9 +3013,9 @@ function createPromptText(name: string, params: unknown) {
         const topic = getPromptArgument(params, 'topic') || '<topic>';
         return [
             `Find "${topic}" in the active EVB Viewer PDF.`,
-            'Use evb_viewer_open_documents or evb_workspace_snapshot to identify the active tab.',
-            'Use evb_viewer_search_open_document or evb_search_document with a small set of likely query variants; inspect candidate pages with evb_read_document_pages.',
-            'Navigate with evb_go_to_page only after choosing the best page. If text coverage is missing, call evb_inspect_document_text and recommend OCR all pages.',
+            'Use evb_workspace_snapshot to identify the active tab.',
+            'Call evb_run_action with document.search and a small set of likely query variants; inspect candidate pages with document.read_pages.',
+            'Navigate with view.go_to_page only after choosing the best page. If text coverage is missing, call document.inspect_text and recommend OCR all pages.',
         ].join('\n');
     }
 
@@ -3047,8 +3042,8 @@ function createPromptText(name: string, params: unknown) {
     if (name === 'evb_check_document_prep') {
         return [
             'Check whether the active EVB Viewer document is agent-ready.',
-            'Use evb_viewer_open_documents, evb_workspace_snapshot, and evb_document_readiness first.',
-            'For PDFs, call evb_inspect_document_text to compute searchable text coverage.',
+            'Use evb_workspace_snapshot and evb_run_action with document.open_documents or document.readiness first.',
+            'For PDFs, call document.inspect_text through evb_run_action to compute searchable text coverage.',
             'If coverage is partial or none, explain that OCR all pages is recommended. If the document is DjVu or image, recommend converting to PDF first.',
         ].join('\n');
     }
