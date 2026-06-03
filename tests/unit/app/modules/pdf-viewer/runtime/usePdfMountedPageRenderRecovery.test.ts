@@ -155,4 +155,98 @@ describe('usePdfMountedPageRenderRecovery', () => {
 
         scope.stop();
     });
+
+    it('renders a pending mounted page after recovery suppression is released', async () => {
+        vi.useFakeTimers();
+        const suppressRecovery = ref(true);
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ suppressRecovery });
+        pagesNeedingRender.value = new Set([928]);
+
+        recovery.queueMountedPageRender(928);
+        await flushTimersAndTicks();
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+
+        suppressRecovery.value = false;
+        await nextTick();
+        await flushTimersAndTicks();
+
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 928,
+                end: 928,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            },
+        );
+
+        scope.stop();
+    });
+
+    it('keeps a pending page when suppression starts before its retry timer fires', async () => {
+        vi.useFakeTimers();
+        const suppressRecovery = ref(false);
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ suppressRecovery });
+        pagesNeedingRender.value = new Set([928]);
+
+        recovery.queueMountedPageRender(928);
+        suppressRecovery.value = true;
+        await flushTimersAndTicks();
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+
+        suppressRecovery.value = false;
+        await nextTick();
+        await flushTimersAndTicks();
+
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 928,
+                end: 928,
+            },
+            {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            },
+        );
+
+        scope.stop();
+    });
+
+    it('keeps a pending page when suppression starts during an active recovery render', async () => {
+        vi.useFakeTimers();
+        const suppressRecovery = ref(false);
+        const {
+            pagesNeedingRender,
+            recovery,
+            renderVisiblePages,
+            scope,
+        } = createHarness({ suppressRecovery });
+        pagesNeedingRender.value = new Set([928]);
+        renderVisiblePages.mockImplementation(async () => {
+            suppressRecovery.value = true;
+        });
+
+        recovery.queueMountedPageRender(928);
+        await flushTimersAndTicks();
+        expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+
+        suppressRecovery.value = false;
+        await nextTick();
+        await flushTimersAndTicks();
+
+        expect(renderVisiblePages).toHaveBeenCalledTimes(2);
+
+        scope.stop();
+    });
 });

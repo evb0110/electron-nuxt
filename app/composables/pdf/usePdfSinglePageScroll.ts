@@ -636,8 +636,10 @@ export const usePdfSinglePageScroll = (
 
     async function runContinuousNavigationRenderPass(
         runId: number,
+        pageNumber: number,
         message: string,
         delayMs: number,
+        scrollOptions?: IScrollToPageOptions,
     ) {
         await nextTick();
         await waitForContinuousRenderFrame();
@@ -660,6 +662,25 @@ export const usePdfSinglePageScroll = (
                 currentPage: currentPage.value,
             });
             return;
+        }
+
+        if (continuousNavigationTargetPage.value === pageNumber && viewerContainer.value) {
+            const previous = currentPage.value;
+            scrollToPageInternal(
+                viewerContainer.value,
+                pageNumber,
+                numPages.value,
+                scaledMargin.value,
+                scrollOptions,
+            );
+            const page = updateCurrentPage(
+                viewerContainer.value,
+                numPages.value,
+                { requireAuthoritative: true },
+            );
+            if (page !== previous) {
+                emitCurrentPage(page);
+            }
         }
 
         updateVisibleRange(viewerContainer.value, numPages.value);
@@ -687,7 +708,11 @@ export const usePdfSinglePageScroll = (
         });
     }
 
-    function queueContinuousNavigationRenderAfterNavigation(message: string) {
+    function queueContinuousNavigationRenderAfterNavigation(
+        pageNumber: number,
+        message: string,
+        scrollOptions?: IScrollToPageOptions,
+    ) {
         clearContinuousNavigationRenderTimers();
         const runId = ++continuousNavigationRenderRunId;
 
@@ -695,7 +720,7 @@ export const usePdfSinglePageScroll = (
             runId,
             delaysMs: [...CONTINUOUS_PROGRAMMATIC_RENDER_SETTLE_DELAYS_MS],
             currentPage: currentPage.value,
-            targetPage: continuousNavigationTargetPage.value,
+            targetPage: pageNumber,
             visibleRange: {
                 start: visibleRange.value.start,
                 end: visibleRange.value.end,
@@ -706,7 +731,13 @@ export const usePdfSinglePageScroll = (
             const timer = setTimeout(() => {
                 continuousNavigationRenderTimers = continuousNavigationRenderTimers
                     .filter(activeTimer => activeTimer !== timer);
-                void runContinuousNavigationRenderPass(runId, message, delayMs);
+                void runContinuousNavigationRenderPass(
+                    runId,
+                    pageNumber,
+                    message,
+                    delayMs,
+                    scrollOptions,
+                );
             }, delayMs);
             continuousNavigationRenderTimers.push(timer);
         }
@@ -1214,7 +1245,9 @@ export const usePdfSinglePageScroll = (
                 emitCurrentPage(page);
             }
             const runId = queueContinuousNavigationRenderAfterNavigation(
+                targetPage,
                 'Failed to render visible pages after scrollToPage',
+                options,
             );
             scheduleContinuousNavigationTargetFallbackClear(runId, targetPage);
         } else {

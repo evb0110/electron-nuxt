@@ -88,7 +88,12 @@ export function shouldUseMacOSHiddenAppLauncher(
     env: NodeJS.ProcessEnv,
     platform = process.platform,
 ) {
+    // Mutating Electron.app's Info.plist for LSUIElement invalidates the bundle
+    // signature on modern macOS and can be killed before app diagnostics start.
+    // The app-level automation flags already keep e2e windows hidden/no-focus, so
+    // keep the bundle wrapper as an explicit escape hatch only.
     return platform === 'darwin'
+        && env.EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE === '1'
         && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
 }
 

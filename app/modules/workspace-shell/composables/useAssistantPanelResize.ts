@@ -4,7 +4,7 @@ import {
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 
-export const ASSISTANT_PANEL = {
+const ASSISTANT_PANEL = {
     DEFAULT_WIDTH: 384,
     MIN_WIDTH: 320,
     MAX_WIDTH: 560,
