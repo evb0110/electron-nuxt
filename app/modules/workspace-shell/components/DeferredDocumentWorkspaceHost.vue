@@ -1226,6 +1226,9 @@ const workspaceExpose: IWorkspaceExpose = {
     handleSave: async () => {
         await withLoadedWorkspace('handleSave', workspace => workspace.handleSave());
     },
+    handleRepairSave: async () => {
+        await withLoadedWorkspace('handleRepairSave', workspace => workspace.handleRepairSave());
+    },
     handleSaveAs: async () => {
         await withLoadedWorkspace('handleSaveAs', workspace => workspace.handleSaveAs());
     },

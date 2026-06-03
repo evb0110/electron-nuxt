@@ -117,6 +117,21 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         await deps.handleSave();
     }
 
+    async function handleRepairSaveFromCommandSurface() {
+        if (
+            !deps.hasPdf.value
+            || deps.isOpeningDocument.value
+            || deps.hasOpenError.value
+            || deps.isAnySaving.value
+            || deps.isHistoryBusy.value
+            || deps.isDjvuMode.value
+        ) {
+            return;
+        }
+
+        await deps.handleRepairSave();
+    }
+
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const currentPage = normalizeToolbarSnapshotPage(
             deps.pdfViewerRef?.value?.getCurrentPage?.() ?? deps.currentPage.value,
@@ -128,6 +143,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             hasOpenError: deps.hasOpenError.value,
             isPreparingPrint: deps.isPreparingPrint.value,
             canSave: deps.canSave.value,
+            canRepairSave: deps.hasPdf.value
+                && !deps.isOpeningDocument.value
+                && !deps.hasOpenError.value
+                && !deps.isAnySaving.value
+                && !deps.isHistoryBusy.value
+                && !deps.isDjvuMode.value,
             canUndo: deps.canUndo.value,
             canRedo: deps.canRedo.value,
             canExportDocx: deps.canExportDocx.value,
@@ -185,6 +206,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     return {
         handleSave: handleSaveFromCommandSurface,
+        handleRepairSave: handleRepairSaveFromCommandSurface,
         handleSaveAs: deps.handleSaveAs,
         handlePrint: deps.handlePrint,
         handlePrintCurrentPage: deps.handlePrintCurrentPage,

@@ -287,6 +287,38 @@ function getNumberArray(dict: PDFDict, key: string) {
     return values;
 }
 
+describe('serializePdfEdits force rewrite', () => {
+    it('returns original bytes when no serialization work is present', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            200,
+            200,
+        ]);
+        const bytes = new Uint8Array(await doc.save());
+
+        const result = await serializePdfEdits(bytes, createEmptyPayload());
+
+        expect(result).toBe(bytes);
+    });
+
+    it('rewrites with pdf-lib when forceRewrite is requested without other edits', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            200,
+            200,
+        ]);
+        const bytes = new Uint8Array(await doc.save());
+        const payload = createEmptyPayload();
+        payload.forceRewrite = true;
+
+        const result = await serializePdfEdits(bytes, payload);
+
+        expect(result).not.toBe(bytes);
+        const rewritten = await PDFDocument.load(result, { updateMetadata: false });
+        expect(rewritten.getPageCount()).toBe(1);
+    });
+});
+
 describe('serializePdfEdits embedded geometric shapes', () => {
     it('updates imported geometric annotations in place and deletes removed ones by ref', async () => {
         const {

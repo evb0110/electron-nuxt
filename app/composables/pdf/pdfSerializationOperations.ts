@@ -44,6 +44,7 @@ import { applyShapeAnnotations } from '@app/composables/pdf/serialization/pdfSer
 export type { IPdfSerializedPlacedImagePayload } from '@app/composables/pdf/serialization/pdfSerializationPlacedImages';
 
 export interface IPdfSerializationSavePayload {
+    forceRewrite?: boolean;
     markupSubtypeOverrides: Array<readonly [string, TMarkupSubtype]>;
     markupSubtypeHints: IMarkupSubtypeHint[];
     rewriteShapeState: boolean;
@@ -64,7 +65,8 @@ export interface IPdfSerializationSavePayload {
 }
 
 function hasSaveWork(payload: IPdfSerializationSavePayload) {
-    return payload.markupSubtypeOverrides.length > 0
+    return Boolean(payload.forceRewrite)
+        || payload.markupSubtypeOverrides.length > 0
         || payload.markupSubtypeHints.length > 0
         || payload.rewriteShapeState
         || payload.shapes.length > 0
@@ -111,7 +113,7 @@ export async function serializePdfEdits(
     ) || modified;
     modified = await applyPlacedImage(doc, payload.placedImage) || modified;
 
-    if (!modified) {
+    if (!modified && !payload.forceRewrite) {
         return data;
     }
 

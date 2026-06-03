@@ -374,6 +374,7 @@ export default {
         'openRecent': 'Abrir Recente',
         'edit': 'Editar',
         'save': 'Guardar',
+        'repairAndSave': 'Reparar e guardar',
         'saveAs': 'Guardar Como...',
         'print': 'Print...',
         'printCurrentPage': 'Imprimir Página Atual...',

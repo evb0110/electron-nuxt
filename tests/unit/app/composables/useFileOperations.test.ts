@@ -161,6 +161,30 @@ describe('useFileOperations', () => {
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
+    it('repair-saves by forcing a serialized rewrite even when the document is clean', async () => {
+        const {
+            deps,
+            saveFile,
+        } = createDeps();
+        const { handleRepairSave } = useFileOperations(deps);
+
+        await handleRepairSave();
+
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([1]),
+            expect.objectContaining({forceRewrite: true}),
+        );
+        expect(saveFile).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
+        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+    });
+
     it('preserves annotation undo history after a successful save', async () => {
         const clearAnnotationHistory = vi.fn();
         const { deps } = createDeps({

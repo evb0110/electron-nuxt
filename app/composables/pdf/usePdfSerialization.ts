@@ -50,6 +50,7 @@ export interface IPdfSerializationDeps {
 }
 
 interface ISerializePdfForSaveOptions {
+    forceRewrite?: boolean;
     includeShapes?: boolean;
     rewriteShapeState?: boolean;
     pendingTexts?: Map<string, string> | null;
@@ -190,6 +191,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     function createEmptySavePayload(): IPdfSerializationSavePayload {
         return {
+            forceRewrite: false,
             markupSubtypeOverrides: [],
             markupSubtypeHints: [],
             rewriteShapeState: false,
@@ -296,6 +298,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 pageLabelsDirty: payload.pageLabelsDirty,
                 bookmarksDirty: payload.bookmarksDirty,
                 hasPlacedImage: Boolean(payload.placedImage),
+                forceRewrite: Boolean(payload.forceRewrite),
             },
         });
     }
@@ -308,6 +311,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         applyShapePayload(payload, options);
         applyAnnotationPayload(payload, options);
         applyDocumentStructurePayload(payload);
+        payload.forceRewrite = options?.forceRewrite === true;
         payload.placedImage = await toSerializedPlacedImagePayload(options?.placedImage);
         return payload;
     }

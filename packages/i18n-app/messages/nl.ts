@@ -371,6 +371,7 @@ export default {
         'openRecent': 'Recent geopend',
         'edit': 'Bewerken',
         'save': 'Opslaan',
+        'repairAndSave': 'Repareren en opslaan',
         'saveAs': 'Opslaan als...',
         'print': 'Print...',
         'printCurrentPage': 'Huidige pagina afdrukken...',

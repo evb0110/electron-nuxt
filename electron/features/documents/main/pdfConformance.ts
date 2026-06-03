@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+    readFile,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -15,6 +16,7 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import { createDefaultPdfConformanceProfile } from '@pdf-core/pdfConformanceHelpers';
+import { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
@@ -28,6 +30,10 @@ import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBun
 
 const logger = createLogger('documents-pdfConformance');
 const QPDF_VALIDATE_TIMEOUT_MS = 30_000;
+const QPDF_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf)';
+const QPDF_VALIDATE_TIMEOUT_PATTERN = /^qpdf\(validate-pdf\) timed out after \d+ms$/u;
+const QPDF_EXIT_CODE_OK = 0;
+const QPDF_EXIT_CODE_WARNINGS = 3;
 const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -128,6 +134,41 @@ function createEmptyPdfValidationResult(): IPdfValidationResult {
     };
 }
 
+function isQpdfValidationTimeoutError(error: unknown) {
+    return error instanceof Error
+        && QPDF_VALIDATE_TIMEOUT_PATTERN.test(error.message);
+}
+
+async function validatePdfFileWithStructuralFallback(
+    filePath: string,
+    timeoutError: unknown,
+): Promise<IPdfValidationResult> {
+    try {
+        const data = await readFile(filePath);
+        await loadPdfStructure(new Uint8Array(data));
+        logger.warn(
+            `qpdf validation timed out for ${filePath}; fallback PDF structure validation succeeded: ${
+                getErrorMessage(timeoutError)
+            }`,
+        );
+        return {
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [`qpdf validation timed out after ${QPDF_VALIDATE_TIMEOUT_MS}ms; fallback PDF structure validation succeeded.`],
+        };
+    } catch (fallbackError) {
+        return {
+            isValid: false,
+            tool: 'qpdf',
+            errors: [`${getErrorMessage(timeoutError)}; fallback PDF structure validation failed: ${
+                getErrorMessage(fallbackError)
+            }`],
+            warnings: [],
+        };
+    }
+}
+
 export async function validatePdfFile(filePath: string): Promise<IPdfValidationResult> {
     try {
         const qpdf = getNativeToolPaths().qpdf;
@@ -136,7 +177,11 @@ export async function validatePdfFile(filePath: string): Promise<IPdfValidationR
             filePath,
         ], {
             timeoutMs: QPDF_VALIDATE_TIMEOUT_MS,
-            commandLabel: 'qpdf(validate-pdf)',
+            allowedExitCodes: [
+                QPDF_EXIT_CODE_OK,
+                QPDF_EXIT_CODE_WARNINGS,
+            ],
+            commandLabel: QPDF_VALIDATE_COMMAND_LABEL,
         });
 
         return {
@@ -149,6 +194,9 @@ export async function validatePdfFile(filePath: string): Promise<IPdfValidationR
             ],
         };
     } catch (error) {
+        if (isQpdfValidationTimeoutError(error)) {
+            return validatePdfFileWithStructuralFallback(filePath, error);
+        }
         return {
             isValid: false,
             tool: 'qpdf',

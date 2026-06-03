@@ -53,6 +53,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
 
 function createElectronApi() {
     let onMenuOpenPdf: (() => void) | null = null;
+    let onMenuRepairSave: (() => void) | null = null;
     let onMenuPrint: (() => void) | null = null;
     let onMenuPrintCurrentPage: (() => void) | null = null;
     let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
@@ -63,6 +64,12 @@ function createElectronApi() {
             onMenuOpenPdf = callback;
             return () => {
                 onMenuOpenPdf = null;
+            };
+        }),
+        onMenuRepairSave: vi.fn((callback: () => void) => {
+            onMenuRepairSave = callback;
+            return () => {
+                onMenuRepairSave = null;
             };
         }),
         onMenuPrint: vi.fn((callback: () => void) => {
@@ -96,6 +103,9 @@ function createElectronApi() {
         emitOpenPdf() {
             onMenuOpenPdf?.();
         },
+        emitRepairSave() {
+            onMenuRepairSave?.();
+        },
         emitPrint() {
             onMenuPrint?.();
         },
@@ -122,6 +132,18 @@ describe('registerTabsMenuBindings', () => {
         await flushMicrotasks();
 
         expect(handleFallbackToolbarOpenFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes the repair-save menu command to the active workspace', async () => {
+        const handleRepairSave = vi.fn(async () => {});
+        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handleRepairSave}))});
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+        electronApi.emitRepairSave();
+        await flushMicrotasks();
+
+        expect(handleRepairSave).toHaveBeenCalledTimes(1);
     });
 
     it('routes the menu print command to the active workspace', async () => {

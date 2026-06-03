@@ -11,6 +11,7 @@ import { cast } from '@tests/helpers/cast';
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
     return cast<Parameters<typeof createWorkspaceExpose>[0]>({
         handleSave: vi.fn(async () => {}),
+        handleRepairSave: vi.fn(async () => {}),
         handleSaveAs: vi.fn(async () => {}),
         handlePrint: vi.fn(async () => {}),
         handlePrintCurrentPage: vi.fn(async () => {}),
@@ -99,6 +100,19 @@ describe('createWorkspaceExpose', () => {
         await exposed.handleSave();
 
         expect(deps.handleSave).not.toHaveBeenCalled();
+    });
+
+    it('runs repair save when a PDF is open even if ordinary save is disabled', async () => {
+        const deps = createDeps({
+            hasPdf: ref(true),
+            canSave: ref(false),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        await exposed.handleRepairSave();
+
+        expect(deps.handleRepairSave).toHaveBeenCalledOnce();
+        expect(exposed.getToolbarSnapshot().canRepairSave).toBe(true);
     });
 
     it('ignores save while another save operation is active', async () => {

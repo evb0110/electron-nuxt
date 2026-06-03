@@ -158,6 +158,13 @@ function isSaveEnabled(template: IMenuItemLike[]) {
     return Boolean(saveItem?.enabled);
 }
 
+function isRepairSaveEnabled(template: IMenuItemLike[]) {
+    const fileMenu = template.find(item => item.label === 'menu.file');
+    const submenu = Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
+    const repairSaveItem = submenu.find(item => item.label === 'menu.repairAndSave');
+    return Boolean(repairSaveItem?.enabled);
+}
+
 function getFileMenuSubmenu(template: IMenuItemLike[]) {
     const fileMenu = template.find(item => item.label === 'menu.file');
     return Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
@@ -232,6 +239,7 @@ describe('menu per-window document state', () => {
         const fileSubmenu = getFileMenuSubmenu(template);
 
         expect(isSaveEnabled(template)).toBe(false);
+        expect(isRepairSaveEnabled(template)).toBe(true);
         expect(fileSubmenu.find(item => item.label === 'menu.saveAs')?.enabled).toBe(true);
         expect(fileSubmenu.find(item => item.label === 'menu.print')?.enabled).toBe(true);
     });

@@ -7,13 +7,17 @@ import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/wor
 
 interface IWorkspaceHasPdfState {
     hasPdf: boolean | { value: boolean };
-    getToolbarSnapshot?: () => { canSave: boolean };
+    getToolbarSnapshot?: () => {
+        canSave: boolean;
+        canRepairSave?: boolean;
+    };
 }
 
 export interface IWorkspaceShellState {
     activeTab: ComputedRef<ITab | null>;
     activeWorkspaceHasDocument: ComputedRef<boolean>;
     activeWorkspaceCanSave: ComputedRef<boolean>;
+    activeWorkspaceCanRepairSave: ComputedRef<boolean>;
     activeTabHasDocumentHint: ComputedRef<boolean>;
     hasDocument: ComputedRef<boolean>;
     tabCount: ComputedRef<number>;
@@ -45,6 +49,12 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
     const activeWorkspaceCanSave = computed(() => (
         options.activeWorkspace.value?.getToolbarSnapshot?.().canSave === true
     ));
+    const activeWorkspaceCanRepairSave = computed(() => {
+        const workspace = options.activeWorkspace.value;
+        const snapshot = workspace?.getToolbarSnapshot?.();
+        return snapshot?.canRepairSave === true
+            || (snapshot?.canRepairSave === undefined && workspaceHasPdf(workspace));
+    });
     const activeTabHasDocumentHint = computed(() => {
         const tab = activeTab.value;
         if (!tab) {
@@ -60,6 +70,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         activeTab,
         activeWorkspaceHasDocument,
         activeWorkspaceCanSave,
+        activeWorkspaceCanRepairSave,
         activeTabHasDocumentHint,
         hasDocument,
         tabCount,

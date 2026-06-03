@@ -29,6 +29,7 @@ const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
 const menuSaveStateByWindow = new Map<number, boolean>();
+const menuRepairSaveStateByWindow = new Map<number, boolean>();
 const menuTabCountByWindow = new Map<number, number>();
 const trackedWindowIds = new Set<number>();
 let listenersRegistered = false;
@@ -90,6 +91,14 @@ function getWindowSaveState(window: BrowserWindow | null) {
     }
 
     return menuSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
+}
+
+function getWindowRepairSaveState(window: BrowserWindow | null) {
+    if (!window) {
+        return false;
+    }
+
+    return menuRepairSaveStateByWindow.get(window.id) ?? getWindowDocumentState(window);
 }
 
 function getWindowTabCount(window: BrowserWindow | null) {
@@ -285,7 +294,11 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     ];
 }
 
-function getFileMenu(documentActionsEnabled: boolean, saveActionEnabled: boolean): MenuItemConstructorOptions {
+function getFileMenu(
+    documentActionsEnabled: boolean,
+    saveActionEnabled: boolean,
+    repairSaveActionEnabled: boolean,
+): MenuItemConstructorOptions {
     return {
         label: te('menu.file'),
         submenu: [
@@ -303,6 +316,11 @@ function getFileMenu(documentActionsEnabled: boolean, saveActionEnabled: boolean
                 accelerator: 'CmdOrCtrl+S',
                 enabled: saveActionEnabled,
                 channel: 'menu:save',
+            }),
+            createWindowMenuAction({
+                label: te('menu.repairAndSave'),
+                enabled: repairSaveActionEnabled,
+                channel: 'menu:repairSave',
             }),
             createWindowMenuAction({
                 label: te('menu.saveAs'),
@@ -688,13 +706,14 @@ function buildMenuTemplate(activeWindow: BrowserWindow | null): MenuItemConstruc
     const template: MenuItemConstructorOptions[] = [];
     const documentActionsEnabled = getWindowDocumentState(activeWindow);
     const saveActionEnabled = getWindowSaveState(activeWindow);
+    const repairSaveActionEnabled = getWindowRepairSaveState(activeWindow);
 
     if (config.isMac) {
         template.push(getMacAppMenu());
     }
 
     template.push(
-        getFileMenu(documentActionsEnabled, saveActionEnabled),
+        getFileMenu(documentActionsEnabled, saveActionEnabled, repairSaveActionEnabled),
         getEditMenu(documentActionsEnabled),
         getPagesMenu(documentActionsEnabled),
         getViewMenu(documentActionsEnabled),
@@ -758,6 +777,8 @@ function trackWindowForMenu(window: BrowserWindow) {
     window.on('closed', () => {
         trackedWindowIds.delete(window.id);
         menuDocumentStateByWindow.delete(window.id);
+        menuSaveStateByWindow.delete(window.id);
+        menuRepairSaveStateByWindow.delete(window.id);
         menuTabCountByWindow.delete(window.id);
         rebuildMenu();
     });
@@ -803,7 +824,8 @@ export function refreshMenu() {
 
 export function setMenuDocumentState(windowId: number, state: boolean | {
     hasDocument: boolean;
-    canSave: boolean 
+    canSave: boolean;
+    canRepairSave?: boolean;
 }) {
     const normalizedDocument = typeof state === 'boolean'
         ? Boolean(state)
@@ -811,15 +833,20 @@ export function setMenuDocumentState(windowId: number, state: boolean | {
     const normalizedSave = typeof state === 'boolean'
         ? normalizedDocument
         : Boolean(state.canSave);
+    const normalizedRepairSave = typeof state === 'boolean'
+        ? normalizedDocument
+        : state.canRepairSave ?? normalizedDocument;
     if (
         menuDocumentStateByWindow.get(windowId) === normalizedDocument
         && menuSaveStateByWindow.get(windowId) === normalizedSave
+        && menuRepairSaveStateByWindow.get(windowId) === normalizedRepairSave
     ) {
         return;
     }
 
     menuDocumentStateByWindow.set(windowId, normalizedDocument);
     menuSaveStateByWindow.set(windowId, normalizedSave);
+    menuRepairSaveStateByWindow.set(windowId, normalizedRepairSave);
     rebuildMenuForWindowStateChange(windowId);
 }
 

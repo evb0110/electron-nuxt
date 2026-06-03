@@ -59,6 +59,11 @@ const documentMenuActions: IDocumentMenuAction[] = [
         run: deps => deps.activeWorkspace.value?.handleSave(),
     },
     {
+        name: 'repair-save',
+        register: 'onMenuRepairSave',
+        run: deps => deps.activeWorkspace.value?.handleRepairSave(),
+    },
+    {
         name: 'save-as',
         register: 'onMenuSaveAs',
         run: deps => deps.activeWorkspace.value?.handleSaveAs(),

@@ -56,6 +56,7 @@
                         :open="appMenuOpen"
                         :has-pdf="toolbarHasPdf"
                         :can-save="canSave"
+                        :can-repair-save="canRepairSave"
                         :can-undo="canUndo"
                         :can-redo="canRedo"
                         :can-export-docx="canExportDocx"
@@ -70,6 +71,7 @@
                         @update:open="handleDropdownOpen('appMenu', $event)"
                         @open-file="handleOpenFileFromUi"
                         @save="handleToolbarSave"
+                        @repair-save="handleToolbarRepairSave"
                         @save-as="handleToolbarSaveAs"
                         @print="handlePrint"
                         @print-current-page="handlePrintCurrentPage"
@@ -821,6 +823,7 @@ const {
     handleGoToResult,
     searchFocusRequest,
     handleSave,
+    handleRepairSave,
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage,
@@ -1011,6 +1014,13 @@ const canToggleSidebar = computed(() => (
 const isConversionBusy = computed(() => conversionState.value.isConverting);
 const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
 const toolbarDocumentBusy = computed(() => isDocumentBusy.value || isOpeningDocumentForToolbar.value);
+const canRepairSave = computed(() => (
+    hasPdf.value
+    && !toolbarDocumentBusy.value
+    && !isAnySaving.value
+    && !isHistoryBusy.value
+    && !isDjvuMode.value
+));
 const documentMetadataAvailable = computed(() => (
     toolbarHasPdf.value
     && totalPages.value > 0
@@ -1075,6 +1085,7 @@ const {
     handleToolbarQuickNote,
     handleToolbarRedo,
     handleToolbarSave,
+    handleToolbarRepairSave,
     handleToolbarSaveAs,
     handleToolbarToggleContinuousScroll,
     handleToolbarToggleSidebar,
@@ -1084,6 +1095,7 @@ const {
     emitOpenSettings: () => emit('open-settings'),
     closeAllDropdowns,
     handleSave,
+    handleRepairSave,
     handleSaveAs,
     handleExportDocx,
     handleUndo,
@@ -2700,9 +2712,18 @@ async function runAgentAction(
                 shape: result.shape ? normalizeAgentAnnotationComment(result.shape) : null,
             });
         }
-        case 'file.save':
+        case 'file.save': {
+            const hadPendingSave = canSave.value;
             await handleSave();
-            return createAgentActionResult(actionId, {canSave: canSave.value});
+            await nextTick();
+            if (canSave.value) {
+                throw new Error('Save did not complete; EVB Viewer still reports pending changes.');
+            }
+            return createAgentActionResult(actionId, {
+                saved: hadPendingSave,
+                canSave: canSave.value,
+            });
+        }
         case 'file.save_as':
             await handleSaveAs();
             return createAgentActionResult(actionId);
@@ -2782,6 +2803,7 @@ async function runAgentAction(
 
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
+    handleRepairSave,
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage: () => {

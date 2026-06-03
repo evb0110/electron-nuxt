@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     const workerState: { mode: 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
     const workerCtor = vi.fn();
     const loggerWarn = vi.fn();
+    const runNativeToolCommand = vi.fn();
     const readFile = vi.fn(async () => new Uint8Array([
         1,
         2,
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => {
         workerState,
         workerCtor,
         loggerWarn,
+        runNativeToolCommand,
         readFile,
         stat,
         load,
@@ -143,7 +145,7 @@ vi.mock('pdf-lib', () => {
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/tmp') } }));
 
-vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: vi.fn()}));
+vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
@@ -152,12 +154,20 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
-const { analyzePdfConformanceFile } = await import('@electron/features/documents/main/pdfConformance');
+const {
+    analyzePdfConformanceFile,
+    validatePdfFile,
+} = await import('@electron/features/documents/main/pdfConformance');
 
 describe('analyzePdfConformanceFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.workerState.mode = 'startup-error';
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
         mocks.stat.mockResolvedValue({
             isFile: () => true,
             size: 1024, 
@@ -210,5 +220,84 @@ describe('analyzePdfConformanceFile', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('validatePdfFile', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+        mocks.readFile.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        mocks.load.mockResolvedValue({
+            catalog: { lookupMaybe: vi.fn(() => undefined) },
+            isEncrypted: false,
+        });
+    });
+
+    it('uses qpdf validation when qpdf completes', async () => {
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            stdout: 'checking /tmp/input.pdf\nwarning: repaired xref',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        const result = await validatePdfFile('/tmp/input.pdf');
+
+        expect(result).toEqual({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: ['warning: repaired xref'],
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/mock/qpdf', [
+            '--check',
+            '/tmp/input.pdf',
+        ], {
+            timeoutMs: 30_000,
+            allowedExitCodes: [
+                0,
+                3,
+            ],
+            commandLabel: 'qpdf(validate-pdf)',
+        });
+        expect(mocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it('accepts a qpdf timeout when structural fallback can load the PDF', async () => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
+
+        const result = await validatePdfFile('/tmp/slow.pdf');
+
+        expect(result).toEqual({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: ['qpdf validation timed out after 30000ms; fallback PDF structure validation succeeded.'],
+        });
+        expect(mocks.readFile).toHaveBeenCalledWith('/tmp/slow.pdf');
+        expect(mocks.load).toHaveBeenCalledOnce();
+        expect(mocks.loggerWarn).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a qpdf timeout invalid when structural fallback cannot load the PDF', async () => {
+        mocks.runNativeToolCommand.mockRejectedValueOnce(new Error('qpdf(validate-pdf) timed out after 30000ms'));
+        mocks.load.mockRejectedValueOnce(new Error('bad xref'));
+
+        const result = await validatePdfFile('/tmp/broken.pdf');
+
+        expect(result).toEqual({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['qpdf(validate-pdf) timed out after 30000ms; fallback PDF structure validation failed: bad xref'],
+            warnings: [],
+        });
     });
 });

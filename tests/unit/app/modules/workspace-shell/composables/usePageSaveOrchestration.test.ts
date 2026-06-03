@@ -18,10 +18,12 @@ import { cast } from '@tests/helpers/cast';
 const fileOperationMocks = vi.hoisted((): {
     capturedDeps: unknown;
     handleSave: ReturnType<typeof vi.fn>;
+    handleRepairSave: ReturnType<typeof vi.fn>;
     handleSaveAs: ReturnType<typeof vi.fn>;
 } => ({
     capturedDeps: null,
     handleSave: vi.fn(),
+    handleRepairSave: vi.fn(),
     handleSaveAs: vi.fn(),
 }));
 const platformMocks = vi.hoisted(() => ({
@@ -35,6 +37,7 @@ vi.mock('@app/composables/useFileOperations', () => ({useFileOperations: vi.fn((
     fileOperationMocks.capturedDeps = deps;
     return {
         handleSave: fileOperationMocks.handleSave,
+        handleRepairSave: fileOperationMocks.handleRepairSave,
         handleSaveAs: fileOperationMocks.handleSaveAs,
     };
 })}));
