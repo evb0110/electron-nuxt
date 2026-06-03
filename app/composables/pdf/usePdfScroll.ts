@@ -12,6 +12,7 @@ import {
     getPageHeight,
     getPageTop,
 } from '@app/composables/pdf/pdfPageLayout';
+import { resolvePageBoundedHorizontalScroll } from '@app/composables/pdf/pdfHorizontalScrollClamp';
 
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 
@@ -96,6 +97,7 @@ function resolveMarkerScrollLeft(options: {
     pageLeft: number;
     pageWidth: number;
     containerWidth: number;
+    margin: number;
     markerRect?: IAnnotationMarkerRect | null | undefined;
 }) {
     const markerCenter = getMarkerCenter(options.markerRect);
@@ -103,10 +105,19 @@ function resolveMarkerScrollLeft(options: {
         return null;
     }
 
-    return Math.max(
+    const markerTargetLeft = Math.max(
         0,
         options.pageLeft + markerCenter.x * options.pageWidth - options.containerWidth / 2,
     );
+    const scrollClamp = resolvePageBoundedHorizontalScroll({
+        scrollLeft: markerTargetLeft,
+        viewportWidth: options.containerWidth,
+        pageLeft: options.pageLeft,
+        pageWidth: options.pageWidth,
+        margin: options.margin,
+    });
+
+    return scrollClamp?.scrollLeft ?? markerTargetLeft;
 }
 
 function findFirstVisibleLayoutPageIndex(
@@ -405,6 +416,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 pageLeft: targetEl.offsetLeft,
                 pageWidth,
                 containerWidth: container.clientWidth,
+                margin,
                 markerRect: options?.markerRect,
             });
             logPdfNav(
