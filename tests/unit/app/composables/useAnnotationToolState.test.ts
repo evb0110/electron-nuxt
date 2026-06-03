@@ -690,7 +690,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('clips overlapping multi-line markup boxes into non-overlapping fragment bands', async () => {
-        const { normalizeMarkupSubtypeFragmentBoxes } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const { normalizeMarkupSubtypeFragmentBoxes } = await import('@app/composables/pdf/annotations/annotationEditorPresentation');
         const boxes = [
             {
                 x: 0.10,

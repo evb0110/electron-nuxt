@@ -49,7 +49,6 @@ import {
 } from '@app/composables/pdf/annotations/annotationMarkupSubtypeDrawLayer';
 import {
     createAnnotationEditorPresentation,
-    normalizeMarkupSubtypeFragmentBoxes,
 } from '@app/composables/pdf/annotations/annotationEditorPresentation';
 import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
@@ -65,8 +64,6 @@ const ANNOTATION_TOOL_MODES: Partial<Record<TAnnotationTool, TAnnotationEditorMo
     text: AnnotationEditorType.FREETEXT,
     stamp: AnnotationEditorType.STAMP,
 };
-
-export { normalizeMarkupSubtypeFragmentBoxes };
 
 interface IUseAnnotationToolStateOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
