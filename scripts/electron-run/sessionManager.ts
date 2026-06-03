@@ -875,13 +875,12 @@ function buildElectronRuntimeEnv(cdpPort: number, mainJs: string) {
 
 function buildElectronLaunchPlan(cdpPort: number, mainJs: string) {
     const {
-        automationWindowEnv,
         electronRuntimeEnv,
         electronArgs,
     } = buildElectronRuntimeEnv(cdpPort, mainJs);
     const electronPath = buildElectronExecutablePath();
     const electronAppPath = join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app');
-    const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(automationWindowEnv)
+    const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(electronRuntimeEnv)
         && existsSync(electronAppPath);
     if (!launchViaHiddenMacApp && !existsSync(electronPath)) {
         throw new Error(
@@ -2168,7 +2167,7 @@ export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS): 
     return false;
 }
 
-export async function startSessionDetached() {
+export async function startSessionDetached(options: { env?: NodeJS.ProcessEnv } = {}) {
     await cleanupStaleSessionArtifacts();
 
     if (await isSessionRunning()) {
@@ -2200,7 +2199,10 @@ export async function startSessionDetached() {
             logFd,
             logFd,
         ],
-        env: { ...process.env },
+        env: {
+            ...process.env,
+            ...options.env,
+        },
     });
     closeSync(logFd);
     child.unref();
