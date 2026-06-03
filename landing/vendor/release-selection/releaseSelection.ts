@@ -268,7 +268,7 @@ function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TRelease
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const normalizedAssets = assets.map((asset) => {
+    const platformNormalizedAssets = assets.map((asset) => {
         if (
             asset.platform !== 'unknown'
             || asset.extension !== 'zip'
@@ -281,6 +281,17 @@ export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstal
             ...asset,
             platform: 'macos' as const,
         };
+    });
+
+    const normalizedAssets = platformNormalizedAssets.map((asset) => {
+        if (asset.platform === 'linux' && asset.extension === 'appimage' && asset.arch === 'unknown') {
+            return {
+                ...asset,
+                arch: 'x64' as const,
+            };
+        }
+
+        return asset;
     });
 
     const primaryAssets = normalizedAssets.filter(asset => !asset.isLegacy);

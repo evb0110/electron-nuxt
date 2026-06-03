@@ -36,8 +36,14 @@ for (const pkg of ['i18n-core', 'release-selection']) {
 const check = process.argv.includes('--check');
 const drifted = [];
 
+function transformVendoredSource(source) {
+    return source
+        .replaceAll('@evb/i18n-core/', './')
+        .replaceAll('@evb/releaseSelection/releaseSelection', './releaseSelection');
+}
+
 for (const { src, dest } of manifest) {
-    const source = readFileSync(src, 'utf8');
+    const source = transformVendoredSource(readFileSync(src, 'utf8'));
 
     if (check) {
         if (!existsSync(dest) || readFileSync(dest, 'utf8') !== source) {
