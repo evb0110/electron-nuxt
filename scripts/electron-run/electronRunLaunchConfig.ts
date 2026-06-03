@@ -84,14 +84,24 @@ export function resolveAutomationWindowEnv(
     };
 }
 
+export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env) {
+    return {
+        ...env,
+        EVB_AUTOMATION_NO_FOCUS: '1',
+        EVB_AUTOMATION_HIDE_WINDOW: '1',
+        EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: env.EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE === '0'
+            ? '0'
+            : '1',
+    } satisfies NodeJS.ProcessEnv;
+}
+
 export function shouldUseMacOSHiddenAppLauncher(
     env: NodeJS.ProcessEnv,
     platform = process.platform,
 ) {
-    // Mutating Electron.app's Info.plist for LSUIElement invalidates the bundle
-    // signature on modern macOS and can be killed before app diagnostics start.
-    // The app-level automation flags already keep e2e windows hidden/no-focus, so
-    // keep the bundle wrapper as an explicit escape hatch only.
+    // JS-level dock hiding runs after launch, which can still flash a Dock icon.
+    // The copied LSUIElement bundle is opt-in for automation paths that need
+    // truly dockless macOS startup.
     return platform === 'darwin'
         && env.EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE === '1'
         && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');

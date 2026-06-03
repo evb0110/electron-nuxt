@@ -5,6 +5,7 @@ import puppeteer, {
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from '@scripts/electron-run/client';
+import { buildHeadlessAutomationEnv } from '@scripts/electron-run/electronRunLaunchConfig';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import {
@@ -240,7 +241,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
         sessionName,
         `Starting Electron E2E session '${sessionName}'`,
         SESSION_READY_TIMEOUT_MS,
-        startSessionDetached(),
+        startSessionDetached({ env: buildHeadlessAutomationEnv(process.env) }),
         { cleanupOnTimeout: true },
     );
 

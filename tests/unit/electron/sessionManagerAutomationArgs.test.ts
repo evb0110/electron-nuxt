@@ -8,6 +8,7 @@ import {
     buildMacOSAutomationAppEntryPaths,
     buildMacOSHiddenAppBundlePaths,
     buildElectronAutomationArgs,
+    buildHeadlessAutomationEnv,
     buildNuxtDevServerEnv,
     resolveAutomationWindowEnv,
     sanitizeElectronLaunchEnv,
@@ -109,6 +110,21 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });
+    });
+
+    it('forces e2e automation into dockless hidden mode even from interactive env defaults', () => {
+        expect(buildHeadlessAutomationEnv({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+        })).toEqual({
+            PATH: '/bin',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+        });
+
+        expect(buildHeadlessAutomationEnv({ EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0' }).EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE).toBe('0');
     });
 
     it('uses the hidden macOS app bundle only when explicitly requested', () => {
