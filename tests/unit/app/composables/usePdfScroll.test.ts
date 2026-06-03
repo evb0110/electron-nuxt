@@ -41,6 +41,57 @@ function createPageElementStub(pageNumber: number, top: number, height: number, 
     });
 }
 
+function createMountedPageScrollHarness(options: {
+    clientWidth: number;
+    clientHeight: number;
+    pageNumber: number;
+    pageLeft: number;
+    pageTop: number;
+    pageWidth: number;
+    pageHeight: number;
+}) {
+    let scrollLeft = 0;
+    let scrollTop = 0;
+    const selector = `.page_container[data-page="${options.pageNumber}"]`;
+    const page = cast<HTMLElement>({
+        dataset: { page: String(options.pageNumber) },
+        offsetLeft: options.pageLeft,
+        offsetTop: options.pageTop,
+        offsetWidth: options.pageWidth,
+        offsetHeight: options.pageHeight,
+        clientWidth: options.pageWidth,
+        clientHeight: options.pageHeight,
+        classList: { contains: () => false },
+    });
+    const container = cast<HTMLElement>({
+        clientWidth: options.clientWidth,
+        clientHeight: options.clientHeight,
+        scrollWidth: Math.max(options.clientWidth, options.pageLeft + options.pageWidth),
+        scrollHeight: options.pageTop + options.pageHeight,
+        querySelector: (requestedSelector: string) => requestedSelector === selector ? page : null,
+        querySelectorAll: () => [page],
+    });
+
+    Object.defineProperty(container, 'scrollLeft', {
+        get: () => scrollLeft,
+        set: (value: number) => {
+            scrollLeft = value;
+        },
+    });
+    Object.defineProperty(container, 'scrollTop', {
+        get: () => scrollTop,
+        set: (value: number) => {
+            scrollTop = value;
+        },
+    });
+
+    return {
+        container,
+        getScrollLeft: () => scrollLeft,
+        getScrollTop: () => scrollTop,
+    };
+}
+
 describe('usePdfScroll page layout fallback', () => {
     it('prefers a pinned current page while viewport metrics are stabilizing', () => {
         const { container } = createContainerStub();
@@ -190,5 +241,57 @@ describe('usePdfScroll page layout fallback', () => {
         scroll.scrollToPage(container, 3, 5, 20);
 
         expect(getScrollTop()).toBe(160);
+    });
+
+    it('keeps marker navigation horizontally stable when the mounted page fits the viewport', () => {
+        const {
+            container,
+            getScrollLeft,
+        } = createMountedPageScrollHarness({
+            clientWidth: 1000,
+            clientHeight: 200,
+            pageNumber: 2,
+            pageLeft: 20,
+            pageTop: 400,
+            pageWidth: 960,
+            pageHeight: 800,
+        });
+        const scroll = usePdfScroll();
+        const rightSideMarkerRect = {
+            left: 0.7,
+            top: 0.25,
+            width: 0.2,
+            height: 0.1,
+        };
+
+        scroll.scrollToPage(container, 2, 3, 20, { markerRect: rightSideMarkerRect });
+
+        expect(getScrollLeft()).toBe(0);
+    });
+
+    it('bounds marker navigation horizontally to the mounted page when the page is wider than the viewport', () => {
+        const {
+            container,
+            getScrollLeft,
+        } = createMountedPageScrollHarness({
+            clientWidth: 1000,
+            clientHeight: 200,
+            pageNumber: 2,
+            pageLeft: 20,
+            pageTop: 400,
+            pageWidth: 1400,
+            pageHeight: 800,
+        });
+        const scroll = usePdfScroll();
+        const farRightMarkerRect = {
+            left: 0.8,
+            top: 0.25,
+            width: 0.2,
+            height: 0.1,
+        };
+
+        scroll.scrollToPage(container, 2, 3, 20, { markerRect: farRightMarkerRect });
+
+        expect(getScrollLeft()).toBe(440);
     });
 });
