@@ -112,43 +112,46 @@
               />
             </div>
 
-            <div class="installer-list">
-              <button
-                v-for="installer in installersForSelectedPlatform"
-                :key="installer.id"
-                type="button"
-                class="installer-item"
-                :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
-                @click="downloadInstaller(installer)"
-              >
-                <div class="installer-item-info">
-                  <div class="installer-item-header">
-                    <span class="installer-item-variant">{{ installerLabel(installer) }}</span>
-                    <span
-                      v-if="isRecommendedInstaller(installer)"
-                      class="installer-badge"
-                    >
-                      {{ t('home.installers.recommended') }}
+            <div class="installer-list-slot">
+              <div class="installer-list">
+                <button
+                  v-for="installer in installersForSelectedPlatform"
+                  :key="installer.id"
+                  type="button"
+                  class="installer-item"
+                  :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
+                  :aria-label="downloadAriaLabel(installer)"
+                  @click="downloadInstaller(installer)"
+                >
+                  <div class="installer-item-info">
+                    <div class="installer-item-header">
+                      <span class="installer-item-variant">{{ installerLabel(installer) }}</span>
+                      <span
+                        v-if="isRecommendedInstaller(installer)"
+                        class="installer-badge"
+                      >
+                        {{ t('home.installers.recommended') }}
+                      </span>
+                    </div>
+                    <span class="installer-item-detail">
+                      {{ installerDetail(installer) }}
+                    </span>
+                    <span class="installer-item-meta">
+                      {{ installerMeta(installer) }}
                     </span>
                   </div>
-                  <span class="installer-item-meta">
-                    {{ formatInstallerMeta(installer) }}
+                  <span class="installer-item-chip">
+                    <UIcon
+                      name="i-ph-download"
+                      class="installer-item-icon"
+                    />
                   </span>
-                </div>
-                <span class="installer-item-chip">
-                  <UIcon
-                    name="i-ph-download"
-                    class="installer-item-icon"
-                  />
-                </span>
-              </button>
+                </button>
+              </div>
             </div>
 
-            <p
-              v-if="selectedInstallerTab === 'macos' && installersForSelectedPlatform.length > 1"
-              class="installer-hint"
-            >
-              {{ t('home.installers.macArchHint') }}
+            <p class="installer-hint">
+              {{ installerPlatformHint }}
             </p>
 
             <NuxtLink
@@ -202,8 +205,7 @@ import { partition } from 'es-toolkit/array';
 import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
 import { selectInstallersForPlatform } from '~~/shared/releaseAssets';
 import {
-    formatInstallerArchLabel,
-    formatInstallerMeta,
+    formatFileSize,
     formatPlatform,
     INSTALLER_PLATFORM_ORDER,
     parseArchitectureHint,
@@ -317,6 +319,22 @@ const installersForSelectedPlatform = computed(() => {
     }
 
     return base;
+});
+
+const installerPlatformHint = computed(() => {
+    if (selectedInstallerTab.value === 'macos') {
+        return t('home.installers.platformHint.macos');
+    }
+
+    if (selectedInstallerTab.value === 'windows') {
+        return t('home.installers.platformHint.windows');
+    }
+
+    if (selectedInstallerTab.value === 'linux') {
+        return t('home.installers.platformHint.linux');
+    }
+
+    return t('home.installers.platformHint.default');
 });
 
 const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl || `${GITHUB_REPOSITORY_URL}/releases/latest`);
@@ -471,7 +489,108 @@ function installerLabel(installer: IReleaseInstaller): string {
         return t('home.installers.legacy.win7Label');
     }
 
-    return formatInstallerArchLabel(installer);
+    const arch = normalizedInstallerArch(installer);
+
+    if (installer.platform === 'macos') {
+        if (arch === 'arm64') {
+            return t('home.installers.arch.appleSilicon');
+        }
+
+        if (arch === 'x64') {
+            return t('home.installers.arch.intelMac');
+        }
+    }
+
+    if (arch === 'x64') {
+        return t('home.installers.arch.x64');
+    }
+
+    if (arch === 'arm64') {
+        return t('home.installers.arch.arm64');
+    }
+
+    if (arch === 'universal') {
+        return t('home.installers.arch.universal');
+    }
+
+    return packageLabel(installer);
+}
+
+function normalizedInstallerArch(installer: IReleaseInstaller): TReleaseArch {
+    if (installer.platform === 'linux' && installer.extension === 'appimage' && installer.arch === 'unknown') {
+        return 'x64';
+    }
+
+    return installer.arch;
+}
+
+function packageLabel(installer: IReleaseInstaller): string {
+    if (installer.extension === 'appimage') {
+        return t('home.installers.package.appImage');
+    }
+
+    if (installer.extension === 'deb') {
+        return t('home.installers.package.deb');
+    }
+
+    if (installer.extension === 'dmg') {
+        return t('home.installers.package.dmg');
+    }
+
+    if (installer.extension === 'exe') {
+        return t('home.installers.package.exe');
+    }
+
+    if (installer.extension === 'zip') {
+        return t('home.installers.package.zip');
+    }
+
+    return installer.extension.toUpperCase();
+}
+
+function installerDetail(installer: IReleaseInstaller): string {
+    if (installer.platform === 'windows' && installer.name.toLowerCase().includes('win7')) {
+        return t('home.installers.detail.win7Legacy');
+    }
+
+    if (installer.platform === 'linux' && installer.extension === 'deb') {
+        return t('home.installers.detail.linuxDeb');
+    }
+
+    if (installer.platform === 'linux' && installer.extension === 'appimage') {
+        return t('home.installers.detail.linuxAppImage');
+    }
+
+    if (installer.platform === 'macos' && normalizedInstallerArch(installer) === 'arm64') {
+        return t('home.installers.detail.macosArm64');
+    }
+
+    if (installer.platform === 'macos' && normalizedInstallerArch(installer) === 'x64') {
+        return t('home.installers.detail.macosX64');
+    }
+
+    if (installer.platform === 'windows' && normalizedInstallerArch(installer) === 'arm64') {
+        return t('home.installers.detail.windowsArm64');
+    }
+
+    if (installer.platform === 'windows' && normalizedInstallerArch(installer) === 'x64') {
+        return t('home.installers.detail.windowsX64');
+    }
+
+    return packageLabel(installer);
+}
+
+function installerMeta(installer: IReleaseInstaller): string {
+    return t('home.installers.packageSize', {
+        package: packageLabel(installer),
+        size: formatFileSize(installer.size),
+    });
+}
+
+function downloadAriaLabel(installer: IReleaseInstaller): string {
+    return t('home.hero.downloadInstaller', {
+        installerLabel: `${installerLabel(installer)} ${packageLabel(installer)}`,
+    });
 }
 
 async function refreshReleaseData() {

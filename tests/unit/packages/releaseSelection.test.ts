@@ -6,6 +6,7 @@ import {
 import type { IReleaseInstaller } from '@contracts';
 import {
     isLegacyInstallerAsset,
+    normalizeInstallers,
     parseArchitectureHint,
     recommendInstaller,
 } from '@releaseSelection';
@@ -33,6 +34,18 @@ describe('release selection', () => {
         expect(parseArchitectureHint('x86')).toBe('x64');
         expect(parseArchitectureHint('arm64')).toBe('arm64');
         expect(parseArchitectureHint('x86_64')).toBe('x64');
+    });
+
+    it('treats the default Linux AppImage artifact as x64', () => {
+        const [installer] = normalizeInstallers([createInstaller({
+            arch: 'unknown',
+            extension: 'appimage',
+            id: 1,
+            name: 'EVB.Viewer-0.1.312.AppImage',
+            platform: 'linux',
+        })]);
+
+        expect(installer?.arch).toBe('x64');
     });
 
     it('prefers mac x64 compatible installers before extension rank', () => {
