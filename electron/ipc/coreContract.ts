@@ -6,9 +6,11 @@ import type {
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
     IAgentAssistantLoginResult,
+    IAgentAssistantScopedRequest,
     IAgentAssistantSendMessageRequest,
     IAgentAssistantSendMessageResult,
     IAgentAssistantState,
+    IAgentAssistantStateRequest,
     IAgentMcpIntegrationStatus,
     IAgentMcpIntegrationUpdateResult,
     IAgentWorkspaceSnapshotRequest,
@@ -164,7 +166,7 @@ export interface ICoreInvokeMap {
         result: IAgentMcpIntegrationUpdateResult;
     };
     [CORE_IPC_CHANNELS.agentGetAssistantState]: {
-        args: [];
+        args: [request?: IAgentAssistantStateRequest];
         result: IAgentAssistantState;
     };
     [CORE_IPC_CHANNELS.agentInstallAssistantCodex]: {
@@ -184,11 +186,11 @@ export interface ICoreInvokeMap {
         result: IAgentAssistantSendMessageResult;
     };
     [CORE_IPC_CHANNELS.agentInterruptAssistant]: {
-        args: [];
+        args: [request?: IAgentAssistantScopedRequest];
         result: IAgentAssistantState;
     };
     [CORE_IPC_CHANNELS.agentResetAssistantChat]: {
-        args: [];
+        args: [request?: IAgentAssistantScopedRequest];
         result: IAgentAssistantState;
     };
     [CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot]: {

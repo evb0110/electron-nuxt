@@ -198,8 +198,10 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 invokeCore(CORE_IPC_CHANNELS.agentGetMcpIntegrationStatus),
             setMcpIntegrationEnabled: enabled =>
                 invokeCore(CORE_IPC_CHANNELS.agentSetMcpIntegrationEnabled, enabled),
-            getAssistantState: () =>
-                invokeCore(CORE_IPC_CHANNELS.agentGetAssistantState),
+            getAssistantState: request =>
+                request === undefined
+                    ? invokeCore(CORE_IPC_CHANNELS.agentGetAssistantState)
+                    : invokeCore(CORE_IPC_CHANNELS.agentGetAssistantState, request),
             installAssistantCodex: () =>
                 invokeCore(CORE_IPC_CHANNELS.agentInstallAssistantCodex),
             startAssistantLogin: request =>
@@ -208,10 +210,14 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 invokeCore(CORE_IPC_CHANNELS.agentCancelAssistantLogin),
             sendAssistantMessage: request =>
                 invokeCore(CORE_IPC_CHANNELS.agentSendAssistantMessage, request),
-            interruptAssistant: () =>
-                invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant),
-            resetAssistantChat: () =>
-                invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat),
+            interruptAssistant: request =>
+                request === undefined
+                    ? invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant)
+                    : invokeCore(CORE_IPC_CHANNELS.agentInterruptAssistant, request),
+            resetAssistantChat: request =>
+                request === undefined
+                    ? invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat)
+                    : invokeCore(CORE_IPC_CHANNELS.agentResetAssistantChat, request),
             onAssistantEvent: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onPayload(CORE_IPC_EVENT_CHANNELS.agentAssistantEvent, callback),
         },

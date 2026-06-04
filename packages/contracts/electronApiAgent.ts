@@ -5,9 +5,11 @@ import type {
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
     IAgentAssistantLoginResult,
+    IAgentAssistantScopedRequest,
     IAgentAssistantSendMessageRequest,
     IAgentAssistantSendMessageResult,
     IAgentAssistantState,
+    IAgentAssistantStateRequest,
     IAgentMcpIntegrationStatus,
     IAgentMcpIntegrationUpdateResult,
     IAgentWorkspaceSnapshotRequest,
@@ -26,13 +28,13 @@ export interface IAgentCapability {
     submitCommandResponse: (response: IAgentCommandResponse) => Promise<boolean>;
     getMcpIntegrationStatus: () => Promise<IAgentMcpIntegrationStatus>;
     setMcpIntegrationEnabled: (enabled: boolean) => Promise<IAgentMcpIntegrationUpdateResult>;
-    getAssistantState: () => Promise<IAgentAssistantState>;
+    getAssistantState: (request?: IAgentAssistantStateRequest) => Promise<IAgentAssistantState>;
     installAssistantCodex: () => Promise<IAgentAssistantInstallResult>;
     startAssistantLogin: (request: IAgentAssistantLoginRequest) => Promise<IAgentAssistantLoginResult>;
     cancelAssistantLogin: () => Promise<IAgentAssistantState>;
     sendAssistantMessage: (request: IAgentAssistantSendMessageRequest) => Promise<IAgentAssistantSendMessageResult>;
-    interruptAssistant: () => Promise<IAgentAssistantState>;
-    resetAssistantChat: () => Promise<IAgentAssistantState>;
+    interruptAssistant: (request?: IAgentAssistantScopedRequest) => Promise<IAgentAssistantState>;
+    resetAssistantChat: (request?: IAgentAssistantScopedRequest) => Promise<IAgentAssistantState>;
     onAssistantEvent: (
         callback: (event: IAgentAssistantEvent) => void,
     ) => IMenuEventUnsubscribe;

@@ -5,6 +5,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import type { IAgentAssistantChatScope } from '@contracts/agent';
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
@@ -21,9 +24,89 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
+class FakeCodexAppServerProcess extends EventEmitter {
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly stdin = {write: (
+        line: string,
+        callback?: (error?: Error | null) => void,
+    ) => {
+        this.handleRequestLine(line);
+        callback?.();
+        return true;
+    }};
+
+    private threadCount = 0;
+    private turnCount = 0;
+
+    kill = vi.fn(() => {
+        this.emit('close', 0);
+        return true;
+    });
+
+    private handleRequestLine(line: string) {
+        const request = JSON.parse(line) as {
+            id?: number;
+            method?: string;
+            params?: { threadId?: string };
+        };
+        if (request.id === undefined) {
+            return;
+        }
+
+        switch (request.method) {
+            case 'initialize':
+                this.respond(request.id, {});
+                return;
+            case 'account/read':
+                this.respond(request.id, {account: {
+                    type: 'chatgpt',
+                    email: 'reader@example.com',
+                }});
+                return;
+            case 'mcpServerStatus/list':
+                this.respond(request.id, {data: [{
+                    name: 'evb_viewer_embedded',
+                    tools: {},
+                }]});
+                return;
+            case 'thread/start': {
+                this.threadCount += 1;
+                this.respond(request.id, { thread: { id: `thread-${this.threadCount}` } });
+                return;
+            }
+            case 'turn/start': {
+                this.turnCount += 1;
+                this.respond(request.id, { turn: { id: `turn-${this.turnCount}` } });
+                this.notify('turn/completed', { threadId: request.params?.threadId });
+                return;
+            }
+            default:
+                this.respond(request.id, {});
+        }
+    }
+
+    private respond(id: number, result: unknown) {
+        this.stdout.write(`${JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result,
+        })}\n`);
+    }
+
+    private notify(method: string, params: unknown) {
+        this.stdout.write(`${JSON.stringify({
+            jsonrpc: '2.0',
+            method,
+            params,
+        })}\n`);
+    }
+}
+
 vi.mock('electron', () => ({
     app: {
         focus: vi.fn(),
+        getVersion: vi.fn(() => '0.0.0-test'),
         getPath: vi.fn(() => '/tmp/evb-viewer-test'),
     },
     BrowserWindow: {
@@ -86,5 +169,63 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.getCodexCliInfo).not.toHaveBeenCalled();
         expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();
         expect(mocks.spawn).not.toHaveBeenCalled();
+    });
+
+    it('keeps assistant chat messages scoped to the selected document', async () => {
+        const documentA: IAgentAssistantChatScope = {
+            kind: 'document',
+            key: 'document:/tmp/a.pdf',
+            title: 'a.pdf',
+            documentRef: '/tmp/a.pdf',
+        };
+        const documentB: IAgentAssistantChatScope = {
+            kind: 'document',
+            key: 'document:/tmp/b.pdf',
+            title: 'b.pdf',
+            documentRef: '/tmp/b.pdf',
+        };
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            name: 'evb_viewer_embedded',
+            url: 'http://127.0.0.1:9876',
+        });
+        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        } = await import('@electron/features/agent/codexAssistant');
+
+        const firstResult = await sendAgentAssistantMessage({
+            text: 'Question for A',
+            scope: documentA,
+        });
+        expect(firstResult.ok).toBe(true);
+        expect(firstResult.state.scope?.key).toBe(documentA.key);
+        expect(firstResult.state.messages.map(message => message.text)).toContain('Question for A');
+
+        const emptyDocumentB = await getAgentAssistantState({ scope: documentB });
+        expect(emptyDocumentB.scope?.key).toBe(documentB.key);
+        expect(emptyDocumentB.messages).toEqual([]);
+
+        const secondResult = await sendAgentAssistantMessage({
+            text: 'Question for B',
+            scope: documentB,
+        });
+        expect(secondResult.ok).toBe(true);
+        expect(secondResult.state.messages.map(message => message.text)).toContain('Question for B');
+        expect(secondResult.state.messages.map(message => message.text)).not.toContain('Question for A');
+
+        const restoredDocumentA = await getAgentAssistantState({ scope: documentA });
+        expect(restoredDocumentA.messages.map(message => message.text)).toContain('Question for A');
+        expect(restoredDocumentA.messages.map(message => message.text)).not.toContain('Question for B');
     });
 });

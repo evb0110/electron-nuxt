@@ -128,6 +128,7 @@
             />
             <AgentAssistantPanel
                 v-if="assistantPanelEnabled && assistantPanelOpen && !isFullscreen"
+                :chat-scope="assistantChatScope"
                 :has-active-document="assistantHasActiveDocument"
                 :has-any-document="assistantHasAnyDocument"
                 :active-document-name="assistantActiveDocumentName"
@@ -139,7 +140,7 @@
         </div>
 
         <UButton
-            v-if="assistantPanelEnabled && !assistantPanelOpen && !activeToolPage && !isFullscreen"
+            v-if="assistantPanelEnabled && assistantHasActiveDocument && !assistantPanelOpen && !activeToolPage && !isFullscreen"
             class="assistant-panel-toggle"
             :aria-label="t('assistant.open')"
             icon="i-ph-chat-circle-dots"
@@ -227,6 +228,7 @@ import type {
     TPdfViewMode,
     TTabMemoryPolicy,
 } from '@contracts/shared';
+import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startPage';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
@@ -775,6 +777,22 @@ const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpt
 const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
     ? assistantActiveTab.value?.fileName ?? null
     : null);
+const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
+    const tab = assistantActiveTab.value;
+    if (!tab || !assistantHasActiveDocument.value) {
+        return null;
+    }
+
+    const documentRef = tab.originalPath;
+    const title = tab.fileName ?? documentRef ?? null;
+    return {
+        kind: 'document',
+        key: documentRef ? `document:${documentRef}` : `tab:${tab.id}`,
+        title,
+        tabId: tab.id,
+        ...(documentRef ? { documentRef } : {}),
+    };
+});
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
 
 watch(assistantPanelEnabled, (enabled) => {

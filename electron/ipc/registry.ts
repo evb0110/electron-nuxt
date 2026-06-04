@@ -20,9 +20,12 @@ import type {
     IWindowTabTargetWindow,
 } from '@contracts/windowTabs';
 import type {
+    IAgentAssistantChatScope,
     IAgentAssistantLoginRequest,
     IAgentAssistantImageAttachment,
+    IAgentAssistantScopedRequest,
     IAgentAssistantSendMessageRequest,
+    IAgentAssistantStateRequest,
 } from '@contracts/agent';
 import { te } from '@electron/i18n';
 import {
@@ -136,6 +139,33 @@ function isAgentAssistantLoginRequest(request: unknown): request is IAgentAssist
     return isRecord(request) && (request.mode === 'chatgpt' || request.mode === 'device-code');
 }
 
+function isAgentAssistantChatScope(scope: unknown): scope is IAgentAssistantChatScope {
+    return isRecord(scope)
+        && scope.kind === 'document'
+        && typeof scope.key === 'string'
+        && scope.key.trim().length > 0
+        && (scope.title === null || typeof scope.title === 'string')
+        && (scope.tabId === undefined || scope.tabId === null || typeof scope.tabId === 'string')
+        && (scope.documentRef === undefined || scope.documentRef === null || typeof scope.documentRef === 'string');
+}
+
+function isAgentAssistantStateRequest(request: unknown): request is IAgentAssistantStateRequest {
+    return request === undefined
+        || request === null
+        || (
+            isRecord(request)
+            && (
+                request.scope === undefined
+                || request.scope === null
+                || isAgentAssistantChatScope(request.scope)
+            )
+        );
+}
+
+function isAgentAssistantScopedRequest(request: unknown): request is IAgentAssistantScopedRequest {
+    return isAgentAssistantStateRequest(request);
+}
+
 function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAgentAssistantImageAttachment {
     return isRecord(attachment)
         && attachment.type === 'image'
@@ -150,6 +180,11 @@ function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAg
 function isAgentAssistantSendMessageRequest(request: unknown): request is IAgentAssistantSendMessageRequest {
     return isRecord(request)
         && typeof request.text === 'string'
+        && (
+            request.scope === undefined
+            || request.scope === null
+            || isAgentAssistantChatScope(request.scope)
+        )
         && (
             request.attachments === undefined
             || (Array.isArray(request.attachments) && request.attachments.every(isAgentAssistantImageAttachment))
@@ -420,9 +455,12 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return setAgentMcpIntegrationEnabled(enabled, BrowserWindow.fromWebContents(event.sender));
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.agentGetAssistantState, () =>
-        getAgentAssistantState(),
-    );
+    registrar.handle(CORE_IPC_CHANNELS.agentGetAssistantState, (_event, request: unknown) => {
+        if (!isAgentAssistantStateRequest(request)) {
+            throw new Error('Invalid assistant state request payload');
+        }
+        return getAgentAssistantState(request);
+    });
 
     registrar.handle(CORE_IPC_CHANNELS.agentInstallAssistantCodex, () =>
         installAgentAssistantCodex(),
@@ -446,13 +484,19 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
         return sendAgentAssistantMessage(request);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.agentInterruptAssistant, () =>
-        interruptAgentAssistant(),
-    );
+    registrar.handle(CORE_IPC_CHANNELS.agentInterruptAssistant, (_event, request: unknown) => {
+        if (!isAgentAssistantScopedRequest(request)) {
+            throw new Error('Invalid assistant interrupt request payload');
+        }
+        return interruptAgentAssistant(request);
+    });
 
-    registrar.handle(CORE_IPC_CHANNELS.agentResetAssistantChat, () =>
-        resetAgentAssistantChat(),
-    );
+    registrar.handle(CORE_IPC_CHANNELS.agentResetAssistantChat, (_event, request: unknown) => {
+        if (!isAgentAssistantScopedRequest(request)) {
+            throw new Error('Invalid assistant reset request payload');
+        }
+        return resetAgentAssistantChat(request);
+    });
 
     registrar.handle(CORE_IPC_CHANNELS.agentSubmitWorkspaceSnapshot, (event, response: unknown) =>
         submitAgentWorkspaceSnapshotResponse(event, response),
