@@ -16,6 +16,7 @@ interface IRenderVisiblePagesOptions {
     bufferOverride?: number;
     forceRerender?: boolean;
     maxCanvasPixelsOverride?: number;
+    preserveInFlightRequiredPages?: boolean;
 }
 
 interface IVisibleRenderBounds {
@@ -278,6 +279,31 @@ export function usePdfRendererVisibleRenderController(options: IUsePdfRendererVi
             });
             return;
         }
+
+        const activeRequestId = getVisibleRenderRequestId();
+        const inFlightRequiredPages = renderOptions?.preserveInFlightRequiredPages === true && !request.forceRerender
+            ? range(visibleRange.start, visibleRange.end + 1).filter(
+                (pageNumber) => (
+                    renderingPages.get(pageNumber) === request.version
+                    && renderingPageRequestIds.get(pageNumber) === activeRequestId
+                ),
+            )
+            : [];
+        if (inFlightRequiredPages.length > 0) {
+            logPdfRenderTrace('renderer-visible-render-preserve-in-flight-required-pages', {
+                activeRequestId,
+                version: request.version,
+                visibleRange,
+                renderStart: request.renderStart,
+                renderEnd: request.renderEnd,
+                inFlightRequiredPages,
+                renderedPages: Array.from(renderedPages),
+                renderingPages: Array.from(renderingPages.entries()),
+                renderingPageRequestIds: Array.from(renderingPageRequestIds.entries()),
+            });
+            return;
+        }
+
         const requestId = nextVisibleRenderRequestId();
 
         const {

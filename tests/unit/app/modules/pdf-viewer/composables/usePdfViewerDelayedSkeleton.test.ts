@@ -78,6 +78,23 @@ describe('usePdfViewerDelayedSkeleton', () => {
         scope.stop();
     });
 
+    it('starts the delay when a tracked page becomes pending before render queries it', async () => {
+        vi.useFakeTimers();
+        const {
+            pendingPages,
+            scope,
+            skeleton,
+        } = createHarness();
+        pendingPages.value = new Set([1]);
+        await nextTick();
+
+        await vi.advanceTimersByTimeAsync(140);
+
+        expect(skeleton.shouldShowSkeleton(1)).toBe(true);
+
+        scope.stop();
+    });
+
     it('shows pending page skeletons immediately when delay is disabled', () => {
         const {
             pendingPages,

@@ -2,6 +2,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
+import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdfNavigationSkeletonEligibility';
 import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime/rendering/usePdfMountedPageRenderRecovery';
 import { usePdfViewerRenderingRuntime } from '@app/modules/pdf-viewer/runtime/rendering/usePdfViewerRenderingRuntime';
 import { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
@@ -28,6 +29,7 @@ import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts
 import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
 import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
+import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import {
@@ -617,6 +619,41 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         invalidatePages,
         preserveNextSourceReloadVisibleContent,
     } = runtimeLifecycle;
+    const navigationSkeletonAnchorPage = computed(() =>
+        navigationAnchorPage.value ?? viewerCurrentPage.value,
+    );
+    const skeletonTrackedPages = computed(() => {
+        const trackedPages = new Set(pagesToRender.value);
+        if (numPages.value > 0) {
+            const rowBounds = getPageRowBoundsForViewMode({
+                pageNumber: navigationSkeletonAnchorPage.value,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+            for (let pageNumber = rowBounds.start; pageNumber <= rowBounds.end; pageNumber += 1) {
+                trackedPages.add(pageNumber);
+            }
+        }
+        return [...trackedPages].sort((left, right) => left - right);
+    });
+    function hasMountedPageCanvas(pageNumber: number) {
+        return Boolean(
+            viewerContainer.value?.querySelector(
+                `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
+            ),
+        );
+    }
+    function isPageVisuallyReady(pageNumber: number) {
+        return isPageRenderedForClass(pageNumber) || hasMountedPageCanvas(pageNumber);
+    }
+    const shouldShowNavigationSkeleton = (pageNumber: number) => shouldShowPdfNavigationSkeleton({
+        pageNumber,
+        navigationAnchorPage: navigationSkeletonAnchorPage.value,
+        totalPages: numPages.value,
+        viewMode: viewMode.value,
+        isPageRendered: isPageVisuallyReady,
+        shouldShowSkeleton,
+    });
     const { queueMountedPageRender: handlePageContainerMounted } = usePdfMountedPageRenderRecovery({
         isActive,
         isLoading,
@@ -624,10 +661,8 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         numPages,
         suppressRecovery: isCurrentPageFitRerenderTransitionActive,
         shouldRecoverPage: pageNumber => (
-            pageNumber >= visibleRange.value.start
-            && pageNumber <= visibleRange.value.end
-            && shouldShowSkeleton(pageNumber)
-            && !isPageRenderedForClass(pageNumber)
+            shouldShowNavigationSkeleton(pageNumber)
+            && !isPageVisuallyReady(pageNumber)
             && !isPageRendering(pageNumber)
         ),
         renderVisiblePages,
@@ -669,9 +704,11 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         suppressPagedBufferRender: isCurrentPageFitRerenderTransitionActive,
         skeletonContentInsets,
         pagesToRender,
+        skeletonTrackedPages,
         isPageBuffered,
         isPageRenderedForClass,
-        shouldShowSkeleton,
+        hasMountedPageCanvas,
+        shouldShowSkeleton: shouldShowNavigationSkeleton,
         visibleRange,
         currentPage: viewerCurrentPage,
         zoom,

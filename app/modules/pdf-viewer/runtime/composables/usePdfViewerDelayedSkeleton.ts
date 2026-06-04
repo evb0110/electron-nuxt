@@ -1,4 +1,5 @@
 import type { MaybeRefOrGetter } from 'vue';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfViewerDelayedSkeletonOptions {
     delayMs: number;
@@ -10,6 +11,7 @@ interface IUsePdfViewerDelayedSkeletonOptions {
 export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeletonOptions) {
     const visiblePages = ref(new Set<number>());
     const pendingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+    let isDisposed = false;
 
     function updateVisiblePage(pageNumber: number, visible: boolean) {
         if (visiblePages.value.has(pageNumber) === visible) {
@@ -47,6 +49,22 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
         }
     }
 
+    function queueHidePage(pageNumber: number) {
+        queueMicrotask(() => {
+            if (!isDisposed) {
+                hidePage(pageNumber);
+            }
+        });
+    }
+
+    function queueHideAll() {
+        queueMicrotask(() => {
+            if (!isDisposed) {
+                hideAll();
+            }
+        });
+    }
+
     function shouldStillShow(pageNumber: number) {
         return !toValue(options.blockSkeletons)
             && options.shouldShowSkeletonNow(pageNumber);
@@ -57,9 +75,18 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
             return;
         }
 
+        logPdfRenderTrace('delayed-skeleton-schedule', {
+            pageNumber,
+            delayMs: options.delayMs,
+        });
         const timer = setTimeout(() => {
             pendingTimers.delete(pageNumber);
-            if (shouldStillShow(pageNumber)) {
+            const visible = shouldStillShow(pageNumber);
+            logPdfRenderTrace('delayed-skeleton-timer-fired', {
+                pageNumber,
+                visible,
+            });
+            if (visible) {
                 updateVisiblePage(pageNumber, true);
             }
         }, options.delayMs);
@@ -87,6 +114,24 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
     function markPageRendered(pageNumber: number) {
         hidePage(pageNumber);
     }
+
+    watchEffect(() => {
+        if (toValue(options.blockSkeletons)) {
+            queueHideAll();
+            return;
+        }
+
+        for (const pageNumber of toValue(options.trackedPages)) {
+            if (shouldStillShow(pageNumber)) {
+                if (options.delayMs > 0) {
+                    schedulePage(pageNumber);
+                }
+            } else {
+                cancelPendingTimer(pageNumber);
+                queueHidePage(pageNumber);
+            }
+        }
+    });
 
     watch(
         () => toValue(options.blockSkeletons),
@@ -117,6 +162,7 @@ export function usePdfViewerDelayedSkeleton(options: IUsePdfViewerDelayedSkeleto
     );
 
     onScopeDispose(() => {
+        isDisposed = true;
         hideAll();
     });
 

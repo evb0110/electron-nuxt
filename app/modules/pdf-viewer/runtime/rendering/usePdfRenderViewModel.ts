@@ -37,8 +37,10 @@ interface IUsePdfRenderViewModelOptions {
     suppressPagedBufferRender?: Ref<boolean> | undefined;
     skeletonContentInsets: Ref<IContentInsets | null>;
     pagesToRender: ComputedRef<number[]>;
+    skeletonTrackedPages?: ComputedRef<number[]> | undefined;
     isPageBuffered: (page: number) => boolean;
     isPageRenderedForClass: (page: number) => boolean;
+    hasMountedPageCanvas: (page: number) => boolean;
     shouldShowSkeleton: (page: number) => boolean;
     visibleRange: Ref<{
         start: number;
@@ -98,9 +100,13 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
         || isInitialSkeletonGeometryPending.value
     ));
 
+    const skeletonTrackedPages = computed(() => (
+        options.skeletonTrackedPages?.value ?? options.pagesToRender.value
+    ));
+
     const delayedSkeleton = usePdfViewerDelayedSkeleton({
         delayMs: PDF_VIEWER_PAGE_SKELETON_DELAY_MS,
-        trackedPages: options.pagesToRender,
+        trackedPages: skeletonTrackedPages,
         blockSkeletons: shouldBlockPageSkeletons,
         shouldShowSkeletonNow: options.shouldShowSkeleton,
     });
@@ -125,6 +131,10 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             delayedSkeleton.markPageRendered(page);
             return false;
         }
+        if (options.hasMountedPageCanvas(page)) {
+            delayedSkeleton.markPageRendered(page);
+            return false;
+        }
         const showSkeleton = delayedSkeleton.shouldShowSkeleton(page);
         const isVisiblePage = page >= options.visibleRange.value.start && page <= options.visibleRange.value.end;
         if (showSkeleton && isVisiblePage) {
@@ -134,6 +144,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
                 visibleRange: `${options.visibleRange.value.start}-${options.visibleRange.value.end}`,
                 pagesToRender: options.pagesToRender.value,
                 rendered: options.isPageRenderedForClass(page),
+                hasMountedCanvas: options.hasMountedPageCanvas(page),
                 buffered: options.isPageBuffered(page),
                 nearVisible: options.shouldShowSkeleton(page),
                 delayMs: PDF_VIEWER_PAGE_SKELETON_DELAY_MS,

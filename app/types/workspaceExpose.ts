@@ -15,6 +15,7 @@ export interface IWorkspaceToolbarSnapshot {
     isOpeningDocument: boolean;
     hasOpenError: boolean;
     isPreparingPrint: boolean;
+    isPreparingCurrentPagePrint: boolean;
     canSave: boolean;
     canRepairSave: boolean;
     canUndo: boolean;
@@ -49,6 +50,7 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         isOpeningDocument: false,
         hasOpenError: false,
         isPreparingPrint: false,
+        isPreparingCurrentPagePrint: false,
         canSave: false,
         canRepairSave: false,
         canUndo: false,
