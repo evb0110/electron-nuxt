@@ -27,28 +27,28 @@
         </div>
 
         <div v-show="!activeToolPage" class="editor-global-toolbar-shell">
-            <FallbackWorkspaceToolbar
-                v-show="showFallbackToolbar"
-                :snapshot="fallbackToolbarSnapshot"
-                :has-pdf="fallbackHasPdf"
-                :ocr-popup-open="fallbackOcrPopupOpen"
-                :zoom-dropdown-open="fallbackZoomDropdownOpen"
-                :page-dropdown-open="fallbackPageDropdownOpen"
-                :overflow-menu-open="fallbackOverflowMenuOpen"
-                :app-menu-open="fallbackAppMenuOpen"
+            <ShellWorkspaceToolbar
+                v-show="showShellToolbar"
+                :snapshot="shellToolbarSnapshot"
+                :has-pdf="shellToolbarHasPdf"
+                :ocr-popup-open="shellToolbarOcrPopupOpen"
+                :zoom-dropdown-open="shellToolbarZoomDropdownOpen"
+                :page-dropdown-open="shellToolbarPageDropdownOpen"
+                :overflow-menu-open="shellToolbarOverflowMenuOpen"
+                :app-menu-open="shellToolbarAppMenuOpen"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                @update:ocr-popup-open="fallbackOcrPopupOpen = $event"
-                @update:zoom-dropdown-open="fallbackZoomDropdownOpen = $event"
-                @update:page-dropdown-open="fallbackPageDropdownOpen = $event"
-                @update:overflow-menu-open="fallbackOverflowMenuOpen = $event"
-                @update:app-menu-open="fallbackAppMenuOpen = $event"
-                @update:zoom="fallbackZoom = $event"
-                @update:effective-zoom="fallbackEffectiveZoom = $event"
-                @update:zoom-mode="fallbackZoomMode = $event"
-                @update:fit-mode="fallbackFitMode = $event"
-                @update:view-mode="fallbackViewMode = $event"
-                @update:current-page="fallbackCurrentPage = $event"
+                @update:ocr-popup-open="shellToolbarOcrPopupOpen = $event"
+                @update:zoom-dropdown-open="shellToolbarZoomDropdownOpen = $event"
+                @update:page-dropdown-open="shellToolbarPageDropdownOpen = $event"
+                @update:overflow-menu-open="shellToolbarOverflowMenuOpen = $event"
+                @update:app-menu-open="shellToolbarAppMenuOpen = $event"
+                @update:zoom="shellToolbarZoom = $event"
+                @update:effective-zoom="shellToolbarEffectiveZoom = $event"
+                @update:zoom-mode="shellToolbarZoomMode = $event"
+                @update:fit-mode="shellToolbarFitMode = $event"
+                @update:view-mode="shellToolbarViewMode = $event"
+                @update:current-page="shellToolbarCurrentPage = $event"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="openSettingsPage"
                 @save="handleFallbackSave"
@@ -80,12 +80,12 @@
                 @capture-region="handleFallbackCaptureRegion"
                 @quick-note="handleFallbackQuickNote"
                 @toggle-fullscreen="handleToggleFullscreen"
-                @set-view-mode="handleFallbackOverflowSetViewMode"
+                @set-view-mode="handleShellToolbarOverflowSetViewMode"
                 @go-to-page="noopFallbackAction"
                 @ocr-complete="noopFallbackAction"
             />
             <div
-                v-show="!showFallbackToolbar"
+                v-show="!showShellToolbar"
                 id="editor-global-toolbar-host"
                 ref="globalToolbarHostRef"
                 class="editor-global-toolbar-host"
@@ -186,7 +186,7 @@ import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdates
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
-import FallbackWorkspaceToolbar from '@app/modules/workspace-shell/components/FallbackWorkspaceToolbar.vue';
+import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
@@ -194,7 +194,7 @@ import { useAppShellUpdatesDialog } from '@app/modules/workspace-shell/composabl
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import { useFallbackWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useFallbackWorkspaceToolbar';
+import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composables/useToolbarTeleportBridge';
@@ -630,22 +630,22 @@ onUnmounted(() => {
 });
 
 const {
-    fallbackAppMenuOpen,
-    fallbackCurrentPage,
-    fallbackEffectiveZoom,
-    fallbackFitMode,
-    fallbackHasPdf,
-    fallbackOcrPopupOpen,
-    fallbackOverflowMenuOpen,
-    fallbackPageDropdownOpen,
-    fallbackToolbarSnapshot,
-    fallbackViewMode,
-    fallbackZoom,
-    fallbackZoomMode,
-    fallbackZoomDropdownOpen,
-    handleFallbackOverflowSetViewMode: handleFallbackOverflowSetViewModeInternal,
-    showFallbackToolbar,
-} = useFallbackWorkspaceToolbar({
+    shellToolbarAppMenuOpen,
+    shellToolbarCurrentPage,
+    shellToolbarEffectiveZoom,
+    shellToolbarFitMode,
+    shellToolbarHasPdf,
+    shellToolbarOcrPopupOpen,
+    shellToolbarOverflowMenuOpen,
+    shellToolbarPageDropdownOpen,
+    shellToolbarSnapshot,
+    shellToolbarViewMode,
+    shellToolbarZoom,
+    shellToolbarZoomMode,
+    shellToolbarZoomDropdownOpen,
+    handleShellToolbarOverflowSetViewMode: handleShellToolbarOverflowSetViewModeInternal,
+    showShellToolbar,
+} = useShellWorkspaceToolbar({
     activePaneId,
     activeTabId,
     activeWorkspace,
@@ -654,8 +654,8 @@ const {
     shellState,
 });
 
-function handleFallbackOverflowSetViewMode(mode: TPdfViewMode) {
-    handleFallbackOverflowSetViewModeInternal(mode, runFallbackWorkspaceAction);
+function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
+    handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceAction);
 }
 
 useMenuSync({

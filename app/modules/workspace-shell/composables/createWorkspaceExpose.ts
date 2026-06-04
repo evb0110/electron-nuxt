@@ -23,6 +23,7 @@ interface ICreateWorkspaceExposeDeps extends
     isOpeningDocument: Ref<boolean>;
     hasOpenError: Ref<boolean>;
     isPreparingPrint: Ref<boolean>;
+    isPreparingCurrentPagePrint: Ref<boolean>;
     canSave: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
@@ -142,6 +143,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             isOpeningDocument: deps.isOpeningDocument.value,
             hasOpenError: deps.hasOpenError.value,
             isPreparingPrint: deps.isPreparingPrint.value,
+            isPreparingCurrentPagePrint: deps.isPreparingCurrentPagePrint.value,
             canSave: deps.canSave.value,
             canRepairSave: deps.hasPdf.value
                 && !deps.isOpeningDocument.value

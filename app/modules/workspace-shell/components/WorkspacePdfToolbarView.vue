@@ -1,6 +1,6 @@
 <template>
     <PdfToolbar
-        :has-pdf="hasPdf"
+        :has-pdf="toolbarHasPdf"
         :can-save="snapshot.canSave"
         :can-undo="snapshot.canUndo"
         :can-redo="snapshot.canRedo"
@@ -12,18 +12,20 @@
         :is-exporting-docx="snapshot.isExportingDocx"
         :is-opening-document="snapshot.isOpeningDocument"
         :is-preparing-print="snapshot.isPreparingPrint"
+        :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
         :is-fit-width-active="snapshot.isFitWidthActive"
         :is-fit-height-active="snapshot.isFitHeightActive"
         :show-sidebar="snapshot.showSidebar"
+        :can-toggle-sidebar="toolbarCanToggleSidebar"
         :drag-mode="snapshot.dragMode"
         :continuous-scroll="snapshot.continuousScroll"
         :is-djvu-mode="snapshot.isDjvuMode"
         :is-capturing-region="snapshot.isCapturingRegion"
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
-        :document-busy="fallbackDocumentBusy"
+        :document-busy="toolbarDocumentBusy"
         :has-ocr-action="canUseOcr"
-        :surface="toolbarSurface"
+        :surface="surface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
         @open-file="handleOpenFile"
@@ -31,6 +33,7 @@
         @save="handleSave"
         @save-as="handleSaveAs"
         @print="handlePrint"
+        @print-current-page="handlePrintCurrentPage"
         @export-docx="handleExportDocx"
         @undo="handleUndo"
         @redo="handleRedo"
@@ -49,7 +52,7 @@
         <template #app-menu>
             <ToolbarAppMenu
                 :open="appMenuOpen"
-                :has-pdf="hasPdf"
+                :has-pdf="toolbarHasPdf"
                 :can-save="snapshot.canSave"
                 :can-repair-save="snapshot.canRepairSave"
                 :can-undo="snapshot.canUndo"
@@ -59,9 +62,10 @@
                 :is-history-busy="snapshot.isHistoryBusy"
                 :is-exporting-docx="snapshot.isExportingDocx"
                 :is-preparing-print="snapshot.isPreparingPrint"
+                :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
                 :is-djvu-mode="snapshot.isDjvuMode"
                 :can-use-djvu="canUseDjvu"
-                :document-busy="fallbackDocumentBusy"
+                :document-busy="toolbarDocumentBusy"
                 @update:open="handleAppMenuOpenUpdate"
                 @open-file="handleOpenFile"
                 @save="handleSave"
@@ -87,16 +91,19 @@
         </template>
         <template v-if="canUseOcr" #ocr="{ isCollapsed }">
             <OcrPopup
-                :pdf-document="null"
-                :pdf-data="null"
-                :current-page="currentPage"
+                ref="ocrPopupRef"
+                :pdf-document="ocrPdfDocument"
+                :current-page="snapshot.currentPage"
                 :total-pages="snapshot.totalPages"
-                :working-copy-path="null"
+                :working-copy-path="ocrWorkingCopyPath"
                 :open="ocrPopupOpen"
-                :disabled="snapshot.isDjvuMode || fallbackControlsDisabled"
+                :is-exporting-docx="ocrIsExportingDocx"
+                :external-error="ocrExternalError"
+                :disabled="snapshot.isDjvuMode || toolbarControlsDisabled"
                 :hide-trigger="isCollapsed(3)"
                 @update:open="handleOcrPopupOpenUpdate"
-                @export-docx="handleExportDocx"
+                @update:running="handleOcrRunningUpdate"
+                @export-docx="handleOcrExportDocx"
                 @ocr-complete="handleOcrComplete"
             />
         </template>
@@ -108,7 +115,7 @@
                 v-model:view-mode="viewMode"
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
-                :disabled="fallbackControlsDisabled"
+                :disabled="toolbarControlsDisabled"
                 :compact-level="compactLevel"
                 @update:effective-zoom="handleEffectiveZoomUpdate"
                 @update:open="handleZoomDropdownOpenUpdate"
@@ -118,10 +125,10 @@
             <PdfPageDropdown
                 v-model="currentPage"
                 :open="pageDropdownOpen"
-                :total-pages="snapshot.totalPages"
+                :total-pages="pageDropdownTotalPages"
                 :view-mode="snapshot.viewMode"
-                :page-labels="null"
-                :disabled="fallbackControlsDisabled"
+                :page-labels="pageLabels"
+                :disabled="toolbarControlsDisabled"
                 :compact-level="compactLevel"
                 @go-to-page="handleGoToPage"
                 @update:open="handlePageDropdownOpenUpdate"
@@ -132,11 +139,11 @@
                 v-if="hasOverflowItems"
                 :open="overflowMenuOpen"
                 :collapse-tier="collapseTier"
-                can-toggle-sidebar
-                can-capture-region
-                can-crop
-                can-quick-note
-                :has-pdf="hasPdf"
+                :can-toggle-sidebar="toolbarCanToggleSidebar"
+                :can-capture-region="canCaptureRegion"
+                :can-crop="canCrop"
+                :can-quick-note="canQuickNote"
+                :has-pdf="toolbarHasPdf"
                 :can-use-ocr="canUseOcr"
                 :show-sidebar="snapshot.showSidebar"
                 :drag-mode="snapshot.dragMode"
@@ -148,19 +155,21 @@
                 :is-capturing-region="snapshot.isCapturingRegion"
                 :is-crop-selecting="snapshot.isCropSelecting"
                 :is-placing-page-note="snapshot.isPlacingPageNote"
-                :surface="toolbarSurface"
+                :document-busy="toolbarDocumentBusy"
+                :surface="surface"
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
                 can-print-current-page
                 :can-convert-to-pdf="canUseDjvu && snapshot.isDjvuMode"
                 :is-preparing-print="snapshot.isPreparingPrint"
+                :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                :document-busy="fallbackDocumentBusy"
                 trigger-icon="i-ph-dots-three"
                 @update:open="handleOverflowMenuOpenUpdate"
                 @capture-region="handleCaptureRegion"
                 @crop="handleCrop"
+                @open-ocr="handleOpenOcr"
                 @toggle-sidebar="handleToggleSidebar"
                 @actual-size="handleActualSize"
                 @fit-width="handleFitWidth"
@@ -181,39 +190,92 @@
 </template>
 
 <script setup lang="ts">
-import type { TPdfViewMode } from '@contracts/shared';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TDocumentRef } from '@contracts/platformApi';
+import type {
+    TFitMode,
+    TPdfViewMode,
+    TZoomMode,
+} from '@contracts/shared';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
+import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 
+type TAgentOcrPageRange = 'all' | 'current' | 'custom';
+
+interface IAgentOcrRunOptions {
+    pageRange?: TAgentOcrPageRange;
+    customRange?: string;
+    languages?: string[];
+    open?: boolean;
+}
+
+interface IOcrPopupAgentExpose {
+    runOcrForAgent: (options?: IAgentOcrRunOptions) => Promise<Record<string, unknown>>;
+    cancelOcrForAgent: () => Record<string, unknown>;
+    getAgentOcrSnapshot: () => Record<string, unknown>;
+}
+
 const {
-    hasPdf,
+    appMenuOpen,
+    canCaptureRegion = true,
+    canCrop = true,
+    canQuickNote = true,
+    canToggleSidebar = undefined,
+    canUseDjvu = true,
+    canUseOcr,
+    controlsDisabled = undefined,
+    documentBusy = undefined,
+    fullscreenSupported,
+    hasPdf = undefined,
+    isDesktopRuntime,
+    isFullscreen,
+    ocrExternalError = null,
+    ocrIsExportingDocx: ocrIsExportingDocxProp = undefined,
+    ocrPdfDocument = null,
+    ocrPopupOpen,
+    ocrWorkingCopyPath = null,
+    overflowMenuOpen,
+    pageDropdownOpen,
+    pageDropdownTotalPages: pageDropdownTotalPagesProp = undefined,
+    pageLabels = null,
     snapshot,
+    surface,
+    zoomDropdownOpen,
 } = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
-    hasPdf: boolean;
+    hasPdf?: boolean | undefined;
+    canToggleSidebar?: boolean | undefined;
+    canCaptureRegion?: boolean | undefined;
+    canCrop?: boolean | undefined;
+    canQuickNote?: boolean | undefined;
+    canUseOcr: boolean;
+    canUseDjvu?: boolean | undefined;
+    isDesktopRuntime: boolean;
+    surface: IReaderCommandSurface;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
+    documentBusy?: boolean | undefined;
+    controlsDisabled?: boolean | undefined;
+    pageDropdownTotalPages?: number | undefined;
+    pageLabels?: string[] | null | undefined;
+    ocrPdfDocument?: PDFDocumentProxy | null | undefined;
+    ocrWorkingCopyPath?: TDocumentRef | null | undefined;
+    ocrExternalError?: string | null | undefined;
+    ocrIsExportingDocx?: boolean | undefined;
     ocrPopupOpen: boolean;
     zoomDropdownOpen: boolean;
     pageDropdownOpen: boolean;
     overflowMenuOpen: boolean;
     appMenuOpen: boolean;
-    isFullscreen: boolean;
-    fullscreenSupported: boolean;
 }>();
-
-const { isDesktopRuntime } = useRuntimeEnvironment();
-const canUseOcr = computed(() => isDesktopRuntime.value);
-const canUseDjvu = true;
-const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
-const fallbackDocumentBusy = computed(() => snapshot.isOpeningDocument);
-const fallbackControlsDisabled = computed(() => !hasPdf || fallbackDocumentBusy.value || snapshot.totalPages <= 0);
 
 const emit = defineEmits<{
     'update:ocrPopupOpen': [open: boolean];
@@ -223,10 +285,11 @@ const emit = defineEmits<{
     'update:appMenuOpen': [open: boolean];
     'update:zoom': [zoom: number];
     'update:effectiveZoom': [zoom: number];
-    'update:zoomMode': [mode: IWorkspaceToolbarSnapshot['zoomMode']];
-    'update:fitMode': [mode: IWorkspaceToolbarSnapshot['fitMode']];
-    'update:viewMode': [mode: IWorkspaceToolbarSnapshot['viewMode']];
+    'update:zoomMode': [mode: TZoomMode];
+    'update:fitMode': [mode: TFitMode];
+    'update:viewMode': [mode: TPdfViewMode];
     'update:currentPage': [page: number];
+    'update:ocrRunning': [running: boolean];
     'open-file': [];
     'open-settings': [];
     'save': [];
@@ -236,6 +299,7 @@ const emit = defineEmits<{
     'print-current-page': [];
     'combine-images': [];
     'export-docx': [];
+    'ocr-export-docx': [selectedLanguages: string[]];
     'export-images': [];
     'export-multi-page-tiff': [];
     'convert-to-pdf': [];
@@ -260,9 +324,49 @@ const emit = defineEmits<{
     'quick-note': [];
     'toggle-fullscreen': [];
     'set-view-mode': [mode: TPdfViewMode];
-    'go-to-page': [];
-    'ocr-complete': [];
+    'go-to-page': [page: number];
+    'ocr-complete': [payload: unknown];
 }>();
+
+const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
+const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
+const toolbarDocumentBusy = computed(() => documentBusy ?? snapshot.isOpeningDocument);
+const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);
+const toolbarControlsDisabled = computed(() => (
+    controlsDisabled
+    ?? (!toolbarHasPdf.value || toolbarDocumentBusy.value || snapshot.totalPages <= 0)
+));
+const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
+const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
+
+const zoom = computed({
+    get: () => snapshot.zoom,
+    set: value => emit('update:zoom', value),
+});
+const effectiveZoom = computed({
+    get: () => snapshot.effectiveZoom,
+    set: value => emit('update:effectiveZoom', value),
+});
+const zoomMode = computed({
+    get: () => snapshot.zoomMode,
+    set: value => emit('update:zoomMode', value),
+});
+const fitMode = computed({
+    get: () => snapshot.fitMode,
+    set: value => emit('update:fitMode', value),
+});
+const viewMode = computed({
+    get: () => snapshot.viewMode,
+    set: value => emit('update:viewMode', value),
+});
+const {
+    currentPage,
+    handleGoToPage: handleBufferedGoToPage,
+} = useWorkspaceToolbarPageModel({
+    sourcePage: () => snapshot.currentPage,
+    updateCurrentPage: page => emit('update:currentPage', page),
+    goToPage: page => emit('go-to-page', page),
+});
 
 function handleOcrPopupOpenUpdate(open: boolean) {
     emit('update:ocrPopupOpen', open);
@@ -286,6 +390,10 @@ function handleAppMenuOpenUpdate(open: boolean) {
 
 function handleEffectiveZoomUpdate(zoom: number) {
     emit('update:effectiveZoom', zoom);
+}
+
+function handleOcrRunningUpdate(running: boolean) {
+    emit('update:ocrRunning', running);
 }
 
 function handleOpenFile() {
@@ -322,6 +430,10 @@ function handleCombineImages() {
 
 function handleExportDocx() {
     emit('export-docx');
+}
+
+function handleOcrExportDocx(selectedLanguages: string[]) {
+    emit('ocr-export-docx', selectedLanguages);
 }
 
 function handleExportImages() {
@@ -420,36 +532,42 @@ function handleSetViewMode(mode: TPdfViewMode) {
     emit('set-view-mode', mode);
 }
 
-function handleGoToPage() {
-    emit('go-to-page');
+function handleGoToPage(page: number) {
+    handleBufferedGoToPage(page);
 }
 
-function handleOcrComplete() {
-    emit('ocr-complete');
+function handleOpenOcr() {
+    emit('update:ocrPopupOpen', true);
 }
 
-const zoom = computed({
-    get: () => snapshot.zoom,
-    set: value => emit('update:zoom', value),
-});
-const effectiveZoom = computed({
-    get: () => snapshot.effectiveZoom,
-    set: value => emit('update:effectiveZoom', value),
-});
-const zoomMode = computed({
-    get: () => snapshot.zoomMode,
-    set: value => emit('update:zoomMode', value),
-});
-const fitMode = computed({
-    get: () => snapshot.fitMode,
-    set: value => emit('update:fitMode', value),
-});
-const viewMode = computed({
-    get: () => snapshot.viewMode,
-    set: value => emit('update:viewMode', value),
-});
-const currentPage = computed({
-    get: () => snapshot.currentPage,
-    set: value => emit('update:currentPage', value),
+function handleOcrComplete(payload: unknown) {
+    emit('ocr-complete', payload);
+}
+
+function runOcrForAgent(options?: IAgentOcrRunOptions) {
+    return ocrPopupRef.value?.runOcrForAgent(options) ?? Promise.resolve({
+        ok: false,
+        error: 'OCR popup is not mounted.',
+    });
+}
+
+function cancelOcrForAgent() {
+    return ocrPopupRef.value?.cancelOcrForAgent() ?? {
+        ok: false,
+        error: 'OCR popup is not mounted.',
+    };
+}
+
+function getAgentOcrSnapshot() {
+    return ocrPopupRef.value?.getAgentOcrSnapshot() ?? {
+        ok: false,
+        error: 'OCR popup is not mounted.',
+    };
+}
+
+defineExpose<IOcrPopupAgentExpose>({
+    runOcrForAgent,
+    cancelOcrForAgent,
+    getAgentOcrSnapshot,
 });
 </script>

@@ -31,6 +31,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         isOpeningDocument: ref(false),
         hasOpenError: ref(false),
         isPreparingPrint: ref(false),
+        isPreparingCurrentPagePrint: ref(false),
         canSave: ref(false),
         canUndo: ref(false),
         canRedo: ref(false),
@@ -249,9 +250,13 @@ describe('createWorkspaceExpose', () => {
     });
 
     it('includes print preparation state in the toolbar snapshot', () => {
-        const deps = createDeps({ isPreparingPrint: ref(true) });
+        const deps = createDeps({
+            isPreparingPrint: ref(true),
+            isPreparingCurrentPagePrint: ref(true),
+        });
         const exposed = createWorkspaceExpose(deps);
 
         expect(exposed.getToolbarSnapshot().isPreparingPrint).toBe(true);
+        expect(exposed.getToolbarSnapshot().isPreparingCurrentPagePrint).toBe(true);
     });
 });

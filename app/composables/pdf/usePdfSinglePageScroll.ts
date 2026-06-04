@@ -292,6 +292,7 @@ interface IUsePdfSinglePageScrollOptions {
         renderOptions?: {
             preserveRenderedPages?: boolean;
             bufferOverride?: number;
+            preserveInFlightRequiredPages?: boolean;
         },
     ) => Promise<void>;
     /**
@@ -701,6 +702,7 @@ export const usePdfSinglePageScroll = (
             {
                 preserveRenderedPages: true,
                 bufferOverride: 1,
+                preserveInFlightRequiredPages: true,
             },
         ), {
             scope: 'pdf-single-page-scroll',

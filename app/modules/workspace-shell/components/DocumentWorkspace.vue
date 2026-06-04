@@ -1,44 +1,64 @@
 <template>
     <WorkspaceShell>
         <WorkspaceToolbarHost :is-active="isActive" :can-teleport="canTeleportToolbar">
-            <PdfToolbar
+            <WorkspacePdfToolbarView
+                ref="ocrPopupRef"
+                :snapshot="workspaceToolbarSnapshot"
                 :has-pdf="toolbarHasPdf"
-                :can-save="canSave"
-                :can-undo="canUndo"
-                :can-redo="canRedo"
-                :can-export-docx="canExportDocx"
-                :is-saving="isSaving"
-                :is-saving-as="isSavingAs"
-                :is-any-saving="isAnySaving"
-                :is-history-busy="isHistoryBusy"
-                :is-exporting-docx="isExportingDocx"
-                :is-opening-document="pendingDocumentOpen"
-                :is-preparing-print="isPreparingPrint"
-                :is-preparing-current-page-print="isPreparingCurrentPagePrint"
-                :is-fit-width-active="isFitWidthActive"
-                :is-fit-height-active="isFitHeightActive"
-                :show-sidebar="toolbarShowSidebar"
                 :can-toggle-sidebar="canToggleSidebar"
-                :drag-mode="dragMode"
-                :continuous-scroll="continuousScroll"
-                :is-djvu-mode="isDjvuMode"
-                :is-capturing-region="isCapturingRegion"
-                :is-crop-selecting="isCropSelecting"
-                :is-placing-page-note="annotationPlacingPageNote"
-                :document-busy="toolbarDocumentBusy"
-                :has-ocr-action="canUseOcr"
+                :can-use-ocr="canUseOcr"
+                :can-use-djvu="canUseDjvu"
+                :is-desktop-runtime="isDesktopRuntime"
                 :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :document-busy="toolbarDocumentBusy"
+                :controls-disabled="toolbarControlsDisabled"
+                :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
+                :page-labels="toolbarPageLabels"
+                :ocr-pdf-document="pdfDocument"
+                :ocr-working-copy-path="workingCopyPath"
+                :ocr-external-error="docxExportError"
+                :ocr-is-exporting-docx="isExportingDocx"
+                :ocr-popup-open="ocrPopupOpen"
+                :zoom-dropdown-open="zoomDropdownOpen"
+                :page-dropdown-open="pageDropdownOpen"
+                :overflow-menu-open="overflowMenuOpen"
+                :app-menu-open="appMenuOpen"
+                @update:ocr-popup-open="handleDropdownOpen('ocr', $event)"
+                @update:zoom-dropdown-open="handleDropdownOpen('zoom', $event)"
+                @update:page-dropdown-open="handleDropdownOpen('page', $event)"
+                @update:overflow-menu-open="handleDropdownOpen('overflow', $event)"
+                @update:app-menu-open="handleDropdownOpen('appMenu', $event)"
+                @update:zoom="zoom = $event"
+                @update:effective-zoom="effectiveZoom = $event"
+                @update:zoom-mode="zoomMode = $event"
+                @update:fit-mode="fitMode = $event"
+                @update:view-mode="viewMode = $event"
+                @update:current-page="currentPage = $event"
+                @update:ocr-running="isOcrRunning = $event"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="handleOpenSettings"
                 @save="handleToolbarSave"
+                @repair-save="handleToolbarRepairSave"
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
+                @combine-images="handleOpenCombine"
                 @export-docx="handleToolbarExportDocx"
+                @ocr-export-docx="handleExportDocx"
+                @export-images="handleExportImages()"
+                @export-multi-page-tiff="handleExportMultiPageTiff()"
+                @convert-to-pdf="openConvertDialog"
                 @undo="handleToolbarUndo"
                 @redo="handleToolbarRedo"
+                @insert-image-from-file="handleInsertImageFromFile"
+                @paste-image-from-clipboard="handlePasteImageFromClipboard"
+                @delete-pages="handleDeletePages"
+                @extract-pages="handleExtractPages"
+                @rotate-cw="handleRotateCw"
+                @rotate-ccw="handleRotateCcw"
+                @insert-pages="handleInsertPages"
                 @toggle-sidebar="handleToolbarToggleSidebar"
                 @actual-size="handleActualSize"
                 @fit-width="handleToolbarFitWidth"
@@ -50,172 +70,21 @@
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
                 @toggle-fullscreen="handleToggleFullscreen"
-            >
-                <template #app-menu>
-                    <ToolbarAppMenu
-                        :open="appMenuOpen"
-                        :has-pdf="toolbarHasPdf"
-                        :can-save="canSave"
-                        :can-repair-save="canRepairSave"
-                        :can-undo="canUndo"
-                        :can-redo="canRedo"
-                        :can-export-docx="canExportDocx"
-                        :is-any-saving="isAnySaving"
-                        :is-history-busy="isHistoryBusy"
-                        :is-exporting-docx="isExportingDocx"
-                        :is-preparing-print="isPreparingPrint"
-                        :is-preparing-current-page-print="isPreparingCurrentPagePrint"
-                        :is-djvu-mode="isDjvuMode"
-                        :can-use-djvu="canUseDjvu"
-                        :document-busy="toolbarDocumentBusy"
-                        @update:open="handleDropdownOpen('appMenu', $event)"
-                        @open-file="handleOpenFileFromUi"
-                        @save="handleToolbarSave"
-                        @repair-save="handleToolbarRepairSave"
-                        @save-as="handleToolbarSaveAs"
-                        @print="handlePrint"
-                        @print-current-page="handlePrintCurrentPage"
-                        @combine-images="handleOpenCombine"
-                        @export-docx="handleToolbarExportDocx"
-                        @export-images="handleExportImages()"
-                        @export-multi-page-tiff="handleExportMultiPageTiff()"
-                        @convert-to-pdf="openConvertDialog"
-                        @undo="handleToolbarUndo"
-                        @redo="handleToolbarRedo"
-                        @insert-image-from-file="handleInsertImageFromFile"
-                        @paste-image-from-clipboard="handlePasteImageFromClipboard"
-                        @delete-pages="handleDeletePages"
-                        @extract-pages="handleExtractPages"
-                        @rotate-cw="handleRotateCw"
-                        @rotate-ccw="handleRotateCcw"
-                        @insert-pages="handleInsertPages"
-                    />
-                </template>
-                <template v-if="canUseOcr" #ocr="{ isCollapsed }">
-                    <OcrPopup
-                        ref="ocrPopupRef"
-                        :pdf-document="pdfDocument"
-                        :current-page="currentPage"
-                        :total-pages="totalPages"
-                        :working-copy-path="workingCopyPath"
-                        :open="ocrPopupOpen"
-                        :is-exporting-docx="isExportingDocx"
-                        :external-error="docxExportError"
-                        :disabled="isDjvuMode || toolbarControlsDisabled"
-                        :hide-trigger="isCollapsed(3)"
-                        @update:open="handleDropdownOpen('ocr', $event)"
-                        @update:running="isOcrRunning = $event"
-                        @export-docx="handleExportDocx"
-                        @ocr-complete="handleOcrComplete"
-                    />
-                </template>
-                <template #zoom-dropdown="{ compactLevel }">
-                    <PdfZoomDropdown
-                        v-model:zoom="zoom"
-                        v-model:zoom-mode="zoomMode"
-                        v-model:fit-mode="fitMode"
-                        v-model:view-mode="viewMode"
-                        :effective-zoom="effectiveZoom"
-                        :open="zoomDropdownOpen"
-                        :disabled="toolbarControlsDisabled"
-                        :compact-level="compactLevel"
-                        @update:effective-zoom="effectiveZoom = $event"
-                        @update:open="handleDropdownOpen('zoom', $event)"
-                    />
-                </template>
-                <template #page-dropdown="{ compactLevel }">
-                    <PdfPageDropdown
-                        v-model="currentPage"
-                        :open="pageDropdownOpen"
-                        :total-pages="documentMetadataReady ? totalPages : 0"
-                        :view-mode="viewMode"
-                        :page-labels="toolbarPageLabels"
-                        :disabled="toolbarControlsDisabled"
-                        :compact-level="compactLevel"
-                        @go-to-page="handleGoToPage"
-                        @update:open="handleDropdownOpen('page', $event)"
-                    />
-                </template>
-                <template #overflow-menu="{ collapseTier, hasOverflowItems }">
-                    <ToolbarOverflowMenu
-                        v-if="hasOverflowItems"
-                        :open="overflowMenuOpen"
-                        :collapse-tier="collapseTier"
-                        :can-toggle-sidebar="canToggleSidebar"
-                        can-capture-region
-                        can-crop
-                        can-quick-note
-                        :has-pdf="toolbarHasPdf"
-                        :can-use-ocr="canUseOcr"
-                        :show-sidebar="toolbarShowSidebar"
-                        :drag-mode="dragMode"
-                        :continuous-scroll="continuousScroll"
-                        :view-mode="viewMode"
-                        :is-djvu-mode="isDjvuMode"
-                        :is-fit-width-active="isFitWidthActive"
-                        :is-fit-height-active="isFitHeightActive"
-                        :is-capturing-region="isCapturingRegion"
-                        :is-crop-selecting="isCropSelecting"
-                        :is-placing-page-note="annotationPlacingPageNote"
-                        :document-busy="toolbarDocumentBusy"
-                        :surface="toolbarSurface"
-                        :show-document-section="isDesktopRuntime"
-                        can-combine-files
-                        can-print-current-page
-                        :can-convert-to-pdf="canUseDjvu && isDjvuMode"
-                        :is-preparing-print="isPreparingPrint"
-                        :is-preparing-current-page-print="isPreparingCurrentPagePrint"
-                        :is-fullscreen="isFullscreen"
-                        :fullscreen-supported="fullscreenSupported"
-                        trigger-icon="i-ph-dots-three"
-                        @update:open="handleDropdownOpen('overflow', $event)"
-                        @capture-region="handleToolbarCaptureRegion"
-                        @crop="handleToolbarCrop"
-                        @open-ocr="handleDropdownOpen('ocr', true)"
-                        @toggle-sidebar="handleToolbarToggleSidebar"
-                        @actual-size="handleActualSize"
-                        @fit-width="handleToolbarFitWidth"
-                        @fit-height="handleToolbarFitHeight"
-                        @enable-drag="handleToolbarEnableDrag"
-                        @disable-drag="handleToolbarDisableDrag"
-                        @set-view-mode="handleOverflowSetViewMode"
-                        @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
-                        @quick-note="handleToolbarQuickNote"
-                        @open-settings="handleOverflowOpenSettings"
-                        @combine-images="handleOpenCombine"
-                        @print-current-page="handlePrintCurrentPage"
-                        @convert-to-pdf="openConvertDialog"
-                        @toggle-fullscreen="handleToggleFullscreen"
-                    />
-                </template>
-            </PdfToolbar>
+                @set-view-mode="handleOverflowSetViewMode"
+                @go-to-page="handleGoToPage"
+                @ocr-complete="handleOcrComplete"
+            />
         </WorkspaceToolbarHost>
 
-        <UAlert
-            v-if="pdfError"
-            color="error"
-            variant="soft"
-            class="mx-3 mt-2"
-            :title="t('errors.file.open')"
-            :description="String(pdfError)"
-            :ui="{ title: 'sr-only' }"
-        />
-
-        <UAlert
-            v-if="canUseDjvu && isDjvuMode && djvuError"
-            color="error"
-            variant="soft"
-            class="mx-3 mt-2"
-            :description="String(djvuError)"
-            :ui="{ title: 'sr-only' }"
-        />
-
-        <DjvuBanner
-            v-if="canUseDjvu && isDjvuMode"
-            :visible="djvuShowBanner"
-            :is-loading-pages="djvuIsLoadingPages"
-            :loading-current="djvuLoadingProgress.current"
-            :loading-total="djvuLoadingProgress.total"
+        <WorkspaceDocumentAlerts
+            :pdf-error="pdfError"
+            :can-use-djvu="canUseDjvu"
+            :is-djvu-mode="isDjvuMode"
+            :djvu-error="djvuError"
+            :djvu-show-banner="djvuShowBanner"
+            :djvu-is-loading-pages="djvuIsLoadingPages"
+            :djvu-loading-current="djvuLoadingProgress.current"
+            :djvu-loading-total="djvuLoadingProgress.total"
             @convert="openConvertDialog"
             @dismiss="djvuDismissBanner"
         />
@@ -517,20 +386,17 @@ import '@app/assets/css/pdf-debug-overlays.css';
 import { useMutationObserver } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
-import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfSidebar from '@app/components/pdf/PdfSidebar.vue';
 import PdfStatusBar from '@app/components/pdf/PdfStatusBar.vue';
-import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfViewer from '@app/components/pdf/PdfViewer.vue';
-import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
-import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
-import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { bucketPageCount } from '@app/utils/analytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/composables/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
+import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
 import WorkspaceExportProgressOverlay from '@app/modules/workspace-shell/components/WorkspaceExportProgressOverlay.vue';
 import WorkspacePageOpProgressOverlay from '@app/modules/workspace-shell/components/WorkspacePageOpProgressOverlay.vue';
+import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
 import WorkspaceSaveDialogHost from '@app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue';
 import WorkspaceShell from '@app/modules/workspace-shell/components/layout/WorkspaceShell.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
@@ -564,7 +430,10 @@ import type {
 import type { TAgentTextMarkupKind } from '@app/composables/pdf/annotations/useAnnotationHighlight';
 import { markerRectFromPoint } from '@app/composables/pdf/annotations/pdfPagePointResolver';
 import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
@@ -594,8 +463,6 @@ import {
     PDF_VIEWER_DOM_SELECTORS,
 } from '@app/modules/pdf-viewer/public';
 
-const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
-const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
 const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));
 
@@ -1079,7 +946,6 @@ const {
     canExportDocx,
     handleCropApply,
     handleCropRemove,
-    handleOverflowOpenSettings,
     handleOverflowSetViewMode,
     handleToolbarCaptureRegion,
     handleToolbarCrop,
@@ -1130,6 +996,39 @@ const {
     pdfViewerRef,
     isResizingSidebar,
 });
+const workspaceToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
+    hasPdf: toolbarHasPdf.value,
+    isOpeningDocument: pendingDocumentOpen.value,
+    hasOpenError: Boolean(pdfError.value || djvuError.value),
+    isPreparingPrint: isPreparingPrint.value,
+    isPreparingCurrentPagePrint: isPreparingCurrentPagePrint.value,
+    canSave: canSave.value,
+    canRepairSave: canRepairSave.value,
+    canUndo: canUndo.value,
+    canRedo: canRedo.value,
+    canExportDocx: canExportDocx.value,
+    isSaving: isSaving.value,
+    isSavingAs: isSavingAs.value,
+    isAnySaving: isAnySaving.value,
+    isHistoryBusy: isHistoryBusy.value,
+    isExportingDocx: isExportingDocx.value,
+    isFitWidthActive: isFitWidthActive.value,
+    isFitHeightActive: isFitHeightActive.value,
+    showSidebar: toolbarShowSidebar.value,
+    dragMode: dragMode.value,
+    continuousScroll: continuousScroll.value,
+    isDjvuMode: isDjvuMode.value,
+    isCapturingRegion: isCapturingRegion.value,
+    isCropSelecting: isCropSelecting.value,
+    isPlacingPageNote: annotationPlacingPageNote.value,
+    zoom: zoom.value,
+    effectiveZoom: effectiveZoom.value,
+    zoomMode: zoomMode.value,
+    fitMode: fitMode.value,
+    viewMode: viewMode.value,
+    currentPage: currentPage.value,
+    totalPages: totalPages.value,
+}));
 const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
 
 function handleDeletePages() {
@@ -2971,6 +2870,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     isOpeningDocument: isOpeningDocumentForToolbar,
     hasOpenError: computed(() => Boolean(pdfError.value || djvuError.value)),
     isPreparingPrint,
+    isPreparingCurrentPagePrint,
     canSave,
     canUndo,
     canRedo,

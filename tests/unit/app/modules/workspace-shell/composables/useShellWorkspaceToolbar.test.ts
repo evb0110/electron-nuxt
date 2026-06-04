@@ -1,19 +1,26 @@
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     nextTick,
     ref,
 } from 'vue';
-import { useFallbackWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useFallbackWorkspaceToolbar';
+import {
+    SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS,
+    useShellWorkspaceToolbar,
+} from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type { ITab } from '@app/types/tabs';
 import { cast } from '@tests/helpers/cast';
 
@@ -23,6 +30,7 @@ function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWo
         isOpeningDocument: false,
         hasOpenError: false,
         isPreparingPrint: false,
+        isPreparingCurrentPagePrint: false,
         canSave: false,
         canRepairSave: false,
         canUndo: false,
@@ -78,50 +86,60 @@ function createShellState(activeWorkspace: ReturnType<typeof ref<IWorkspaceExpos
     });
 }
 
-describe('useFallbackWorkspaceToolbar', () => {
+function createToolbarOptions(overrides: Partial<Parameters<typeof useShellWorkspaceToolbar>[0]> = {}) {
+    const activeWorkspace = ref<IWorkspaceExpose | null>(null);
+    return {
+        activePaneId: ref('pane-1'),
+        activeTabId: ref('tab-1'),
+        activeWorkspace,
+        hasTeleportedToolbarContent: ref(false),
+        isTabTransitionBusy: ref(true),
+        shellState: createShellState(activeWorkspace),
+        ...overrides,
+    };
+}
+
+describe('useShellWorkspaceToolbar', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
     it('preserves isOpeningDocument from the active workspace snapshot', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({ isOpeningDocument: true })));
-        const toolbar = useFallbackWorkspaceToolbar({
-            activePaneId: ref('pane-1'),
-            activeTabId: ref('tab-1'),
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
             activeWorkspace,
-            hasTeleportedToolbarContent: ref(false),
-            isTabTransitionBusy: ref(false),
             shellState: createShellState(activeWorkspace),
-        });
+        }));
 
-        expect(toolbar.fallbackToolbarSnapshot.value.isOpeningDocument).toBe(true);
+        expect(toolbar.shellToolbarSnapshot.value.isOpeningDocument).toBe(true);
     });
 
     it('defaults isOpeningDocument to false without an active workspace', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(null);
-        const toolbar = useFallbackWorkspaceToolbar({
-            activePaneId: ref('pane-1'),
-            activeTabId: ref('tab-1'),
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
             activeWorkspace,
-            hasTeleportedToolbarContent: ref(false),
-            isTabTransitionBusy: ref(false),
             shellState: createShellState(activeWorkspace),
-        });
+        }));
 
-        expect(toolbar.fallbackToolbarSnapshot.value.isOpeningDocument).toBe(false);
+        expect(toolbar.shellToolbarSnapshot.value.isOpeningDocument).toBe(false);
     });
 
-    it('seeds the fallback snapshot with default values when no workspace is active', () => {
+    it('seeds the shell handoff snapshot with default values when no workspace is active', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(null);
-        const toolbar = useFallbackWorkspaceToolbar({
-            activePaneId: ref('pane-1'),
-            activeTabId: ref('tab-1'),
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
             activeWorkspace,
-            hasTeleportedToolbarContent: ref(false),
-            isTabTransitionBusy: ref(false),
             shellState: createShellState(activeWorkspace),
-        });
+        }));
 
-        expect(toolbar.fallbackToolbarSnapshot.value).toEqual(createDefaultWorkspaceToolbarSnapshot());
+        expect(toolbar.shellToolbarSnapshot.value).toEqual(createDefaultWorkspaceToolbarSnapshot());
     });
 
-    it('tracks live workspace snapshot changes while the fallback toolbar is visible', async () => {
+    it('tracks live workspace snapshot changes while the shell toolbar is visible', async () => {
         const snapshot = ref(createSnapshot({
             canSave: false,
             hasPdf: true,
@@ -131,16 +149,12 @@ describe('useFallbackWorkspaceToolbar', () => {
             getToolbarSnapshot: () => snapshot.value,
         }));
 
-        const toolbar = useFallbackWorkspaceToolbar({
-            activePaneId: ref('pane-1'),
-            activeTabId: ref('tab-1'),
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
             activeWorkspace,
-            hasTeleportedToolbarContent: ref(false),
-            isTabTransitionBusy: ref(false),
             shellState: createShellState(activeWorkspace),
-        });
+        }));
 
-        expect(toolbar.fallbackToolbarSnapshot.value.canSave).toBe(false);
+        expect(toolbar.shellToolbarSnapshot.value.canSave).toBe(false);
 
         snapshot.value = createSnapshot({
             canSave: true,
@@ -148,7 +162,53 @@ describe('useFallbackWorkspaceToolbar', () => {
         });
         await nextTick();
 
-        expect(toolbar.fallbackToolbarSnapshot.value.canSave).toBe(true);
+        expect(toolbar.shellToolbarSnapshot.value.canSave).toBe(true);
+    });
+
+    it('keeps expected transition handoff quiet', async () => {
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
+            hasPdf: true,
+            totalPages: 3,
+        })));
+        useShellWorkspaceToolbar(createToolbarOptions({
+            activeWorkspace,
+            isTabTransitionBusy: ref(true),
+            shellState: createShellState(activeWorkspace),
+        }));
+
+        await vi.advanceTimersByTimeAsync(SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS + 1);
+
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('warns when shell handoff remains visible after transition with a mounted document workspace', async () => {
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({
+            hasPdf: true,
+            totalPages: 3,
+        })));
+        useShellWorkspaceToolbar(createToolbarOptions({
+            activeWorkspace,
+            isTabTransitionBusy: ref(false),
+            shellState: createShellState(activeWorkspace),
+        }));
+
+        await vi.advanceTimersByTimeAsync(SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS - 1);
+        expect(warn).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(warn).toHaveBeenCalledWith(
+            'toolbar-transition',
+            'Shell toolbar handoff stayed visible without teleported workspace toolbar content',
+            expect.objectContaining({
+                activeTabId: 'tab-1',
+                activePaneId: 'pane-1',
+                isTabTransitionBusy: false,
+                hasTeleportedToolbarContent: false,
+            }),
+        );
     });
 });
 
@@ -159,6 +219,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             isOpeningDocument: false,
             hasOpenError: false,
             isPreparingPrint: false,
+            isPreparingCurrentPagePrint: false,
             canSave: false,
             canRepairSave: false,
             canUndo: false,

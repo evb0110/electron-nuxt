@@ -35,6 +35,7 @@ describe('tab session memory policy', () => {
             isOpeningDocument: false,
             hasOpenError: false,
             isPreparingPrint: false,
+            isPreparingCurrentPagePrint: false,
             canSave: true,
             canRepairSave: true,
             canUndo: false,
