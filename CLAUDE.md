@@ -29,3 +29,4 @@
 
 - Read the FreeText note-persistence documentation before changing annotation serialization or note-window code.
 - Electron e2e is part of release gates; rerun Electron startup flakes in isolation before treating them as regressions.
+- For visual PDF navigation blink/skeleton debugging, see `scripts/diagnostics/README.md`.
