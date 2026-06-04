@@ -723,10 +723,6 @@ watch(() => startSection, (section) => {
     outline-offset: 2px;
 }
 
-.open-panel-cta:disabled {
-    cursor: not-allowed;
-}
-
 .open-panel-cta-icon {
     width: 1rem;
     height: 1rem;

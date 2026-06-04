@@ -368,7 +368,6 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 .zoom-controls-display:disabled {
     opacity: 0.5;
-    cursor: not-allowed;
 }
 
 .zoom-controls-display:focus {

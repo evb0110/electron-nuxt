@@ -144,7 +144,6 @@ const resolvedStyle = computed(() => {
 
 .pdf-context-menu-base--panel :deep(.pdf-context-menu__action:disabled) {
     opacity: 0.5;
-    cursor: not-allowed;
 }
 
 .pdf-context-menu-base :deep(.pdf-context-menu__action--danger) {
