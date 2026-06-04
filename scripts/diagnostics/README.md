@@ -1,0 +1,19 @@
+# Diagnostics
+
+## PDF Navigation Blink Trace
+
+Use `pdfNavigationBlinkTrace.ts` when PDF page navigation shows blank frames, delayed skeletons, or canvas/skeleton flicker.
+
+```bash
+pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts --out .devkit/pdf-navigation-blink-trace.json
+```
+
+Add `--video` when a visual blink needs frame-by-frame review:
+
+```bash
+pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts --video --out .devkit/pdf-navigation-blink-trace.json
+```
+
+Use `--video-dir <dir>` to control where visual artifacts go. The recorder writes timestamped JPEG frames under `<dir>/frames`, then creates `trace.mp4` and `contact-sheet.jpg` when `ffmpeg` is available. Capture uses CDP `Page.startScreencast` so macOS screen-recording permission is not required; if CDP screencast startup fails, it falls back to timestamped Puppeteer screenshots.
+
+The JSON output includes `video.artifactPaths` and `summary.frameAnalysis`. `summary.frameAnalysis.skeletonAfterCanvasObserved` is the quick flag to check when debugging whether skeleton UI appeared again after a canvas had already been observed during the trace window.
