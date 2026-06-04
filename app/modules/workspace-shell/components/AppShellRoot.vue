@@ -419,7 +419,7 @@ watchEffect(() => {
 
 function noopFallbackAction() {}
 
-function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Promise<void> | void) {
+function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => unknown) {
     const workspace = activeWorkspace.value;
     if (!workspace) {
         return;

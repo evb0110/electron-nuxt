@@ -25,6 +25,7 @@ function createDeps() {
     const deps: Parameters<typeof useFileOperations>[0] = {
         isSaving: ref(false),
         isSavingAs: ref(false),
+        originalPath: ref('/tmp/source.pdf'),
         workingCopyPath: ref('/tmp/working.pdf'),
         annotationDirty: ref(false),
         annotationComments: ref([]),

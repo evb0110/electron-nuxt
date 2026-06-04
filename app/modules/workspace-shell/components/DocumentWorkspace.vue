@@ -562,6 +562,8 @@ import type {
     TDrawableShapeType,
 } from '@app/types/annotations';
 import type { TAgentTextMarkupKind } from '@app/composables/pdf/annotations/useAnnotationHighlight';
+import { markerRectFromPoint } from '@app/composables/pdf/annotations/pdfPagePointResolver';
+import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
@@ -717,6 +719,7 @@ const {
     pdfData,
     pdfError,
     workingCopyPath,
+    originalPath,
     pdfDocument,
     isDjvuMode,
     djvuSourcePath,
@@ -797,6 +800,7 @@ const {
     thumbnailHiddenAnnotationIds,
     applyAnnotationComments,
     markAnnotationCommentsLoading,
+    markAnnotationDirty,
     handleAnnotationToolChange,
     handleAnnotationToolAutoReset,
     handleAnnotationToolCancel,
@@ -873,6 +877,7 @@ const {
     minimizeAnnotationNote,
     restoreAnnotationNote,
     bringAnnotationNoteToFront,
+    isSameAnnotationComment,
     shapePropertiesPopover,
     selectedShapeForProperties,
     textMarkupPropertiesPopover,
@@ -955,6 +960,7 @@ const {
     handleGoToPage,
     initFromStorage,
     shouldAcceptViewerCurrentPageUpdate,
+    annotationDirty,
     hasPdf,
 } = w;
 
@@ -2251,6 +2257,39 @@ function getAgentPointNoteCreateOptions(input: Record<string, unknown>) {
     };
 }
 
+function patchLatestAgentPointNoteMarkerRect(options: ReturnType<typeof getAgentPointNoteCreateOptions>) {
+    const markerRect = markerRectFromPoint(options.pageX, options.pageY);
+    if (!markerRect) {
+        return null;
+    }
+    const pageNumber = Math.max(1, Math.trunc(options.pageNumber));
+    const openNote = [...sortedAnnotationNoteWindows.value]
+        .reverse()
+        .find(note =>
+            note.comment.source === 'editor'
+            && note.comment.pageNumber === pageNumber,
+        );
+    if (!openNote) {
+        return markerRect;
+    }
+
+    const previousComment = openNote.comment;
+    openNote.comment = {
+        ...previousComment,
+        markerRect,
+    };
+    annotationComments.value = annotationComments.value.map(comment => (
+        comment.stableKey === previousComment.stableKey
+        || isSameAnnotationComment(comment, previousComment)
+            ? {
+                ...comment,
+                markerRect,
+            }
+            : comment
+    ));
+    return markerRect;
+}
+
 function getAgentShapeCreateOptions(input: Record<string, unknown>) {
     const tool = getAgentStringInput(input, 'shape')
         ?? getAgentStringInput(input, 'tool')
@@ -2310,7 +2349,7 @@ function normalizeAgentAnnotationComment(comment: IAnnotationCommentSummary) {
         annotationId: comment.annotationId,
         source: comment.source,
         hasNote: comment.hasNote === true,
-        markerRect: comment.markerRect ?? null,
+        markerRect: normalizeMarkerRect(comment.markerRect),
     };
 }
 
@@ -2362,6 +2401,25 @@ function createAgentResource(uri: string): Record<string, unknown> {
         throw new Error(`Resource tab ${resourceTabId} does not match workspace tab ${tabId}.`);
     }
 
+    if (!resourceKind || resourceKind === 'status' || resourceKind === 'state') {
+        return {
+            uri,
+            tabId,
+            status: 'ready',
+            currentPage: currentPage.value,
+            totalPages: totalPages.value,
+            canSave: canSave.value,
+            isSaving: isAnySaving.value,
+            hasPdf: hasPdf.value,
+            workingCopyPath: workingCopyPath.value,
+            originalPath: originalPath.value,
+            annotationDirty: annotationDirty.value,
+            annotationNoteWindowsCount: sortedAnnotationNoteWindows.value.length,
+            annotationCommentsStatus: annotationCommentsStatus.value,
+            annotationCommentsCount: annotationComments.value.length,
+        };
+    }
+
     if (resourceKind === 'annotations') {
         return {
             uri,
@@ -2387,8 +2445,11 @@ function createAgentResource(uri: string): Record<string, unknown> {
             ))
             .map((comment) => {
                 const openNote = openNoteByStableKey.get(comment.stableKey) ?? null;
+                const openNoteMarkerRect = normalizeMarkerRect(openNote?.comment.markerRect);
+                const normalizedComment = normalizeAgentAnnotationComment(comment);
                 return {
-                    ...normalizeAgentAnnotationComment(comment),
+                    ...normalizedComment,
+                    markerRect: openNoteMarkerRect ?? normalizedComment.markerRect,
                     text: openNote?.text ?? comment.text,
                     isOpen: openNote !== null,
                     isMinimized: openNote?.isMinimized ?? false,
@@ -2622,15 +2683,90 @@ async function runAgentAction(
             if (text === null) {
                 throw new Error('annotation.update_note requires input.text.');
             }
-            const updated = pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false;
+            const inputMarkerRect = normalizeMarkerRect(
+                input.markerRect as IAnnotationCommentSummary['markerRect'],
+            );
+            const commentForUpdate = inputMarkerRect
+                ? {
+                    ...comment,
+                    markerRect: inputMarkerRect,
+                    hasNote: true,
+                }
+                : comment;
+            const patchAnnotationCommentMarker = () => {
+                if (!inputMarkerRect) {
+                    return;
+                }
+                let matched = false;
+                const nextComments = annotationComments.value.map((candidate) => {
+                    if (
+                        candidate.stableKey !== comment.stableKey
+                        && candidate.id !== comment.id
+                        && (!candidate.annotationId || candidate.annotationId !== comment.annotationId)
+                    ) {
+                        return candidate;
+                    }
+                    matched = true;
+                    return {
+                        ...candidate,
+                        markerRect: inputMarkerRect,
+                        text,
+                        hasNote: true,
+                    };
+                });
+                annotationComments.value = matched
+                    ? nextComments
+                    : [
+                        ...nextComments,
+                        {
+                            ...commentForUpdate,
+                            markerRect: inputMarkerRect,
+                            text,
+                            hasNote: true,
+                        },
+                    ];
+            };
+            patchAnnotationCommentMarker();
+            handleOpenAnnotationNote(commentForUpdate);
+            await nextTick();
+            const openNote = sortedAnnotationNoteWindows.value.find(note =>
+                note.comment.stableKey === commentForUpdate.stableKey
+                || isSameAnnotationComment(note.comment, commentForUpdate),
+            );
+            const updated = openNote
+                ? true
+                : (pdfViewerRef.value?.updateAnnotationComment(commentForUpdate, text) ?? false);
             if (!updated) {
                 throw new Error('Annotation note could not be updated.');
             }
+            if (openNote) {
+                if (inputMarkerRect) {
+                    const previousComment = openNote.comment;
+                    openNote.comment = {
+                        ...previousComment,
+                        markerRect: inputMarkerRect,
+                    };
+                    annotationComments.value = annotationComments.value.map(candidate => (
+                        candidate.stableKey === previousComment.stableKey
+                        || isSameAnnotationComment(candidate, previousComment)
+                            ? {
+                                ...candidate,
+                                markerRect: inputMarkerRect,
+                            }
+                            : candidate
+                    ));
+                }
+                updateAnnotationNoteText(openNote.comment.stableKey, text);
+                markAnnotationDirty();
+            }
+            await nextTick();
+            patchAnnotationCommentMarker();
             await nextTick();
             return createAgentActionResult(actionId, {
                 updated,
                 comment: normalizeAgentAnnotationComment({
-                    ...comment,
+                    ...commentForUpdate,
+                    markerRect: inputMarkerRect ?? comment.markerRect,
                     text,
                     hasNote: text.trim().length > 0 || comment.hasNote === true,
                 }),
@@ -2668,14 +2804,18 @@ async function runAgentAction(
             return createAgentActionResult(actionId, {isPlacingPageNote: annotationPlacingPageNote.value});
         case 'annotation.create_note_at_point':
         case 'annotation.place_note': {
-            const result = await pdfViewerRef.value?.createPointNoteAnnotation(
-                getAgentPointNoteCreateOptions(input),
-            );
+            const options = getAgentPointNoteCreateOptions(input);
+            const result = await pdfViewerRef.value?.createPointNoteAnnotation(options);
             if (!result) {
                 throw new Error('PDF viewer is not ready for annotation.create_note_at_point.');
             }
             await nextTick();
-            return createAgentActionResult(actionId, {...result});
+            const markerRect = result.created ? patchLatestAgentPointNoteMarkerRect(options) : null;
+            await nextTick();
+            return createAgentActionResult(actionId, {
+                ...result,
+                markerRect,
+            });
         }
         case 'annotation.select_tool':
         case 'annotation.set_tool': {
@@ -2714,14 +2854,16 @@ async function runAgentAction(
         }
         case 'file.save': {
             const hadPendingSave = canSave.value;
-            await handleSave();
+            const saveSucceeded = await handleSave();
             await nextTick();
-            if (canSave.value) {
+            if (!saveSucceeded || canSave.value) {
                 throw new Error('Save did not complete; EVB Viewer still reports pending changes.');
             }
             return createAgentActionResult(actionId, {
                 saved: hadPendingSave,
                 canSave: canSave.value,
+                workingCopyPath: workingCopyPath.value,
+                originalPath: originalPath.value,
             });
         }
         case 'file.save_as':

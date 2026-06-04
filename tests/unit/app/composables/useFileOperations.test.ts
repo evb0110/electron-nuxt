@@ -53,6 +53,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
         deps: cast<Parameters<typeof useFileOperations>[0]>({
             isSaving: ref(false),
             isSavingAs: ref(false),
+            originalPath: ref('/tmp/source.pdf'),
             workingCopyPath: ref('/tmp/work.pdf'),
             annotationDirty: ref(false),
             annotationComments: ref([]),

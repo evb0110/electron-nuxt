@@ -1224,13 +1224,13 @@ onUnmounted(() => {
 
 const workspaceExpose: IWorkspaceExpose = {
     handleSave: async () => {
-        await withLoadedWorkspace('handleSave', workspace => workspace.handleSave());
+        return await withLoadedWorkspace('handleSave', workspace => workspace.handleSave()) === true;
     },
     handleRepairSave: async () => {
-        await withLoadedWorkspace('handleRepairSave', workspace => workspace.handleRepairSave());
+        return await withLoadedWorkspace('handleRepairSave', workspace => workspace.handleRepairSave()) === true;
     },
     handleSaveAs: async () => {
-        await withLoadedWorkspace('handleSaveAs', workspace => workspace.handleSaveAs());
+        return await withLoadedWorkspace('handleSaveAs', workspace => workspace.handleSaveAs()) === true;
     },
     handlePrint: async () => {
         await withLoadedWorkspace('handlePrint', workspace => workspace.handlePrint());

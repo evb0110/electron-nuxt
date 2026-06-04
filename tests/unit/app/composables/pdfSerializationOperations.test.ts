@@ -737,6 +737,7 @@ async function createPdfWithFreeTextNotes(notes: Array<{
     pageIndex: number;
     rect: [number, number, number, number];
     contents?: string;
+    name?: string;
     withPopup?: boolean;
 }>) {
     const doc = await PDFDocument.create();
@@ -769,6 +770,9 @@ async function createPdfWithFreeTextNotes(notes: Array<{
         });
         if (note.contents !== undefined) {
             annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(note.contents));
+        }
+        if (note.name !== undefined) {
+            annotDict.set(PDFName.of('NM'), PDFHexString.fromText(note.name));
         }
         let popupRef: PDFRef | null = null;
         if (note.withPopup !== false) {
@@ -2139,6 +2143,120 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(freeTextRectSize?.width).toBeLessThanOrEqual(2);
         expect(freeTextRectSize?.height).toBeLessThanOrEqual(2);
         expect(getRectNumbers(popupDict!)).toEqual(getRectNumbers(freeTextDict!));
+    });
+
+    it('does not overwrite existing embedded FreeText notes when replaying editor-only notes', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'existing embedded note',
+            name: 'evb-note:uid:0:pdfjs_internal_editor_0',
+        }]);
+        const existingRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [
+            makeFreeTextComment({
+                pageIndex: 0,
+                annotationId: `${existingRef.objectNumber}R${existingRef.generationNumber}`,
+                source: 'pdf',
+                subtype: 'FreeText',
+                hasNote: true,
+                text: 'existing embedded note',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            }),
+            makeFreeTextComment({
+                pageIndex: 0,
+                id: 'pdfjs_internal_editor_0',
+                uid: 'pdfjs_internal_editor_0',
+                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                annotationId: null,
+                source: 'editor',
+                subtype: 'Typewriter',
+                hasNote: true,
+                text: 'new editor note',
+                markerRect: {
+                    left: 0.7,
+                    top: 0.24,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            }),
+        ];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const saved = await PDFDocument.load(result, { updateMetadata: false });
+        const freeTextRefs = getPageAnnotRefs(saved).filter((ref) => {
+            const dict = getAnnotDict(saved, ref);
+            return dict?.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
+        });
+        const contents = freeTextRefs.map(ref => getPdfDictContents(getAnnotDict(saved, ref) ?? null));
+
+        expect(freeTextRefs).toHaveLength(2);
+        expect(contents).toContain('existing embedded note');
+        expect(contents).toContain('new editor note');
+        expect(getPdfDictContents(getAnnotDict(saved, existingRef) ?? null)).toBe('existing embedded note');
+    });
+
+    it('uses creation time to avoid legacy replay-name collisions for new editor notes', async () => {
+        const { bytes } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'legacy embedded note',
+            name: 'evb-note:uid:0:pdfjs_internal_editor_0',
+        }]);
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            id: 'pdfjs_internal_editor_0',
+            uid: 'pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            source: 'editor',
+            subtype: 'Typewriter',
+            hasNote: true,
+            text: 'fresh editor note',
+            createdAt: 1780531944655,
+            markerRect: {
+                left: 0.7,
+                top: 0.24,
+                width: 0.01,
+                height: 0.01,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const saved = await PDFDocument.load(result, { updateMetadata: false });
+        const freeTextRefs = getPageAnnotRefs(saved).filter((ref) => {
+            const dict = getAnnotDict(saved, ref);
+            return dict?.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
+        });
+        const contents = freeTextRefs.map(ref => getPdfDictContents(getAnnotDict(saved, ref) ?? null));
+        const names = freeTextRefs.map(ref => getPdfStringValue(getAnnotDict(saved, ref)?.get(PDFName.of('NM'))));
+
+        expect(freeTextRefs).toHaveLength(2);
+        expect(contents).toContain('legacy embedded note');
+        expect(contents).toContain('fresh editor note');
+        expect(names).toContain('evb-note:uid:0:pdfjs_internal_editor_0:created:1780531944655');
     });
 
     it('creates multiple new FreeText popup notes on the same page without overwriting earlier notes', async () => {

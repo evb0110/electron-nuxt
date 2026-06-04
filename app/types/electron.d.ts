@@ -8,7 +8,7 @@ declare global {
         electronAPI?: IPlatformApi;
         __allowRendererFileOpenForAutomation?: (path: TDocumentRef) => Promise<boolean>;
         __openFileDirect?: (path: TDocumentRef) => Promise<boolean>;
-        __handleSave?: () => Promise<void>;
+        __handleSave?: () => Promise<unknown>;
         __appReady?: boolean;
         __appReadyAt?: number;
         __logLevel?: unknown;

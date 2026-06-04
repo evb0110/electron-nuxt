@@ -9,11 +9,16 @@ import {
     PDFArray,
     PDFDict,
     PDFDocument,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFRef,
+    PDFString,
 } from 'pdf-lib';
-import type { IShapeAnnotation } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IShapeAnnotation,
+} from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
@@ -76,6 +81,13 @@ function getRectNumbers(dict: PDFDict) {
     return values;
 }
 
+function getPdfTextValue(value: unknown) {
+    if (value instanceof PDFHexString || value instanceof PDFString) {
+        return value.decodeText();
+    }
+    return '';
+}
+
 async function createPdfDataWithFreeTextAnnotation() {
     const doc = await PDFDocument.create();
     const page = doc.addPage([
@@ -95,6 +107,15 @@ async function createPdfDataWithFreeTextAnnotation() {
     });
     const freeTextRef = doc.context.register(freeTextDict);
     page.node.set(PDFName.of('Annots'), doc.context.obj([freeTextRef]));
+    return new Uint8Array(await doc.save());
+}
+
+async function createBlankPdfData() {
+    const doc = await PDFDocument.create();
+    doc.addPage([
+        600,
+        800,
+    ]);
     return new Uint8Array(await doc.save());
 }
 
@@ -176,6 +197,63 @@ async function createPdfDataWithSinglePage() {
     ]);
     return new Uint8Array(await doc.save());
 }
+
+describe('usePdfSerialization FreeText note comments', () => {
+    it('replays local editor-only Typewriter notes when the viewer snapshot has an invalid marker', async () => {
+        const source = await createBlankPdfData();
+        const localComment: IAnnotationCommentSummary = {
+            id: 'pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'local editor note',
+            displayText: null,
+            previewText: null,
+            kindLabel: 'Inline Note',
+            subtype: 'Typewriter',
+            author: null,
+            createdAt: Date.now(),
+            modifiedAt: Date.now(),
+            color: '#000000',
+            uid: 'pdfjs_internal_editor_0',
+            annotationId: null,
+            source: 'editor',
+            hasNote: true,
+            markerRect: {
+                left: 0.72,
+                top: 0.24,
+                width: 0.0016,
+                height: 0.0016,
+            },
+        };
+        const snapshotComment = {
+            ...localComment,
+            text: '',
+            markerRect: {} as IAnnotationCommentSummary['markerRect'],
+        };
+        const serializer = usePdfSerialization({
+            pdfData: ref(source),
+            workingCopyPath: ref(null),
+            annotationComments: ref([localComment]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            getMarkupSubtypeOverrides: () => undefined,
+            getAnnotationCommentsSnapshot: () => [snapshotComment],
+            getAllShapes: () => [],
+        });
+
+        const saved = await serializer.serializePdfForSave(source);
+        const doc = await PDFDocument.load(saved, { updateMetadata: false });
+        const noteContents = getPageAnnotRefs(doc)
+            .map(ref => getAnnotDict(doc, ref))
+            .filter((dict): dict is PDFDict => dict instanceof PDFDict)
+            .filter(dict => dict.get(PDFName.of('Subtype'))?.toString() === '/FreeText')
+            .map(dict => getPdfTextValue(dict.get(PDFName.of('Contents'))));
+
+        expect(noteContents).toContain(localComment.text);
+    });
+});
 
 describe('usePdfSerialization embedPlacedImageToPage', () => {
     it('persists a placed image as a stamp annotation with an appearance stream', async () => {

@@ -77,6 +77,7 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     openOcrPopup: () => void;
     isExportingDocx: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    originalPath: Ref<TDocumentRef | null>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
@@ -122,6 +123,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         openOcrPopup,
         isExportingDocx,
         workingCopyPath,
+        originalPath,
         annotationComments,
         totalPages,
         pageLabelsDirty,
@@ -194,6 +196,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         isSaving,
         isSavingAs,
         workingCopyPath,
+        originalPath,
         annotationDirty,
         annotationComments,
         pageLabelsDirty,
@@ -272,15 +275,15 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleSave() {
-        await handleSaveWithReload();
+        return handleSaveWithReload();
     }
 
     async function handleRepairSave() {
-        await handleRepairSaveWithReload();
+        return handleRepairSaveWithReload();
     }
 
     async function handleSaveAs() {
-        await handleSaveAsWithReload();
+        return handleSaveAsWithReload();
     }
 
     function saveForExternalRead() {

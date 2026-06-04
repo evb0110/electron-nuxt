@@ -12,6 +12,7 @@ import {
     isAllowedReadPath,
     resolveAllowedReadPath,
 } from '@electron/utils/pathValidator';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 
@@ -84,6 +85,13 @@ export async function resolveReadablePath(
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath) {
         return directResolvedPath;
+    }
+
+    if (await ensureWorkingCopyDirectory(normalizedPath, senderId)) {
+        const restoredWorkingCopyPath = await resolveAllowedReadPath(normalizedPath);
+        if (restoredWorkingCopyPath) {
+            return restoredWorkingCopyPath;
+        }
     }
 
     // When renderer still references the original path, remap it to the active

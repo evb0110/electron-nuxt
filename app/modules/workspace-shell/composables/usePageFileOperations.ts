@@ -35,7 +35,7 @@ export interface IPageFileOperationsDeps {
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
-    handleSave: () => Promise<void>;
+    handleSave: () => Promise<unknown>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;

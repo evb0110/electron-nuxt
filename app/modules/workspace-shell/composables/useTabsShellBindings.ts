@@ -227,7 +227,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect = openPathInAppropriateTab;
-            (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
+            (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave = debugHandleSave;
         }
 
         void (async () => {
@@ -286,7 +286,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
         if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
             // Remove debug hooks on unmount so old closures do not retain stale workspace state.
-            delete (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
+            delete (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
         }
         menuCleanups.forEach(cleanup => cleanup());
         stopTabKeyboardShortcutListener();

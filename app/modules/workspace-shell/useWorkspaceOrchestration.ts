@@ -361,6 +361,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openOcrPopup: () => openDropdown('ocr'),
         isExportingDocx: isDocxExporting,
         workingCopyPath,
+        originalPath,
         annotationComments,
         totalPages,
         pageLabelsDirty,

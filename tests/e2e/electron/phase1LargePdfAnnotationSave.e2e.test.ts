@@ -51,8 +51,8 @@ interface ICommentAtPointViewer {commentAtPoint?: (
 interface IVueWorkspaceHost extends HTMLElement {__vueParentComponent?: {
     exposed?: unknown;
     setupState?: {
-        mountedWorkspace?: { value?: unknown; };
-        workspaceRef?: { value?: unknown; };
+        mountedWorkspace?: { value?: unknown };
+        workspaceRef?: { value?: unknown };
         [key: string]: unknown;
     };
 };}
@@ -64,6 +64,60 @@ interface IPdfAnnotationStorageDebugState {
     serializable?: IPdfAnnotationSerializableDebugState;
 }
 interface IPdfDocumentDebugState {annotationStorage?: IPdfAnnotationStorageDebugState;}
+interface IAgentWorkspaceSurface {
+    readAgentResource: (uri: string) => Promise<Record<string, unknown>>;
+    runAgentAction: (
+        actionId: string,
+        input?: Record<string, unknown>,
+        options?: { dryRun?: boolean },
+    ) => Promise<Record<string, unknown>>;
+}
+
+async function saveLargePdfViaAgentAction(page: Page) {
+    return page.evaluate(async () => {
+        let workspace: IAgentWorkspaceSurface | null = null;
+        const maybeRefValue = (value: unknown) => (
+            value
+            && typeof value === 'object'
+            && 'value' in value
+                ? (value as { value?: unknown }).value
+                : value
+        );
+        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
+            const component = (element as IVueWorkspaceHost).__vueParentComponent;
+            const candidates = [
+                maybeRefValue(component?.setupState?.mountedWorkspace),
+                maybeRefValue(component?.setupState?.workspaceRef),
+                component?.exposed,
+            ];
+            for (const candidate of candidates) {
+                if (
+                    candidate
+                    && typeof candidate === 'object'
+                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
+                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
+                ) {
+                    workspace = candidate as IAgentWorkspaceSurface;
+                    break;
+                }
+            }
+            if (workspace) {
+                break;
+            }
+        }
+        if (!workspace) {
+            return null;
+        }
+
+        const saved = await workspace.runAgentAction('file.save');
+        const tabId = typeof saved.tabId === 'string' ? saved.tabId : '';
+        const status = await workspace.readAgentResource(`evb://document/${encodeURIComponent(tabId)}/status`);
+        return {
+            saved,
+            status,
+        };
+    });
+}
 
 function getPdfStringValue(value: unknown) {
     if (value instanceof PDFHexString || value instanceof PDFString) {
@@ -156,6 +210,7 @@ async function resolveLargePdfPageNotePoint(page: Page) {
         return {
             x,
             y,
+            pageNumber: Number(pageElement.dataset.page ?? '1'),
         };
     });
 }
@@ -188,12 +243,117 @@ async function tryCreatePageNoteViaContextMenu(page: Page) {
     await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
     return {
         ...point,
+        branch: 'context-menu',
         textApplied: false,
     };
 }
 
+async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
+    const point = await resolveLargePdfPageNotePoint(page);
+    if (!point) {
+        return null;
+    }
+
+    return page.evaluate(async (options: {
+        noteText: string;
+        pageNumber: number;
+        point: {
+            x: number;
+            y: number;
+        };
+    }) => {
+        let workspace: IAgentWorkspaceSurface | null = null;
+        const maybeRefValue = (value: unknown) => (
+            value
+            && typeof value === 'object'
+            && 'value' in value
+                ? (value as { value?: unknown }).value
+                : value
+        );
+        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
+            const component = (element as IVueWorkspaceHost).__vueParentComponent;
+            const candidates = [
+                maybeRefValue(component?.setupState?.mountedWorkspace),
+                maybeRefValue(component?.setupState?.workspaceRef),
+                component?.exposed,
+            ];
+            for (const candidate of candidates) {
+                if (
+                    candidate
+                    && typeof candidate === 'object'
+                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
+                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
+                ) {
+                    workspace = candidate as IAgentWorkspaceSurface;
+                    break;
+                }
+            }
+            if (workspace) {
+                break;
+            }
+        }
+        if (!workspace) {
+            return null;
+        }
+
+        const created = await workspace.runAgentAction('annotation.create_note_at_point', {
+            page: options.pageNumber,
+            pageX: 0.72,
+            pageY: 0.24,
+            preferTextAnchor: false,
+        });
+        if (created.created !== true) {
+            return null;
+        }
+
+        const tabId = typeof created.tabId === 'string' ? created.tabId : '';
+        const notesUri = `evb://document/${encodeURIComponent(tabId)}/notes`;
+        let targetStableKey: string | null = null;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const resource = await workspace.readAgentResource(notesUri);
+            const notes = Array.isArray(resource.notes) ? resource.notes : [];
+            const pageNotes = notes.filter((note): note is Record<string, unknown> => (
+                note !== null
+                && typeof note === 'object'
+                && Number((note as Record<string, unknown>).pageNumber) === options.pageNumber
+            ));
+            const targetNote = pageNotes.at(-1) ?? null;
+            if (typeof targetNote?.stableKey === 'string') {
+                targetStableKey = targetNote.stableKey;
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        if (!targetStableKey) {
+            return null;
+        }
+
+        const updated = await workspace.runAgentAction('annotation.update_note', {
+            markerRect: created.markerRect,
+            stableKey: targetStableKey,
+            text: options.noteText,
+        });
+        const updatedResource = await workspace.readAgentResource(notesUri);
+        const updatedNotes = Array.isArray(updatedResource.notes) ? updatedResource.notes : [];
+
+        return {
+            x: options.point.x,
+            y: options.point.y,
+            branch: 'agent-action-state',
+            notes: updatedNotes.slice(-4),
+            textApplied: true,
+            updated,
+        };
+    }, {
+        noteText: text,
+        pageNumber: point.pageNumber,
+        point,
+    });
+}
+
 async function placePageNote(page: Page, text: string) {
     const point = await tryCreatePageNoteViaContextMenu(page)
+        ?? await tryCreatePageNoteViaAgentAction(page, text)
         ?? await page.evaluate(async (noteText: string) => {
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter((host) => {
@@ -219,6 +379,14 @@ async function placePageNote(page: Page, text: string) {
                 annotationComments?: { value?: unknown[] } | unknown[];
                 annotationDirty?: { value?: boolean } | boolean;
                 pdfViewerRef?: { value?: ICommentAtPointViewer };
+                sortedAnnotationNoteWindows?: { value?: Array<{
+                    comment: { stableKey: string };
+                    order: number;
+                }> } | Array<{
+                    comment: { stableKey: string };
+                    order: number;
+                }>;
+                updateAnnotationNoteText?: (stableKey: string, text: string) => void;
                 upsertAnnotationNoteWindow?: (comment: Record<string, unknown>) => void;
             } | null = null;
             for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
@@ -262,6 +430,14 @@ async function placePageNote(page: Page, text: string) {
                         annotationComments?: { value?: unknown[] } | unknown[];
                         annotationDirty?: { value?: boolean } | boolean;
                         pdfViewerRef?: { value?: ICommentAtPointViewer };
+                        sortedAnnotationNoteWindows?: { value?: Array<{
+                            comment: { stableKey: string };
+                            order: number;
+                        }> } | Array<{
+                            comment: { stableKey: string };
+                            order: number;
+                        }>;
+                        updateAnnotationNoteText?: (stableKey: string, text: string) => void;
                         upsertAnnotationNoteWindow?: (comment: Record<string, unknown>) => void;
                     } | null;
                     if (setupState?.pdfViewerRef?.value) {
@@ -283,15 +459,118 @@ async function placePageNote(page: Page, text: string) {
                 Math.max(rect.top + 24, rect.top + rect.height * 0.24),
                 window.innerHeight - 96,
             );
+            const waitForNoteTextarea = async () => {
+                const startedAt = Date.now();
+                while (Date.now() - startedAt < 2_000) {
+                    if (document.querySelector('textarea.note-window__textarea')) {
+                        return true;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                return Boolean(document.querySelector('textarea.note-window__textarea'));
+            };
+            const applyTextToLatestNoteWindow = () => {
+                const noteWindows = Array.isArray(workspaceSetupState?.sortedAnnotationNoteWindows)
+                    ? workspaceSetupState.sortedAnnotationNoteWindows
+                    : workspaceSetupState?.sortedAnnotationNoteWindows?.value;
+                const targetNote = [...(noteWindows ?? [])].sort((left, right) => left.order - right.order).at(-1);
+                if (!targetNote || typeof workspaceSetupState?.updateAnnotationNoteText !== 'function') {
+                    return false;
+                }
+                workspaceSetupState.updateAnnotationNoteText(targetNote.comment.stableKey, noteText);
+                return true;
+            };
+            const createSyntheticNoteWindow = () => {
+                if (!workspaceSetupState?.upsertAnnotationNoteWindow) {
+                    return null;
+                }
+                const syntheticKey = `e2e-large-note:${Date.now()}`;
+                const syntheticComment = {
+                    id: syntheticKey,
+                    stableKey: syntheticKey,
+                    sortIndex: null,
+                    pageIndex: Math.max(0, pageNumber - 1),
+                    pageNumber,
+                    text: noteText,
+                    kindLabel: 'Note',
+                    subtype: 'FreeText',
+                    author: null,
+                    modifiedAt: Date.now(),
+                    color: null,
+                    uid: syntheticKey,
+                    annotationId: syntheticKey,
+                    source: 'editor',
+                    hasNote: true,
+                    markerRect: {
+                        left: 0.70,
+                        top: 0.22,
+                        width: 0.04,
+                        height: 0.04,
+                    },
+                };
+                const commentsRef = workspaceSetupState.annotationComments;
+                if (Array.isArray(commentsRef)) {
+                    commentsRef.push(syntheticComment);
+                } else if (Array.isArray(commentsRef?.value)) {
+                    commentsRef.value = [
+                        ...commentsRef.value,
+                        syntheticComment,
+                    ];
+                }
+                workspaceSetupState.upsertAnnotationNoteWindow(syntheticComment);
+                const annotationDirty = workspaceSetupState.annotationDirty;
+                if (annotationDirty && typeof annotationDirty === 'object') {
+                    annotationDirty.value = true;
+                }
+                if (document.querySelector('textarea.note-window__textarea')) {
+                    return {
+                        x: visibleX,
+                        y: visibleY,
+                        branch: 'synthetic-textarea',
+                        textApplied: false,
+                    };
+                }
+                return {
+                    x: visibleX,
+                    y: visibleY,
+                    branch: 'synthetic-state',
+                    textApplied: true,
+                };
+            };
             const viewer = workspaceSetupState?.pdfViewerRef?.value;
             if (typeof viewer?.commentAtPoint === 'function') {
                 const created = await viewer.commentAtPoint(pageNumber, 0.72, 0.24, { preferTextAnchor: false });
                 if (created) {
+                    if (await waitForNoteTextarea()) {
+                        return {
+                            x: visibleX,
+                            y: visibleY,
+                            branch: 'comment-at-point-textarea',
+                            textApplied: false,
+                        };
+                    }
+                    if (applyTextToLatestNoteWindow()) {
+                        return {
+                            x: visibleX,
+                            y: visibleY,
+                            branch: 'comment-at-point-state',
+                            textApplied: true,
+                        };
+                    }
+                    const syntheticPoint = createSyntheticNoteWindow();
+                    if (syntheticPoint) {
+                        return syntheticPoint;
+                    }
                     return {
                         x: visibleX,
                         y: visibleY,
+                        branch: 'comment-at-point-placement',
                     };
                 }
+            }
+            const syntheticPoint = createSyntheticNoteWindow();
+            if (syntheticPoint) {
+                return syntheticPoint;
             }
             if (workspaceCommandSurface?.handleQuickNote) {
                 await Promise.resolve(workspaceCommandSurface.handleQuickNote());
@@ -310,59 +589,11 @@ async function placePageNote(page: Page, text: string) {
                 return {
                     x: visibleX,
                     y: visibleY,
+                    branch: 'quick-note-placement',
                     textApplied: false,
                 };
             }
-            const syntheticKey = `e2e-large-note:${Date.now()}`;
-            const syntheticComment = {
-                id: syntheticKey,
-                stableKey: syntheticKey,
-                sortIndex: null,
-                pageIndex: Math.max(0, pageNumber - 1),
-                pageNumber,
-                text: noteText,
-                kindLabel: 'Note',
-                subtype: 'FreeText',
-                author: null,
-                modifiedAt: Date.now(),
-                color: null,
-                uid: syntheticKey,
-                annotationId: syntheticKey,
-                source: 'editor',
-                hasNote: true,
-                markerRect: {
-                    left: 0.70,
-                    top: 0.22,
-                    width: 0.04,
-                    height: 0.04,
-                },
-            };
-            const commentsRef = workspaceSetupState?.annotationComments;
-            if (Array.isArray(commentsRef)) {
-                commentsRef.push(syntheticComment);
-            } else if (Array.isArray(commentsRef?.value)) {
-                commentsRef.value = [
-                    ...commentsRef.value,
-                    syntheticComment,
-                ];
-            }
-            workspaceSetupState?.upsertAnnotationNoteWindow?.(syntheticComment);
-            const annotationDirty = workspaceSetupState?.annotationDirty;
-            if (annotationDirty && typeof annotationDirty === 'object') {
-                annotationDirty.value = true;
-            }
-            if (document.querySelector('textarea.note-window__textarea')) {
-                return {
-                    x: visibleX,
-                    y: visibleY,
-                    textApplied: false,
-                };
-            }
-            return {
-                x: visibleX,
-                y: visibleY,
-                textApplied: true,
-            };
+            return null;
         }, text);
     if (!point) {
         throw new Error('Could not activate note placement on the large PDF');
@@ -375,7 +606,16 @@ async function placePageNote(page: Page, text: string) {
     if (!noteAlreadyCreated) {
         await page.mouse.click(point.x, point.y);
     }
-    await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
+    try {
+        await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
+    } catch (error) {
+        const debugState = await collectLargePdfAnnotationDebugState(page);
+        throw new Error(`Large PDF note editor did not open: ${JSON.stringify({
+            point,
+            debugState,
+            cause: error instanceof Error ? error.message : String(error),
+        })}`);
+    }
     const startedAt = Date.now();
     let typedState: {
         includesText: boolean;
@@ -698,31 +938,36 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `large pdf note ${Date.now()}`;
+        const existingFixtureText = 'qerqerqwer';
 
-        console.info('[large-pdf-e2e] opening fixture');
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
         await waitForWorkspaceOpenSettled(page);
 
-        console.info('[large-pdf-e2e] placing note');
         await placePageNote(page, firstText);
-        console.info('[large-pdf-e2e] state after note', JSON.stringify(await collectLargePdfAnnotationDebugState(page)));
-        console.info('[large-pdf-e2e] saving note');
-        await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
-        console.info('[large-pdf-e2e] state after save', JSON.stringify(await collectLargePdfAnnotationDebugState(page)));
+        const agentSaveResult = await saveLargePdfViaAgentAction(page);
+        if (!agentSaveResult) {
+            await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
+        }
 
-        console.info('[large-pdf-e2e] reading saved bytes');
-        const savedPath = await page.evaluate((fallbackPath: string) => {
+        const fallbackSavedPath = await page.evaluate((fallbackPath: string) => {
             let setupState: {
                 workingCopyPath?: { value?: string | null; };
                 originalPath?: { value?: string | null; };
             } | null = null;
+            const maybeRefValue = (value: unknown) => (
+                value
+                && typeof value === 'object'
+                && 'value' in value
+                    ? (value as { value?: unknown }).value
+                    : value
+            );
             for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
                 const component = (element as IVueWorkspaceHost).__vueParentComponent;
                 const candidates = [
-                    component?.setupState?.mountedWorkspace?.value,
-                    component?.setupState?.workspaceRef?.value,
+                    maybeRefValue(component?.setupState?.mountedWorkspace),
+                    maybeRefValue(component?.setupState?.workspaceRef),
                     component?.exposed,
                 ];
                 for (const candidate of candidates) {
@@ -745,11 +990,25 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
                     break;
                 }
             }
-            return setupState?.workingCopyPath?.value ?? setupState?.originalPath?.value ?? fallbackPath;
+            const workingCopyPath = maybeRefValue(setupState?.workingCopyPath);
+            const originalPath = maybeRefValue(setupState?.originalPath);
+            return typeof workingCopyPath === 'string'
+                ? workingCopyPath
+                : typeof originalPath === 'string'
+                    ? originalPath
+                    : fallbackPath;
         }, fixturePath);
-        await expectPdfContainsE2ENote(savedPath, firstText);
+        const savedPath = typeof agentSaveResult?.status?.originalPath === 'string'
+            ? agentSaveResult.status.originalPath
+            : typeof agentSaveResult?.status?.workingCopyPath === 'string'
+                ? agentSaveResult.status.workingCopyPath
+                : fallbackSavedPath;
+        const savedNotes = await expectPdfContainsE2ENote(savedPath, firstText);
+        expect(savedNotes.some(note => note.contents === existingFixtureText), JSON.stringify({
+            savedPath,
+            savedNotes: savedNotes.slice(0, 20),
+        })).toBe(true);
 
-        console.info('[large-pdf-e2e] reopening fixture');
         const reopenPath = copyLargePdfFixture(`large-pdf-note-reopen-${Date.now()}.pdf`);
         copyFileSync(savedPath, reopenPath);
         await openPdfInApp(page, reopenPath, LARGE_PDF_TIMEOUT_MS);
@@ -759,5 +1018,9 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toHaveLength(1);
+        expect(reopenedNotes.some(note => note.contents === existingFixtureText), JSON.stringify({
+            reopenPath,
+            reopenedNotes: reopenedNotes.slice(0, 20),
+        })).toBe(true);
     }, LARGE_PDF_TIMEOUT_MS);
 });

@@ -22,6 +22,8 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/composables/pdf/pdfSerializationRefs';
+import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
+import { mergeAnnotationCommentSaveSnapshot } from '@app/composables/pdf/annotationCommentSaveSnapshot';
 import { getErrorMessage } from '@app/utils/error';
 import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/pdfAnnotationSavePlanner';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
@@ -52,6 +54,7 @@ export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
     isSavingAs: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    originalPath: Ref<TDocumentRef | null>;
     annotationDirty: Ref<boolean>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     pageLabelsDirty: Ref<boolean>;
@@ -89,6 +92,7 @@ export interface IFileOperationsDeps {
             forceRewrite?: boolean;
             includeShapes?: boolean;
             rewriteShapeState?: boolean;
+            annotationCommentsSnapshot?: IAnnotationCommentSummary[];
             pendingTexts?: Map<string, string> | null;
             pendingDeletes?: IAnnotationCommentSummary[] | null;
         },
@@ -120,6 +124,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         isSaving,
         isSavingAs,
         workingCopyPath,
+        originalPath,
         annotationDirty,
         annotationComments,
         pageLabelsDirty,
@@ -179,7 +184,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     function getAnnotationCommentsForSave() {
-        return getAnnotationCommentsSnapshot?.() ?? annotationComments.value;
+        return mergeAnnotationCommentSaveSnapshot(
+            getAnnotationCommentsSnapshot?.(),
+            annotationComments.value,
+        );
     }
 
     function logSavePhase(
@@ -227,7 +235,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return comment.source === 'editor'
             && !parsePdfJsAnnotationRef(comment.annotationId)
             && Boolean(comment.hasNote)
-            && Boolean(comment.markerRect)
+            && Boolean(normalizeMarkerRect(comment.markerRect))
             && (subtype === 'freetext' || subtype === 'typewriter');
     }
 
@@ -248,9 +256,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             includeShapes?: boolean;
             rewriteShapeState?: boolean;
             saveMode?: TPdfSaveMode;
+            annotationCommentsSnapshot?: IAnnotationCommentSummary[];
         },
     ): Promise<IPdfSaveResult | null> {
         const serializeOptions: Parameters<typeof serializePdfForSave>[1] = {
+            annotationCommentsSnapshot: opts?.annotationCommentsSnapshot ?? getAnnotationCommentsForSave(),
             pendingTexts,
             pendingDeletes,
         };
@@ -739,6 +749,23 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         };
     }
 
+    function resolveExpectedWorkingPathForPersistence(
+        initialWorkingPath: TDocumentRef | null,
+        initialOriginalPath: TDocumentRef | null,
+    ) {
+        if (originalPath.value !== initialOriginalPath) {
+            BrowserLogger.debug('workspace', 'Skipped stale serialized PDF persistence after save target changed', {
+                initialOriginalPath,
+                currentOriginalPath: originalPath.value,
+                initialWorkingPath,
+                currentWorkingPath: workingCopyPath.value,
+            });
+            return null;
+        }
+
+        return workingCopyPath.value ?? initialWorkingPath;
+    }
+
     async function runSaveFlow(
         config: {
             mode: 'save' | 'save_as';
@@ -772,6 +799,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         let pendingTexts: Map<string, string> | null = null;
         let pendingDeletes: IAnnotationCommentSummary[] | null = null;
         const expectedWorkingPath = workingCopyPath.value;
+        const expectedOriginalPath = originalPath.value;
         try {
             if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
                 return false;
@@ -808,6 +836,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 : (preparePostSaveReload?.() ?? null);
             const forcePdfjsMaterialize = savedPdfjsAnnotationBaselineDirty || preservedAnnotationSourceDirty;
             const includeManagedShapesForLiveSource = forcePdfjsMaterialize && (hasManagedShapes?.() ?? false);
+            const annotationCommentsSnapshot = getAnnotationCommentsForSave();
 
             if (config.mode === 'save') {
                 BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
@@ -868,21 +897,28 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     pendingDeletes,
                     pendingTexts,
                 });
-                saveSucceeded = await runSerializedSaveFlow(
-                    rawData,
-                    pendingTexts,
-                    pendingDeletes,
-                    shapeStateDirty,
-                    reloadWaiter,
-                    config.mode,
-                    config.saveMode,
-                    config.persistSerialized,
-                    preserveLivePdfjsAnnotationSession,
-                    includeManagedShapesForLiveSource,
-                    config.forceRewrite === true,
+                const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
                     expectedWorkingPath,
-                    () => clearSaveIndicator(config.mode),
+                    expectedOriginalPath,
                 );
+                if (persistenceExpectedWorkingPath) {
+                    saveSucceeded = await runSerializedSaveFlow(
+                        rawData,
+                        pendingTexts,
+                        pendingDeletes,
+                        annotationCommentsSnapshot,
+                        shapeStateDirty,
+                        reloadWaiter,
+                        config.mode,
+                        config.saveMode,
+                        config.persistSerialized,
+                        preserveLivePdfjsAnnotationSession,
+                        includeManagedShapesForLiveSource,
+                        config.forceRewrite === true,
+                        persistenceExpectedWorkingPath,
+                        () => clearSaveIndicator(config.mode),
+                    );
+                }
                 finalizedReloadWaiter = true;
             }
 
@@ -934,6 +970,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         rawData: Uint8Array | null,
         pendingTexts: Map<string, string> | null,
         pendingDeletes: IAnnotationCommentSummary[] | null,
+        annotationCommentsSnapshot: IAnnotationCommentSummary[],
         shapeStateDirty: boolean,
         includeManagedShapesForLiveSource: boolean,
         forceRewrite: boolean,
@@ -956,6 +993,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             rewriteShapeState: shapeStateDirty,
             forceRewrite,
             saveMode,
+            annotationCommentsSnapshot,
         });
         if (!saveResult) {
             return false;
@@ -1067,6 +1105,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         rawData: Uint8Array | null,
         pendingTexts: Map<string, string> | null,
         pendingDeletes: IAnnotationCommentSummary[] | null,
+        annotationCommentsSnapshot: IAnnotationCommentSummary[],
         shapeStateDirty: boolean,
         reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
         mode: 'save' | 'save_as',
@@ -1085,6 +1124,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             rawData,
             pendingTexts,
             pendingDeletes,
+            annotationCommentsSnapshot,
             shapeStateDirty,
             includeManagedShapesForLiveSource,
             forceRewrite,
