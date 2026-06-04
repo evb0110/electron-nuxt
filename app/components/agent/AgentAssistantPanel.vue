@@ -57,7 +57,7 @@
         <div class="agent-assistant-body">
             <section
                 v-if="panelView === 'checking'"
-                class="agent-assistant-setup"
+                class="agent-assistant-placeholder"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-circle-notch" class="agent-assistant-glyph-icon is-spinning" />
@@ -68,7 +68,7 @@
 
             <section
                 v-else-if="panelView === 'unsupported'"
-                class="agent-assistant-setup"
+                class="agent-assistant-placeholder"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-warning-circle" class="agent-assistant-glyph-icon" />
@@ -79,7 +79,7 @@
 
             <section
                 v-else-if="panelView === 'install'"
-                class="agent-assistant-setup"
+                class="agent-assistant-placeholder"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-download-simple" class="agent-assistant-glyph-icon" />
@@ -104,7 +104,7 @@
 
             <section
                 v-else-if="panelView === 'update'"
-                class="agent-assistant-setup"
+                class="agent-assistant-placeholder"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-warning-circle" class="agent-assistant-glyph-icon" />
@@ -123,14 +123,14 @@
 
             <section
                 v-else-if="panelView === 'sign-in'"
-                class="agent-assistant-setup"
+                class="agent-assistant-placeholder"
             >
                 <span class="agent-assistant-glyph">
                     <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-glyph-icon" />
                 </span>
                 <h2>{{ t('assistant.signInTitle') }}</h2>
                 <p>{{ t('assistant.signInDescription') }}</p>
-                <div class="agent-assistant-setup-actions">
+                <div class="agent-assistant-placeholder-actions">
                     <UButton
                         :label="t('assistant.signInChatGpt')"
                         icon="i-ph-arrow-square-out"
@@ -167,7 +167,7 @@
             <template v-else-if="panelView === 'ready'">
                 <section
                     v-if="!chatScope"
-                    class="agent-assistant-empty"
+                    class="agent-assistant-placeholder"
                 >
                     <span class="agent-assistant-glyph">
                         <UIcon name="i-ph-file-text" class="agent-assistant-glyph-icon" />
@@ -177,21 +177,22 @@
                 </section>
 
                 <template v-else>
+                    <section
+                        v-if="!hasMessages"
+                        class="agent-assistant-placeholder"
+                    >
+                        <span class="agent-assistant-glyph">
+                            <UIcon name="i-ph-lightbulb" class="agent-assistant-glyph-icon" />
+                        </span>
+                        <h2>{{ emptyTitle }}</h2>
+                        <p>{{ emptyDescription }}</p>
+                    </section>
+
                     <div
+                        v-else
                         ref="messagesRef"
                         class="agent-assistant-messages"
                     >
-                        <div
-                            v-if="messages.length === 0"
-                            class="agent-assistant-empty"
-                        >
-                            <span class="agent-assistant-glyph">
-                                <UIcon name="i-ph-lightbulb" class="agent-assistant-glyph-icon" />
-                            </span>
-                            <h2>{{ emptyTitle }}</h2>
-                            <p>{{ emptyDescription }}</p>
-                        </div>
-
                         <article
                             v-for="message in messages"
                             :key="message.id"
@@ -316,6 +317,21 @@
                     </form>
                 </template>
             </template>
+
+            <div
+                v-if="!hasComposer"
+                class="agent-assistant-composer agent-assistant-composer-reserve"
+                aria-hidden="true"
+            >
+                <div class="agent-assistant-composer-field">
+                    <textarea
+                        class="agent-assistant-input"
+                        rows="3"
+                        tabindex="-1"
+                        disabled
+                    />
+                </div>
+            </div>
 
             <p
                 v-if="status.error"
@@ -493,6 +509,8 @@ const emptyState = computed<IAgentAssistantState>(() => ({
 const status = computed(() => (state.value ?? emptyState.value).status);
 const messages = computed(() => (state.value ?? emptyState.value).messages);
 const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
+const hasComposer = computed(() => panelView.value === 'ready' && Boolean(chatScope));
+const hasMessages = computed(() => messages.value.length > 0 || isTurnActive.value);
 const canSend = computed(() => (
     Boolean(chatScope)
     &&
@@ -1015,16 +1033,24 @@ onUnmounted(() => {
     user-select: text;
 }
 
-.agent-assistant-setup,
-.agent-assistant-empty {
+.agent-assistant-placeholder {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
     flex-direction: column;
     align-items: flex-start;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.65rem;
     padding: 1.25rem;
+}
+
+/* Anchor the icon + title at a stable fraction of the panel height instead of
+   centering the whole block, so the placeholder does not shift vertically when
+   the muted description wraps to a different number of lines (1 line while
+   checking vs. several once ready). Longer copy extends downward from here. */
+.agent-assistant-placeholder::before {
+    content: "";
+    flex: 0 1 38%;
 }
 
 .agent-assistant-glyph {
@@ -1048,8 +1074,7 @@ onUnmounted(() => {
     animation: agent-assistant-spin 0.9s linear infinite;
 }
 
-.agent-assistant-setup h2,
-.agent-assistant-empty h2 {
+.agent-assistant-placeholder h2 {
     margin: 0;
     color: var(--ui-text);
     font-size: 0.95rem;
@@ -1057,8 +1082,7 @@ onUnmounted(() => {
     letter-spacing: -0.01em;
 }
 
-.agent-assistant-setup p,
-.agent-assistant-empty p,
+.agent-assistant-placeholder p,
 .agent-assistant-message p,
 .agent-assistant-progress {
     margin: 0;
@@ -1067,7 +1091,7 @@ onUnmounted(() => {
     line-height: 1.5;
 }
 
-.agent-assistant-setup-actions {
+.agent-assistant-placeholder-actions {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -1185,6 +1209,13 @@ onUnmounted(() => {
 .agent-assistant-composer {
     padding: 0.75rem;
     border-top: 1px solid var(--ui-border);
+}
+
+/* Reuses the composer markup so the reserved footer is byte-for-byte the same
+   height as the real composer; visibility:hidden keeps the space but paints
+   nothing, so the placeholder above it never shifts when the composer appears. */
+.agent-assistant-composer-reserve {
+    visibility: hidden;
 }
 
 .agent-assistant-composer-field {
