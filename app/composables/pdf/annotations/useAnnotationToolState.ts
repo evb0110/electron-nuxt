@@ -47,9 +47,7 @@ import {
     findClosestHighlightDrawLayerSvg,
     resolveEditorHighlightClipPathId,
 } from '@app/composables/pdf/annotations/annotationMarkupSubtypeDrawLayer';
-import {
-    createAnnotationEditorPresentation,
-} from '@app/composables/pdf/annotations/annotationEditorPresentation';
+import { createAnnotationEditorPresentation } from '@app/composables/pdf/annotations/annotationEditorPresentation';
 import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
