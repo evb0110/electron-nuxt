@@ -105,29 +105,35 @@ const { t } = useTypedI18n();
     width: 1.5rem;
     height: 1.5rem;
     border-radius: 50%;
-    border: 1px solid transparent;
+    border: none;
     background: var(--swatch-color);
     cursor: pointer;
-    transition: transform $ease-quick, border-color $ease-quick;
+    box-shadow: 0 0 0 0 transparent;
+    transition: transform $ease-quick, box-shadow $ease-quick;
 }
 
 .settings-swatch:hover {
-    transform: scale(1.15);
+    transform: scale(1.1);
 }
 
 .settings-swatch.is-active {
-    border-color: var(--app-toolbar-control-active-border);
+    box-shadow:
+        0 0 0 2px var(--ui-bg-muted),
+        0 0 0 4px var(--app-toolbar-control-active-border);
 }
 
 .settings-swatch.is-active:hover {
-    border-color: var(--app-toolbar-control-active-hover-border);
+    box-shadow:
+        0 0 0 2px var(--ui-bg-muted),
+        0 0 0 4px var(--app-toolbar-control-active-hover-border);
 }
 
 .settings-swatch-track {
     display: inline-flex;
+    align-items: center;
     align-self: flex-start;
-    gap: 0.125rem;
-    padding: 0.1875rem;
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
     border-radius: calc(var(--ui-radius) * 1.5);
     background: var(--ui-bg-muted);
 }
