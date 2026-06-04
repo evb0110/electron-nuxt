@@ -30,17 +30,6 @@
                         @click="resetChat"
                     />
                 </AppTooltip>
-                <AppTooltip :text="t('assistant.refresh')" :delay-duration="300">
-                    <UButton
-                        :aria-label="t('assistant.refresh')"
-                        icon="i-ph-arrows-clockwise"
-                        color="neutral"
-                        variant="ghost"
-                        size="xs"
-                        :loading="isRefreshing"
-                        @click="refreshState"
-                    />
-                </AppTooltip>
                 <AppTooltip :text="t('assistant.close')" :delay-duration="300">
                     <UButton
                         :aria-label="t('assistant.close')"
@@ -446,7 +435,7 @@ const { t } = useTypedI18n();
 const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ASSISTANT_IMAGE_SIZE_LIMIT_LABEL = `${Math.round(ASSISTANT_MAX_IMAGE_BYTES / (1024 * 1024))} MB`;
-const isRefreshing = ref(false);
+const ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS = 2500;
 const isInstalling = ref(false);
 const isLoggingIn = ref(false);
 const loginMode = ref<TAgentAssistantLoginMode | null>(null);
@@ -462,6 +451,7 @@ const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
 let sendGeneration = 0;
 let stateGeneration = 0;
+let lastRefreshStartedAt = 0;
 
 interface IExpandedImageItem {
     src: string;
@@ -634,17 +624,27 @@ function handleAssistantEvent(event: IAgentAssistantEvent) {
 
 async function refreshState() {
     const generation = ++stateGeneration;
-    isRefreshing.value = true;
-    try {
-        const nextState = await getPlatformAPI().agent.getAssistantState(createAssistantStateRequest());
-        if (generation === stateGeneration) {
-            applyState(nextState);
-        }
-    } finally {
-        if (generation === stateGeneration) {
-            isRefreshing.value = false;
-        }
+    lastRefreshStartedAt = Date.now();
+    const nextState = await getPlatformAPI().agent.getAssistantState(createAssistantStateRequest());
+    if (generation === stateGeneration) {
+        applyState(nextState);
     }
+}
+
+function refreshStateAfterWindowReturn() {
+    if (document.visibilityState === 'hidden') {
+        return;
+    }
+
+    const now = Date.now();
+    if (now - lastRefreshStartedAt < ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS) {
+        return;
+    }
+
+    guardAsync(refreshState(), {
+        scope: 'assistant',
+        message: 'Failed to refresh assistant state after app focus',
+    });
 }
 
 async function installCodex() {
@@ -941,6 +941,8 @@ watch(() => chatScope?.key ?? null, () => {
 let unsubscribe: (() => void) | null = null;
 onMounted(() => {
     unsubscribe = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
+    window.addEventListener('focus', refreshStateAfterWindowReturn);
+    document.addEventListener('visibilitychange', refreshStateAfterWindowReturn);
     window.addEventListener('keydown', handleExpandedImageKeydown);
     guardAsync(refreshState(), {
         scope: 'assistant',
@@ -949,6 +951,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    window.removeEventListener('focus', refreshStateAfterWindowReturn);
+    document.removeEventListener('visibilitychange', refreshStateAfterWindowReturn);
     window.removeEventListener('keydown', handleExpandedImageKeydown);
     unsubscribe?.();
     unsubscribe = null;
