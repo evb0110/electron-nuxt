@@ -22,6 +22,10 @@ export default {
 
         // Don't enforce precision limits
         'number-max-precision': null,
+
+        // Keep !important rare. PDF.js override boundary files are exempted below,
+        // and local exceptions must carry a narrow stylelint disable rationale.
+        'declaration-no-important': true,
     },
     overrides: [
         {
@@ -39,6 +43,15 @@ export default {
                 'rule-empty-line-before': null,
                 'no-duplicate-selectors': null,
                 'no-descending-specificity': null,
+            },
+        },
+        {
+            files: [
+                'app/assets/css/pdfjs-overrides.css',
+                'app/assets/css/pdfjs-overrides.scss',
+            ],
+            rules: {
+                'declaration-no-important': null,
             },
         },
     ],

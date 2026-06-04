@@ -52,8 +52,10 @@
     border-radius: 2px;
 
     > canvas {
+        /* stylelint-disable declaration-no-important -- css-important-allow: PDF.js can set canvas sizing at runtime; the viewer owns this rendered box. */
         width: 100% !important;
         height: 100% !important;
+        /* stylelint-enable declaration-no-important */
     }
 }
 
@@ -164,14 +166,18 @@
 .pdfViewer.is-selection-markup-tool .annotationEditorLayer,
 .pdfViewer.is-text-selection-mode .annotation-editor-layer,
 .pdfViewer.is-text-selection-mode .annotationEditorLayer {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Selection modes must override PDF.js layer hit-testing. */
     pointer-events: none !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer.is-selection-markup-tool .text-layer,
 .pdfViewer.is-selection-markup-tool .textLayer,
 .pdfViewer.is-text-selection-mode .text-layer,
 .pdfViewer.is-text-selection-mode .textLayer {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Selection modes must override PDF.js cursor rules. */
     cursor: text !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
@@ -194,8 +200,10 @@
 .pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
 .pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
 .pdfViewer.is-text-selection-mode .annotationLayer .squigglyAnnotation {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Text selection must pass through PDF.js annotation hit targets. */
     pointer-events: none !important;
     cursor: text !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer.pdfViewer--resize-transition .text-layer,
@@ -265,7 +273,9 @@
     .popupTriggerArea,
     .commentPopup,
     #commentManagerDialog {
+        /* stylelint-disable declaration-no-important -- css-important-allow: Hide native PDF.js controls in favor of app-managed annotation UI. */
         display: none !important;
+        /* stylelint-enable declaration-no-important */
     }
     /* stylelint-enable selector-id-pattern */
 }
@@ -294,17 +304,23 @@
 
 .pdfViewer.drag-mode {
     &.is-dragging {
+        /* stylelint-disable declaration-no-important -- css-important-allow: Drag mode locks cursor priority across PDF.js layers and child controls. */
         cursor: grabbing !important;
+        /* stylelint-enable declaration-no-important */
         user-select: none;
     }
 
     &:not(.is-dragging) {
+        /* stylelint-disable declaration-no-important -- css-important-allow: Drag mode locks cursor priority across PDF.js layers and child controls. */
         cursor: grab !important;
+        /* stylelint-enable declaration-no-important */
     }
 
     *,
     &.is-dragging * {
+        /* stylelint-disable declaration-no-important -- css-important-allow: Drag mode locks cursor priority across PDF.js layers and child controls. */
         cursor: inherit !important;
+        /* stylelint-enable declaration-no-important */
     }
 
     /* stylelint-disable no-descending-specificity -- drag mode uses !important on all props; specificity order is irrelevant */
@@ -329,9 +345,11 @@
     .annotationLayer,
     .annotationLayer *,
     .canvasWrapper {
+        /* stylelint-disable declaration-no-important -- css-important-allow: Drag mode disables interaction across PDF.js layers while panning. */
         cursor: inherit !important;
         user-select: none !important;
         pointer-events: none !important;
+        /* stylelint-enable declaration-no-important */
     }
     /* stylelint-enable no-descending-specificity */
 }
@@ -339,7 +357,9 @@
 /* ── Note Placement Cursor Overrides ───────────────────────────────── */
 
 .pdfViewer.is-placing-comment {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Comment placement locks the cursor over PDF.js layers. */
     cursor: crosshair !important;
+    /* stylelint-enable declaration-no-important */
     user-select: none;
 
     *,
@@ -364,8 +384,10 @@
     .annotationLayer,
     .annotationLayer *,
     .canvasWrapper {
+        /* stylelint-disable declaration-no-important -- css-important-allow: Comment placement locks the cursor over PDF.js layers. */
         cursor: crosshair !important;
         user-select: none !important;
+        /* stylelint-enable declaration-no-important */
     }
 }
 
@@ -373,7 +395,9 @@
 
 .pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-visual-ready .internal,
 .pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-visual-ready .internal {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Markup subtype visuals suppress PDF.js highlight fill chrome. */
     opacity: 0 !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
@@ -382,21 +406,27 @@
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout *,
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly,
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly * {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Markup subtype visuals override PDF.js SVG paint. */
     fill: transparent !important;
     fill-opacity: 0 !important;
     stroke: transparent !important;
     stroke-opacity: 0 !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-underline,
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-strikeout,
 .pdfViewer svg.highlight.pdf-markup-subtype-draw-squiggly {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Markup subtype visuals override PDF.js SVG blending. */
     mix-blend-mode: normal !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer svg.pdf-markup-subtype-draw-visual {
+    /* stylelint-disable declaration-no-important -- css-important-allow: App draw visuals sit inside the PDF.js draw layer and must suppress PDF.js paint defaults. */
     fill: transparent !important;
     fill-opacity: 0 !important;
+    /* stylelint-enable declaration-no-important */
     mix-blend-mode: normal;
     pointer-events: none;
 }
@@ -427,8 +457,10 @@
  */
 
 .page {
+    /* stylelint-disable declaration-no-important -- css-important-allow: PDF.js page defaults must yield to the viewer's measured page frame. */
     margin: 1px auto -3px !important;
     border: 1px dashed transparent !important;
+    /* stylelint-enable declaration-no-important */
     box-shadow: var(--pdf-page-shadow);
     box-sizing: content-box;
     user-select: none;
@@ -444,7 +476,9 @@
     );
 
     .overlay.enabled {
+        /* stylelint-disable declaration-no-important -- css-important-allow: FreeText editor visibility overrides PDF.js editor timing states. */
         display: block !important;
+        /* stylelint-enable declaration-no-important */
     }
 
     > .resizers {
@@ -452,8 +486,10 @@
 
         > .resizer {
             pointer-events: auto;
+            /* stylelint-disable declaration-no-important -- css-important-allow: FreeText resize handles replace PDF.js handle chrome. */
             background: transparent !important;
             border: none !important;
+            /* stylelint-enable declaration-no-important */
             box-sizing: border-box;
             touch-action: none;
 
@@ -472,19 +508,25 @@
 
             &.topLeft,
             &.bottomRight {
+                /* stylelint-disable declaration-no-important -- css-important-allow: FreeText resize cursors override PDF.js editor cursors. */
                 cursor: nwse-resize !important;
+                /* stylelint-enable declaration-no-important */
             }
 
             &.topRight,
             &.bottomLeft {
+                /* stylelint-disable declaration-no-important -- css-important-allow: FreeText resize cursors override PDF.js editor cursors. */
                 cursor: nesw-resize !important;
+                /* stylelint-enable declaration-no-important */
             }
 
             &.topMiddle,
             &.middleRight,
             &.bottomMiddle,
             &.middleLeft {
+                /* stylelint-disable declaration-no-important -- css-important-allow: App resize UI intentionally hides PDF.js side handles. */
                 display: none !important;
+                /* stylelint-enable declaration-no-important */
             }
         }
     }
@@ -492,7 +534,9 @@
 
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor,
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor {
+    /* stylelint-disable declaration-no-important -- css-important-allow: FreeText editors remain interactive when PDF.js marks the parent layer disabled. */
     pointer-events: auto !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers,
@@ -501,5 +545,7 @@
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor .overlay,
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay {
+    /* stylelint-disable declaration-no-important -- css-important-allow: FreeText child controls must stay interactive inside PDF.js disabled layers. */
     pointer-events: auto !important;
+    /* stylelint-enable declaration-no-important */
 }

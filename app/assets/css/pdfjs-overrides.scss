@@ -144,6 +144,26 @@
         }
     }
 
+    /* Text highlights are emitted as fully opaque, opacity-preblended colours.
+       They are composited into one per-page overlay before blending with the page:
+       same-colour overlaps do not stack, and different-colour overlaps use the
+       topmost/latest annotation colour instead of mixing into a third colour.
+       Match PDF.js' native multiply blend so pale highlights remain visible on
+       scanned grayscale pages too. */
+    .pdf-highlight-composite-overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        pointer-events: none !important;
+        mix-blend-mode: multiply !important;
+    }
+
+    .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free) {
+        visibility: hidden !important;
+    }
+
     /* Prevent double-painted editor-origin markup after reload:
        only when the editor layer actually contains highlight editors, hide
        matching annotation-layer replicas to keep highlight intensity stable. */
@@ -232,18 +252,11 @@
         }
     }
 
-    .pdf-annotation-comment-popup,
     #commentPopup {
         background: var(--ui-bg) !important;
         border: 1px solid var(--ui-border) !important;
         box-shadow: var(--shadow-popup) !important;
         color: var(--ui-text) !important;
-    }
-
-    .pdf-annotation-comment-popup__textarea {
-        background: var(--ui-bg-muted) !important;
-        color: var(--ui-text) !important;
-        border: 1px solid var(--ui-border) !important;
     }
 
     /* Hide the PDF.js edit toolbar on FreeText editors — the app provides
@@ -264,6 +277,25 @@
            Clicking resize handles while in edit mode causes NaN corruption
            (null dimensions → division by zero → NaN cascades to x/y/w/h). */
         &:has(> .overlay:not(.enabled)) > .resizers {
+            display: none !important;
+        }
+    }
+
+    /* Keep save feedback subtle: during save, PDF.js can leave the selected ink
+       editor focus chrome visible even though the stroke itself is already
+       clearly rendered. Hide that transient selection frame until save completes. */
+    &.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor),
+    &.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) {
+        border: var(--unfocus-outline) !important;
+        outline: none !important;
+        box-shadow: none !important;
+
+        &::before {
+            display: none !important;
+            border-color: transparent !important;
+        }
+
+        > .resizers {
             display: none !important;
         }
     }

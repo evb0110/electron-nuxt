@@ -569,11 +569,15 @@ textarea {
 }
 
 button:not([role='link']) {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Nuxt UI button classes reset cursors; app buttons should default to desktop chrome semantics. */
     cursor: default !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 button:not([role='link']):disabled.is-loading {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Native disabled loading buttons must keep wait cursor over component cursor utilities. */
     cursor: wait !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 input,

@@ -484,11 +484,11 @@ a {
 }
 
 .hero-web-app-link {
-  color: var(--landing-muted) !important;
+  color: var(--landing-muted);
 }
 
 .hero-web-app-link:hover {
-  color: var(--landing-ink) !important;
+  color: var(--landing-ink);
 }
 
 .release-meta {

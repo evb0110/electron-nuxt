@@ -522,7 +522,9 @@ onBeforeUnmount(() => {
 <style scoped>
 :global(html[data-pdf-image-placement-cursor]),
 :global(html[data-pdf-image-placement-cursor] *) {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Image placement locks the pointer cursor across native controls and PDF.js layers. */
     cursor: var(--pdf-image-placement-active-cursor) !important;
+    /* stylelint-enable declaration-no-important */
 }
 
 :global(.pdf-image-placement-virtual-cursor) {
