@@ -75,6 +75,23 @@
         }
     }
 
+    .page_container:has(.pdf-comment-marker-button:hover) {
+        .annotationEditorLayer,
+        .annotation-editor-layer {
+            :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor) {
+                border-color: transparent !important;
+                outline: none !important;
+                box-shadow: none !important;
+
+                &::before {
+                    border-color: transparent !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                }
+            }
+        }
+    }
+
     .textLayer,
     .text-layer {
         .highlight.selected {
