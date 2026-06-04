@@ -32,7 +32,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     originalPath: Ref<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
     canSave: Ref<boolean>;
-    handleSave: () => Promise<void>;
+    handleSave: () => Promise<unknown>;
     requestThumbnailInvalidation: (pages: number[]) => void;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     handleExportImages: (pages: number[]) => Promise<void>;

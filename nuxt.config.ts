@@ -35,6 +35,8 @@ function isLegacyElectronShimImport(entry: unknown) {
 const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1'
     ? '.vercel/output'
     : 'nuxt-output';
+const nitroOutputPublicDir = `${nitroOutputDir}/public`;
+const nitroOutputServerDir = `${nitroOutputDir}/server`;
 
 const isDev = process.env.NODE_ENV !== 'production';
 const appShellCacheHeaders = {
@@ -770,7 +772,11 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); font-
         sourceMap: false,
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
-        output: { dir: nitroOutputDir },
+        output: {
+            dir: nitroOutputDir,
+            publicDir: nitroOutputPublicDir,
+            serverDir: nitroOutputServerDir,
+        },
         prerender: {
             routes: [
                 '/',

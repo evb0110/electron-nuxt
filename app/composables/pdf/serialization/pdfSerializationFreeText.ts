@@ -23,6 +23,7 @@ import {
     getPdfStringValue,
 } from '@app/utils/pdfDict';
 import {
+    formatPdfJsAnnotationRef,
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/composables/pdf/pdfSerializationRefs';
@@ -61,7 +62,7 @@ function forEachPageAnnotationContext(
 }
 
 function freeTextRefTag(ref: PDFRef) {
-    return `${ref.objectNumber}R${ref.generationNumber}`;
+    return formatPdfJsAnnotationRef(ref);
 }
 
 function findFreeTextCommentMatch(
@@ -216,7 +217,7 @@ function isReplayableNewFreeTextNoteComment(comment: IAnnotationCommentSummary) 
     return comment.source === 'editor'
         && !parsePdfJsAnnotationRef(comment.annotationId)
         && Boolean(comment.hasNote)
-        && Boolean(comment.markerRect)
+        && Boolean(toFreeTextNoteMarkerRect(comment.markerRect))
         && (subtype === 'freetext' || subtype === 'typewriter');
 }
 
@@ -226,7 +227,105 @@ function createBlankAppearanceRef(doc: PDFDocument) {
 
 function getReplayableNewFreeTextNoteName(comment: IAnnotationCommentSummary) {
     const rawKey = comment.stableKey || comment.uid || comment.id || comment.annotationId;
-    return rawKey ? `evb-note:${rawKey}` : null;
+    if (!rawKey) {
+        return null;
+    }
+    const createdAt = typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
+        ? Math.trunc(comment.createdAt)
+        : null;
+    return createdAt
+        ? `evb-note:${rawKey}:created:${createdAt}`
+        : `evb-note:${rawKey}`;
+}
+
+function hashReplayableNoteNamePart(value: string) {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+}
+
+function getReplayableNewFreeTextNoteDisambiguatedName(
+    comment: IAnnotationCommentSummary,
+    baseName: string | null,
+) {
+    if (!baseName) {
+        return null;
+    }
+
+    const createdAt = typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
+        ? Math.trunc(comment.createdAt)
+        : null;
+    const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
+    const markerPart = markerRect
+        ? [
+            markerRect.left,
+            markerRect.top,
+            markerRect.width,
+            markerRect.height,
+        ].map(value => Math.round(value * 1_000_000)).join(',')
+        : '';
+    const stablePart = [
+        comment.pageIndex,
+        createdAt ?? '',
+        markerPart,
+        comment.text ?? '',
+    ].join('|');
+    return `${baseName}:new:${hashReplayableNoteNamePart(stablePart)}`;
+}
+
+function commentReferencesAnnotationRef(comment: IAnnotationCommentSummary, ref: PDFRef) {
+    const directRef = parsePdfJsAnnotationRef(comment.annotationId ?? comment.id);
+    if (
+        directRef
+        && directRef.objectNumber === ref.objectNumber
+        && directRef.generationNumber === ref.generationNumber
+    ) {
+        return true;
+    }
+
+    const stableMatch = comment.stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu);
+    const stableRef = parsePdfJsAnnotationRef(stableMatch?.[1]);
+    return Boolean(
+        stableRef
+        && stableRef.objectNumber === ref.objectNumber
+        && stableRef.generationNumber === ref.generationNumber,
+    );
+}
+
+function findClaimingSourceComment(
+    dict: PDFDict,
+    ref: PDFRef,
+    sourceComments: IAnnotationCommentSummary[],
+    pageFreeTextPopupCount: number,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const directlyClaimed = sourceComments.find(comment => commentReferencesAnnotationRef(comment, ref));
+    if (directlyClaimed) {
+        return directlyClaimed;
+    }
+
+    return findFreeTextCommentMatch(
+        dict,
+        ref,
+        sourceComments,
+        pageFreeTextPopupCount,
+        pageView,
+        pageRotation,
+    );
+}
+
+interface IReplayableNewFreeTextNoteMatch {
+    dict: PDFDict;
+    ref: PDFRef;
+}
+
+interface IReplayableNewFreeTextNoteLookup {
+    existing: IReplayableNewFreeTextNoteMatch | null;
+    nameClaimedBySourceComment: boolean;
 }
 
 function findExistingReplayableNewFreeTextNote(
@@ -236,9 +335,13 @@ function findExistingReplayableNewFreeTextNote(
     comment?: IAnnotationCommentSummary,
     pageView?: number[],
     pageRotation?: ReturnType<typeof normalizePageRotation>,
-) {
+    pageComments: IAnnotationCommentSummary[] = [],
+): IReplayableNewFreeTextNoteLookup {
     if (!annots) {
-        return null;
+        return {
+            existing: null,
+            nameClaimedBySourceComment: false,
+        };
     }
 
     const nameKey = PDFName.of('NM');
@@ -246,19 +349,45 @@ function findExistingReplayableNewFreeTextNote(
     const freeTextName = PDFName.of('FreeText');
     const popupName = PDFName.of('Popup');
     const replayedNoteNamePrefix = 'evb-note:';
-    let fallback: {
-        dict: PDFDict;
-        ref: PDFRef;
-    } | null = null;
+    const sourceComments = pageComments.filter(candidate =>
+        candidate !== comment
+        && candidate.source !== 'editor'
+        && candidate.pageIndex === comment?.pageIndex,
+    );
+    const pageFreeTextPopupCount = Array.from(iterateAnnotationRefDicts(doc, annots))
+        .filter(({ dict }) => dict.get(subtypeName) === freeTextName && Boolean(dict.get(popupName)))
+        .length;
+    let fallback: IReplayableNewFreeTextNoteMatch | null = null;
+    let nameClaimedBySourceComment = false;
 
     for (const {
         dict,
         ref,
     } of iterateAnnotationRefDicts(doc, annots)) {
         if (noteName && getPdfStringValue(dict.get(nameKey)) === noteName) {
+            if (
+                comment
+                && pageView
+                && pageRotation !== undefined
+                && sourceComments.length > 0
+                && findClaimingSourceComment(
+                    dict,
+                    ref,
+                    sourceComments,
+                    pageFreeTextPopupCount,
+                    pageView,
+                    pageRotation,
+                )
+            ) {
+                nameClaimedBySourceComment = true;
+                continue;
+            }
             return {
-                dict,
-                ref,
+                existing: {
+                    dict,
+                    ref,
+                },
+                nameClaimedBySourceComment,
             };
         }
 
@@ -271,7 +400,8 @@ function findExistingReplayableNewFreeTextNote(
         }
 
         if (
-            fallback
+            Boolean(existingNoteName)
+            || fallback
             || !comment
             || !pageView
             || pageRotation === undefined
@@ -300,7 +430,10 @@ function findExistingReplayableNewFreeTextNote(
     if (fallback && noteName) {
         fallback.dict.set(nameKey, PDFHexString.fromText(noteName));
     }
-    return fallback;
+    return {
+        existing: fallback,
+        nameClaimedBySourceComment,
+    };
 }
 
 function resolvePopupRefForAnnotation(doc: PDFDocument, annotDict: PDFDict) {
@@ -321,6 +454,10 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
     const modifiedAt = toPdfDateString(new Date());
     let blankApRef: PDFRef | null = null;
     const commentsByPage = groupBy(candidates, comment => comment.pageIndex);
+    const allCommentsByPage: Record<string, IAnnotationCommentSummary[]> = groupBy(
+        comments,
+        comment => comment.pageIndex,
+    );
 
     Object.entries(commentsByPage).forEach(([
         pageIndex,
@@ -354,15 +491,20 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
                 blankApRef = createBlankAppearanceRef(doc);
             }
 
-            const noteName = getReplayableNewFreeTextNoteName(comment);
-            const existing = findExistingReplayableNewFreeTextNote(
+            const baseNoteName = getReplayableNewFreeTextNoteName(comment);
+            const lookup = findExistingReplayableNewFreeTextNote(
                 doc,
                 page.node.Annots(),
-                noteName,
+                baseNoteName,
                 comment,
                 context.pageView,
                 context.pageRotation,
+                allCommentsByPage[pageIndex] ?? pageComments,
             );
+            const existing = lookup.existing;
+            const noteName = lookup.nameClaimedBySourceComment
+                ? getReplayableNewFreeTextNoteDisambiguatedName(comment, baseNoteName)
+                : baseNoteName;
             const annotDict = existing?.dict ?? doc.context.obj({
                 Type: PDFName.of('Annot'),
                 Subtype: PDFName.of('FreeText'),

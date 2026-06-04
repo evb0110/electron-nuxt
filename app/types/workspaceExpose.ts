@@ -81,9 +81,9 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
 export interface ICloseFileFromUiOptions {persist?: boolean;}
 
 export interface IWorkspaceFilePort {
-    handleSave: () => Promise<void>;
-    handleRepairSave: () => Promise<void>;
-    handleSaveAs: () => Promise<void>;
+    handleSave: () => Promise<boolean>;
+    handleRepairSave: () => Promise<boolean>;
+    handleSaveAs: () => Promise<boolean>;
     handlePrint: () => void | Promise<void>;
     handlePrintCurrentPage: () => void | Promise<void>;
     handleUndo: () => void;

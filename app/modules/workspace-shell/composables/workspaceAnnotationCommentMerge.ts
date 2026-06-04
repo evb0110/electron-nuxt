@@ -7,6 +7,7 @@ import {
     isNoteEligibleComment,
     markerRectCenterDistance,
 } from '@app/composables/pdf/annotations/annotationRules';
+import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 export interface IWorkspaceOpenAnnotationNote {
@@ -95,7 +96,8 @@ function selectPreferredWorkspaceAnnotationComment(
         displayText: preferred.displayText ?? fallback.displayText ?? null,
         previewText: preferred.previewText ?? fallback.previewText ?? null,
         kindLabel: preferred.kindLabel ?? fallback.kindLabel ?? null,
-        markerRect: preferred.markerRect ?? fallback.markerRect ?? null,
+        markerRect: normalizeMarkerRect(preferred.markerRect)
+            ?? normalizeMarkerRect(fallback.markerRect),
         ...(existingIsNote || candidateIsNote ? { hasNote: true } : {}),
     };
 }

@@ -204,7 +204,7 @@ describe('useAnnotationNoteWindows', () => {
         expect(pending?.get('ann:0:3856R')).toBe('Updated PDF note');
     });
 
-    it('defers embedded text update to serialization pipeline when auto path fails', () => {
+    it('saves replayable editor-only notes locally when auto path fails during forced save', () => {
         const comment = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
             stableKey: 'uid:0:pdfjs_internal_editor_0',
@@ -230,12 +230,9 @@ describe('useAnnotationNoteWindows', () => {
         const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
 
         expect(saved).toBe(true);
-        expect(note.saveMode).toBe('embedded');
+        expect(note.saveMode).toBe('auto');
         expect(note.lastSavedText).toBe('Unsaved sticky note text');
-
-        const pending = windows.consumePendingEmbeddedTextUpdates();
-        expect(pending).not.toBeNull();
-        expect(pending!.get('uid:0:pdfjs_internal_editor_0')).toBe('Unsaved sticky note text');
+        expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
     });
 
     it('returns null from consumePendingEmbeddedTextUpdates when nothing is pending', () => {
@@ -246,7 +243,13 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('clears pending updates after consume', () => {
-        const comment = createComment();
+        const comment = createComment({
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            annotationId: '3856R',
+            uid: null,
+            source: 'pdf',
+        });
         const {
             deps,
             windows,
@@ -255,12 +258,12 @@ describe('useAnnotationNoteWindows', () => {
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('note-1:0');
+        const note = windows.findAnnotationNoteWindow('ann:0:3856R');
         if (!note) {
             return;
         }
         note.text = 'Changed';
-        windows.persistAnnotationNote('note-1:0', true);
+        windows.persistAnnotationNote('ann:0:3856R', true);
 
         const first = windows.consumePendingEmbeddedTextUpdates();
         expect(first).not.toBeNull();
@@ -404,6 +407,72 @@ describe('useAnnotationNoteWindows', () => {
             hasNote: true,
             markerRect: comment.markerRect,
         }));
+    });
+
+    it('keeps existing PDF notes when forced-saving a new editor note with a recycled runtime id', async () => {
+        const existingPdfNote = createComment({
+            id: '13275R',
+            stableKey: 'ann:0:13275R',
+            annotationId: '13275R',
+            uid: null,
+            source: 'pdf',
+            text: 'existing embedded note',
+            subtype: 'FreeText',
+            markerRect: {
+                left: 0.78,
+                top: 0.08,
+                width: 0.0016,
+                height: 0.0016,
+            },
+        });
+        const newEditorNote = createComment({
+            id: 'pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: 'new editor note',
+            subtype: 'Typewriter',
+            markerRect: {
+                left: 0.72,
+                top: 0.24,
+                width: 0.0016,
+                height: 0.0016,
+            },
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(existingPdfNote);
+        deps.annotationComments.value = [
+            existingPdfNote,
+            newEditorNote,
+        ];
+
+        windows.handleOpenAnnotationNote(newEditorNote);
+        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'saved new editor note';
+        const saved = await windows.persistAllAnnotationNotes(true);
+
+        expect(saved).toBe(true);
+        expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
+        expect(deps.annotationComments.value).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                stableKey: 'ann:0:13275R',
+                text: 'existing embedded note',
+                source: 'pdf',
+            }),
+            expect.objectContaining({
+                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                text: 'saved new editor note',
+                source: 'editor',
+            }),
+        ]));
     });
 
     it('preserves the latest marker rect when forced save races a stale open note window', async () => {

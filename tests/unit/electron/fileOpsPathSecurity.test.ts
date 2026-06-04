@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
     analyzePdfConformanceFile: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
-    ensureWorkingCopyDirectory: vi.fn<(path: string) => Promise<boolean>>(),
+    ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
 }));
 
@@ -275,6 +275,7 @@ describe('fileOps path security', () => {
     });
 
     it('falls back to mapped working copy for original file path reads', async () => {
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.resolveAllowedReadPath
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
@@ -292,6 +293,7 @@ describe('fileOps path security', () => {
     });
 
     it('falls back to mapped working copy for original file path stats', async () => {
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.resolveAllowedReadPath
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
@@ -305,6 +307,7 @@ describe('fileOps path security', () => {
     });
 
     it('falls back to mapped working copy for original file path range reads', async () => {
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.resolveAllowedReadPath
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
@@ -329,6 +332,35 @@ describe('fileOps path security', () => {
         expect(content).toEqual(new Uint8Array([
             4,
             5,
+        ]));
+        expect(close).toHaveBeenCalled();
+    });
+
+    it('recreates managed working copies before range reads when direct temp resolution misses', async () => {
+        mocks.resolveAllowedReadPath
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce('/tmp/electron-test/work.pdf');
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer) => {
+            buffer.set([
+                7,
+                8,
+            ]);
+            return { bytesRead: 2 };
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const content = await handleFileReadRange(event, '/tmp/electron-test/work.pdf', 10, 2);
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 42);
+        expect(mocks.open).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 'r');
+        expect(content).toEqual(new Uint8Array([
+            7,
+            8,
         ]));
         expect(close).toHaveBeenCalled();
     });

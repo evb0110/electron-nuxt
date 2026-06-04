@@ -18,6 +18,8 @@ import {
     markerRectCenterDistance,
 } from '@app/composables/pdf/annotations/annotationRules';
 import { commentsShareStableIdentifier } from '@app/composables/pdf/annotations/annotationIdentityMatching';
+import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
+import { parsePdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -255,22 +257,33 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
-        const key = comment.stableKey;
+        const normalizedComment = {
+            ...comment,
+            markerRect: normalizeMarkerRect(comment.markerRect),
+        };
+        const key = normalizedComment.stableKey;
         const existing = findAnnotationNoteWindow(key)
-            ?? findAnnotationNoteWindowByComment(comment);
+            ?? findAnnotationNoteWindowByComment(normalizedComment);
         if (existing) {
             const previousKey = existing.comment.stableKey;
             const hasUnsavedLocalChanges = existing.text !== existing.lastSavedText;
-            existing.comment = selectPreferredAnnotationComment(
+            const preferredComment = selectPreferredAnnotationComment(
                 existing.comment,
-                comment,
+                normalizedComment,
             );
+            existing.comment = {
+                ...preferredComment,
+                markerRect: normalizeMarkerRect(preferredComment.markerRect)
+                    ?? normalizeMarkerRect(existing.comment.markerRect)
+                    ?? normalizeMarkerRect(normalizedComment.markerRect),
+                hasNote: existing.comment.hasNote === true || normalizedComment.hasNote === true,
+            };
             const nextKey = existing.comment.stableKey;
             migrateAnnotationNoteWindowKey(previousKey, nextKey);
             existing.error = null;
             existing.isMinimized = false;
             if (!hasUnsavedLocalChanges) {
-                const nextText = comment.text || '';
+                const nextText = normalizedComment.text || '';
                 existing.text = nextText;
                 existing.lastSavedText = nextText;
             }
@@ -287,7 +300,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         annotationNoteWindows.value = [
             ...annotationNoteWindows.value,
             {
-                comment,
+                comment: normalizedComment,
                 text: initialText,
                 lastSavedText: initialText,
                 saving: false,
@@ -461,6 +474,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             text: nextText,
             createdAt: targetComment.createdAt ?? note.comment.createdAt ?? null,
             modifiedAt,
+            markerRect: normalizeMarkerRect(targetComment.markerRect)
+                ?? normalizeMarkerRect(note.comment.markerRect),
         };
         note.comment = localUpdated;
         note.text = nextText;
@@ -496,7 +511,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             hasNote: true,
             createdAt: preferred.createdAt ?? comment.createdAt ?? existing.createdAt ?? null,
             modifiedAt: comment.modifiedAt,
-            markerRect: comment.markerRect ?? existing.markerRect ?? preferred.markerRect,
+            markerRect: normalizeMarkerRect(comment.markerRect)
+                ?? normalizeMarkerRect(existing.markerRect)
+                ?? normalizeMarkerRect(preferred.markerRect),
         };
         annotationComments.value = next;
     }
@@ -504,7 +521,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function shouldMirrorAnnotationNoteToEmbeddedSerialization(
         targetComment: IAnnotationCommentSummary,
     ) {
-        return Boolean(targetComment.annotationId);
+        return Boolean(parsePdfJsAnnotationRef(targetComment.annotationId));
     }
 
     function shouldSkipAnnotationNotePersistence(
@@ -530,6 +547,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return setAnnotationNoteEmbeddedFallback(note);
         }
 
+        if (!shouldMirrorAnnotationNoteToEmbeddedSerialization(targetComment)) {
+            updateAnnotationNoteSavedState(note, targetComment, nextText);
+            return true;
+        }
+
         // When force=true (called from handleSave), defer embedded text
         // updates to the serialization pipeline instead of reloading the
         // entire document. handleSave will call rewriteEmbeddedNoteTexts()
@@ -537,7 +559,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         // visible re-render.
         deferEmbeddedAnnotationNoteUpdate(stableKey, targetComment, nextText);
         setAnnotationNoteEmbeddedFallback(note);
-
         if (note.saveMode !== 'embedded') {
             return markAnnotationNotePersistFailed(
                 note,
@@ -614,16 +635,21 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                     const previousStableKey = note.comment.stableKey;
                     const latestComment = findMatchingAnnotationComment(note.comment) ?? note.comment;
                     const modifiedAt = Date.now();
+                    const markerRect = normalizeMarkerRect(latestComment.markerRect)
+                        ?? normalizeMarkerRect(note.comment.markerRect);
                     const commentForSave: IAnnotationCommentSummary = {
                         ...latestComment,
                         text: note.text,
                         hasNote: true,
                         createdAt: latestComment.createdAt ?? note.comment.createdAt ?? null,
                         modifiedAt,
+                        markerRect,
                     };
                     note.comment = commentForSave;
                     migrateAnnotationNoteWindowKey(previousStableKey, commentForSave.stableKey);
-                    deferEmbeddedAnnotationNoteUpdate(commentForSave.stableKey, commentForSave, note.text);
+                    if (shouldMirrorAnnotationNoteToEmbeddedSerialization(commentForSave)) {
+                        deferEmbeddedAnnotationNoteUpdate(commentForSave.stableKey, commentForSave, note.text);
+                    }
                     upsertAnnotationCommentCache(commentForSave);
                 }
             });
@@ -879,11 +905,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         updated: IAnnotationCommentSummary,
     ) {
         const preferred = selectPreferredAnnotationComment(noteComment, updated);
+        const updatedMarkerRect = normalizeMarkerRect(updated.markerRect);
 
-        if (updated.markerRect && updated.markerRect !== preferred.markerRect) {
+        if (updatedMarkerRect && updatedMarkerRect !== normalizeMarkerRect(preferred.markerRect)) {
             return {
                 ...preferred,
-                markerRect: updated.markerRect,
+                markerRect: updatedMarkerRect,
             };
         }
 

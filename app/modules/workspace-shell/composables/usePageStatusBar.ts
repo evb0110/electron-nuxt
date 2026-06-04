@@ -27,7 +27,7 @@ interface IPageStatusBarDeps {
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
-    handleSave: () => Promise<void>;
+    handleSave: () => Promise<unknown>;
 }
 
 export const usePageStatusBar = (deps: IPageStatusBarDeps) => {

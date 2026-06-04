@@ -1150,14 +1150,14 @@ export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOU
             if (!candidate || typeof candidate !== 'object') {
                 continue;
             }
-            const workspace = candidate as { handleSave?: () => Promise<void>; };
+            const workspace = candidate as { handleSave?: () => Promise<unknown>; };
             if (typeof workspace.handleSave === 'function') {
                 await workspace.handleSave();
                 return true;
             }
         }
 
-        const save = (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
+        const save = (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
         if (typeof save !== 'function') {
             return false;
         }

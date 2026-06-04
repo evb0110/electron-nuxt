@@ -111,10 +111,10 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             || deps.isHistoryBusy.value
             || deps.isDjvuMode.value
         ) {
-            return;
+            return false;
         }
 
-        await deps.handleSave();
+        return deps.handleSave();
     }
 
     async function handleRepairSaveFromCommandSurface() {
@@ -126,10 +126,10 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             || deps.isHistoryBusy.value
             || deps.isDjvuMode.value
         ) {
-            return;
+            return false;
         }
 
-        await deps.handleRepairSave();
+        return deps.handleRepairSave();
     }
 
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {

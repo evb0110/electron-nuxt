@@ -50,7 +50,7 @@ interface IWorkspaceInteractionControlsOptions {
     openSearch: () => void;
     openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
-    handleSave: () => Promise<void>;
+    handleSave: () => Promise<unknown>;
     handlePrint: () => void | Promise<void>;
     handleToggleSidebar: () => void;
     handleDropdownOpenChange: (

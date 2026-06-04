@@ -28,6 +28,7 @@ import { toTransferableUint8Array } from '@app/platform/browser-api/browserWorke
 import { decodeBrowserImageBlob } from '@app/platform/browser-api/browserImageDecode';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { measureDevPerfAsync } from '@app/utils/devPerf';
+import { mergeAnnotationCommentSaveSnapshot } from '@app/composables/pdf/annotationCommentSaveSnapshot';
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 
@@ -55,6 +56,7 @@ interface ISerializePdfForSaveOptions {
     rewriteShapeState?: boolean;
     pendingTexts?: Map<string, string> | null;
     pendingDeletes?: IAnnotationCommentSummary[] | null;
+    annotationCommentsSnapshot?: IAnnotationCommentSummary[];
     placedImage?: IPdfPlacedImageFinalizePayload | null;
 }
 
@@ -80,23 +82,29 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function getSourcePdfData() {
         let sourceData = pdfData.value ? toTransferableUint8Array(pdfData.value) : null;
         if (!sourceData && workingCopyPath.value) {
+            const path = workingCopyPath.value;
             try {
                 sourceData = toTransferableUint8Array(
-                    await readDocumentBytes(workingCopyPath.value),
+                    await readDocumentBytes(path),
                 );
             } catch (error) {
-                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
-                    path: workingCopyPath.value,
+                BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
+                    path,
                     error,
                 });
-                sourceData = null;
+                throw error;
             }
         }
         return sourceData;
     }
 
-    function getAnnotationCommentsForSerialization() {
-        return getAnnotationCommentsSnapshot?.() ?? annotationComments.value;
+    function getAnnotationCommentsForSerialization(
+        snapshotOverride?: IAnnotationCommentSummary[],
+    ) {
+        return mergeAnnotationCommentSaveSnapshot(
+            snapshotOverride ?? getAnnotationCommentsSnapshot?.(),
+            annotationComments.value,
+        );
     }
 
     async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
@@ -180,13 +188,16 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         };
     }
 
-    function getFreeTextNoteComments() {
-        return getAnnotationCommentsForSerialization().filter(
-            comment => comment.markerRect
-                && comment.subtype
-                && (comment.subtype.toLowerCase() === 'freetext' || comment.subtype.toLowerCase() === 'typewriter')
-                && comment.hasNote,
-        );
+    function getFreeTextNoteComments(
+        snapshotOverride?: IAnnotationCommentSummary[],
+    ) {
+        return getAnnotationCommentsForSerialization(snapshotOverride)
+            .filter(
+                comment => comment.markerRect
+                    && comment.subtype
+                    && (comment.subtype.toLowerCase() === 'freetext' || comment.subtype.toLowerCase() === 'typewriter')
+                    && comment.hasNote,
+            );
     }
 
     function createEmptySavePayload(): IPdfSerializationSavePayload {
@@ -215,12 +226,13 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     function applyMarkupPayload(
         payload: IPdfSerializationSavePayload,
         additionalComments: IAnnotationCommentSummary[] = [],
+        annotationCommentsSnapshot?: IAnnotationCommentSummary[],
     ) {
         payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
         payload.markupSubtypeHints = [
             ...collectMarkupSubtypeHints(additionalComments),
             ...(getMarkupSubtypeHints?.() ?? []),
-            ...collectMarkupSubtypeHints(getAnnotationCommentsForSerialization()),
+            ...collectMarkupSubtypeHints(getAnnotationCommentsForSerialization(annotationCommentsSnapshot)),
         ];
     }
 
@@ -236,10 +248,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     function applyAnnotationPayload(
         payload: IPdfSerializationSavePayload,
-        options?: Pick<ISerializePdfForSaveOptions, 'pendingTexts' | 'pendingDeletes'>,
+        options?: Pick<ISerializePdfForSaveOptions, 'pendingTexts' | 'pendingDeletes' | 'annotationCommentsSnapshot'>,
     ) {
-        payload.freeTextComments = getFreeTextNoteComments();
-        payload.annotationComments = getAnnotationCommentsForSerialization();
+        payload.freeTextComments = getFreeTextNoteComments(options?.annotationCommentsSnapshot);
+        payload.annotationComments = getAnnotationCommentsForSerialization(options?.annotationCommentsSnapshot);
         payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
         payload.pendingEmbeddedAnnotationDeletes = options?.pendingDeletes ?? [];
     }
@@ -307,7 +319,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         options?: ISerializePdfForSaveOptions,
     ): Promise<IPdfSerializationSavePayload> {
         const payload = createEmptySavePayload();
-        applyMarkupPayload(payload);
+        applyMarkupPayload(payload, [], options?.annotationCommentsSnapshot);
         applyShapePayload(payload, options);
         applyAnnotationPayload(payload, options);
         applyDocumentStructurePayload(payload);
