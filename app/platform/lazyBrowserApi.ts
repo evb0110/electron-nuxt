@@ -366,6 +366,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'onMenuViewModeFacingFirstSingle',
     ]),
+    onMenuToggleAssistant: lazyEvent<IDocumentsCapability['onMenuToggleAssistant']>([
+        'documents',
+        'onMenuToggleAssistant',
+    ]),
     onMenuUndo: lazyEvent<IDocumentsCapability['onMenuUndo']>([
         'documents',
         'onMenuUndo',

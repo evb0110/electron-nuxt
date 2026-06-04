@@ -25,6 +25,7 @@ export interface ITabsMenuBindingDeps {
     moveActiveTab: (direction: TPaneDirection) => Promise<void> | void;
     copyActiveTab: (direction: TPaneDirection) => Promise<void> | void;
     handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
+    toggleAssistant: () => void;
 }
 
 type TCleanup = () => void;
@@ -265,6 +266,9 @@ export function registerTabsMenuBindings(
         }),
         api.settings?.onMenuOpenSettings?.(() => {
             runMenuAction('open-settings', () => deps.openSettings());
+        }),
+        api.documents?.onMenuToggleAssistant?.(() => {
+            runMenuAction('toggle-assistant', () => deps.toggleAssistant());
         }),
         api.updates?.onMenuCheckForUpdates?.(() => {
             runMenuAction('check-for-updates', () => deps.checkForUpdates());

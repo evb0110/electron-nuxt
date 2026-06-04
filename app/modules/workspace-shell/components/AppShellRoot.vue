@@ -139,17 +139,6 @@
             />
         </div>
 
-        <UButton
-            v-if="assistantPanelEnabled && assistantHasActiveDocument && !assistantPanelOpen && !activeToolPage && !isFullscreen"
-            class="assistant-panel-toggle"
-            :aria-label="t('assistant.open')"
-            icon="i-ph-chat-circle-dots"
-            color="neutral"
-            variant="subtle"
-            size="sm"
-            @click="assistantPanelOpen = true"
-        />
-
         <CombinePdfPage
             v-if="activeToolPage === 'combine'"
             @close="closeToolPage"
@@ -280,7 +269,8 @@ const {
 } = useRuntimeEnvironment();
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
-const assistantPanelOpen = ref(false);
+const assistantPanel = useAssistantPanel();
+const assistantPanelOpen = assistantPanel.isOpen;
 const {
     panelWidth: assistantPanelWidth,
     isResizingPanel: isAssistantPanelResizing,
@@ -801,6 +791,11 @@ watch(assistantPanelEnabled, (enabled) => {
     }
 });
 
+watchEffect(() => {
+    assistantPanel.isEnabled.value = assistantPanelEnabled.value && !isFullscreen.value;
+    assistantPanel.hasActiveDocument.value = assistantHasActiveDocument.value;
+});
+
 function findEmptyTab() {
     if (activeTabId.value && isTabEmpty(activeTabId.value)) {
         return getTabById(activeTabId.value);
@@ -1063,6 +1058,7 @@ useTabsShellBindings({
     moveActiveTab,
     copyActiveTab,
     handleWindowTabsAction,
+    toggleAssistant: () => assistantPanel.toggle(),
 });
 
 traceRendererStartup('index.vue setup wiring complete');
@@ -1092,21 +1088,6 @@ useAppShellLifecycle({
     flex: 1 1 0%;
     min-width: 0;
     min-height: 0;
-}
-
-.assistant-panel-toggle {
-    position: fixed;
-    right: 0.75rem;
-    bottom: 2.25rem;
-    z-index: 30;
-    border-radius: 999px;
-    box-shadow: var(--app-pdf-popover-shadow);
-    opacity: 0.85;
-    transition: opacity 0.15s ease;
-}
-
-.assistant-panel-toggle:hover {
-    opacity: 1;
 }
 
 .browser-install-hint {

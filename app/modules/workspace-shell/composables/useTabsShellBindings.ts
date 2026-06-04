@@ -53,6 +53,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         moveActiveTab,
         copyActiveTab,
         handleWindowTabsAction,
+        toggleAssistant,
     } = options;
 
     const menuCleanups: Array<() => void> = [];
@@ -257,6 +258,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 moveActiveTab,
                 copyActiveTab,
                 handleWindowTabsAction,
+                toggleAssistant,
             }));
             traceRendererStartup('tabs shell menu bindings registered');
 

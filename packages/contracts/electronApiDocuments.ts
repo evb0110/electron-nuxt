@@ -72,6 +72,7 @@ export interface IDocumentsMenuCapability {
     onMenuViewModeSingle: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuViewModeFacing: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuToggleAssistant: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuUndo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuRedo: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuDeletePages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

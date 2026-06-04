@@ -274,6 +274,7 @@
                 :disabled="!hasInteractiveDocument || !fullscreenSupported"
                 @click="handleToolbarCommand('toggle-fullscreen')"
             />
+            <AssistantToolbarToggle />
             <ToolbarButton
                 v-if="isCommandInline('settings')"
                 icon="ph:gear"
@@ -287,6 +288,7 @@
 <script setup lang="ts">
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButton.vue';
+import AssistantToolbarToggle from '@app/components/agent/AssistantToolbarToggle.vue';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import {
