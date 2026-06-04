@@ -2,29 +2,86 @@
     <fieldset class="settings-section flex flex-col gap-2.5">
         <legend class="settings-section-title">{{ t('settings.assistantPanel') }}</legend>
 
-        <div class="settings-agent-card">
-            <div class="settings-agent-main">
-                <div class="settings-agent-status">
-                    <UIcon
-                        name="i-ph-chat-circle-dots"
-                        class="settings-agent-status-icon"
-                        :class="{ 'is-ready': assistantPanelEnabled }"
-                    />
-                    <span class="settings-agent-status-label">{{ assistantPanelStatusLabel }}</span>
+        <div class="settings-agent-card settings-agent-card--stack">
+            <div class="settings-agent-card-row">
+                <div class="settings-agent-main">
+                    <div class="settings-agent-status">
+                        <UIcon
+                            name="i-ph-chat-circle-dots"
+                            class="settings-agent-status-icon"
+                            :class="{ 'is-ready': assistantPanelEnabled }"
+                        />
+                        <span class="settings-agent-status-label">{{ assistantPanelStatusLabel }}</span>
+                    </div>
+                    <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
                 </div>
-                <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
+
+                <label class="settings-agent-switch-row">
+                    <span class="settings-agent-switch-label">{{ t('settings.assistantPanelToggle') }}</span>
+                    <input
+                        class="sr-only"
+                        type="checkbox"
+                        :checked="assistantPanelEnabled"
+                        @change="handleAssistantPanelToggle"
+                    >
+                    <span class="settings-agent-switch" aria-hidden="true" />
+                </label>
             </div>
 
-            <label class="settings-agent-switch-row">
-                <span class="settings-agent-switch-label">{{ t('settings.assistantPanelToggle') }}</span>
-                <input
-                    class="sr-only"
-                    type="checkbox"
-                    :checked="assistantPanelEnabled"
-                    @change="handleAssistantPanelToggle"
+            <div
+                v-if="assistantPanelEnabled"
+                class="settings-agent-auth"
+            >
+                <div class="settings-agent-auth-main">
+                    <div class="settings-agent-status">
+                        <UIcon
+                            :name="assistantSetup.icon"
+                            class="settings-agent-status-icon"
+                            :class="assistantSetupIconClass"
+                        />
+                        <span class="settings-agent-status-label">{{ assistantSetupLabel }}</span>
+                    </div>
+                    <p class="settings-field-hint">{{ assistantSetupHint }}</p>
+                </div>
+
+                <div
+                    v-if="assistantDeviceCode"
+                    class="settings-agent-device-code"
                 >
-                <span class="settings-agent-switch" aria-hidden="true" />
-            </label>
+                    <span>{{ t('assistant.deviceCode') }}</span>
+                    <strong>{{ assistantDeviceCode }}</strong>
+                </div>
+
+                <div class="settings-agent-actions settings-agent-actions--assistant">
+                    <UButton
+                        v-if="assistantSetup.primaryAction"
+                        :label="assistantPrimaryActionLabel"
+                        :icon="assistantSetup.primaryActionIcon ?? undefined"
+                        color="primary"
+                        :loading="isAssistantBusy"
+                        :disabled="isAssistantBusy"
+                        @click="handleAssistantPrimaryAction"
+                    />
+                    <UButton
+                        v-if="assistantSetup.showCancelLogin"
+                        :label="t('assistant.cancelLogin')"
+                        icon="i-ph-x"
+                        color="neutral"
+                        variant="outline"
+                        :disabled="isAssistantBusy"
+                        @click="emit('cancelAssistantLogin')"
+                    />
+                    <UButton
+                        :aria-label="t('assistant.refresh')"
+                        icon="i-ph-arrows-clockwise"
+                        color="neutral"
+                        variant="ghost"
+                        :loading="isAssistantBusy"
+                        :disabled="isAssistantBusy"
+                        @click="emit('refreshAssistant')"
+                    />
+                </div>
+            </div>
         </div>
     </fieldset>
 
@@ -207,19 +264,31 @@ import {
     useTimeoutFn,
 } from '@vueuse/core';
 import type {
+    IAgentAssistantState,
     IAgentMcpIntegrationStatus,
     TAgentMcpCodexRegistrationState,
 } from '@contracts/agent';
+import {
+    getSettingsAssistantStatusModel,
+    type TSettingsAssistantCopy,
+} from '@app/components/settings/settingsAssistantStatus';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const props = defineProps<{
     assistantPanelEnabled: boolean;
+    assistantState: IAgentAssistantState | null;
+    assistantDeviceCode: string;
+    isAssistantBusy: boolean;
     status: IAgentMcpIntegrationStatus | null;
     isBusy: boolean;
 }>();
 
 const emit = defineEmits<{
     'update:assistantPanelEnabled': [enabled: boolean];
+    refreshAssistant: [];
+    installAssistant: [];
+    startAssistantLogin: [];
+    cancelAssistantLogin: [];
     setEnabled: [enabled: boolean];
     refresh: [];
     openInstall: [];
@@ -272,6 +341,20 @@ const showInstallCodex = computed(() => props.status !== null && !props.status.c
 const assistantPanelStatusLabel = computed(() => props.assistantPanelEnabled
     ? t('settings.assistantPanelStatusEnabled')
     : t('settings.assistantPanelStatusDisabled'));
+const assistantSetup = computed(() => getSettingsAssistantStatusModel(
+    props.assistantState?.status ?? null,
+    props.assistantState !== null,
+));
+const assistantSetupIconClass = computed(() => ({
+    'is-ready': assistantSetup.value.tone === 'ready',
+    'is-warning': assistantSetup.value.tone === 'warning',
+}));
+const assistantSetupLabel = computed(() => translateAssistantCopy(assistantSetup.value.label));
+const assistantSetupHint = computed(() => props.assistantState?.status.error
+    ?? translateAssistantCopy(assistantSetup.value.hint));
+const assistantPrimaryActionLabel = computed(() => assistantSetup.value.primaryActionLabelKey
+    ? t(assistantSetup.value.primaryActionLabelKey)
+    : '');
 const mcpServerName = computed(() => props.status?.serverName ?? t('settings.agentMcpUnavailable'));
 const mcpServerUrl = computed(() => props.status?.serverUrl || t('settings.agentMcpUnavailable'));
 const codexCommand = computed(() => `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
@@ -375,6 +458,31 @@ function handleAssistantPanelToggle(event: Event) {
     emit('update:assistantPanelEnabled', target?.checked === true);
 }
 
+function translateAssistantCopy(copy: TSettingsAssistantCopy) {
+    switch (copy.key) {
+        case 'settings.assistantPanelNeedsUpdateHint':
+            return t(copy.key, copy.params);
+        case 'settings.assistantPanelStatusReadyAccount':
+            return t(copy.key, copy.params);
+        default:
+            return t(copy.key);
+    }
+}
+
+function handleAssistantPrimaryAction() {
+    switch (assistantSetup.value.primaryAction) {
+        case 'install':
+        case 'update':
+            emit('installAssistant');
+            return;
+        case 'sign-in':
+            emit('startAssistantLogin');
+            return;
+        case null:
+            return;
+    }
+}
+
 function copyButtonLabel(snippet: TSetupSnippetId) {
     return copiedSetupSnippet.value === snippet
         ? t('toolbar.captureCopied')
@@ -412,6 +520,17 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     background: var(--ui-bg-elevated);
 }
 
+.settings-agent-card--stack {
+    flex-direction: column;
+}
+
+.settings-agent-card-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+}
+
 .settings-agent-main {
     flex: 1 1 auto;
     min-width: 0;
@@ -439,6 +558,20 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     color: var(--ui-text);
 }
 
+.settings-agent-auth {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--ui-border);
+}
+
+.settings-agent-auth-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .settings-agent-status-label {
     font-size: 0.875rem;
     font-weight: 600;
@@ -449,6 +582,32 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     align-items: center;
     gap: 0.35rem;
     flex-shrink: 0;
+}
+
+.settings-agent-actions--assistant {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.settings-agent-device-code {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 0 0 auto;
+    max-width: 100%;
+    padding: 0.3rem 0.45rem;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    background: var(--ui-bg-muted);
+    color: var(--ui-text-muted);
+    font-size: 0.75rem;
+}
+
+.settings-agent-device-code strong {
+    color: var(--ui-text);
+    font-family: var(--app-font-mono);
+    font-weight: 700;
+    letter-spacing: 0.02em;
 }
 
 .settings-agent-switch-row {
@@ -541,6 +700,24 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
+}
+
+@media (width <= 42rem) {
+    .settings-agent-card-row,
+    .settings-agent-auth,
+    .settings-agent-install {
+        flex-direction: column;
+    }
+
+    .settings-agent-switch-row,
+    .settings-agent-actions,
+    .settings-agent-install {
+        width: 100%;
+    }
+
+    .settings-agent-actions {
+        justify-content: flex-start;
+    }
 }
 
 .settings-agent-guide {
