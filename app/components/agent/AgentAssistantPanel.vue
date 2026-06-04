@@ -165,143 +165,156 @@
             </section>
 
             <template v-else-if="panelView === 'ready'">
-                <div
-                    ref="messagesRef"
-                    class="agent-assistant-messages"
+                <section
+                    v-if="!chatScope"
+                    class="agent-assistant-empty"
                 >
-                    <div
-                        v-if="messages.length === 0"
-                        class="agent-assistant-empty"
-                    >
-                        <span class="agent-assistant-glyph">
-                            <UIcon name="i-ph-lightbulb" class="agent-assistant-glyph-icon" />
-                        </span>
-                        <h2>{{ emptyTitle }}</h2>
-                        <p>{{ emptyDescription }}</p>
-                    </div>
+                    <span class="agent-assistant-glyph">
+                        <UIcon name="i-ph-file-text" class="agent-assistant-glyph-icon" />
+                    </span>
+                    <h2>{{ t('assistant.noDocumentTitle') }}</h2>
+                    <p>{{ t('assistant.noDocumentDescription') }}</p>
+                </section>
 
-                    <article
-                        v-for="message in messages"
-                        :key="message.id"
-                        class="agent-assistant-message"
-                        :class="[
-                            `is-${message.role}`,
-                            { 'is-pending': message.pending },
-                        ]"
-                        :aria-label="roleLabel(message.role)"
+                <template v-else>
+                    <div
+                        ref="messagesRef"
+                        class="agent-assistant-messages"
                     >
                         <div
-                            v-if="message.attachments?.length"
-                            class="agent-assistant-message-attachments"
+                            v-if="messages.length === 0"
+                            class="agent-assistant-empty"
                         >
-                            <button
-                                v-for="attachment in message.attachments"
-                                :key="attachment.id"
-                                class="agent-assistant-message-image-button"
-                                type="button"
-                                :aria-label="t('assistant.previewImage', { name: attachment.name })"
-                                @click="expandImage(message.attachments, attachment.id)"
-                            >
-                                <img
-                                    class="agent-assistant-message-image"
-                                    :src="attachment.dataUrl"
-                                    :alt="attachment.name"
-                                    draggable="false"
-                                >
-                            </button>
+                            <span class="agent-assistant-glyph">
+                                <UIcon name="i-ph-lightbulb" class="agent-assistant-glyph-icon" />
+                            </span>
+                            <h2>{{ emptyTitle }}</h2>
+                            <p>{{ emptyDescription }}</p>
                         </div>
-                        <p v-if="message.text || message.pending">
-                            {{ message.text || (message.pending ? t('assistant.working') : '') }}
-                        </p>
-                    </article>
 
-                    <div
-                        v-if="isTurnActive"
-                        class="agent-assistant-turn-progress"
-                    >
-                        <UIcon name="i-ph-circle-notch" class="agent-assistant-working-icon is-spinning" />
-                        <span>{{ turnStatusText }}</span>
-                    </div>
-                </div>
-
-                <form
-                    class="agent-assistant-composer"
-                    @submit.prevent="sendMessage()"
-                >
-                    <div class="agent-assistant-composer-field">
-                        <div
-                            v-if="composerImages.length > 0"
-                            class="agent-assistant-composer-attachments"
-                            :aria-label="t('assistant.imageAttachments')"
+                        <article
+                            v-for="message in messages"
+                            :key="message.id"
+                            class="agent-assistant-message"
+                            :class="[
+                                `is-${message.role}`,
+                                { 'is-pending': message.pending },
+                            ]"
+                            :aria-label="roleLabel(message.role)"
                         >
                             <div
-                                v-for="image in composerImages"
-                                :key="image.id"
-                                class="agent-assistant-composer-attachment"
+                                v-if="message.attachments?.length"
+                                class="agent-assistant-message-attachments"
                             >
                                 <button
-                                    class="agent-assistant-composer-attachment-preview"
+                                    v-for="attachment in message.attachments"
+                                    :key="attachment.id"
+                                    class="agent-assistant-message-image-button"
                                     type="button"
-                                    :aria-label="t('assistant.previewImage', { name: image.name })"
-                                    @click="expandImage(composerImages, image.id)"
+                                    :aria-label="t('assistant.previewImage', { name: attachment.name })"
+                                    @click="expandImage(message.attachments, attachment.id)"
                                 >
                                     <img
-                                        class="agent-assistant-composer-attachment-image"
-                                        :src="image.dataUrl"
-                                        :alt="image.name"
+                                        class="agent-assistant-message-image"
+                                        :src="attachment.dataUrl"
+                                        :alt="attachment.name"
                                         draggable="false"
                                     >
                                 </button>
+                            </div>
+                            <p v-if="message.text || message.pending">
+                                {{ message.text || (message.pending ? t('assistant.working') : '') }}
+                            </p>
+                        </article>
+
+                        <div
+                            v-if="isTurnActive"
+                            class="agent-assistant-turn-progress"
+                        >
+                            <UIcon name="i-ph-circle-notch" class="agent-assistant-working-icon is-spinning" />
+                            <span>{{ turnStatusText }}</span>
+                        </div>
+                    </div>
+
+                    <form
+                        class="agent-assistant-composer"
+                        @submit.prevent="sendMessage()"
+                    >
+                        <div class="agent-assistant-composer-field">
+                            <div
+                                v-if="composerImages.length > 0"
+                                class="agent-assistant-composer-attachments"
+                                :aria-label="t('assistant.imageAttachments')"
+                            >
+                                <div
+                                    v-for="image in composerImages"
+                                    :key="image.id"
+                                    class="agent-assistant-composer-attachment"
+                                >
+                                    <button
+                                        class="agent-assistant-composer-attachment-preview"
+                                        type="button"
+                                        :aria-label="t('assistant.previewImage', { name: image.name })"
+                                        @click="expandImage(composerImages, image.id)"
+                                    >
+                                        <img
+                                            class="agent-assistant-composer-attachment-image"
+                                            :src="image.dataUrl"
+                                            :alt="image.name"
+                                            draggable="false"
+                                        >
+                                    </button>
+                                    <UButton
+                                        class="agent-assistant-composer-attachment-remove"
+                                        :aria-label="t('assistant.removeImageAttachment', { name: image.name })"
+                                        icon="i-ph-x"
+                                        color="neutral"
+                                        variant="solid"
+                                        size="xs"
+                                        type="button"
+                                        @click="removeComposerImage(image.id)"
+                                    />
+                                </div>
+                            </div>
+                            <p
+                                v-if="composerError"
+                                class="agent-assistant-composer-error"
+                            >
+                                {{ composerError }}
+                            </p>
+                            <textarea
+                                v-model="draft"
+                                class="agent-assistant-input"
+                                :placeholder="placeholderText"
+                                rows="3"
+                                :disabled="isSending"
+                                @keydown.enter.exact.prevent="sendMessage()"
+                                @paste="handleComposerPaste"
+                            />
+                            <div class="agent-assistant-composer-actions">
                                 <UButton
-                                    class="agent-assistant-composer-attachment-remove"
-                                    :aria-label="t('assistant.removeImageAttachment', { name: image.name })"
-                                    icon="i-ph-x"
+                                    v-if="isSending"
+                                    :aria-label="t('assistant.stop')"
+                                    icon="i-ph-stop-circle"
                                     color="neutral"
-                                    variant="solid"
-                                    size="xs"
-                                    type="button"
-                                    @click="removeComposerImage(image.id)"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="interrupt"
+                                />
+                                <UButton
+                                    v-else
+                                    :aria-label="t('assistant.send')"
+                                    icon="i-ph-arrow-up"
+                                    :color="canSend ? 'primary' : 'neutral'"
+                                    :variant="canSend ? 'solid' : 'soft'"
+                                    size="sm"
+                                    type="submit"
+                                    :disabled="!canSend"
                                 />
                             </div>
                         </div>
-                        <p
-                            v-if="composerError"
-                            class="agent-assistant-composer-error"
-                        >
-                            {{ composerError }}
-                        </p>
-                        <textarea
-                            v-model="draft"
-                            class="agent-assistant-input"
-                            :placeholder="placeholderText"
-                            rows="3"
-                            :disabled="isSending"
-                            @keydown.enter.exact.prevent="sendMessage()"
-                            @paste="handleComposerPaste"
-                        />
-                        <div class="agent-assistant-composer-actions">
-                            <UButton
-                                v-if="isSending"
-                                :aria-label="t('assistant.stop')"
-                                icon="i-ph-stop-circle"
-                                color="neutral"
-                                variant="outline"
-                                size="sm"
-                                @click="interrupt"
-                            />
-                            <UButton
-                                v-else
-                                :aria-label="t('assistant.send')"
-                                icon="i-ph-arrow-up"
-                                :color="canSend ? 'primary' : 'neutral'"
-                                :variant="canSend ? 'solid' : 'soft'"
-                                size="sm"
-                                type="submit"
-                                :disabled="!canSend"
-                            />
-                        </div>
-                    </div>
-                </form>
+                    </form>
+                </template>
             </template>
 
             <p
@@ -379,6 +392,7 @@
 
 <script setup lang="ts">
 import type {
+    IAgentAssistantChatScope,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantState,
@@ -391,12 +405,14 @@ import { getPlatformAPI } from '@app/utils/platform';
 
 const {
     activeDocumentName = null,
+    chatScope = null,
     hasActiveDocument = false,
     hasAnyDocument = false,
     width = undefined,
     isResizing = false,
 } = defineProps<{
     activeDocumentName?: string | null;
+    chatScope?: IAgentAssistantChatScope | null;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
     width?: number | undefined;
@@ -429,6 +445,7 @@ const composerError = ref('');
 const messagesRef = ref<HTMLElement | null>(null);
 const state = ref<IAgentAssistantState | null>(null);
 let sendGeneration = 0;
+let stateGeneration = 0;
 
 interface IExpandedImageItem {
     src: string;
@@ -441,6 +458,7 @@ interface IExpandedImagePreview {
 }
 
 const emptyState = computed<IAgentAssistantState>(() => ({
+    scope: chatScope ? cloneAssistantScope(chatScope) : null,
     status: {
         supported: true,
         platform: '',
@@ -476,11 +494,14 @@ const status = computed(() => (state.value ?? emptyState.value).status);
 const messages = computed(() => (state.value ?? emptyState.value).messages);
 const panelView = computed(() => getAgentAssistantPanelView(status.value, hasLoadedState.value));
 const canSend = computed(() => (
+    Boolean(chatScope)
+    &&
     (draft.value.trim().length > 0 || composerImages.value.length > 0)
     && !isSending.value
 ));
 const canResetChat = computed(() => (
     hasLoadedState.value
+    && Boolean(chatScope)
     && !isResetting.value
     && (
         messages.value.length > 0
@@ -511,7 +532,6 @@ const isTurnActive = computed(() => (
     status.value.turn.phase === 'starting'
     || status.value.turn.phase === 'running'
     || status.value.turn.phase === 'interrupting'
-    || status.value.runtimeState === 'busy'
 ));
 const turnStatusText = computed(() => {
     if (status.value.turn.phase === 'interrupting') {
@@ -543,7 +563,32 @@ const expandedImageCaption = computed(() => {
     });
 });
 
+function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
+    return {
+        kind: scope.kind,
+        key: scope.key,
+        title: scope.title,
+        ...(scope.tabId == null ? {} : { tabId: scope.tabId }),
+        ...(scope.documentRef == null ? {} : { documentRef: scope.documentRef }),
+    };
+}
+
+function createAssistantStateRequest() {
+    return { scope: chatScope ? cloneAssistantScope(chatScope) : null };
+}
+
+function getStateScopeKey(nextState: IAgentAssistantState) {
+    return nextState.scope?.key ?? null;
+}
+
+function isCurrentScopeState(nextState: IAgentAssistantState) {
+    return getStateScopeKey(nextState) === (chatScope?.key ?? null);
+}
+
 function applyState(nextState: IAgentAssistantState) {
+    if (!isCurrentScopeState(nextState)) {
+        return;
+    }
     state.value = nextState;
     hasLoadedState.value = true;
     isSending.value = nextState.status.runtimeState === 'busy';
@@ -570,11 +615,17 @@ function handleAssistantEvent(event: IAgentAssistantEvent) {
 }
 
 async function refreshState() {
+    const generation = ++stateGeneration;
     isRefreshing.value = true;
     try {
-        applyState(await getPlatformAPI().agent.getAssistantState());
+        const nextState = await getPlatformAPI().agent.getAssistantState(createAssistantStateRequest());
+        if (generation === stateGeneration) {
+            applyState(nextState);
+        }
     } finally {
-        isRefreshing.value = false;
+        if (generation === stateGeneration) {
+            isRefreshing.value = false;
+        }
     }
 }
 
@@ -792,6 +843,9 @@ async function sendMessage() {
     if (!canSend.value) {
         return;
     }
+    if (!chatScope) {
+        return;
+    }
     const generation = sendGeneration;
     const text = draft.value.trim();
     const attachments = composerImages.value.map(image => ({ ...image }));
@@ -802,6 +856,7 @@ async function sendMessage() {
     try {
         const result = await getPlatformAPI().agent.sendAssistantMessage({
             text,
+            scope: cloneAssistantScope(chatScope),
             ...(attachments.length > 0 ? { attachments } : {}),
         });
         if (generation !== sendGeneration) {
@@ -816,18 +871,24 @@ async function sendMessage() {
 }
 
 async function interrupt() {
+    if (!chatScope) {
+        return;
+    }
     sendGeneration += 1;
-    applyState(await getPlatformAPI().agent.interruptAssistant());
+    applyState(await getPlatformAPI().agent.interruptAssistant(createAssistantStateRequest()));
 }
 
 async function resetChat() {
+    if (!chatScope) {
+        return;
+    }
     sendGeneration += 1;
     draft.value = '';
     composerImages.value = [];
     composerError.value = '';
     isResetting.value = true;
     try {
-        applyState(await getPlatformAPI().agent.resetAssistantChat());
+        applyState(await getPlatformAPI().agent.resetAssistantChat(createAssistantStateRequest()));
     } finally {
         isResetting.value = false;
         isSending.value = status.value.runtimeState === 'busy';
@@ -843,6 +904,21 @@ function roleLabel(role: TAgentAssistantMessageRole) {
     }
     return t('assistant.roleAssistant');
 }
+
+watch(() => chatScope?.key ?? null, () => {
+    stateGeneration += 1;
+    sendGeneration += 1;
+    state.value = null;
+    hasLoadedState.value = false;
+    draft.value = '';
+    composerImages.value = [];
+    composerError.value = '';
+    isSending.value = false;
+    guardAsync(refreshState(), {
+        scope: 'assistant',
+        message: 'Failed to refresh assistant state for document',
+    });
+});
 
 let unsubscribe: (() => void) | null = null;
 onMounted(() => {

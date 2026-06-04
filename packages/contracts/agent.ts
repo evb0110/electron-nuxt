@@ -16,6 +16,7 @@ export type TAgentAssistantTurnPhase = 'idle' | 'starting' | 'running' | 'interr
 export type TAgentAssistantLoginMode = 'chatgpt' | 'device-code';
 export type TAgentAssistantMessageRole = 'user' | 'assistant' | 'system';
 export type TAgentAssistantEventType = 'state' | 'message' | 'message-delta' | 'turn-started' | 'turn-completed' | 'install-progress' | 'error';
+export type TAgentAssistantChatScopeKind = 'document';
 export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
 
 export interface IAgentDocumentOcrState {
@@ -219,6 +220,14 @@ export interface IAgentAssistantMcpStatus {
     toolCount: number;
 }
 
+export interface IAgentAssistantChatScope {
+    kind: TAgentAssistantChatScopeKind;
+    key: string;
+    title: string | null;
+    tabId?: string | null;
+    documentRef?: TDocumentRef | null;
+}
+
 export interface IAgentAssistantStatus {
     supported: boolean;
     platform: string;
@@ -267,9 +276,12 @@ export interface IAgentAssistantImageAttachment {
 }
 
 export interface IAgentAssistantState {
+    scope: IAgentAssistantChatScope | null;
     status: IAgentAssistantStatus;
     messages: IAgentAssistantChatMessage[];
 }
+
+export interface IAgentAssistantStateRequest {scope?: IAgentAssistantChatScope | null;}
 
 export interface IAgentAssistantInstallResult {
     ok: boolean;
@@ -291,6 +303,7 @@ export interface IAgentAssistantLoginResult {
 
 export interface IAgentAssistantSendMessageRequest {
     text: string;
+    scope?: IAgentAssistantChatScope | null;
     attachments?: IAgentAssistantImageAttachment[];
 }
 
@@ -299,6 +312,8 @@ export interface IAgentAssistantSendMessageResult {
     state: IAgentAssistantState;
     error?: string;
 }
+
+export interface IAgentAssistantScopedRequest {scope?: IAgentAssistantChatScope | null;}
 
 export interface IAgentAssistantEvent {
     type: TAgentAssistantEventType;

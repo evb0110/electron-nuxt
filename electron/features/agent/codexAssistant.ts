@@ -19,15 +19,18 @@ import {
 import { config } from '@electron/config';
 import type {
     IAgentAssistantAccount,
+    IAgentAssistantChatScope,
     IAgentAssistantChatMessage,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
     IAgentAssistantLoginRequest,
     IAgentAssistantLoginResult,
+    IAgentAssistantScopedRequest,
     IAgentAssistantSendMessageRequest,
     IAgentAssistantSendMessageResult,
     IAgentAssistantState,
+    IAgentAssistantStateRequest,
     IAgentAssistantStatus,
     TAgentAssistantAuthState,
     TAgentAssistantRuntimeState,
@@ -110,6 +113,15 @@ interface IAssistantRuntime {
     codeHome: string;
     cwd: string;
     mcpToken: string;
+}
+
+interface IAssistantChatSession {
+    scope: IAgentAssistantChatScope;
+    threadId: string | null;
+    activeTurnId: string | null;
+    turnPhase: TAgentAssistantTurnPhase;
+    messages: IAgentAssistantChatMessage[];
+    lastError?: string;
 }
 
 class CodexAppServerClient {
@@ -367,13 +379,14 @@ let runtimeState: TAgentAssistantRuntimeState = 'stopped';
 let turnPhase: TAgentAssistantTurnPhase = 'idle';
 let authState: TAgentAssistantAuthState = 'unknown';
 let account: IAgentAssistantAccount | null = null;
-let threadId: string | null = null;
+let activeChatKey: string | null = null;
 let activeTurnId: string | null = null;
+let lastStateScope: IAgentAssistantChatScope | null = null;
 let pendingLoginId: string | null = null;
 let authReturnWindow: BrowserWindow | null = null;
 let lastError: string | undefined;
 let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
-const messages: IAgentAssistantChatMessage[] = [];
+const chatSessions = new Map<string, IAssistantChatSession>();
 
 function rememberAssistantReturnWindow(parentWindow?: BrowserWindow | null) {
     authReturnWindow = parentWindow && !parentWindow.isDestroyed()
@@ -438,6 +451,99 @@ function markAssistantDisabledError() {
 async function stopAssistantForDisabledFeature() {
     await shutdownAgentAssistant();
     return markAssistantDisabledError();
+}
+
+function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
+    return {
+        kind: scope.kind,
+        key: scope.key,
+        title: scope.title,
+        ...(scope.tabId == null ? {} : { tabId: scope.tabId }),
+        ...(scope.documentRef == null ? {} : { documentRef: scope.documentRef }),
+    };
+}
+
+function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefined) {
+    if (!scope || scope.kind !== 'document') {
+        return null;
+    }
+
+    const key = scope.key.trim();
+    if (!key) {
+        return null;
+    }
+
+    const title = scope.title?.trim() || null;
+    return {
+        kind: 'document',
+        key,
+        title,
+        ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
+        ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
+    } satisfies IAgentAssistantChatScope;
+}
+
+function resolveRequestedScope(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
+    return normalizeAssistantScope(request?.scope);
+}
+
+function rememberStateScope(scope: IAgentAssistantChatScope | null) {
+    lastStateScope = scope ? cloneAssistantScope(scope) : null;
+}
+
+function getChatSession(scope: IAgentAssistantChatScope, options: { create: true }): IAssistantChatSession;
+function getChatSession(scope: IAgentAssistantChatScope | null, options?: { create?: false }): IAssistantChatSession | null;
+function getChatSession(
+    scope: IAgentAssistantChatScope | null,
+    options: { create?: boolean } = {},
+) {
+    if (!scope) {
+        return null;
+    }
+
+    const normalizedScope = normalizeAssistantScope(scope);
+    if (!normalizedScope) {
+        return null;
+    }
+
+    const existing = chatSessions.get(normalizedScope.key);
+    if (existing) {
+        existing.scope = normalizedScope;
+        return existing;
+    }
+
+    if (!options.create) {
+        return null;
+    }
+
+    const session: IAssistantChatSession = {
+        scope: normalizedScope,
+        threadId: null,
+        activeTurnId: null,
+        turnPhase: 'idle',
+        messages: [],
+    };
+    chatSessions.set(normalizedScope.key, session);
+    return session;
+}
+
+function getActiveChatSession() {
+    return activeChatKey ? chatSessions.get(activeChatKey) ?? null : null;
+}
+
+function getChatSessionByThreadId(candidateThreadId: string | null) {
+    if (!candidateThreadId) {
+        return null;
+    }
+
+    return Array.from(chatSessions.values())
+        .find(session => session.threadId === candidateThreadId) ?? null;
+}
+
+function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
+    const scope = resolveRequestedScope(request);
+    rememberStateScope(scope);
+    return scope ? getChatSession(scope, { create: true }) : null;
 }
 
 function tomlString(value: string) {
@@ -509,11 +615,16 @@ function normalizeAccount(rawAccount: unknown): IAgentAssistantAccount | null {
     return { type: 'other' };
 }
 
-function currentStatus(): IAgentAssistantStatus {
+function currentStatus(scope: IAgentAssistantChatScope | null = lastStateScope): IAgentAssistantStatus {
     const codexInfo = codexInfoCache;
     const installed = codexInfo?.installed === true;
     const versionSupported = codexInfo?.isVersionSupported === true;
     const supported = process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux';
+    const session = getChatSession(scope);
+    const sessionTurnPhase = session?.turnPhase ?? turnPhase;
+    const sessionActiveTurnId = session?.activeTurnId ?? activeTurnId;
+    const sessionThreadId = session?.threadId ?? null;
+    const error = session?.lastError ?? lastError;
     return {
         supported,
         platform: process.platform,
@@ -535,13 +646,13 @@ function currentStatus(): IAgentAssistantStatus {
         runtimeState,
         mcp: createBaseMcpStatusWithToolCount(),
         turn: {
-            id: activeTurnId,
-            phase: turnPhase,
+            id: sessionActiveTurnId,
+            phase: sessionTurnPhase,
         },
-        threadId,
-        activeTurnId,
+        threadId: sessionThreadId,
+        activeTurnId: sessionActiveTurnId,
         lastCheckedAt: new Date().toISOString(),
-        ...(lastError ? { error: lastError } : {}),
+        ...(error ? { error } : {}),
     };
 }
 
@@ -558,21 +669,25 @@ function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssis
     };
 }
 
-function cloneMessages() {
-    return messages.map(cloneAssistantMessage);
+function cloneMessages(scope: IAgentAssistantChatScope | null = lastStateScope) {
+    return getChatSession(scope)?.messages.map(cloneAssistantMessage) ?? [];
 }
 
-function currentState(): IAgentAssistantState {
+function currentState(scope: IAgentAssistantChatScope | null = lastStateScope): IAgentAssistantState {
     return {
-        status: currentStatus(),
-        messages: cloneMessages(),
+        scope: scope ? cloneAssistantScope(scope) : null,
+        status: currentStatus(scope),
+        messages: cloneMessages(scope),
     };
 }
 
-function publishAssistantEvent(event: IAgentAssistantEvent) {
+function publishAssistantEvent(
+    event: IAgentAssistantEvent,
+    scope: IAgentAssistantChatScope | null = lastStateScope,
+) {
     const payload: IAgentAssistantEvent = {
         ...event,
-        state: event.state ?? currentState(),
+        state: event.state ?? currentState(scope),
     };
     for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) {
@@ -582,14 +697,17 @@ function publishAssistantEvent(event: IAgentAssistantEvent) {
     }
 }
 
-function publishState() {
+function publishState(scope: IAgentAssistantChatScope | null = lastStateScope) {
     publishAssistantEvent({
         type: 'state',
-        state: currentState(),
-    });
+        state: currentState(scope),
+    }, scope);
 }
 
-function addMessage(message: Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'> & { id?: string }) {
+function addMessage(
+    session: IAssistantChatSession,
+    message: Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'> & { id?: string },
+) {
     const nextMessage: IAgentAssistantChatMessage = {
         id: message.id ?? randomUUID(),
         role: message.role,
@@ -601,26 +719,30 @@ function addMessage(message: Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'
         ...(message.pending === undefined ? {} : { pending: message.pending }),
         ...(message.error === undefined ? {} : { error: message.error }),
     };
-    messages.push(nextMessage);
+    session.messages.push(nextMessage);
     publishAssistantEvent({
         type: 'message',
         message: nextMessage,
-    });
+    }, session.scope);
     return nextMessage;
 }
 
-function upsertAssistantMessage(id: string, patch: Partial<IAgentAssistantChatMessage>) {
-    const existing = messages.find(message => message.id === id);
+function upsertAssistantMessage(
+    session: IAssistantChatSession,
+    id: string,
+    patch: Partial<IAgentAssistantChatMessage>,
+) {
+    const existing = session.messages.find(message => message.id === id);
     if (existing) {
         Object.assign(existing, patch);
         publishAssistantEvent({
             type: 'message',
             message: cloneAssistantMessage(existing),
-        });
+        }, session.scope);
         return existing;
     }
 
-    return addMessage({
+    return addMessage(session, {
         id,
         role: 'assistant',
         text: patch.text ?? '',
@@ -630,14 +752,14 @@ function upsertAssistantMessage(id: string, patch: Partial<IAgentAssistantChatMe
     });
 }
 
-function appendAssistantDelta(messageId: string, delta: string) {
-    const message = upsertAssistantMessage(messageId, { pending: true });
+function appendAssistantDelta(session: IAssistantChatSession, messageId: string, delta: string) {
+    const message = upsertAssistantMessage(session, messageId, { pending: true });
     message.text += delta;
     publishAssistantEvent({
         type: 'message-delta',
         messageId,
         delta,
-    });
+    }, session.scope);
 }
 
 function getStringParam(params: unknown, key: string) {
@@ -668,7 +790,11 @@ function shouldIgnoreThreadNotification(method: string, params: unknown) {
     if (!notificationThreadId || method === 'thread/started') {
         return false;
     }
-    return !threadId || notificationThreadId !== threadId;
+    return !getChatSessionByThreadId(notificationThreadId);
+}
+
+function getNotificationChatSession(params: unknown) {
+    return getChatSessionByThreadId(getNotificationThreadId(params)) ?? getActiveChatSession();
 }
 
 function handleAppServerNotification(notification: IJsonRpcNotification) {
@@ -700,47 +826,69 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
     }
 
     if (method === 'turn/started') {
-        activeTurnId = isRecord(params) && isRecord(params.turn) && typeof params.turn.id === 'string'
+        const session = getNotificationChatSession(params);
+        if (!session) {
+            return;
+        }
+        session.activeTurnId = isRecord(params) && isRecord(params.turn) && typeof params.turn.id === 'string'
             ? params.turn.id
-            : activeTurnId;
+            : session.activeTurnId;
+        activeChatKey = session.scope.key;
+        activeTurnId = session.activeTurnId;
         runtimeState = 'busy';
         turnPhase = 'running';
+        session.turnPhase = 'running';
         publishAssistantEvent({
             type: 'turn-started',
             ...(activeTurnId ? { turnId: activeTurnId } : {}),
-        });
+        }, session.scope);
         return;
     }
 
     if (method === 'turn/completed') {
+        const session = getNotificationChatSession(params);
+        if (!session) {
+            return;
+        }
+        session.activeTurnId = null;
+        session.turnPhase = 'idle';
         activeTurnId = null;
         runtimeState = 'ready';
         turnPhase = 'idle';
-        for (const message of messages) {
+        for (const message of session.messages) {
             if (message.role === 'assistant' && message.pending) {
                 message.pending = false;
             }
         }
-        publishAssistantEvent({ type: 'turn-completed' });
+        publishAssistantEvent({ type: 'turn-completed' }, session.scope);
         return;
     }
 
     if (method === 'item/agentMessage/delta') {
+        const session = getNotificationChatSession(params);
+        if (!session) {
+            return;
+        }
         const itemId = getStringParam(params, 'itemId');
         const delta = getStringParam(params, 'delta');
         if (runtimeState === 'busy') {
             turnPhase = 'running';
+            session.turnPhase = 'running';
         }
         if (itemId && delta) {
-            appendAssistantDelta(itemId, delta);
+            appendAssistantDelta(session, itemId, delta);
         }
         return;
     }
 
     if (method === 'item/completed') {
+        const session = getNotificationChatSession(params);
+        if (!session) {
+            return;
+        }
         const item = getThreadItem(params);
         if (item?.type === 'agentMessage' && typeof item.id === 'string' && typeof item.text === 'string') {
-            upsertAssistantMessage(item.id, {
+            upsertAssistantMessage(session, item.id, {
                 text: item.text,
                 pending: runtimeState === 'busy',
             });
@@ -749,34 +897,48 @@ function handleAppServerNotification(notification: IJsonRpcNotification) {
     }
 
     if (method === 'error') {
+        const session = getNotificationChatSession(params);
         lastError = isRecord(params) && isRecord(params.error) && typeof params.error.message === 'string'
             ? params.error.message
             : 'Codex assistant turn failed.';
+        if (session) {
+            session.lastError = lastError;
+            session.activeTurnId = null;
+            session.turnPhase = 'error';
+        }
         runtimeState = 'error';
         turnPhase = 'error';
         activeTurnId = null;
-        addMessage({
-            role: 'system',
-            text: lastError,
-            error: lastError,
-        });
+        if (session) {
+            addMessage(session, {
+                role: 'system',
+                text: lastError,
+                error: lastError,
+            });
+        }
         publishAssistantEvent({
             type: 'error',
             error: lastError,
-        });
+        }, session?.scope ?? lastStateScope);
     }
 }
 
 function handleAppServerExit(message: string) {
+    const session = getActiveChatSession();
     runtime = null;
     runtimeState = 'error';
     turnPhase = 'error';
     activeTurnId = null;
+    if (session) {
+        session.activeTurnId = null;
+        session.turnPhase = 'error';
+        session.lastError = message;
+    }
     lastError = message;
     publishAssistantEvent({
         type: 'error',
         error: message,
-    });
+    }, session?.scope ?? lastStateScope);
 }
 
 async function refreshCodexInfo() {
@@ -955,13 +1117,13 @@ function createBaseMcpStatusWithToolCount() {
     };
 }
 
-async function ensureAssistantThread() {
+async function ensureAssistantThread(session: IAssistantChatSession) {
     const currentRuntime = await ensureAssistantRuntime();
     if (authState !== 'signed-in') {
         throw new Error('Sign in with ChatGPT before using EVB Assistant.');
     }
-    if (threadId) {
-        return threadId;
+    if (session.threadId) {
+        return session.threadId;
     }
 
     const response = await currentRuntime.client.request('thread/start', {
@@ -977,11 +1139,14 @@ async function ensureAssistantThread() {
     if (!isRecord(response) || !isRecord(response.thread) || typeof response.thread.id !== 'string') {
         throw new Error('Codex did not return an assistant thread.');
     }
-    threadId = response.thread.id;
+    session.threadId = response.thread.id;
+    session.activeTurnId = null;
+    session.turnPhase = 'idle';
+    activeChatKey = session.scope.key;
     runtimeState = 'ready';
     turnPhase = 'idle';
-    publishState();
-    return threadId;
+    publishState(session.scope);
+    return session.threadId;
 }
 
 function estimateBase64ByteSize(base64: string) {
@@ -1060,10 +1225,14 @@ function normalizeOutgoingMessageRequest(request: IAgentAssistantSendMessageRequ
     };
 }
 
-export async function getAgentAssistantState(): Promise<IAgentAssistantState> {
+export async function getAgentAssistantState(
+    request?: IAgentAssistantStateRequest,
+): Promise<IAgentAssistantState> {
+    const session = getRequestChatSession(request);
+    const scope = session?.scope ?? null;
     if (!(await isAssistantFeatureEnabled())) {
         await shutdownAgentAssistant();
-        return currentState();
+        return currentState(scope);
     }
 
     await refreshCodexInfo();
@@ -1075,7 +1244,7 @@ export async function getAgentAssistantState(): Promise<IAgentAssistantState> {
             logger.warn(`Assistant runtime is not ready: ${getErrorMessage(error)}`);
         }
     }
-    return currentState();
+    return currentState(scope);
 }
 
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
@@ -1208,14 +1377,28 @@ export async function sendAgentAssistantMessage(
         };
     }
 
+    const scope = normalizeAssistantScope(request.scope);
+    rememberStateScope(scope);
+    if (!scope) {
+        const error = 'Open a document before starting an EVB Assistant chat.';
+        lastError = error;
+        return {
+            ok: false,
+            state: currentState(null),
+            error,
+        };
+    }
+    const session = getChatSession(scope, { create: true });
+
     let normalizedRequest: ReturnType<typeof normalizeOutgoingMessageRequest>;
     try {
         normalizedRequest = normalizeOutgoingMessageRequest(request);
     } catch (error) {
         lastError = getErrorMessage(error);
+        session.lastError = lastError;
         return {
             ok: false,
-            state: currentState(),
+            state: currentState(session.scope),
             error: lastError,
         };
     }
@@ -1227,7 +1410,7 @@ export async function sendAgentAssistantMessage(
     if (!text && attachments.length === 0) {
         return {
             ok: false,
-            state: currentState(),
+            state: currentState(session.scope),
             error: 'Message is empty.',
         };
     }
@@ -1235,15 +1418,20 @@ export async function sendAgentAssistantMessage(
     let currentThreadId: string | null = null;
     try {
         const currentRuntime = await ensureAssistantRuntime();
-        currentThreadId = await ensureAssistantThread();
+        currentThreadId = await ensureAssistantThread(session);
+        activeChatKey = session.scope.key;
         runtimeState = 'busy';
         turnPhase = 'starting';
-        addMessage({
+        activeTurnId = null;
+        session.activeTurnId = null;
+        session.turnPhase = 'starting';
+        delete session.lastError;
+        addMessage(session, {
             role: 'user',
             text,
             ...(attachments.length > 0 ? { attachments } : {}),
         });
-        publishState();
+        publishState(session.scope);
         const response = await currentRuntime.client.request('turn/start', {
             threadId: currentThreadId,
             input: [
@@ -1266,68 +1454,90 @@ export async function sendAgentAssistantMessage(
             personality: 'friendly',
         });
         if (isRecord(response) && isRecord(response.turn) && typeof response.turn.id === 'string') {
-            if (threadId !== currentThreadId) {
+            if (session.threadId !== currentThreadId) {
                 return {
                     ok: true,
-                    state: currentState(),
+                    state: currentState(session.scope),
                 };
             }
             activeTurnId = response.turn.id;
+            session.activeTurnId = response.turn.id;
             turnPhase = 'running';
+            session.turnPhase = 'running';
         }
-        publishState();
+        publishState(session.scope);
         return {
             ok: true,
-            state: currentState(),
+            state: currentState(session.scope),
         };
     } catch (error) {
-        if (currentThreadId && threadId !== currentThreadId) {
+        if (currentThreadId && session.threadId !== currentThreadId) {
             return {
                 ok: false,
-                state: currentState(),
+                state: currentState(session.scope),
                 error: getErrorMessage(error),
             };
         }
         lastError = getErrorMessage(error);
+        session.lastError = lastError;
         runtimeState = 'error';
         turnPhase = 'error';
-        addMessage({
+        session.activeTurnId = null;
+        session.turnPhase = 'error';
+        addMessage(session, {
             role: 'system',
             text: lastError,
             error: lastError,
         });
         return {
             ok: false,
-            state: currentState(),
+            state: currentState(session.scope),
             error: lastError,
         };
     }
 }
 
-export async function interruptAgentAssistant(): Promise<IAgentAssistantState> {
-    if (runtime && threadId && activeTurnId) {
+export async function interruptAgentAssistant(
+    request?: IAgentAssistantScopedRequest,
+): Promise<IAgentAssistantState> {
+    const requestedSession = getRequestChatSession(request);
+    const session = requestedSession ?? getActiveChatSession();
+    if (runtime && session?.threadId && session.activeTurnId) {
         turnPhase = 'interrupting';
-        publishState();
+        session.turnPhase = 'interrupting';
+        publishState(session.scope);
         await runtime.client.request('turn/interrupt', {
-            threadId,
-            turnId: activeTurnId,
+            threadId: session.threadId,
+            turnId: session.activeTurnId,
         }).catch((error: unknown) => {
             logger.warn(`Failed to interrupt assistant turn: ${getErrorMessage(error)}`);
         });
     }
+    if (session) {
+        session.activeTurnId = null;
+        session.turnPhase = 'idle';
+    }
     activeTurnId = null;
     runtimeState = authState === 'signed-in' ? 'ready' : 'stopped';
     turnPhase = 'idle';
-    publishState();
-    return currentState();
+    publishState(session?.scope ?? null);
+    return currentState(session?.scope ?? null);
 }
 
-export async function resetAgentAssistantChat(): Promise<IAgentAssistantState> {
-    const previousThreadId = threadId;
-    const previousTurnId = activeTurnId;
+export async function resetAgentAssistantChat(
+    request?: IAgentAssistantScopedRequest,
+): Promise<IAgentAssistantState> {
+    const session = getRequestChatSession(request);
+    if (!session) {
+        return currentState(null);
+    }
+
+    const previousThreadId = session.threadId;
+    const previousTurnId = session.activeTurnId;
     if (runtime && previousThreadId && previousTurnId) {
         turnPhase = 'interrupting';
-        publishState();
+        session.turnPhase = 'interrupting';
+        publishState(session.scope);
         await runtime.client.request('turn/interrupt', {
             threadId: previousThreadId,
             turnId: previousTurnId,
@@ -1342,14 +1552,20 @@ export async function resetAgentAssistantChat(): Promise<IAgentAssistantState> {
         });
     }
 
-    threadId = null;
+    session.threadId = null;
+    session.activeTurnId = null;
+    session.turnPhase = 'idle';
+    session.messages.length = 0;
+    delete session.lastError;
+    if (activeChatKey === session.scope.key) {
+        activeChatKey = null;
+    }
     activeTurnId = null;
-    messages.length = 0;
     lastError = undefined;
     turnPhase = 'idle';
     runtimeState = authState === 'signed-in' ? 'ready' : 'stopped';
-    publishState();
-    return currentState();
+    publishState(session.scope);
+    return currentState(session.scope);
 }
 
 export async function shutdownAgentAssistant() {
@@ -1360,7 +1576,12 @@ export async function shutdownAgentAssistant() {
     runtimeState = 'stopped';
     turnPhase = 'idle';
     activeTurnId = null;
-    threadId = null;
+    activeChatKey = null;
+    for (const session of chatSessions.values()) {
+        session.threadId = null;
+        session.activeTurnId = null;
+        session.turnPhase = 'idle';
+    }
     mcpToolCount = 0;
     await shutdownEmbeddedMcpServer();
 }

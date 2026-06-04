@@ -89,6 +89,7 @@ function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
 
 function createBrowserAssistantState(): IAgentAssistantState {
     return {
+        scope: null,
         status: {
             supported: false,
             platform: 'browser',
