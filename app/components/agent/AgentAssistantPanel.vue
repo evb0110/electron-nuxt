@@ -1072,7 +1072,6 @@ onUnmounted(() => {
 .agent-assistant-header-button:disabled {
     opacity: var(--app-toolbar-control-disabled-opacity);
     color: var(--app-toolbar-control-disabled-fg);
-    cursor: not-allowed;
 }
 
 .agent-assistant-body {

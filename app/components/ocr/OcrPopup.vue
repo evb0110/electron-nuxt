@@ -652,7 +652,6 @@ defineExpose({
 .ocr-trigger:disabled {
     opacity: var(--app-toolbar-control-disabled-opacity);
     color: var(--app-toolbar-control-disabled-fg);
-    cursor: not-allowed;
 }
 
 .ocr-trigger:disabled:hover {

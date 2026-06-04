@@ -317,7 +317,6 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-display:disabled {
     opacity: 0.5;
-    cursor: not-allowed;
 }
 
 .page-controls-display:focus {

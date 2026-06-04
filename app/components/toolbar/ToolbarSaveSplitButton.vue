@@ -205,7 +205,6 @@ function handleSaveAs() {
 .save-split-trigger:disabled {
     color: var(--app-toolbar-control-disabled-fg);
     opacity: var(--app-toolbar-control-disabled-opacity);
-    cursor: not-allowed;
 }
 
 .save-split-primary:disabled.is-loading {

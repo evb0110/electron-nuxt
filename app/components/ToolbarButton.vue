@@ -119,7 +119,6 @@ function handleClick() {
 .toolbar-btn:disabled {
     opacity: var(--app-toolbar-control-disabled-opacity);
     color: var(--app-toolbar-control-disabled-fg);
-    cursor: not-allowed;
 }
 
 .toolbar-btn:disabled:hover {

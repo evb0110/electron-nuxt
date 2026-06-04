@@ -624,7 +624,6 @@ onClickOutside(contextMenuRef, () => {
 }
 
 .tab-close:disabled {
-    cursor: not-allowed;
     opacity: 0.35;
 }
 

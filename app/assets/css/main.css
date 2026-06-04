@@ -572,10 +572,6 @@ button:not([role='link']) {
     cursor: default !important;
 }
 
-button:not([role='link']):disabled {
-    cursor: not-allowed !important;
-}
-
 button:not([role='link']):disabled.is-loading {
     cursor: wait !important;
 }
