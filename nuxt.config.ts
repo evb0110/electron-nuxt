@@ -630,6 +630,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); font-
             'ph:chat-circle',
             'ph:chat',
             'ph:chat-circle-dots',
+            'ph:sparkle',
             'ph:monitor',
             'ph:download-simple',
             'ph:moon',

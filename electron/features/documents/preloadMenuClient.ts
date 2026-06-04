@@ -36,6 +36,7 @@ type TNoArgDocumentMenuSubscriptions = Pick<
     | 'onMenuViewModeSingle'
     | 'onMenuViewModeFacing'
     | 'onMenuViewModeFacingFirstSingle'
+    | 'onMenuToggleAssistant'
     | 'onMenuUndo'
     | 'onMenuRedo'
     | 'onMenuDeletePages'
@@ -77,6 +78,7 @@ export function createDocumentsPreloadMenuClient(
         onMenuViewModeSingle: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle),
         onMenuViewModeFacing: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing),
         onMenuViewModeFacingFirstSingle: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle),
+        onMenuToggleAssistant: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuToggleAssistant),
         onMenuUndo: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuUndo),
         onMenuRedo: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRedo),
         onMenuDeletePages: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuDeletePages),

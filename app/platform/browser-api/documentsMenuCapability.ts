@@ -43,6 +43,7 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuViewModeSingle: noopUnsubscribe,
     onMenuViewModeFacing: noopUnsubscribe,
     onMenuViewModeFacingFirstSingle: noopUnsubscribe,
+    onMenuToggleAssistant: noopUnsubscribe,
     onMenuUndo: noopUnsubscribe,
     onMenuRedo: noopUnsubscribe,
     onMenuDeletePages: noopUnsubscribe,

@@ -74,6 +74,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuViewModeSingle: 'menu:viewModeSingle',
     menuViewModeFacing: 'menu:viewModeFacing',
     menuViewModeFacingFirstSingle: 'menu:viewModeFacingFirstSingle',
+    menuToggleAssistant: 'menu:toggleAssistant',
     menuUndo: 'menu:undo',
     menuRedo: 'menu:redo',
     menuDeletePages: 'menu:deletePages',
@@ -281,6 +282,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuToggleAssistant]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuUndo]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuRedo]: undefined;
     [DOCUMENTS_EVENT_CHANNELS.menuDeletePages]: undefined;

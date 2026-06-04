@@ -70,6 +70,7 @@ function createOptions() {
         moveActiveTab: vi.fn(),
         copyActiveTab: vi.fn(),
         handleWindowTabsAction: vi.fn(),
+        toggleAssistant: vi.fn(),
         workspace,
     };
 }

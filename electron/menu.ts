@@ -506,6 +506,13 @@ function getViewMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 channel: 'menu:viewModeFacingFirstSingle',
             }),
             { type: 'separator' },
+            createWindowMenuAction({
+                label: te('menu.assistant'),
+                accelerator: 'CmdOrCtrl+Shift+A',
+                enabled: documentActionsEnabled,
+                channel: 'menu:toggleAssistant',
+            }),
+            { type: 'separator' },
             {
                 label: te('menu.editorPanes'),
                 submenu: [
