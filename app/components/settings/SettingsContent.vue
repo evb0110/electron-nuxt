@@ -27,9 +27,16 @@
         <SettingsAgentPanel
             v-if="isDesktopRuntime"
             :assistant-panel-enabled="settings.assistantPanelEnabled"
+            :assistant-state="assistantState"
+            :assistant-device-code="assistantDeviceCode"
+            :is-assistant-busy="isAssistantBusy"
             :status="agentMcpStatus"
             :is-busy="isAgentMcpBusy"
-            @update:assistant-panel-enabled="updateSetting('assistantPanelEnabled', $event)"
+            @update:assistant-panel-enabled="updateAssistantPanelEnabled"
+            @refresh-assistant="refreshAssistantState"
+            @install-assistant="installAssistantCodex"
+            @start-assistant-login="startAssistantLogin"
+            @cancel-assistant-login="cancelAssistantLogin"
             @set-enabled="setAgentMcpEnabled"
             @refresh="refreshAgentMcpStatus"
             @open-install="openAgentMcpInstall"
@@ -56,7 +63,11 @@ import type {
     TTabMemoryPolicy,
     TPdfViewMode,
 } from '@contracts/shared';
-import type { IAgentMcpIntegrationStatus } from '@contracts/agent';
+import type {
+    IAgentAssistantEvent,
+    IAgentAssistantState,
+    IAgentMcpIntegrationStatus,
+} from '@contracts/agent';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { getPlatformAPI } from '@app/utils/platform';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
@@ -186,6 +197,7 @@ const colorMode = useColorMode();
 const {
     settings,
     load,
+    save,
     updateSetting,
 } = useSettings();
 const {
@@ -206,6 +218,12 @@ const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? L
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
 const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
 const isAgentMcpBusy = ref(false);
+const assistantState = ref<IAgentAssistantState | null>(null);
+const assistantDeviceCode = ref('');
+const assistantAction = ref<'refresh' | 'install' | 'login' | 'cancel' | null>(null);
+const isAssistantBusy = computed(() => assistantAction.value !== null);
+let assistantPanelPreferenceSave: Promise<void> | null = null;
+let unsubscribeAssistantEvent: (() => void) | null = null;
 const shortcutsDescription = computed(() => isDesktopRuntime.value
     ? t('settings.shortcutsDescription')
     : t('settings.browserShortcutsDescription'));
@@ -395,6 +413,82 @@ function handleCheckForUpdates() {
     void checkForUpdates();
 }
 
+function applyAssistantState(nextState: IAgentAssistantState) {
+    assistantState.value = nextState;
+    if (nextState.status.authState !== 'login-pending') {
+        assistantDeviceCode.value = '';
+    }
+}
+
+function handleAssistantEvent(event: IAgentAssistantEvent) {
+    if (!settings.value.assistantPanelEnabled) {
+        return;
+    }
+    if (event.state) {
+        applyAssistantState(event.state);
+    }
+}
+
+async function runAssistantAction(
+    action: 'refresh' | 'install' | 'login' | 'cancel',
+    callback: () => Promise<void>,
+) {
+    if (!isDesktopRuntime.value || assistantAction.value !== null) {
+        return;
+    }
+
+    assistantAction.value = action;
+    try {
+        await callback();
+    } finally {
+        assistantAction.value = null;
+    }
+}
+
+async function refreshAssistantState() {
+    await runAssistantAction('refresh', async () => {
+        applyAssistantState(await getPlatformAPI().agent.getAssistantState());
+    });
+}
+
+async function installAssistantCodex() {
+    await runAssistantAction('install', async () => {
+        const result = await getPlatformAPI().agent.installAssistantCodex();
+        applyAssistantState(result.state);
+    });
+}
+
+async function startAssistantLogin() {
+    await runAssistantAction('login', async () => {
+        const result = await getPlatformAPI().agent.startAssistantLogin({ mode: 'chatgpt' });
+        applyAssistantState(result.state);
+        assistantDeviceCode.value = result.userCode ?? '';
+    });
+}
+
+async function cancelAssistantLogin() {
+    await runAssistantAction('cancel', async () => {
+        applyAssistantState(await getPlatformAPI().agent.cancelAssistantLogin());
+        assistantDeviceCode.value = '';
+    });
+}
+
+async function updateAssistantPanelEnabled(enabled: boolean) {
+    updateSetting('assistantPanelEnabled', enabled);
+    assistantPanelPreferenceSave = save().finally(() => {
+        assistantPanelPreferenceSave = null;
+    });
+    await assistantPanelPreferenceSave;
+
+    if (enabled) {
+        await refreshAssistantState();
+        return;
+    }
+
+    assistantState.value = null;
+    assistantDeviceCode.value = '';
+}
+
 async function refreshAgentMcpStatus() {
     if (!isDesktopRuntime.value || isAgentMcpBusy.value) {
         return;
@@ -431,5 +525,30 @@ function openAgentMcpInstall() {
 onMounted(() => {
     void ensureUpdatesInitialized();
     void refreshAgentMcpStatus();
+    if (isDesktopRuntime.value) {
+        unsubscribeAssistantEvent = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
+        if (settings.value.assistantPanelEnabled) {
+            void refreshAssistantState();
+        }
+    }
+});
+
+watch(() => settings.value.assistantPanelEnabled, (enabled) => {
+    if (!isDesktopRuntime.value || assistantPanelPreferenceSave) {
+        return;
+    }
+    if (enabled) {
+        if (assistantState.value === null) {
+            void refreshAssistantState();
+        }
+        return;
+    }
+    assistantState.value = null;
+    assistantDeviceCode.value = '';
+});
+
+onBeforeUnmount(() => {
+    unsubscribeAssistantEvent?.();
+    unsubscribeAssistantEvent = null;
 });
 </script>
