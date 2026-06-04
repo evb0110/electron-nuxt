@@ -96,6 +96,22 @@
   outline: none !important;
   box-shadow: none !important;
 }
+.pdfViewer .page_container:has(.pdf-comment-marker-button:hover) .annotationEditorLayer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor),
+.pdfViewer .page_container:has(.pdf-comment-marker-button:hover) .annotation-editor-layer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor),
+.pdf-viewer-container .page_container:has(.pdf-comment-marker-button:hover) .annotationEditorLayer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor),
+.pdf-viewer-container .page_container:has(.pdf-comment-marker-button:hover) .annotation-editor-layer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor) {
+  border-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.pdfViewer .page_container:has(.pdf-comment-marker-button:hover) .annotationEditorLayer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor)::before,
+.pdfViewer .page_container:has(.pdf-comment-marker-button:hover) .annotation-editor-layer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor)::before,
+.pdf-viewer-container .page_container:has(.pdf-comment-marker-button:hover) .annotationEditorLayer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor)::before,
+.pdf-viewer-container .page_container:has(.pdf-comment-marker-button:hover) .annotation-editor-layer :is(.freeTextEditor, .inkEditor, .stampEditor, .signatureEditor)::before {
+  border-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
 .pdfViewer .textLayer .highlight.selected,
 .pdfViewer .text-layer .highlight.selected,
 .pdf-viewer-container .textLayer .highlight.selected,
