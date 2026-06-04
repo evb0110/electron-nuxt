@@ -15,11 +15,13 @@
 
         <header class="agent-assistant-header">
             <span class="agent-assistant-title">
-                <UIcon name="i-ph-chat-circle-dots" class="agent-assistant-title-icon" />
+                <UIcon :name="headerIcon" class="agent-assistant-title-icon" />
+                <span class="agent-assistant-title-text">{{ headerTitle }}</span>
             </span>
             <div class="agent-assistant-header-actions">
                 <AppTooltip :text="t('assistant.newChat')" :delay-duration="300">
                     <UButton
+                        class="agent-assistant-header-button"
                         :aria-label="t('assistant.newChat')"
                         icon="i-ph-plus"
                         color="neutral"
@@ -32,6 +34,7 @@
                 </AppTooltip>
                 <AppTooltip :text="t('assistant.close')" :delay-duration="300">
                     <UButton
+                        class="agent-assistant-header-button"
                         :aria-label="t('assistant.close')"
                         icon="i-ph-x"
                         color="neutral"
@@ -536,6 +539,8 @@ const emptyDescription = computed(() => {
 const placeholderText = computed(() => hasActiveDocument
     ? t('assistant.documentPlaceholder')
     : t('assistant.workspacePlaceholder'));
+const headerIcon = computed(() => (chatScope?.title ? 'i-ph-file-text' : 'i-ph-chat-circle-dots'));
+const headerTitle = computed(() => chatScope?.title ?? t('assistant.title'));
 const isTurnActive = computed(() => (
     status.value.turn.phase === 'starting'
     || status.value.turn.phase === 'running'
@@ -1007,22 +1012,61 @@ onUnmounted(() => {
 
 .agent-assistant-title {
     display: flex;
+    flex: 1 1 auto;
     align-items: center;
     gap: 0.45rem;
     min-width: 0;
 }
 
 .agent-assistant-title-icon {
+    flex: 0 0 auto;
     width: 1.05rem;
     height: 1.05rem;
     color: var(--ui-text-muted);
 }
 
+.agent-assistant-title-text {
+    overflow: hidden;
+    color: var(--ui-text);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .agent-assistant-header-actions {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     gap: 0.0625rem;
     -webkit-app-region: no-drag;
+}
+
+.agent-assistant-header-button {
+    width: var(--app-tab-close-size);
+    height: var(--app-tab-close-size);
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    color: var(--ui-text-muted);
+    transition:
+        background-color 0.12s ease,
+        border-color 0.12s ease,
+        color 0.12s ease,
+        box-shadow 0.12s ease;
+}
+
+.agent-assistant-header-button:hover:not(:disabled) {
+    background: var(--app-sidebar-control-hover-bg);
+    color: var(--ui-text);
+}
+
+.agent-assistant-header-button:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
+}
+
+.agent-assistant-header-button:disabled {
+    opacity: var(--app-toolbar-control-disabled-opacity);
+    color: var(--app-toolbar-control-disabled-fg);
+    cursor: not-allowed;
 }
 
 .agent-assistant-body {
