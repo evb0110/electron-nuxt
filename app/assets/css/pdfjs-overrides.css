@@ -1,74 +1,34 @@
+@charset "UTF-8";
+
 /* PDF.js comment + editor UI overrides (global to avoid scoped style misses) */
 .pdfViewer,
 .pdf-viewer-container {
-    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg');
-    --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg');
-    --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg');
-    --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg');
-    --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg');
-    --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg');
+  --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg');
+  --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg');
+  --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg');
+  --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg');
+  --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg');
+  --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg');
 }
-
 .pdfViewer .editToolbar,
 .pdf-viewer-container .editToolbar {
-    --editor-toolbar-height: 28px !important;
-    --editor-toolbar-padding: 2px !important;
-    --editor-toolbar-fg-color: var(--ui-text) !important;
-    --editor-toolbar-hover-fg-color: var(--ui-text) !important;
-    --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
-    --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
-    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+  --editor-toolbar-height: 28px !important;
+  --editor-toolbar-padding: 2px !important;
+  --editor-toolbar-fg-color: var(--ui-text) !important;
+  --editor-toolbar-hover-fg-color: var(--ui-text) !important;
+  --editor-toolbar-highlight-image: url('/pdfjs/toolbarButton-editorHighlight.svg') !important;
+  --editor-toolbar-delete-image: url('/pdfjs/editor-toolbar-delete.svg') !important;
+  --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
 }
-
-/* Ensure toolbar buttons contain their ::before icons */
-.pdfViewer .editToolbar .buttons .comment,
-.pdfViewer .editToolbar .buttons .deleteButton.basic,
-.pdfViewer .editToolbar .buttons .highlightButton.basic {
-    position: relative !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    overflow: hidden !important;
-}
-
-.pdfViewer .editToolbar .buttons .comment::before,
-.pdfViewer .editToolbar .buttons .deleteButton.basic::before,
-.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
-    content: "" !important;
-    display: block !important;
-    width: 16px !important;
-    height: 16px !important;
-    background-color: var(--editor-toolbar-fg-color) !important;
-    -webkit-mask-repeat: no-repeat !important;
-    mask-repeat: no-repeat !important;
-    -webkit-mask-position: center !important;
-    mask-position: center !important;
-    -webkit-mask-size: contain !important;
-    mask-size: contain !important;
-}
-
-.pdfViewer .editToolbar .buttons .comment::before {
-    -webkit-mask-image: var(--comment-edit-button-icon) !important;
-    mask-image: var(--comment-edit-button-icon) !important;
-}
-
-.pdfViewer .editToolbar .buttons .deleteButton.basic::before {
-    -webkit-mask-image: var(--editor-toolbar-delete-image) !important;
-    mask-image: var(--editor-toolbar-delete-image) !important;
-}
-
-.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
-    -webkit-mask-image: var(--editor-toolbar-highlight-image) !important;
-    mask-image: var(--editor-toolbar-highlight-image) !important;
-}
-
 .pdfViewer .annotationCommentButton,
 .pdf-viewer-container .annotationCommentButton {
-    --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
+  --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
 }
-
-/* Native PDF.js note/comment triggers conflict with the app's custom inline
-   note anchors and create a duplicate marker. Keep only one trigger source. */
+.pdfViewer,
+.pdf-viewer-container {
+  /* Native PDF.js note/comment triggers conflict with the app's custom inline
+     note anchors and create a duplicate marker. Keep only one trigger source. */
+}
 .pdfViewer .annotationLayer .annotationCommentButton,
 .pdfViewer .annotation-layer .annotationCommentButton,
 .pdfViewer .annotationEditorLayer .annotationCommentButton,
@@ -77,128 +37,97 @@
 .pdf-viewer-container .annotation-layer .annotationCommentButton,
 .pdf-viewer-container .annotationEditorLayer .annotationCommentButton,
 .pdf-viewer-container .annotation-editor-layer .annotationCommentButton {
-    display: none !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
-
-/* Hide native text-note icons rendered by PDF.js. The app renders a single
-   custom marker system for both text-linked notes and detached notes. */
-.pdfViewer .annotationLayer .textAnnotation img,
-.pdfViewer .annotation-layer .textAnnotation img,
-.pdf-viewer-container .annotationLayer .textAnnotation img,
-.pdf-viewer-container .annotation-layer .textAnnotation img {
-    display: none !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
+.pdfViewer,
+.pdf-viewer-container {
+  /* Hide native text-note icons rendered by PDF.js. The app renders a single
+     custom marker system for both text-linked notes and detached notes. */
 }
-
 .pdfViewer .annotationLayer .textAnnotation,
 .pdfViewer .annotation-layer .textAnnotation,
 .pdf-viewer-container .annotationLayer .textAnnotation,
 .pdf-viewer-container .annotation-layer .textAnnotation {
-    pointer-events: none !important;
+  pointer-events: none !important;
 }
-
-/* Suppress highlight editor chrome — the floating note indicator is the
-   only interactive trigger and the highlight colour is sufficient visual cue. */
-.pdfViewer .annotationEditorLayer .highlightEditor .internal,
-.pdfViewer .annotation-editor-layer .highlightEditor .internal,
-.pdf-viewer-container .annotationEditorLayer .highlightEditor .internal,
-.pdf-viewer-container .annotation-editor-layer .highlightEditor .internal {
-    border-color: transparent !important;
-    outline: none !important;
-    box-shadow: none !important;
+.pdfViewer .annotationLayer .textAnnotation img,
+.pdfViewer .annotation-layer .textAnnotation img,
+.pdf-viewer-container .annotationLayer .textAnnotation img,
+.pdf-viewer-container .annotation-layer .textAnnotation img {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
-
+.pdfViewer .annotationLayer,
+.pdfViewer .annotation-layer,
+.pdf-viewer-container .annotationLayer,
+.pdf-viewer-container .annotation-layer {
+  /* Hide native PDF.js popup trigger bubbles; custom inline note anchors
+     provide the single source of truth for note interaction. */
+}
+.pdfViewer .annotationLayer .popupTriggerArea,
+.pdfViewer .annotation-layer .popupTriggerArea,
+.pdf-viewer-container .annotationLayer .popupTriggerArea,
+.pdf-viewer-container .annotation-layer .popupTriggerArea {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.pdfViewer,
+.pdf-viewer-container {
+  /* Suppress highlight editor chrome — the floating note indicator is the
+     only interactive trigger and the highlight colour is sufficient visual cue. */
+}
 .pdfViewer .annotationEditorLayer .highlightEditor,
 .pdfViewer .annotation-editor-layer .highlightEditor,
 .pdf-viewer-container .annotationEditorLayer .highlightEditor,
 .pdf-viewer-container .annotation-editor-layer .highlightEditor {
-    border-color: transparent !important;
-    outline: none !important;
-    box-shadow: none !important;
+  border-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
-
+.pdfViewer .annotationEditorLayer .highlightEditor .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor .internal,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor .internal,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor .internal {
+  border-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
 .pdfViewer .textLayer .highlight.selected,
 .pdfViewer .text-layer .highlight.selected,
 .pdf-viewer-container .textLayer .highlight.selected,
 .pdf-viewer-container .text-layer .highlight.selected {
-    background-color: var(--highlight-bg-color) !important;
-    -webkit-backdrop-filter: var(--highlight-backdrop-filter) !important;
-    backdrop-filter: var(--highlight-backdrop-filter) !important;
-    outline: none !important;
-    border: none !important;
-    box-shadow: none !important;
+  background-color: var(--highlight-bg-color) !important;
+  -webkit-backdrop-filter: var(--highlight-backdrop-filter) !important;
+  backdrop-filter: var(--highlight-backdrop-filter) !important;
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
-
-/* Suppress ALL highlight outline SVGs — selected, hover, and idle.
-   PDF.js renders dual-stroke outlines (.mainOutline + .secondaryOutline)
-   via the DrawLayer; the app uses its own floating indicator system. */
-.pdfViewer .highlightOutline:is(.canvasWrapper svg),
-.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) {
-    stroke: transparent !important;
-    stroke-width: 0 !important;
-    --outline-color: transparent !important;
-    --outline-around-color: transparent !important;
-    --hover-outline-color: transparent !important;
-}
-
-.pdfViewer .highlightOutline:is(.canvasWrapper svg) .mainOutline,
-.pdfViewer .highlightOutline:is(.canvasWrapper svg) .secondaryOutline,
-.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) .mainOutline,
-.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) .secondaryOutline {
-    stroke: transparent !important;
-    stroke-width: 0 !important;
-}
-
-/* Text highlights are emitted as fully opaque, opacity-preblended colours.
-   They are composited into one per-page overlay before blending with the page:
-   same-colour overlaps do not stack, and different-colour overlaps use the
-   topmost/latest annotation colour instead of mixing into a third colour.
-   Match PDF.js' native multiply blend so pale highlights remain visible on
-   scanned grayscale pages too. */
-.pdfViewer .pdf-highlight-composite-overlay,
-.pdf-viewer-container .pdf-highlight-composite-overlay {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-    pointer-events: none !important;
-    mix-blend-mode: multiply !important;
-}
-
-.pdfViewer .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free),
-.pdf-viewer-container .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free) {
-    visibility: hidden !important;
-}
-
 .pdfViewer .pdf-layer-preserve-snapshot,
 .pdf-viewer-container .pdf-layer-preserve-snapshot {
-    display: block !important;
-    visibility: visible !important;
-    pointer-events: none !important;
-    user-select: none !important;
+  display: block !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+  user-select: none !important;
 }
-
 .pdfViewer .pdf-layer-preserve-snapshot *,
 .pdf-viewer-container .pdf-layer-preserve-snapshot * {
-    pointer-events: none !important;
-    user-select: none !important;
+  pointer-events: none !important;
+  user-select: none !important;
 }
-
 .pdfViewer .canvasWrapper svg.pdf-layer-preserve-snapshot,
 .pdf-viewer-container .canvasWrapper svg.pdf-layer-preserve-snapshot {
-    visibility: visible !important;
+  visibility: visible !important;
 }
-
 .pdfViewer .pdf-layer-preserve-hidden-source,
 .pdf-viewer-container .pdf-layer-preserve-hidden-source {
-    visibility: hidden !important;
-    pointer-events: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
-
 .pdfViewer .annotationLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
 .pdfViewer .annotation-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
 .pdfViewer .annotationEditorLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
@@ -207,10 +136,9 @@
 .pdf-viewer-container .annotation-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
 .pdf-viewer-container .annotationEditorLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
 .pdf-viewer-container .annotation-editor-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot) {
-    visibility: hidden !important;
-    pointer-events: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
-
 .pdfViewer .page_canvas.pdf-layer-preserve-active > svg.highlight:not(.pdf-layer-preserve-snapshot),
 .pdfViewer .page_canvas.pdf-layer-preserve-active > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
 .pdfViewer .page_canvas.pdf-layer-preserve-active > svg.draw:not(.pdf-layer-preserve-snapshot),
@@ -227,99 +155,120 @@
 .pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
 .pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.draw:not(.pdf-layer-preserve-snapshot),
 .pdf-viewer-container .canvasWrapper.pdf-layer-preserve-active > svg.pdf-highlight-composite-overlay:not(.pdf-layer-preserve-snapshot) {
-    visibility: hidden !important;
-    pointer-events: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
-
-/* Prevent double-painted editor-origin markup:
-   only when the editor layer actually contains highlight editors, hide
-   matching annotation-layer replicas to keep highlight intensity stable. */
-.pdfViewer .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
-    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
-) .annotationLayer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
-.pdfViewer .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
-    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
-) .annotation-layer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
-.pdf-viewer-container .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
-    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
-) .annotationLayer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
-.pdf-viewer-container .page:has(
-    .annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
-    .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
-    .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
-) .annotation-layer:not(.pdf-layer-preserve-snapshot) .editorAnnotation {
-    opacity: 0 !important;
-    pointer-events: none !important;
+.pdfViewer,
+.pdf-viewer-container {
+  /* Suppress ALL highlight outline SVGs — selected, hover, and idle.
+     PDF.js renders dual-stroke outlines (.mainOutline + .secondaryOutline)
+     via the DrawLayer; the app uses its own floating indicator system. */
 }
-
-/* Allow text selection through existing highlights while a selection-markup
-   tool or plain text-selection mode is active.
-   Vendor CSS sets .highlightEditor .internal { pointer-events: auto },
-   which intercepts mousedown and prevents dragging across already-highlighted
-   text to make a new highlight. Vendor CSS also sets cursor:pointer for any
-   .selectedEditor .highlightEditor .internal, which leaks onto a freshly
-   created highlight before the .selectedEditor class is cleared. The app
-   restores PDF.js back to NONE after creating selection markup in some flows,
-   so .highlightEditing is only transient. Keep the bypass active through
-   durable app-level tool and text-selection classes. */
-.pdfViewer.is-text-selection-mode .annotationEditorLayer,
+.pdfViewer .highlightOutline:is(.canvasWrapper svg),
+.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) {
+  stroke: transparent !important;
+  stroke-width: 0 !important;
+  --outline-color: transparent !important;
+  --outline-around-color: transparent !important;
+  --hover-outline-color: transparent !important;
+}
+.pdfViewer .highlightOutline:is(.canvasWrapper svg) .mainOutline,
+.pdfViewer .highlightOutline:is(.canvasWrapper svg) .secondaryOutline,
+.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) .mainOutline,
+.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) .secondaryOutline {
+  stroke: transparent !important;
+  stroke-width: 0 !important;
+}
+.pdfViewer,
+.pdf-viewer-container {
+  /* Text highlights are emitted as fully opaque, opacity-preblended colours.
+     They are composited into one per-page overlay before blending with the page:
+     same-colour overlaps do not stack, and different-colour overlaps use the
+     topmost/latest annotation colour instead of mixing into a third colour.
+     Match PDF.js' native multiply blend so pale highlights remain visible on
+     scanned grayscale pages too. */
+}
+.pdfViewer .pdf-highlight-composite-overlay,
+.pdf-viewer-container .pdf-highlight-composite-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none !important;
+  mix-blend-mode: multiply !important;
+}
+.pdfViewer .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free),
+.pdf-viewer-container .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free) {
+  visibility: hidden !important;
+}
+.pdfViewer,
+.pdf-viewer-container {
+  /* Prevent double-painted editor-origin markup after reload:
+     only when the editor layer actually contains highlight editors, hide
+     matching annotation-layer replicas to keep highlight intensity stable. */
+}
+.pdfViewer .page:has(.annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+.annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor) .annotationLayer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
+.pdfViewer .page:has(.annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+.annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor) .annotation-layer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
+.pdf-viewer-container .page:has(.annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+.annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor) .annotationLayer:not(.pdf-layer-preserve-snapshot) .editorAnnotation,
+.pdf-viewer-container .page:has(.annotationEditorLayer.nonEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.nonEditing:not([hidden]) .highlightEditor,
+.annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
+.annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor) .annotation-layer:not(.pdf-layer-preserve-snapshot) .editorAnnotation {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.pdfViewer,
+.pdf-viewer-container {
+  /* Allow text selection through existing highlights while either a
+     selection-markup tool or plain text-selection mode is active. */
+}
+.pdfViewer.is-selection-markup-tool .annotationEditorLayer,
+.pdfViewer.is-selection-markup-tool .annotation-editor-layer, .pdfViewer.is-text-selection-mode .annotationEditorLayer,
 .pdfViewer.is-text-selection-mode .annotation-editor-layer,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationEditorLayer,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-editor-layer {
-    pointer-events: none !important;
+.pdf-viewer-container.is-selection-markup-tool .annotationEditorLayer,
+.pdf-viewer-container.is-selection-markup-tool .annotation-editor-layer,
+.pdf-viewer-container.is-text-selection-mode .annotationEditorLayer,
+.pdf-viewer-container.is-text-selection-mode .annotation-editor-layer {
+  pointer-events: none !important;
 }
-
-.pdfViewer.is-selection-markup-tool .textLayer,
-.pdfViewer.is-selection-markup-tool .text-layer,
-.pdfViewer.is-text-selection-mode .textLayer,
-.pdfViewer.is-text-selection-mode .text-layer,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .textLayer,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .text-layer,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .textLayer,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .text-layer {
-    cursor: text !important;
-}
-
 .pdfViewer.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
-.pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal,
-.pdfViewer.is-text-selection-mode .annotationEditorLayer .highlightEditor .internal,
+.pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal, .pdfViewer.is-text-selection-mode .annotationEditorLayer .highlightEditor .internal,
 .pdfViewer.is-text-selection-mode .annotation-editor-layer .highlightEditor .internal,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationEditorLayer .highlightEditor .internal,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-editor-layer .highlightEditor .internal {
-    pointer-events: none !important;
-    cursor: text !important;
+.pdf-viewer-container.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
+.pdf-viewer-container.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal,
+.pdf-viewer-container.is-text-selection-mode .annotationEditorLayer .highlightEditor .internal,
+.pdf-viewer-container.is-text-selection-mode .annotation-editor-layer .highlightEditor .internal {
+  pointer-events: none !important;
+  cursor: text !important;
 }
-
-/* Painted highlight bodies live in the DrawLayer SVG inside .canvasWrapper,
-   OUTSIDE the editor layer. SVG <path> defaults to pointer-events:visiblePainted,
-   so the filled yellow shape intercepts mousedown on every highlighted glyph.
-   The highlight/highlightOutline classes are on the SVG root, not descendants
-   inside the SVG. Disable them during markup authoring and plain text
-   selection; select and comment interactions can still use the editor layer
-   in other modes. */
+.pdfViewer.is-selection-markup-tool .textLayer,
+.pdfViewer.is-selection-markup-tool .text-layer, .pdfViewer.is-text-selection-mode .textLayer,
+.pdfViewer.is-text-selection-mode .text-layer,
+.pdf-viewer-container.is-selection-markup-tool .textLayer,
+.pdf-viewer-container.is-selection-markup-tool .text-layer,
+.pdf-viewer-container.is-text-selection-mode .textLayer,
+.pdf-viewer-container.is-text-selection-mode .text-layer {
+  cursor: text !important;
+}
 .pdfViewer.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
-.pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg),
-.pdfViewer.is-text-selection-mode .highlight:is(.canvasWrapper svg),
+.pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg), .pdfViewer.is-text-selection-mode .highlight:is(.canvasWrapper svg),
 .pdfViewer.is-text-selection-mode .highlightOutline:is(.canvasWrapper svg),
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg),
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .highlight:is(.canvasWrapper svg),
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .highlightOutline:is(.canvasWrapper svg) {
-    pointer-events: none !important;
+.pdf-viewer-container.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
+.pdf-viewer-container.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg),
+.pdf-viewer-container.is-text-selection-mode .highlight:is(.canvasWrapper svg),
+.pdf-viewer-container.is-text-selection-mode .highlightOutline:is(.canvasWrapper svg) {
+  pointer-events: none !important;
 }
-
 .pdfViewer.is-selection-markup-tool .annotationLayer .editorAnnotation,
 .pdfViewer.is-selection-markup-tool .annotationLayer .highlightAnnotation,
 .pdfViewer.is-selection-markup-tool .annotationLayer .underlineAnnotation,
@@ -329,8 +278,7 @@
 .pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
 .pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,
 .pdfViewer.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
-.pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
-.pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
+.pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation, .pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
 .pdfViewer.is-text-selection-mode .annotationLayer .highlightAnnotation,
 .pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
 .pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
@@ -340,144 +288,156 @@
 .pdfViewer.is-text-selection-mode .annotation-layer .underlineAnnotation,
 .pdfViewer.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
 .pdfViewer.is-text-selection-mode .annotation-layer .squigglyAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .editorAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .highlightAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .underlineAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .strikeoutAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationLayer .squigglyAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .editorAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .highlightAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .underlineAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
-.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .editorAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .highlightAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .underlineAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotationLayer .squigglyAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .editorAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .highlightAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .underlineAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
-.pdf-viewer-container .pdfViewer.is-text-selection-mode .annotation-layer .squigglyAnnotation {
-    pointer-events: none !important;
-    cursor: text !important;
+.pdf-viewer-container.is-selection-markup-tool .annotationLayer .editorAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotationLayer .highlightAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotationLayer .underlineAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotationLayer .strikeoutAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotationLayer .squigglyAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotation-layer .editorAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotation-layer .highlightAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotation-layer .underlineAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotation-layer .strikeoutAnnotation,
+.pdf-viewer-container.is-selection-markup-tool .annotation-layer .squigglyAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotationLayer .editorAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotationLayer .highlightAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotationLayer .underlineAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotationLayer .strikeoutAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotationLayer .squigglyAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotation-layer .editorAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotation-layer .highlightAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotation-layer .underlineAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotation-layer .strikeoutAnnotation,
+.pdf-viewer-container.is-text-selection-mode .annotation-layer .squigglyAnnotation {
+  pointer-events: none !important;
+  cursor: text !important;
 }
-
-/* Hide native PDF.js popup trigger bubbles; custom inline note anchors
-   provide the single source of truth for note interaction. */
-.pdfViewer .annotationLayer .popupTriggerArea,
-.pdfViewer .annotation-layer .popupTriggerArea,
-.pdf-viewer-container .annotationLayer .popupTriggerArea,
-.pdf-viewer-container .annotation-layer .popupTriggerArea {
-    display: none !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-}
-
 .pdfViewer .commentPopup,
 .pdf-viewer-container .commentPopup {
-    --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg') !important;
-    --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg') !important;
-    --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg') !important;
-    background: var(--ui-bg) !important;
-    border: 1px solid var(--ui-border) !important;
-    box-shadow: var(--shadow-popup) !important;
-    color: var(--ui-text) !important;
+  --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg') !important;
+  --comment-popup-delete-button-icon: url('/pdfjs/editor-toolbar-delete.svg') !important;
+  --comment-close-button-icon: url('/pdfjs/comment-closeButton.svg') !important;
+  background: var(--ui-bg) !important;
+  border: 1px solid var(--ui-border) !important;
+  box-shadow: var(--shadow-popup) !important;
+  color: var(--ui-text) !important;
 }
-
 .pdfViewer .commentPopup .commentPopupText,
 .pdf-viewer-container .commentPopup .commentPopupText {
-    color: var(--ui-text) !important;
+  color: var(--ui-text) !important;
 }
-
 .pdfViewer .commentPopup .commentPopupTime,
 .pdf-viewer-container .commentPopup .commentPopupTime {
-    color: var(--ui-text-muted) !important;
+  color: var(--ui-text-muted) !important;
 }
-
 .pdfViewer #commentManagerDialog,
 .pdf-viewer-container #commentManagerDialog {
-    background: var(--ui-bg) !important;
-    border: 1px solid var(--ui-border) !important;
-    box-shadow: var(--shadow-popup) !important;
-    color: var(--ui-text) !important;
+  background: var(--ui-bg) !important;
+  border: 1px solid var(--ui-border) !important;
+  box-shadow: var(--shadow-popup) !important;
+  color: var(--ui-text) !important;
 }
-
 .pdfViewer #commentManagerDialog #commentManagerTextInput,
 .pdf-viewer-container #commentManagerDialog #commentManagerTextInput {
-    background: var(--ui-bg-muted) !important;
-    color: var(--ui-text) !important;
-    border: 1px solid var(--ui-border) !important;
-    border-radius: 8px !important;
-    padding: 8px 10px !important;
+  background: var(--ui-bg-muted) !important;
+  color: var(--ui-text) !important;
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
 }
-
-.pdfViewer .pdf-annotation-comment-popup,
-.pdf-viewer-container .pdf-annotation-comment-popup,
 .pdfViewer #commentPopup,
 .pdf-viewer-container #commentPopup {
-    background: var(--ui-bg) !important;
-    border: 1px solid var(--ui-border) !important;
-    box-shadow: var(--shadow-popup) !important;
-    color: var(--ui-text) !important;
+  background: var(--ui-bg) !important;
+  border: 1px solid var(--ui-border) !important;
+  box-shadow: var(--shadow-popup) !important;
+  color: var(--ui-text) !important;
 }
-
-.pdfViewer .pdf-annotation-comment-popup__textarea,
-.pdf-viewer-container .pdf-annotation-comment-popup__textarea {
-    background: var(--ui-bg-muted) !important;
-    color: var(--ui-text) !important;
-    border: 1px solid var(--ui-border) !important;
+.pdfViewer,
+.pdf-viewer-container {
+  /* Hide the PDF.js edit toolbar on FreeText editors — the app provides
+     its own annotation toolbar and comment UI.  Also hide resizer handles
+     when the editor is not selected (PDF.js normally does this but the
+     timing can be off when our patches run). */
 }
-
-/* Hide the PDF.js edit toolbar on FreeText editors — the app provides
-   its own annotation toolbar and comment UI.  Also hide resizer handles
-   when the editor is not selected (PDF.js normally does this but the
-   timing can be off when our patches run). */
 .pdfViewer .freeTextEditor > .editToolbar,
 .pdf-viewer-container .freeTextEditor > .editToolbar {
-    display: none !important;
+  display: none !important;
 }
-
 .pdfViewer .freeTextEditor:not(.selectedEditor) > .resizers,
 .pdf-viewer-container .freeTextEditor:not(.selectedEditor) > .resizers {
-    display: none !important;
+  display: none !important;
 }
-
-/* Keep save feedback subtle: during save, PDF.js can leave the selected ink
-   editor focus chrome visible even though the stroke itself is already
-   clearly rendered. Hide that transient selection frame until save completes. */
-.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor),
-.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor),
-.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor),
-.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) {
-    border: var(--unfocus-outline) !important;
-    outline: none !important;
-    box-shadow: none !important;
+.pdfViewer .freeTextEditor,
+.pdf-viewer-container .freeTextEditor {
+  /* Hide resizers when FreeText editor is in edit mode (text editing).
+     During edit mode, PDF.js removes the "enabled" class from .overlay.
+     Clicking resize handles while in edit mode causes NaN corruption
+     (null dimensions → division by zero → NaN cascades to x/y/w/h). */
 }
-
-.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor)::before,
-.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor)::before,
-.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor)::before,
-.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor)::before {
-    display: none !important;
-    border-color: transparent !important;
-}
-
-.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor) > .resizers,
-.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor) > .resizers,
-.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) > .resizers,
-.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) > .resizers {
-    display: none !important;
-}
-
-/* Hide resizers when FreeText editor is in edit mode (text editing).
-   During edit mode, PDF.js removes the "enabled" class from .overlay.
-   Clicking resize handles while in edit mode causes NaN corruption
-   (null dimensions → division by zero → NaN cascades to x/y/w/h). */
 .pdfViewer .freeTextEditor:has(> .overlay:not(.enabled)) > .resizers,
 .pdf-viewer-container .freeTextEditor:has(> .overlay:not(.enabled)) > .resizers {
-    display: none !important;
+  display: none !important;
+}
+.pdfViewer,
+.pdf-viewer-container {
+  /* Keep save feedback subtle: during save, PDF.js can leave the selected ink
+     editor focus chrome visible even though the stroke itself is already
+     clearly rendered. Hide that transient selection frame until save completes. */
+}
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor), .pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor),
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor),
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) {
+  border: var(--unfocus-outline) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor)::before, .pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor)::before,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor)::before,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor)::before {
+  display: none !important;
+  border-color: transparent !important;
+}
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor) > .resizers, .pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) > .resizers,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor) > .resizers,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) > .resizers {
+  display: none !important;
+}
+
+/* Ensure toolbar buttons contain their ::before icons */
+.pdfViewer .editToolbar .buttons .comment,
+.pdfViewer .editToolbar .buttons .deleteButton.basic,
+.pdfViewer .editToolbar .buttons .highlightButton.basic {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+}
+.pdfViewer .editToolbar .buttons .comment::before,
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before,
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
+  content: "" !important;
+  display: block !important;
+  width: 16px !important;
+  height: 16px !important;
+  background-color: var(--editor-toolbar-fg-color) !important;
+  -webkit-mask-repeat: no-repeat !important;
+  mask-repeat: no-repeat !important;
+  -webkit-mask-position: center !important;
+  mask-position: center !important;
+  -webkit-mask-size: contain !important;
+  mask-size: contain !important;
+}
+.pdfViewer .editToolbar .buttons .comment::before {
+  -webkit-mask-image: var(--comment-edit-button-icon) !important;
+  mask-image: var(--comment-edit-button-icon) !important;
+}
+.pdfViewer .editToolbar .buttons .deleteButton.basic::before {
+  -webkit-mask-image: var(--editor-toolbar-delete-image) !important;
+  mask-image: var(--editor-toolbar-delete-image) !important;
+}
+.pdfViewer .editToolbar .buttons .highlightButton.basic::before {
+  -webkit-mask-image: var(--editor-toolbar-highlight-image) !important;
+  mask-image: var(--editor-toolbar-highlight-image) !important;
 }
 
 /* Lock cursor to resize direction during FreeText corner resize drag.
@@ -485,10 +445,10 @@
    (PDF.js disables pointer-events on the layer during resize). */
 html.pdf-resizing-nwse,
 html.pdf-resizing-nwse * {
-    cursor: nwse-resize !important;
+  cursor: nwse-resize !important;
 }
 
 html.pdf-resizing-nesw,
 html.pdf-resizing-nesw * {
-    cursor: nesw-resize !important;
+  cursor: nesw-resize !important;
 }

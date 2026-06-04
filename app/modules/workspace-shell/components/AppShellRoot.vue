@@ -1203,7 +1203,7 @@ useAppShellLifecycle({
 .app-shell-root.is-zen-mode .browser-install-hint,
 .app-shell-root.is-zen-mode .editor-global-toolbar-shell,
 .app-shell-root.is-zen-mode .editor-global-status-host {
-    display: none !important;
+    display: none;
 }
 
 @media (width <= 900px) {
