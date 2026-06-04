@@ -1004,7 +1004,7 @@ onUnmounted(() => {
     width: 100%;
     height: var(--app-tabbar-height);
     min-height: var(--app-tabbar-height);
-    padding: 0 0.375rem 0 0.75rem;
+    padding: 0 0.5rem 0 0.75rem;
     border-bottom: 1px solid var(--ui-border);
     background: var(--app-tabbar-bg);
     -webkit-app-region: drag;
@@ -1037,13 +1037,19 @@ onUnmounted(() => {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 0.0625rem;
+    gap: 0.25rem;
     -webkit-app-region: no-drag;
 }
 
 .agent-assistant-header-button {
-    width: var(--app-tab-close-size);
-    height: var(--app-tab-close-size);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    min-height: 1.75rem;
+    padding: 0;
     border: 1px solid transparent;
     border-radius: 0.375rem;
     color: var(--ui-text-muted);
