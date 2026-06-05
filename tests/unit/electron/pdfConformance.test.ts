@@ -158,6 +158,7 @@ const {
     analyzePdfConformanceFile,
     validatePdfFile,
 } = await import('@electron/features/documents/main/pdfConformance');
+const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/pdfConformanceCore');
 
 describe('analyzePdfConformanceFile', () => {
     beforeEach(() => {
@@ -220,6 +221,49 @@ describe('analyzePdfConformanceFile', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('analyzePdfConformanceFileDirect', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.readFile.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        mocks.load.mockResolvedValue({
+            catalog: { lookupMaybe: vi.fn(() => undefined) },
+            isEncrypted: false,
+        });
+    });
+
+    it('returns conservative save restrictions when structural parsing fails', async () => {
+        mocks.readFile.mockResolvedValueOnce(Buffer.from(`
+            <pdfaid:part>2</pdfaid:part>
+            <pdfaid:conformance>b</pdfaid:conformance>
+            /ByteRange [0 10 20 30]
+            /Encrypt 42 0 R
+        `, 'latin1'));
+        mocks.load.mockRejectedValueOnce(new Error('parse failed'));
+
+        const result = await analyzePdfConformanceFileDirect('/tmp/partial.pdf');
+
+        expect(result).toEqual({
+            isSigned: true,
+            isEncrypted: true,
+            isTagged: false,
+            pdfaLevel: 'PDF/A-2B',
+            hasAcroForm: false,
+            hasXfa: false,
+            canIncrementalSave: false,
+            saveRestrictions: [
+                'signed_original_requires_save_as',
+                'encrypted_document_requires_preservation',
+                'pdfa_preservation_required:PDF/A-2B',
+                'incremental_save_not_supported',
+            ],
+        });
     });
 });
 

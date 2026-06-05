@@ -6,8 +6,9 @@ import type {
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
     buildPdfSaveRestrictions,
-    createDefaultPdfConformanceProfile,
+    createConservativePdfConformanceFallbackProfile,
     detectPdfaLevelFromPdfText,
+    hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core/pdfConformanceHelpers';
 import {
@@ -25,7 +26,7 @@ function decodePdfBinary(bytes: Uint8Array) {
 }
 
 export function containsPdfEncryptMarker(bytes: Uint8Array) {
-    return decodePdfBinary(bytes).includes('/Encrypt');
+    return hasPdfEncryptMarkersInPdfText(decodePdfBinary(bytes));
 }
 
 function detectBrowserPdfaLevel(bytes: Uint8Array) {
@@ -63,7 +64,6 @@ function mergePdfMarkerRegions(head: Uint8Array, tail: Uint8Array) {
 }
 
 export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConformanceProfile> {
-    const fallback = createDefaultPdfConformanceProfile();
     const {
         size,
         head,
@@ -116,16 +116,11 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
             saveRestrictions: buildPdfSaveRestrictions(baseProfile),
         };
     } catch {
-        return {
-            ...fallback,
+        return createConservativePdfConformanceFallbackProfile({
             isSigned: detectBrowserSignatureMarkers(bytes),
+            isEncrypted: containsPdfEncryptMarker(bytes),
             pdfaLevel: detectBrowserPdfaLevel(bytes),
-            saveRestrictions: buildPdfSaveRestrictions({
-                ...fallback,
-                isSigned: detectBrowserSignatureMarkers(bytes),
-                pdfaLevel: detectBrowserPdfaLevel(bytes),
-            }),
-        };
+        });
     }
 }
 

@@ -768,6 +768,56 @@ describe('createBrowserSearchCapability', () => {
         ]);
     });
 
+    it('falls back to direct warm-index extraction when the browser search worker is unavailable', async () => {
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'foo'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        const WorkerUnavailableError = browserSearchWorkerClientMock.BrowserSearchWorkerUnavailableError;
+
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => {
+            throw new WorkerUnavailableError('worker unavailable');
+        });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.warmIndex('/tmp/test.pdf')).resolves.toBe(true);
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledTimes(1);
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces browser search worker request failures without direct extraction fallback', async () => {
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => ({
+            requestId: 17,
+            promise: new Promise((_resolve, reject) => {
+                queueMicrotask(() => reject(new Error('worker crashed after request start')));
+            }),
+        }));
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.warmIndex('/tmp/test.pdf')).rejects.toThrow('worker crashed after request start');
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledTimes(1);
+        expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
+        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+    });
+
     it('cancels active direct browser extraction when search is canceled', async () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([

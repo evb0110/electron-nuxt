@@ -24,6 +24,28 @@ interface IResolveStablePdfDeleteFallbackOptions {
     identity: IAnnotationDeleteResolverIdentity;
 }
 
+const DELETE_FALLBACK_MIN_IOU = 0.01;
+const DELETE_FALLBACK_MAX_CENTER_DISTANCE = 0.16;
+
+function hasComparableDeleteGeometry(
+    comment: IAnnotationCommentSummary,
+    candidate: IAnnotationCommentSummary,
+) {
+    return Boolean(normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect));
+}
+
+function hasSupportedDeleteGeometry(
+    comment: IAnnotationCommentSummary,
+    candidate: IAnnotationCommentSummary,
+    iou: number,
+    distance: number,
+) {
+    if (!hasComparableDeleteGeometry(comment, candidate)) {
+        return true;
+    }
+    return iou >= DELETE_FALLBACK_MIN_IOU || distance <= DELETE_FALLBACK_MAX_CENTER_DISTANCE;
+}
+
 export function findStrictDeleteTarget(
     comment: IAnnotationCommentSummary,
     identity: IAnnotationDeleteResolverIdentity,
@@ -50,23 +72,32 @@ export function findDirectStableRefDeleteTarget(
     }
 
     return candidates
-        .filter((c) => {
-            const ct = c.text.trim().toLowerCase();
-            return ct.length > 0 && ct === targetText && Boolean(c.annotationId || c.uid);
+        .map((candidate) => {
+            const candidateText = candidate.text.trim().toLowerCase();
+            if (candidateText.length === 0 || candidateText !== targetText || !(candidate.annotationId || candidate.uid)) {
+                return null;
+            }
+            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+            const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
+            if (!hasSupportedDeleteGeometry(comment, candidate, iou, distance)) {
+                return null;
+            }
+            return {
+                candidate,
+                iou,
+                distance,
+            };
         })
+        .filter((match): match is NonNullable<typeof match> => Boolean(match))
         .sort((l, r) => {
-            const li = markerRectIoU(comment.markerRect, l.markerRect);
-            const ri = markerRectIoU(comment.markerRect, r.markerRect);
-            if (li !== ri) {
-                return ri - li;
+            if (l.iou !== r.iou) {
+                return r.iou - l.iou;
             }
-            const ld = markerRectCenterDistance(comment.markerRect, l.markerRect);
-            const rd = markerRectCenterDistance(comment.markerRect, r.markerRect);
-            if (ld !== rd) {
-                return ld - rd;
+            if (l.distance !== r.distance) {
+                return l.distance - r.distance;
             }
-            return identity.commentMergePriority(r) - identity.commentMergePriority(l);
-        })[0] ?? null;
+            return identity.commentMergePriority(r.candidate) - identity.commentMergePriority(l.candidate);
+        })[0]?.candidate ?? null;
 }
 
 function scoreDeleteCandidateText(targetText: string, candidateText: string) {
@@ -134,6 +165,7 @@ function scoreDeleteCandidateGeometry(
     textExact: boolean,
 ) {
     const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+    const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
     let score = 0;
     if (iou > 0) {
         score += iou * 6;
@@ -144,6 +176,7 @@ function scoreDeleteCandidateGeometry(
     return {
         score,
         iou,
+        distance,
     };
 }
 
@@ -168,6 +201,8 @@ export function scoreDeleteCandidate(
         score,
         textExact: textScore.textExact,
         iou: geometryScore.iou,
+        distance: geometryScore.distance,
+        geometrySupported: hasSupportedDeleteGeometry(comment, candidate, geometryScore.iou, geometryScore.distance),
     };
 }
 
@@ -184,7 +219,7 @@ export function pickScoredDeleteTarget(
         || (best.score - second.score >= 0.6)
         || (best.textExact && !second.textExact)
         || ((best.iou - (second.iou ?? 0)) >= 0.08);
-    const acceptable = best.score >= 2.5 || best.textExact || best.iou >= 0.12;
+    const acceptable = best.geometrySupported && (best.score >= 2.5 || best.textExact || best.iou >= 0.12);
     return acceptable && isClearlyBetter ? best.candidate : null;
 }
 
@@ -236,6 +271,9 @@ export function resolveStablePdfDeleteFallback(options: IResolveStablePdfDeleteF
             }
             const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
             const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
+            if (!hasSupportedDeleteGeometry(comment, candidate, iou, distance)) {
+                return null;
+            }
             return {
                 candidate,
                 iou,
@@ -268,7 +306,7 @@ export function resolveStablePdfDeleteFallback(options: IResolveStablePdfDeleteF
     }
     const second = scoredCandidates[1] ?? null;
     const clearlyBetter = !second || (best.score - second.score >= 0.9) || ((best.iou - second.iou) >= 0.1);
-    const acceptable = best.iou >= 0.01 || best.distance <= 0.42
+    const acceptable = best.iou >= DELETE_FALLBACK_MIN_IOU || best.distance <= DELETE_FALLBACK_MAX_CENTER_DISTANCE
         || (targetText.length > 0 && best.candidate.text.trim().toLowerCase() === targetText);
     if (!clearlyBetter || !acceptable) {
         return null;

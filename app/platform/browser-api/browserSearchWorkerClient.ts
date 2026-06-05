@@ -26,10 +26,17 @@ type TBrowserSearchWorkerProgressHandler = (progress: {
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS = 60_000;
 
-class BrowserSearchWorkerUnavailableError extends Error {
+export class BrowserSearchWorkerUnavailableError extends Error {
     public constructor(message: string) {
         super(message);
         this.name = 'BrowserSearchWorkerUnavailableError';
+    }
+}
+
+class BrowserSearchWorkerRequestError extends Error {
+    public constructor(message: string) {
+        super(message);
+        this.name = 'BrowserSearchWorkerRequestError';
     }
 }
 
@@ -86,7 +93,7 @@ const browserSearchWorkerClient = new BrowserWorkerClient<
             );
         }
     },
-    createError: event => new BrowserSearchWorkerUnavailableError(
+    createError: event => new BrowserSearchWorkerRequestError(
         event.error instanceof Error ? event.error.message : event.message,
     ),
     handleMessage: settleSearchWorkerResponse,
@@ -114,7 +121,7 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
                 resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
                 reject,
                 ...(onProgress ? { onProgress } : {}),
-            }, () => new BrowserSearchWorkerUnavailableError(
+            }, () => new BrowserSearchWorkerRequestError(
                 `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
             ));
 
@@ -123,7 +130,7 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
             } catch (error) {
                 browserSearchWorkerClient.cancelPendingRequest(
                     request.id,
-                    error instanceof Error ? error : new Error(String(error)),
+                    new BrowserSearchWorkerRequestError(getErrorMessage(error)),
                 );
             }
         });
