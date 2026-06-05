@@ -4,6 +4,7 @@
  */
 
 import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
+import { useEventListener } from '@vueuse/core';
 
 interface ITextLayerEntry {
     textLayer: HTMLElement;
@@ -11,8 +12,8 @@ interface ITextLayerEntry {
 }
 
 const textLayers = new Map<HTMLElement, ITextLayerEntry>();
-const mouseDownHandlers = new WeakMap<HTMLElement, () => void>();
-let selectionAbortController: AbortController | null = null;
+const mouseDownStops = new WeakMap<HTMLElement, () => void>();
+let stopGlobalSelectionListeners: (() => void) | null = null;
 let prevRange: Range | null = null;
 let isPointerDown = false;
 let activeSelectionLayer: HTMLElement | null = null;
@@ -130,50 +131,48 @@ function updateSelectionSentinel(
 }
 
 function enableGlobalSelectionListener() {
-    if (selectionAbortController) {
+    if (stopGlobalSelectionListeners) {
         return;
     }
 
-    selectionAbortController = new AbortController();
-    const { signal } = selectionAbortController;
-
-    document.addEventListener(
+    const stopPointerDown = useEventListener(
+        document,
         'pointerdown',
         () => {
             isPointerDown = true;
         },
-        { signal },
     );
 
-    document.addEventListener(
+    const stopPointerUp = useEventListener(
+        document,
         'pointerup',
         () => {
             isPointerDown = false;
             clearTrackedSelectionLayers();
         },
-        { signal },
     );
 
-    window.addEventListener(
+    const stopWindowBlur = useEventListener(
+        window,
         'blur',
         () => {
             isPointerDown = false;
             clearTrackedSelectionLayers();
         },
-        { signal },
     );
 
-    document.addEventListener(
+    const stopKeyup = useEventListener(
+        document,
         'keyup',
         () => {
             if (!isPointerDown) {
                 clearTrackedSelectionLayers();
             }
         },
-        { signal },
     );
 
-    document.addEventListener(
+    const stopSelectionChange = useEventListener(
+        document,
         'selectionchange',
         () => {
             const selection = document.getSelection();
@@ -226,8 +225,15 @@ function enableGlobalSelectionListener() {
 
             prevRange = range.cloneRange();
         },
-        { signal },
     );
+
+    stopGlobalSelectionListeners = () => {
+        stopPointerDown();
+        stopPointerUp();
+        stopWindowBlur();
+        stopKeyup();
+        stopSelectionChange();
+    };
 }
 
 function teardownTextLayer(textLayerDiv: HTMLElement) {
@@ -247,15 +253,15 @@ function teardownTextLayer(textLayerDiv: HTMLElement) {
         previousSelectionLayer = null;
     }
 
-    const mouseDownHandler = mouseDownHandlers.get(textLayerDiv);
-    if (mouseDownHandler) {
-        textLayerDiv.removeEventListener('mousedown', mouseDownHandler);
-        mouseDownHandlers.delete(textLayerDiv);
+    const stopMouseDown = mouseDownStops.get(textLayerDiv);
+    if (stopMouseDown) {
+        stopMouseDown();
+        mouseDownStops.delete(textLayerDiv);
     }
 
-    if (textLayers.size === 0 && selectionAbortController) {
-        selectionAbortController.abort();
-        selectionAbortController = null;
+    if (textLayers.size === 0 && stopGlobalSelectionListeners) {
+        stopGlobalSelectionListeners();
+        stopGlobalSelectionListeners = null;
         prevRange = null;
         activeSelectionLayer = null;
         previousSelectionLayer = null;
@@ -280,13 +286,16 @@ export const useTextLayerSelection = () => {
         endOfContent.dataset.evbTextLayerSelection = 'true';
         textLayerDiv.appendChild(endOfContent);
 
-        let mouseDownHandler = mouseDownHandlers.get(textLayerDiv);
-        if (!mouseDownHandler) {
-            mouseDownHandler = () => {
-                textLayerDiv.classList.add('selecting');
-            };
-            textLayerDiv.addEventListener('mousedown', mouseDownHandler);
-            mouseDownHandlers.set(textLayerDiv, mouseDownHandler);
+        let stopMouseDown = mouseDownStops.get(textLayerDiv);
+        if (!stopMouseDown) {
+            stopMouseDown = useEventListener(
+                textLayerDiv,
+                'mousedown',
+                () => {
+                    textLayerDiv.classList.add('selecting');
+                },
+            );
+            mouseDownStops.set(textLayerDiv, stopMouseDown);
         }
 
         textLayers.set(textLayerDiv, {
