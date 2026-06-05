@@ -8,6 +8,7 @@
 - `pnpm build:desktop`
 - `pnpm preview`
 - `pnpm lint && pnpm typecheck && pnpm build`
+- `pnpm validate`
 
 ## Intended Use
 
@@ -25,6 +26,14 @@
   - `/electron` desktop-only shell entry
 - PDF-and-images-first browser runtime
 - Browser-backed open/save/recent-files/search/page-ops flows
-- OCR unavailable in browser runtime
-- DjVu viewing and explicit PDF conversion available in browser runtime
+- OCR is available in the browser runtime through cached Tesseract language
+  packs and browser-side OCR artifacts.
+- DjVu viewing and explicit PDF conversion are available in browser runtime
+  through the vendored DjVu.js worker path.
 - Desktop app updates unavailable in browser runtime
+
+## Broader Gates
+
+- `pnpm run check:architecture` validates app/module boundaries.
+- `pnpm validate` is the broad local gate: lint, typecheck, type coverage,
+  strict build, fallow checks, and architecture checks.

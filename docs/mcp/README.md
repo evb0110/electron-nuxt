@@ -196,6 +196,7 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 | `evb_describe_capability` | Inspect one capability's input schema, risk, policy, availability, and related resources. | Read-only |
 | `evb_run_action` | Run a semantic capability action, such as navigation, OCR, sidebar actions, or annotation creation. | Depends on capability |
 | `evb_read_resource` | Read EVB resource URIs such as workspace, page text, text status, annotations, notes, TOC/bookmarks, and page labels. | Read-only |
+| `evb_job_status` | Read status for a long-running EVB action job if an action returned a job id. OCR progress is exposed through the `ocr.status` capability; current EVB MCP actions otherwise complete inline or expose progress in the app UI. | Read-only |
 | `evb_workspace_snapshot` | Full live workspace: summary mode, panes, tabs, active ids, layout tree, document kind, page numbers, readiness, and recent-file list metadata. | Read-only |
 | `evb_viewer_open_documents` | Fast answer for "what document is open?" including workspace mode, real open documents, active document, pane/tab mapping, and recent-file list metadata. Empty tabs are not reported as documents. | Read-only |
 | `evb_document_readiness` | Preparation hints for all tabs or a selected tab. | Read-only |

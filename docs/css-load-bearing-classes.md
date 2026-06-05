@@ -46,7 +46,7 @@ viewer runtime/rendering code so selector ownership stays explicit.
 <div class="page_canvas canvasWrapper" />
 ```
 
-**Why:** pdfjs-dist (currently v5.4.624) internally uses camelCase class names (`textLayer`, `annotationLayer`, `annotationEditorLayer`). PDF.js's own CSS and JS reference these names. The kebab-case variants (`text-layer`, `annotation-layer`, `annotation-editor-layer`) are the app's convention for custom styling and JS queries.
+**Why:** pdfjs-dist (currently v5.7.284) internally uses camelCase class names (`textLayer`, `annotationLayer`, `annotationEditorLayer`). PDF.js's own CSS and JS reference these names. The kebab-case variants (`text-layer`, `annotation-layer`, `annotation-editor-layer`) are the app's convention for custom styling and JS queries.
 
 Both formats must be preserved. CSS selectors and JS queries throughout the codebase target one or both:
 
