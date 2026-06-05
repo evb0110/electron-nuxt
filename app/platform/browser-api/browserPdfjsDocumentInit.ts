@@ -60,7 +60,6 @@ async function createPdfjsDocumentInitFromBrowserDocument(
 
     class BrowserDocumentRangeTransport extends pdfjsLib.PDFDataRangeTransport {
         private aborted = false;
-        private loadedBytes = initialData.byteLength;
 
         public constructor() {
             super(size, initialData, false);
@@ -90,11 +89,6 @@ async function createPdfjsDocumentInitFromBrowserDocument(
                 }
 
                 this.onDataRange(begin, chunk);
-                this.loadedBytes = Math.max(
-                    this.loadedBytes,
-                    Math.min(this.length, begin + chunk.byteLength),
-                );
-                this.onDataProgress(this.loadedBytes, this.length);
             } catch {
                 if (!this.aborted) {
                     this.aborted = true;

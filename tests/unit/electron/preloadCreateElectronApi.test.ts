@@ -7,7 +7,9 @@ import {
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
 const documentsClientMock = vi.hoisted(() => ({
+    openDocumentDirect: vi.fn(async (path: string) => ({ path })),
     openPdfDirect: vi.fn(async (path: string) => ({ path })),
+    openDocumentDirectBatch: vi.fn(async (paths: string[]) => paths),
     openPdfDirectBatch: vi.fn(async (paths: string[]) => paths),
     recentFiles: { get: vi.fn(async () => []) },
 }));
@@ -56,6 +58,6 @@ describe('createElectronApi', () => {
         allowDeferred.resolve();
         await expect(openPromise).resolves.toEqual({ path: '/tmp/from-picker.pdf' });
         expect(invocations).toContain(DOCUMENTS_CHANNELS.allowRendererFileOpen);
-        expect(documentsClientMock.openPdfDirect).toHaveBeenCalledWith('/tmp/from-picker.pdf');
+        expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/from-picker.pdf');
     });
 });

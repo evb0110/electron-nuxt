@@ -72,7 +72,6 @@ async function extractPdfText(filePath: string) {
     const pdf = await getDocument({
         data: new Uint8Array(await readFile(filePath)),
         useWorkerFetch: false,
-        isEvalSupported: false,
     }).promise;
 
     try {

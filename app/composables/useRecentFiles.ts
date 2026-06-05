@@ -23,7 +23,9 @@ export const useRecentFiles = () => {
     const recentFilesCookie = useCookie<string | null>(RECENT_FILES_COOKIE_KEY, {
         default: () => null,
         watch: false,
-        decode: val => decodeURIComponent(val),
+        decode: value => typeof value === 'string'
+            ? decodeURIComponent(value)
+            : null,
     });
     const initialCookieSnapshot = import.meta.client
         ? readBrowserRecentFilesSnapshot()

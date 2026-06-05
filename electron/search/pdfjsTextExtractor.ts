@@ -91,10 +91,7 @@ export async function extractTextWithPdfjs(
 
     const data = new Uint8Array(await readFile(pdfPath));
     throwIfAborted(signal);
-    const loadingTask = getDocument({
-        data,
-        isEvalSupported: false,
-    });
+    const loadingTask = getDocument({data});
     const doc = await withAbortSignal(loadingTask.promise, signal, () => {
         void loadingTask.destroy();
     });

@@ -4,11 +4,18 @@ import type {
 } from '@i18n-app';
 import {
     DEFAULT_LOCALE,
+    LOCALE_CODES,
     createTypedI18nComposer,
     formatTranslationLeaf,
     getNestedTranslationLeaf,
     normalizeTranslationParams,
 } from '@i18n-core';
+
+const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
+
+function isSupportedLocale(locale: string): locale is TLocale {
+    return SUPPORTED_LOCALES.has(locale);
+}
 
 interface IAppTypedI18nComposer {
     locale: Ref<TLocale>;
@@ -22,6 +29,7 @@ export const useTypedI18n = (): IAppTypedI18nComposer => {
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
     const locale = computed<TLocale>(() => (
         typeof composer.locale?.value === 'string'
+            && isSupportedLocale(composer.locale.value)
             ? composer.locale.value
             : DEFAULT_LOCALE
     ));

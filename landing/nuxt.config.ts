@@ -1,10 +1,15 @@
 import {fileURLToPath} from 'node:url';
 
+import {defineNuxtConfig as defineNuxtConfigBase} from 'nuxt/config';
+
 import {
     DEFAULT_LOCALE,
     LOCALE_CODES,
     LOCALE_DEFINITIONS,
 } from './vendor/i18n-core';
+
+// Nuxt 4.4.7's config declaration currently loses the helper call signature.
+const defineNuxtConfig = defineNuxtConfigBase as <T extends Record<string, unknown>>(config: T) => T;
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({

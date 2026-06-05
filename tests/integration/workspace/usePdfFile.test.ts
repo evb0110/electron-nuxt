@@ -6,10 +6,18 @@ import {
     vi,
 } from 'vitest';
 
+const mockOpenPdfDialog = vi.fn();
+const mockOpenPdfDirect = vi.fn();
+const mockOpenPdfDirectBatch = vi.fn();
+const mockOnOpenPdfDirectBatchProgress = vi.fn(() => vi.fn());
+
 const mockDocuments = {
-    openPdfDialog: vi.fn(),
-    openPdfDirect: vi.fn(),
-    openPdfDirectBatch: vi.fn(),
+    openDocumentDialog: vi.fn((...args: unknown[]) => mockOpenPdfDialog(...args)),
+    openPdfDialog: mockOpenPdfDialog,
+    openDocumentDirect: vi.fn((...args: unknown[]) => mockOpenPdfDirect(...args)),
+    openPdfDirect: mockOpenPdfDirect,
+    openDocumentDirectBatch: vi.fn((...args: unknown[]) => mockOpenPdfDirectBatch(...args)),
+    openPdfDirectBatch: mockOpenPdfDirectBatch,
     readFile: vi.fn(),
     readFileRange: vi.fn(),
     writeFile: vi.fn(),
@@ -29,7 +37,8 @@ const mockDocuments = {
         saveRestrictions: [] as string[],
     })),
     validatePdfData: vi.fn(),
-    onOpenPdfDirectBatchProgress: vi.fn(() => vi.fn()),
+    onOpenDocumentDirectBatchProgress: mockOnOpenPdfDirectBatchProgress,
+    onOpenPdfDirectBatchProgress: mockOnOpenPdfDirectBatchProgress,
 };
 const mockElectronAPI = { documents: mockDocuments };
 const mockHasElectronAPI = vi.fn(() => true);

@@ -19,7 +19,9 @@ export const useSettings = () => {
     const settingsCookie = useCookie<string | Partial<ISettingsData> | null>(BROWSER_SETTINGS_COOKIE_KEY, {
         default: () => null,
         watch: false,
-        decode: value => decodeURIComponent(value),
+        decode: value => typeof value === 'string'
+            ? decodeURIComponent(value)
+            : null,
     });
     const localeCookie = useCookie<string | null | undefined>(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
     const themeCookie = useCookie<string | null | undefined>(BROWSER_THEME_COOKIE_KEY, { watch: false });

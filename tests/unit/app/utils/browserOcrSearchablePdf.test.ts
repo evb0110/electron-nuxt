@@ -51,7 +51,6 @@ describe('createBrowserSearchablePdf', () => {
             {
                 data: result,
                 useWorkerFetch: false,
-                isEvalSupported: false,
             },
         ).promise;
 

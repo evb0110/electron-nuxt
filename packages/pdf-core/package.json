@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "es-toolkit": "^1.47.0",
     "pdf-lib": "^1.17.1",
     "utif": "^3.1.0"
   },

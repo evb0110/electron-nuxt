@@ -14,9 +14,9 @@ import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/d
 import type { AnnotationEditorLayer as TAnnotationEditorLayer } from 'pdfjs-dist/types/src/display/editor/annotation_editor_layer';
 import type { DrawLayer as TDrawLayer } from 'pdfjs-dist/types/src/display/draw_layer';
 import type {
-    IL10n,
-    IPDFLinkService,
-} from 'pdfjs-dist/types/web/interfaces';
+    IPdfjsL10n,
+    IPdfjsLinkService,
+} from '@app/types/pdfjs';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -71,7 +71,7 @@ interface IPdfjsTextLayerElement extends HTMLDivElement {div: HTMLDivElement;}
 interface IEditableAnnotationDataLike {id?: string | null;}
 interface IEditableAnnotationLike {data?: IEditableAnnotationDataLike | null;}
 interface IAnnotationLayerWithEditableAnnotations {
-    getEditableAnnotations?: () => unknown[];
+    getEditableAnnotations?: () => Iterable<unknown>;
     getEditableAnnotation?: (id: string) => unknown;
 }
 
@@ -236,7 +236,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     annotationUiManager: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
-    annotationL10n: MaybeRefOrGetter<IL10n | null>;
+    annotationL10n: MaybeRefOrGetter<IPdfjsL10n | null>;
     scrollToPage?: (pageNumber: number) => void;
 }) => {
     ensureAnnotationEditorLayerSafetyPatch();
@@ -256,7 +256,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         toValue(deps.annotationUiManager) ?? null;
     let annotationLayerRenderToken = 0;
     const annotationLayerPageRenderTokens = new Map<number, number>();
-    const fallbackL10n: IL10n = {
+    const fallbackL10n: IPdfjsL10n = {
         getLanguage: () => 'en',
         getDirection: () => 'ltr',
         get: (ids, _args, fallback) => {
@@ -522,7 +522,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         }
 
         const getEditableAnnotations =
-            getOptionalFunction<[], unknown[]>(annotationLayerInstance, 'getEditableAnnotations');
+            getOptionalFunction<[], Iterable<unknown>>(annotationLayerInstance, 'getEditableAnnotations');
         const getEditableAnnotation =
             getOptionalFunction<[string], unknown>(annotationLayerInstance, 'getEditableAnnotation');
 
@@ -530,11 +530,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return annotationLayerInstance;
         }
 
-        const mutableAnnotationLayer = annotationLayerInstance as TAnnotationLayer & IAnnotationLayerWithEditableAnnotations;
+        const mutableAnnotationLayer = annotationLayerInstance as IAnnotationLayerWithEditableAnnotations;
 
         if (getEditableAnnotations) {
             mutableAnnotationLayer.getEditableAnnotations = () => (
-                getEditableAnnotations.call(annotationLayerInstance)
+                Array.from(getEditableAnnotations.call(annotationLayerInstance))
                     .filter(editable => !isHiddenEditableAnnotationId(getEditableAnnotationId(editable)))
             );
         }
@@ -547,7 +547,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             );
         }
 
-        return mutableAnnotationLayer;
+        return annotationLayerInstance;
     }
 
     function toPdfjsTextLayerRef(
@@ -736,7 +736,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 isInPresentationMode: false,
                 externalLinkEnabled: true,
                 goToDestination: async () => {},
-                goToPage: (page: number) => deps.scrollToPage?.(page),
+                goToPage: (page: number | string) => {
+                    if (typeof page === 'number') {
+                        deps.scrollToPage?.(page);
+                    }
+                },
                 goToXY: () => {},
                 addLinkAttributes: (
                     link: HTMLAnchorElement,
@@ -788,7 +792,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 setHash: () => {},
                 executeNamedAction: () => {},
                 executeSetOCGState: () => {},
-            } as IPDFLinkService;
+            } satisfies IPdfjsLinkService;
 
             const annotationLayerInstance = new AnnotationLayer({
                 div: annotationLayerDiv as HTMLDivElement,
@@ -799,7 +803,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 annotationEditorUIManager: annotationUiManager,
                 structTreeLayer: null,
                 commentManager: null,
-                linkService: simpleLinkService,
+                linkService: simpleLinkService as never,
                 annotationStorage,
             });
             if (!shouldContinueLayerRender(options)) {
@@ -824,7 +828,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     viewport,
                     div: annotationLayerDiv as HTMLDivElement,
                     page: pdfPage,
-                    linkService: simpleLinkService,
+                    linkService: simpleLinkService as never,
                     renderForms: false,
                     annotationStorage,
                 });
@@ -1108,11 +1112,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             mode: {},
             uiManager: annotationUiManager,
             div: annotationEditorLayerDiv as HTMLDivElement,
-            structTreeLayer: null,
+            structTreeLayer: null as never,
             enabled: true,
             accessibilityManager: undefined,
             pageIndex: pageNumber - 1,
-            l10n,
+            l10n: l10n as never,
             viewport: pageMetrics.editorViewport,
             annotationLayer: annotationLayerInstance ?? undefined,
             // pdfjs-dist type declarations lag runtime shape; runtime expects a textLayer carrying a `div` reference.
