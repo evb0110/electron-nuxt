@@ -21,5 +21,5 @@ const { t } = useTypedI18n();
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settingsPanelShared';
+@use '@app/assets/css/settings-panel-shared';
 </style>

@@ -15,7 +15,7 @@
  * painter's algorithm ({@link composeHighlightFragments}) into a single set of
  * non-overlapping fragments; the source SVGs are hidden; and one overlay `<svg>`
  * is rendered. The overlay is multiplied against the page (see
- * `pdfjs-overrides.css`) so pale colours stay visible on scanned/grayscale pages.
+ * `pdfjs-overrides.scss`) so pale colours stay visible on scanned/grayscale pages.
  *
  * Scope: only `highlight` SVGs that are NOT `free` and NOT markup-subtype-draw
  * strokes participate — see {@link shouldCompositeHighlightClassList}. Underline,
