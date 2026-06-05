@@ -18,6 +18,7 @@ import {
     SEARCH_RESULT_LIMIT,
 } from '@app/platform/browser-api/browserSearchLimits';
 import {
+    BrowserSearchWorkerUnavailableError,
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,
     canUseBrowserSearchWorker,
@@ -634,6 +635,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         } catch (error) {
             if (isBrowserSearchCanceledError(error)) {
                 return null;
+            }
+            if (!(error instanceof BrowserSearchWorkerUnavailableError)) {
+                throw error;
             }
             return await runDirectExtraction(pdfPath, requestId);
         } finally {

@@ -1,8 +1,9 @@
 import { readFile } from 'fs/promises';
 import {
     buildPdfSaveRestrictions,
-    createDefaultPdfConformanceProfile,
+    createConservativePdfConformanceFallbackProfile,
     detectPdfaLevelFromPdfText,
+    hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core/pdfConformanceHelpers';
 import type { IPdfConformanceProfile } from '@contracts/pdfConformance';
@@ -19,8 +20,6 @@ function decodePdfBytes(data: Uint8Array) {
 async function analyzePdfConformanceData(
     data: Uint8Array,
 ): Promise<IPdfConformanceProfile> {
-    const fallback = createDefaultPdfConformanceProfile();
-
     try {
         const {
             doc,
@@ -45,16 +44,12 @@ async function analyzePdfConformanceData(
         };
     } catch (error) {
         logger.warn(`Failed to analyze PDF conformance: ${getErrorMessage(error)}`);
-        return {
-            ...fallback,
-            isSigned: hasPdfSignatureMarkersInPdfText(decodePdfBytes(data)),
-            pdfaLevel: detectPdfaLevelFromPdfText(decodePdfBytes(data)),
-            saveRestrictions: buildPdfSaveRestrictions({
-                ...fallback,
-                isSigned: hasPdfSignatureMarkersInPdfText(decodePdfBytes(data)),
-                pdfaLevel: detectPdfaLevelFromPdfText(decodePdfBytes(data)),
-            }),
-        };
+        const decodedBytes = decodePdfBytes(data);
+        return createConservativePdfConformanceFallbackProfile({
+            isSigned: hasPdfSignatureMarkersInPdfText(decodedBytes),
+            isEncrypted: hasPdfEncryptMarkersInPdfText(decodedBytes),
+            pdfaLevel: detectPdfaLevelFromPdfText(decodedBytes),
+        });
     }
 }
 

@@ -7,6 +7,9 @@ import type {
 const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
 const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
 const PDF_SIGNATURE_PATTERN = /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u;
+const PDF_ENCRYPT_PATTERN = /\/Encrypt\b/u;
+
+type TPdfConformanceFallbackOverrides = Partial<Omit<TPdfConformanceProfileBase, 'canIncrementalSave'>>;
 
 export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     const partMatch = text.match(PDFA_PART_PATTERN);
@@ -23,6 +26,10 @@ export function hasPdfSignatureMarkersInPdfText(text: string): boolean {
     return PDF_SIGNATURE_PATTERN.test(text);
 }
 
+export function hasPdfEncryptMarkersInPdfText(text: string): boolean {
+    return PDF_ENCRYPT_PATTERN.test(text);
+}
+
 export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
     return {
         isSigned: false,
@@ -33,6 +40,21 @@ export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
         hasXfa: false,
         canIncrementalSave: true,
         saveRestrictions: [],
+    };
+}
+
+export function createConservativePdfConformanceFallbackProfile(
+    overrides: TPdfConformanceFallbackOverrides = {},
+): IPdfConformanceProfile {
+    const profileBase = {
+        ...createDefaultPdfConformanceProfile(),
+        ...overrides,
+        canIncrementalSave: false,
+    };
+
+    return {
+        ...profileBase,
+        saveRestrictions: buildPdfSaveRestrictions(profileBase),
     };
 }
 
