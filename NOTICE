@@ -1,0 +1,6 @@
+EVB Viewer
+Copyright (c) 2026 Eugene Barsky
+
+EVB Viewer is licensed under the MIT License. See LICENSE for details.
+
+This project bundles or references third-party open-source components for PDF rendering, OCR, native document processing, and packaged desktop workflows. See THIRD_PARTY_NOTICES.md and the embedded upstream license files in this repository for additional notices.

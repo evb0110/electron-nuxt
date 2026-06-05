@@ -8,7 +8,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: linting, typechecking, Electron install verification, fast release-critical tests, strict current-platform build and packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, creates the matching `v*` tag, and pushes the branch update and tag atomically.
-4. The tag push triggers the GitHub [`Release`](<repo-root>/.github/workflows/release.yml) workflow, which reruns the focused release checks, packages, and publishes the release in one run.
+4. The tag push triggers the GitHub [`Release`](../.github/workflows/release.yml) workflow, which reruns the focused release checks, packages, and publishes the release in one run.
 
 ## Local guardrails
 
@@ -17,7 +17,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
 - Broad maintenance checks (`typecheck:coverage`, `fallow`, and architecture graph checks) remain part of `pnpm validate` and pull-request CI, but they do not block every local release cut.
 - Release-critical tests should stay deterministic and fast. Long serial Electron E2E checks are available for manual diagnostics, but they no longer block release cutting.
-- Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](<repo-root>/pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
+- Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - `pnpm run release:verify:package:local` packages the current platform exactly as the release workflow would, then validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS.
 - The macOS packaged-startup step is meaningful only when local packaging uses real Developer ID credentials. Ad-hoc local signing still verifies bundled native-tool execution, but it does not faithfully reproduce LaunchServices/runtime-library-validation behavior for a shipped `.app`.

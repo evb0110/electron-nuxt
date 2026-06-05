@@ -25,7 +25,8 @@ import {
 } from '@tests/e2e/electron/helpers/sessionHarness';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
-const TARGET_PDF_PATH = '.devkit/manual-pdf-fixtures/Arnold - 5. Grammatik _best_p_oo.pdf';
+const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH
+    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'arnold-grammar.pdf');
 const DIAGNOSTIC_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',

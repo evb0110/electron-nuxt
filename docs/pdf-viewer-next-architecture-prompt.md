@@ -1,5 +1,5 @@
 # PDF Viewer Full Rewrite
-You are working in <repo-root>.
+You are working in the repository root.
 
 Goal
 Rewrite the PDF viewer architecture end to end on the main branch in one coordinated implementation pass. The result should be a cohesive, maintainable PDF viewer feature with explicit ownership for runtime, rendering, annotations, tools, public API, DOM contracts, and browser-verified behavior. Keep the existing user-visible PDF viewer behavior and public component contract compatible while replacing the current transitional architecture.

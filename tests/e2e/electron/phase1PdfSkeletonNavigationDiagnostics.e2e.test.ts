@@ -21,7 +21,8 @@ import {
 } from '@tests/e2e/electron/helpers/sessionHarness';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 
-const TARGET_PDF_PATH = '.devkit/manual-pdf-fixtures/Гиргас - Словарь к арабской хрестоматии и Корану_oo.pdf';
+const TARGET_PDF_PATH = process.env.EVB_E2E_NAVIGATION_PDF_PATH
+    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
 const DIAGNOSTIC_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',

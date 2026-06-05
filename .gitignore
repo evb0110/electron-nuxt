@@ -9,6 +9,15 @@ dist/
 /release/
 .devkit/
 .idea/
+.claude/
+.codex/
+.vscode/
+MEMORIES.md
+
+# Local env files
+.env
+.env.*
+!.env.example
 
 .DS_Store
 .vercel

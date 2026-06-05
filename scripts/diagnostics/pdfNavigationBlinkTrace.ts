@@ -14,7 +14,8 @@ import {
 } from '@scripts/diagnostics/diagnosticFrameCapture';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
 
-const DEFAULT_TARGET_PDF_PATH = '.devkit/manual-pdf-fixtures/Гиргас - Словарь к арабской хрестоматии и Корану_oo.pdf';
+const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH
+    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
 const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
 
 export interface IOptions {
