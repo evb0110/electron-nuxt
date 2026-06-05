@@ -31,7 +31,7 @@ import {
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
-import type { IIpcMainRegistrar } from '@electron/features/djvu/ports';
+import type { TDjvuIpcMainRegistrar } from '@electron/features/djvu/ports';
 import { DJVU_CHANNELS } from '@electron/features/djvu/contract';
 
 const logger = createLogger('djvu-ipc');
@@ -133,7 +133,7 @@ async function handleDjvuCleanupTemp(
     }
 }
 
-export function registerDjvuHandlers(registrar: IIpcMainRegistrar = ipcMain) {
+export function registerDjvuHandlers(registrar: TDjvuIpcMainRegistrar = ipcMain) {
     registrar.handle(DJVU_CHANNELS.openForViewing, (event, djvuPath) =>
         handleDjvuOpenForViewing(event, requireDjvuOpenPath(djvuPath, event.sender)),
     );

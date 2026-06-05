@@ -18,6 +18,8 @@ export interface IOpenPdfDirectBatchProgress {
     estimatedRemainingMs: number | null;
 }
 
+export type TOpenDocumentDirectBatchProgress = IOpenPdfDirectBatchProgress;
+
 export interface IOpenPdfResult {
     kind: 'pdf';
     workingPath: TDocumentRef;
@@ -83,15 +85,19 @@ export interface IDocumentsMenuCapability {
     onMenuOpenRecentFile: (callback: (path: TDocumentRef) => void) => IMenuEventUnsubscribe;
     onMenuOpenExternalPaths: (callback: (paths: TDocumentRef[]) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onOpenDocumentDirectBatchProgress: (callback: (progress: TOpenDocumentDirectBatchProgress) => void) => IMenuEventUnsubscribe;
     onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => IMenuEventUnsubscribe;
 }
 
 export interface IDocumentsFileCapability {
+    openDocumentDialog: () => Promise<TOpenFileResult | null>;
     openPdfDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialog: () => Promise<TOpenFileResult | null>;
     openImageDialog: () => Promise<string | null>;
+    openDocumentDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
     openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
+    openDocumentDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
     savePdfAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;

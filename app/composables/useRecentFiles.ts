@@ -97,7 +97,7 @@ export const useRecentFiles = () => {
     async function openRecentFile(file: IRecentFile) {
         error.value = null;
         try {
-            await (await getDocumentsCapability()).openPdfDirect(file.originalPath);
+            await (await getDocumentsCapability()).openDocumentDirect(file.originalPath);
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }

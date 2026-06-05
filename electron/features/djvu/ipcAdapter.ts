@@ -1,11 +1,11 @@
 import {createDjvuService} from '@electron/features/djvu/service';
 import type {
     IDjvuService,
-    IIpcMainRegistrar,
+    TDjvuIpcMainRegistrar,
 } from '@electron/features/djvu/ports';
 
 export function registerDjvuIpcAdapter(
-    registrar: IIpcMainRegistrar,
+    registrar: TDjvuIpcMainRegistrar,
     service: IDjvuService = createDjvuService(),
 ) {
     service.registerHandlers(registrar);

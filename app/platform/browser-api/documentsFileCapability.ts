@@ -56,6 +56,11 @@ const defaultBrowserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
 
+type TCanonicalDocumentsFileCapability = Omit<
+    IDocumentsFileCapability,
+    'openPdfDialog' | 'openPdfDirect' | 'openPdfDirectBatch'
+>;
+
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
 ): IDocumentsFileCapability {
@@ -187,8 +192,8 @@ export function createBrowserDocumentsFileCapability(
         return sourceRef;
     }
 
-    return {
-        async openPdfDialog() {
+    const capability: TCanonicalDocumentsFileCapability = {
+        async openDocumentDialog() {
             const pickedFiles = await pickFiles({
                 accept: OPEN_INPUT_ACCEPT,
                 multiple: false,
@@ -259,7 +264,7 @@ export function createBrowserDocumentsFileCapability(
                 saveHandle: picked.handle ?? null,
             });
         },
-        async openPdfDirect(path) {
+        async openDocumentDirect(path) {
             if (!isBrowserDocumentRef(path)) {
                 return null;
             }
@@ -274,7 +279,7 @@ export function createBrowserDocumentsFileCapability(
                 throw error;
             }
         },
-        async openPdfDirectBatch(paths, requestId) {
+        async openDocumentDirectBatch(paths, requestId) {
             return openDocumentPaths(
                 paths,
                 requestId ? { requestId } : undefined,
@@ -562,5 +567,12 @@ export function createBrowserDocumentsFileCapability(
         getPathForFile(file) {
             return browserDocumentStore.getRefForFile(file);
         },
+    };
+
+    return {
+        ...capability,
+        openPdfDialog: capability.openDocumentDialog,
+        openPdfDirect: capability.openDocumentDirect,
+        openPdfDirectBatch: capability.openDocumentDirectBatch,
     };
 }

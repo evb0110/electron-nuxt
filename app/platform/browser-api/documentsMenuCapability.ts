@@ -1,7 +1,7 @@
 import type { IDocumentsMenuCapability } from '@contracts/platformApi';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
-interface IOpenPdfDirectBatchProgressPayload {
+interface IOpenDocumentDirectBatchProgressPayload {
     requestId: string;
     processed: number;
     total: number;
@@ -10,13 +10,13 @@ interface IOpenPdfDirectBatchProgressPayload {
     estimatedRemainingMs: number | null;
 }
 
-const openPdfDirectBatchProgressListeners =
-    new Set<(progress: IOpenPdfDirectBatchProgressPayload) => void>();
+const openDocumentDirectBatchProgressListeners =
+    new Set<(progress: IOpenDocumentDirectBatchProgressPayload) => void>();
 
-export function emitBrowserOpenPdfDirectBatchProgress(
-    progress: IOpenPdfDirectBatchProgressPayload,
+export function emitBrowserOpenDocumentDirectBatchProgress(
+    progress: IOpenDocumentDirectBatchProgressPayload,
 ) {
-    openPdfDirectBatchProgressListeners.forEach((listener) => {
+    openDocumentDirectBatchProgressListeners.forEach((listener) => {
         listener(progress);
     });
 }
@@ -54,10 +54,13 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuOpenRecentFile: noopUnsubscribe,
     onMenuOpenExternalPaths: noopUnsubscribe,
     onMenuClearRecentFiles: noopUnsubscribe,
-    onOpenPdfDirectBatchProgress(callback) {
-        openPdfDirectBatchProgressListeners.add(callback);
+    onOpenDocumentDirectBatchProgress(callback) {
+        openDocumentDirectBatchProgressListeners.add(callback);
         return () => {
-            openPdfDirectBatchProgressListeners.delete(callback);
+            openDocumentDirectBatchProgressListeners.delete(callback);
         };
+    },
+    onOpenPdfDirectBatchProgress(callback) {
+        return browserDocumentsMenuCapability.onOpenDocumentDirectBatchProgress(callback);
     },
 };

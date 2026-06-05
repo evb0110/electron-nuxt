@@ -1,4 +1,4 @@
-import type * as PdfJsLibNamespace from 'pdfjs-dist';
+import type * as PdfjsLibNamespace from 'pdfjs-dist';
 import {
     browserDocumentStore,
     BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -11,10 +11,10 @@ import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 
 const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
 
-type TPdfJsLib = typeof PdfJsLibNamespace;
-type TPdfJsDocumentInit = Parameters<TPdfJsLib['getDocument']>[0];
+type TPdfjsLib = typeof PdfjsLibNamespace;
+type TPdfjsDocumentInit = Parameters<TPdfjsLib['getDocument']>[0];
 
-let pdfjsLibPromise: Promise<TPdfJsLib> | null = null;
+let pdfjsLibPromise: Promise<TPdfjsLib> | null = null;
 
 async function getPdfjsLib() {
     pdfjsLibPromise ??= import('pdfjs-dist');
@@ -29,7 +29,7 @@ async function getPdfjsLib() {
     return pdfjsLib;
 }
 
-function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
+function createPdfjsDocumentInit(pdfjsLib: TPdfjsLib, data: Uint8Array) {
     const init = {
         data: toUint8Array(data),
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
@@ -39,12 +39,12 @@ function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
         wasmUrl: getPdfjsAssetDir('wasm'),
         iccUrl: getPdfjsAssetDir('iccs'),
         useSystemFonts: false,
-    } satisfies TPdfJsDocumentInit;
+    } satisfies TPdfjsDocumentInit;
     return init;
 }
 
 async function createPdfjsDocumentInitFromBrowserDocument(
-    pdfjsLib: TPdfJsLib,
+    pdfjsLib: TPdfjsLib,
     path: string,
 ) {
     const { size } = await browserDocumentStore.stat(path);
@@ -117,7 +117,7 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         wasmUrl: getPdfjsAssetDir('wasm'),
         iccUrl: getPdfjsAssetDir('iccs'),
         useSystemFonts: false,
-    } satisfies TPdfJsDocumentInit;
+    } satisfies TPdfjsDocumentInit;
     return init;
 }
 

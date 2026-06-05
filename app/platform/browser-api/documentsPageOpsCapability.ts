@@ -97,7 +97,7 @@ function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
     return buildBrowserByteLimitError(label, maxBytes, 'jobs');
 }
 
-export function createBrowserPageOps(
+export function createBrowserPageOpsCapability(
     options: ICreateBrowserPageOpsOptions,
 ): IPageOpsCapability {
     const workingCopyMutationQueues = new Map<string, Promise<unknown>>();

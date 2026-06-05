@@ -465,7 +465,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (shouldForceTextMarkup(tool)) {
             return false;
         }
-        return settings.highlightFree;
+        return settings.highlightFreehandEnabled;
     }
 
     function hasSelectedPdfjsEditor(uiManager: AnnotationEditorUIManager) {
@@ -502,7 +502,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.HIGHLIGHT_COLOR, resolveHighlightDisplayColorForTool(settings, tool));
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.HIGHLIGHT_FREE, resolveHighlightFreeForTool(settings, tool));
-        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
+        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.showAllHighlights);
     }
 
     function applyAnnotationSettings(settings: IAnnotationSettings | null) {

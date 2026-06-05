@@ -2,12 +2,12 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract';
 import {createImageExportService} from '@electron/features/image-export/service';
 import type {
-    IIpcMainRegistrar,
+    TImageExportIpcMainRegistrar,
     IImageExportService,
 } from '@electron/features/image-export/ports';
 
 export function registerImageExportIpcAdapter(
-    registrar: IIpcMainRegistrar,
+    registrar: TImageExportIpcMainRegistrar,
     service: IImageExportService = createImageExportService(),
 ) {
     registrar.handle(

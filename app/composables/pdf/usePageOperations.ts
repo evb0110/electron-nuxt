@@ -246,7 +246,7 @@ export const usePageOperations = (deps: {
             ? `browser-page-op-insert-${crypto.randomUUID()}`
             : undefined;
         const stopProgress = requestId
-            ? getDocumentsCapability().onOpenPdfDirectBatchProgress((progress) => {
+            ? getDocumentsCapability().onOpenDocumentDirectBatchProgress((progress) => {
                 if (progress.requestId !== requestId) {
                     return;
                 }

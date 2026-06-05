@@ -39,7 +39,7 @@ interface IOpenDjvuResult {
     originalPath: string;
 }
 
-export type IOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
 interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
 
@@ -58,7 +58,7 @@ export async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
     owner?: TOpenPathOwner,
-): Promise<IOpenFileResult | null> {
+): Promise<TOpenFileResult | null> {
     const normalizedPaths = normalizeNonEmptyStringPaths(paths)
         .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
     logger.info(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);

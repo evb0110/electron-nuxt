@@ -20,7 +20,7 @@ import {
     type IBrowserBatchOpenProgressOptions,
 } from '@app/platform/browser-api/browserCombineService';
 import { containsPdfEncryptMarker } from '@app/platform/browser-api/browserPdfValidation';
-import { emitBrowserOpenPdfDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
+import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import { stripPdfEncryption } from '@app/utils/pdfDecrypt';
 
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
@@ -69,7 +69,7 @@ function emitBatchOpenProgress(
         return;
     }
 
-    emitBrowserOpenPdfDirectBatchProgress({
+    emitBrowserOpenDocumentDirectBatchProgress({
         requestId,
         ...progress,
     });

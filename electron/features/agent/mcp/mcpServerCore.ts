@@ -159,7 +159,7 @@ const CAPABILITY_DOMAIN_SCHEMA = {
         'view',
         'file',
         'export',
-        'pageOps',
+        'page_ops',
     ],
     description: 'Optional capability domain filter.',
 };
@@ -1951,7 +1951,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
     },
     {
         id: 'page_ops.delete_selected',
-        domain: 'pageOps',
+        domain: 'page_ops',
         title: 'Delete selected pages',
         summary: 'Delete pages currently selected in the thumbnails sidebar.',
         risk: 'destructive',
@@ -1962,7 +1962,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
     },
     {
         id: 'page_ops.extract_selected',
-        domain: 'pageOps',
+        domain: 'page_ops',
         title: 'Extract selected pages',
         summary: 'Extract pages currently selected in the thumbnails sidebar.',
         risk: 'write',
@@ -1973,7 +1973,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
     },
     {
         id: 'page_ops.rotate_cw_selected',
-        domain: 'pageOps',
+        domain: 'page_ops',
         title: 'Rotate selected pages clockwise',
         summary: 'Rotate currently selected thumbnail pages clockwise.',
         risk: 'write',
@@ -1984,7 +1984,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
     },
     {
         id: 'page_ops.rotate_ccw_selected',
-        domain: 'pageOps',
+        domain: 'page_ops',
         title: 'Rotate selected pages counterclockwise',
         summary: 'Rotate currently selected thumbnail pages counterclockwise.',
         risk: 'write',
@@ -1995,7 +1995,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
     },
     {
         id: 'page_ops.insert_pages',
-        domain: 'pageOps',
+        domain: 'page_ops',
         title: 'Insert pages',
         summary: 'Open page insertion for the current document.',
         risk: 'write',
@@ -2006,7 +2006,7 @@ const AGENT_CAPABILITY_TEMPLATES = [
     },
     {
         id: 'page_ops.convert_to_pdf',
-        domain: 'pageOps',
+        domain: 'page_ops',
         title: 'Convert to PDF',
         summary: 'Open conversion flow for DjVu/image documents or the file open flow for PDF conversion.',
         risk: 'longRunning',

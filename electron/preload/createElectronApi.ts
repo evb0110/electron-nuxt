@@ -107,19 +107,24 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         return allowPromise;
     }
 
+    const openDocumentDirect = async (path: string) => {
+        const pendingAllow = pendingRendererFileOpenAllows.get(path);
+        if (pendingAllow) {
+            await pendingAllow;
+        }
+        return baseDocuments.openDocumentDirect(path);
+    };
+    const openDocumentDirectBatch = async (paths: string[], requestId?: string) => {
+        await Promise.all(compact(paths.map(path => pendingRendererFileOpenAllows.get(path))));
+        return baseDocuments.openDocumentDirectBatch(paths, requestId);
+    };
+
     const documents = {
         ...baseDocuments,
-        openPdfDirect: async (path: string) => {
-            const pendingAllow = pendingRendererFileOpenAllows.get(path);
-            if (pendingAllow) {
-                await pendingAllow;
-            }
-            return baseDocuments.openPdfDirect(path);
-        },
-        openPdfDirectBatch: async (paths: string[], requestId?: string) => {
-            await Promise.all(compact(paths.map(path => pendingRendererFileOpenAllows.get(path))));
-            return baseDocuments.openPdfDirectBatch(paths, requestId);
-        },
+        openDocumentDirect,
+        openPdfDirect: openDocumentDirect,
+        openDocumentDirectBatch,
+        openPdfDirectBatch: openDocumentDirectBatch,
         recentFiles: {
             ...baseDocuments.recentFiles,
             get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),

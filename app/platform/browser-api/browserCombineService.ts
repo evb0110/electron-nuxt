@@ -19,7 +19,7 @@ import {
 import { embedImagePage } from '@app/platform/browser-api/browserImageConversion';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvuCapability';
-import { emitBrowserOpenPdfDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
+import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -84,7 +84,7 @@ function emitBatchOpenProgress(
         return;
     }
 
-    emitBrowserOpenPdfDirectBatchProgress({
+    emitBrowserOpenDocumentDirectBatchProgress({
         requestId,
         ...progress,
     });

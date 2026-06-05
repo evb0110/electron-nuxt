@@ -376,7 +376,7 @@ export const useDjvu = () => {
                 }
             }
 
-            const openResult = await documents.openPdfDirect(result.pdfPath);
+            const openResult = await documents.openDocumentDirect(result.pdfPath);
             if (generation !== conversionGeneration) {
                 return;
             }

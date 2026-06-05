@@ -1,4 +1,7 @@
-import { BrowserWindow } from 'electron';
+import {
+    BrowserWindow,
+    type IpcMainInvokeEvent,
+} from 'electron';
 import {
     handleOpenCombineDialog,
     handleOpenFolderDialog,
@@ -73,13 +76,25 @@ const logger = createLogger('documents-service');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 export function createDocumentsService(): IDocumentsService {
+    const openDocumentDialog = (event: IpcMainInvokeEvent) => handleOpenPdfDialog(event);
+    const openDocumentDirect = (event: IpcMainInvokeEvent, filePath: string) =>
+        handleOpenPdfDirect(event, filePath);
+    const openDocumentDirectBatch = (
+        event: IpcMainInvokeEvent,
+        filePaths: string[],
+        requestId?: string,
+    ) => handleOpenPdfDirectBatch(event, filePaths, requestId);
+
     return {
-        openPdfDialog: (event) => handleOpenPdfDialog(event),
+        openDocumentDialog,
+        openPdfDialog: openDocumentDialog,
         openCombineDialog: (event) => handleOpenCombineDialog(event),
         openFolderDialog: (event) => handleOpenFolderDialog(event),
         openImageDialog: (event) => handleOpenImageDialog(event),
-        openPdfDirect: (event, filePath) => handleOpenPdfDirect(event, filePath),
-        openPdfDirectBatch: (event, filePaths, requestId) => handleOpenPdfDirectBatch(event, filePaths, requestId),
+        openDocumentDirect,
+        openPdfDirect: openDocumentDirect,
+        openDocumentDirectBatch,
+        openPdfDirectBatch: openDocumentDirectBatch,
         createWorkingCopyFromData: (event, fileName, data, originalPath) =>
             handleCreateWorkingCopyFromData(event, fileName, data, originalPath),
         createWorkingCopyFromPath: (event, sourcePath, originalPath) =>

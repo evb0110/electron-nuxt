@@ -20,7 +20,7 @@ import {
 } from '@electron/features/search/main/searchWorkerService';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import type { IIpcMainRegistrar } from '@electron/features/search/ports';
+import type { TSearchIpcMainRegistrar } from '@electron/features/search/ports';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -280,7 +280,7 @@ function handlePdfSearchCancel(
     return searchWorkerService.cancel(event, requestId);
 }
 
-export function registerSearchHandlers(registrar: IIpcMainRegistrar = ipcMain) {
+export function registerSearchHandlers(registrar: TSearchIpcMainRegistrar = ipcMain) {
     const serviceConfig = getSearchWorkerServiceConfig();
     log.info(
         'Registering search IPC handlers '

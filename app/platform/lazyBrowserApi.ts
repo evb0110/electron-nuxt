@@ -130,6 +130,10 @@ function lazyVoid<TMethod>(path: TPropertyPath) {
 }
 
 const lazyDocumentsCapability: IDocumentsCapability = {
+    openDocumentDialog: lazyAsync<IDocumentsCapability['openDocumentDialog']>([
+        'documents',
+        'openDocumentDialog',
+    ]),
     openPdfDialog: lazyAsync<IDocumentsCapability['openPdfDialog']>([
         'documents',
         'openPdfDialog',
@@ -146,9 +150,17 @@ const lazyDocumentsCapability: IDocumentsCapability = {
         'documents',
         'openImageDialog',
     ]),
+    openDocumentDirect: lazyAsync<IDocumentsCapability['openDocumentDirect']>([
+        'documents',
+        'openDocumentDirect',
+    ]),
     openPdfDirect: lazyAsync<IDocumentsCapability['openPdfDirect']>([
         'documents',
         'openPdfDirect',
+    ]),
+    openDocumentDirectBatch: lazyAsync<IDocumentsCapability['openDocumentDirectBatch']>([
+        'documents',
+        'openDocumentDirectBatch',
     ]),
     openPdfDirectBatch: lazyAsync<IDocumentsCapability['openPdfDirectBatch']>([
         'documents',
@@ -409,6 +421,10 @@ const lazyDocumentsCapability: IDocumentsCapability = {
     onMenuClearRecentFiles: lazyEvent<IDocumentsCapability['onMenuClearRecentFiles']>([
         'documents',
         'onMenuClearRecentFiles',
+    ]),
+    onOpenDocumentDirectBatchProgress: lazyEvent<IDocumentsCapability['onOpenDocumentDirectBatchProgress']>([
+        'documents',
+        'onOpenDocumentDirectBatchProgress',
     ]),
     onOpenPdfDirectBatchProgress: lazyEvent<IDocumentsCapability['onOpenPdfDirectBatchProgress']>([
         'documents',

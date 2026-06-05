@@ -89,6 +89,18 @@ export function createDocumentsPreloadMenuClient(
         onMenuClearRecentFiles: onNoArg(DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles),
     } satisfies TNoArgDocumentMenuSubscriptions;
 
+    const onOpenDocumentDirectBatchProgress = (callback: (progress: {
+        requestId: string;
+        processed: number;
+        total: number;
+        percent: number;
+        elapsedMs: number;
+        estimatedRemainingMs: number | null;
+    }) => void): IMenuEventUnsubscribe => eventSubscriber.onPayload(
+        DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
+        callback,
+    );
+
     return {
         setMenuDocumentState: (state: boolean | {
             hasDocument: boolean;
@@ -103,16 +115,7 @@ export function createDocumentsPreloadMenuClient(
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
         onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe =>
             eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
-        onOpenPdfDirectBatchProgress: (callback: (progress: {
-            requestId: string;
-            processed: number;
-            total: number;
-            percent: number;
-            elapsedMs: number;
-            estimatedRemainingMs: number | null;
-        }) => void): IMenuEventUnsubscribe => eventSubscriber.onPayload(
-            DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress,
-            callback,
-        ),
+        onOpenDocumentDirectBatchProgress,
+        onOpenPdfDirectBatchProgress: onOpenDocumentDirectBatchProgress,
     };
 }

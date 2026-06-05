@@ -122,13 +122,13 @@ export function registerDocumentsIpcAdapter(
         >,
     ) => registerDocumentHandler(registrar, channel, handler);
 
-    register(DOCUMENTS_CHANNELS.openPdfDialog, event => service.openPdfDialog(event));
+    register(DOCUMENTS_CHANNELS.openDocumentDialog, event => service.openDocumentDialog(event));
     register(DOCUMENTS_CHANNELS.openCombineDialog, event => service.openCombineDialog(event));
     register(DOCUMENTS_CHANNELS.openFolderDialog, event => service.openFolderDialog(event));
     register(DOCUMENTS_CHANNELS.openImageDialog, event => service.openImageDialog(event));
-    register(DOCUMENTS_CHANNELS.openPdfDirect, (event, filePath) => service.openPdfDirect(event, filePath));
-    register(DOCUMENTS_CHANNELS.openPdfDirectBatch, (event, filePaths, requestId) =>
-        service.openPdfDirectBatch(event, filePaths, requestId));
+    register(DOCUMENTS_CHANNELS.openDocumentDirect, (event, filePath) => service.openDocumentDirect(event, filePath));
+    register(DOCUMENTS_CHANNELS.openDocumentDirectBatch, (event, filePaths, requestId) =>
+        service.openDocumentDirectBatch(event, filePaths, requestId));
     register(DOCUMENTS_CHANNELS.createWorkingCopyFromData, (event, fileName, data, originalPath) =>
         service.createWorkingCopyFromData(event, fileName, data, originalPath));
     register(DOCUMENTS_CHANNELS.savePdfAs, (event, workingPath) => service.savePdfAs(event, workingPath));

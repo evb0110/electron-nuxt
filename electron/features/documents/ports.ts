@@ -12,11 +12,14 @@ import type {
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 
 export interface IDocumentsService {
+    openDocumentDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
     openPdfDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
     openCombineDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
     openFolderDialog: (event: IpcMainInvokeEvent) => Promise<TOpenFileResult | null>;
     openImageDialog: (event: IpcMainInvokeEvent) => Promise<string | null>;
+    openDocumentDirect: (event: IpcMainInvokeEvent, filePath: string) => Promise<TOpenFileResult | null>;
     openPdfDirect: (event: IpcMainInvokeEvent, filePath: string) => Promise<TOpenFileResult | null>;
+    openDocumentDirectBatch: (event: IpcMainInvokeEvent, filePaths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (event: IpcMainInvokeEvent, filePaths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
     createWorkingCopyFromData: (
         event: IpcMainInvokeEvent,
