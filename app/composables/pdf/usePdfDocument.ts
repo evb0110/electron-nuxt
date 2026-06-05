@@ -26,6 +26,11 @@ type TPdfDataRangeTransportCtor = new (
     initialData: Uint8Array,
 ) => PDFDataRangeTransport;
 
+interface IPdfPreloadedRange {
+    begin: number;
+    data: Uint8Array;
+}
+
 export const MAX_CACHED_PDF_PAGES = 48;
 
 function destroyPdfDocumentDeferred(
@@ -468,10 +473,31 @@ export const usePdfDocument = () => {
         begin: number,
         end: number,
         version: number,
+        preloadedRanges: readonly IPdfPreloadedRange[],
     ) {
         const totalLength = end - begin;
         if (!Number.isSafeInteger(totalLength) || totalLength <= 0) {
             throw new Error(`Invalid PDF range request ${begin}..${end}`);
+        }
+
+        const preloadedRange = preloadedRanges.find((range) => {
+            const relativeBegin = begin - range.begin;
+            const relativeEnd = end - range.begin;
+            return relativeBegin >= 0
+                && relativeEnd <= range.data.byteLength;
+        });
+        if (preloadedRange) {
+            const relativeBegin = begin - preloadedRange.begin;
+            const relativeEnd = end - preloadedRange.begin;
+            const output = preloadedRange.data.slice(relativeBegin, relativeEnd);
+            transport.onDataRange(begin, output);
+            logPdfRenderTrace('pdf-document-range-fulfilled-from-cache', {
+                begin,
+                end,
+                byteLength: output.byteLength,
+                version,
+            });
+            return;
         }
 
         let cursor = begin;
@@ -535,6 +561,7 @@ export const usePdfDocument = () => {
         src: Extract<TPdfSource, { kind: 'path' }>,
         version: number,
         failRangeRead: (error: unknown) => void,
+        preloadedRanges: readonly IPdfPreloadedRange[],
     ) {
         // PDF.js will call this to request additional chunks.
         transport.requestDataRange = (
@@ -549,7 +576,14 @@ export const usePdfDocument = () => {
                     version,
                 });
                 try {
-                    await fulfillPdfRangeRequest(transport, src, begin, end, version);
+                    await fulfillPdfRangeRequest(
+                        transport,
+                        src,
+                        begin,
+                        end,
+                        version,
+                        preloadedRanges,
+                    );
                 } catch (error) {
                     if (version !== renderVersion) {
                         return;
@@ -635,12 +669,12 @@ export const usePdfDocument = () => {
             initialData,
         );
         const activeRangeTransport = rangeTransport;
-
-        // Pre-deliver the tail chunk so the worker finds the xref
-        // without waiting for a requestDataRange round-trip.
-        if (tailData) {
-            activeRangeTransport.onDataRange(tailStart, tailData);
-        }
+        const preloadedRanges: IPdfPreloadedRange[] = tailData
+            ? [{
+                begin: tailStart,
+                data: tailData,
+            }]
+            : [];
 
         const rangeFailure = createRangeReadFailureHandler();
         attachRangeRequestHandler(
@@ -648,6 +682,7 @@ export const usePdfDocument = () => {
             src,
             version,
             rangeFailure.failRangeRead,
+            preloadedRanges,
         );
 
         loadingTask = pdfjsLib.getDocument({
