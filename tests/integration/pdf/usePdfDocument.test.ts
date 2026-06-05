@@ -127,6 +127,95 @@ describe('usePdfDocument range loading', () => {
         }));
     });
 
+    it('keeps the preloaded tail cached until PDF.js requests it', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => Promise.resolve());
+        const chunkLength = 1024 * 1024;
+        const size = chunkLength * 3;
+        const tailStart = size - chunkLength;
+        const initialData = new Uint8Array(chunkLength);
+        const tailData = new Uint8Array(chunkLength);
+        initialData[0] = 1;
+        tailData[0] = 9;
+        tailData[chunkLength - 1] = 7;
+
+        pdfjsState.getDocument.mockImplementation((options: { range?: MockPdfDataRangeTransport }) => {
+            expect(options.range?.onDataRange).not.toHaveBeenCalled();
+            return {
+                promise: deferred.promise,
+                destroy,
+            };
+        });
+
+        electronApi.documents.readFileRange.mockImplementation(async (
+            _path: string,
+            offset: number,
+            length: number,
+        ) => {
+            if (offset === 0) {
+                expect(length).toBe(chunkLength);
+                return initialData;
+            }
+            if (offset === tailStart) {
+                expect(length).toBe(chunkLength);
+                return tailData;
+            }
+            throw new Error(`Unexpected PDF range read ${offset}..${offset + length}`);
+        });
+
+        const documentState = usePdfDocument();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/preloaded-tail.pdf',
+            size,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const range = getDocumentArg?.range;
+        if (!range) {
+            throw new Error('Expected PDF range transport');
+        }
+
+        expect(range.onDataRange).not.toHaveBeenCalled();
+
+        await range.requestDataRange?.(tailStart, size);
+        await vi.waitFor(() => {
+            expect(range.onDataRange).toHaveBeenCalledTimes(1);
+        });
+
+        expect(electronApi.documents.readFileRange).toHaveBeenCalledTimes(2);
+        const rangeCall = range.onDataRange.mock.calls[0];
+        const rangeChunk = rangeCall?.[1] as Uint8Array | undefined;
+        expect(rangeCall?.[0]).toBe(tailStart);
+        expect(rangeChunk).toBeInstanceOf(Uint8Array);
+        expect(rangeChunk).not.toBe(tailData);
+        expect(rangeChunk).toHaveLength(chunkLength);
+        expect(rangeChunk?.[0]).toBe(9);
+        expect(rangeChunk?.[chunkLength - 1]).toBe(7);
+
+        deferred.resolve({
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            destroy,
+        });
+
+        await expect(loadPromise).resolves.not.toBeNull();
+    });
+
     it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
         const getPage = vi.fn(async (pageNumber: number) => {
             const metrics = [
