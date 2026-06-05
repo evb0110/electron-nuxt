@@ -377,12 +377,12 @@
 </template>
 
 <script setup lang="ts">
-import '@app/assets/css/pdfjs-overrides.css';
-import '@app/assets/css/pdf-comment-markers.css';
+import '@app/assets/css/pdfjs-overrides.scss';
+import '@app/assets/css/pdf-comment-markers.scss';
 import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
-import '@app/assets/css/pdf-animations.css';
-import '@app/assets/css/pdf-debug-overlays.css';
+import '@app/assets/css/pdf-animations.scss';
+import '@app/assets/css/pdf-debug-overlays.scss';
 import { useMutationObserver } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';

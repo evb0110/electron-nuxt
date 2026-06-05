@@ -484,7 +484,7 @@ function shouldShowMenuCommand(command: TReaderCommandId, requiredCollapseTier =
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/toolbarMenuShared';
+@use '@app/assets/css/toolbar-menu-shared';
 
 .overflow-menu {
     min-width: 14rem;

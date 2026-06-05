@@ -51,7 +51,7 @@ viewer runtime/rendering code so selector ownership stays explicit.
 Both formats must be preserved. CSS selectors and JS queries throughout the codebase target one or both:
 
 ```css
-/* pdfjs-overrides.css and PdfViewer.vue style both */
+/* pdfjs-overrides.scss and PdfViewer.vue style both */
 .pdfViewer .annotation-editor-layer,
 .pdfViewer .annotationEditorLayer { ... }
 ```

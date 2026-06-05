@@ -281,7 +281,7 @@ function handleMenuCommand(command: TMenuCommand) {
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/toolbarMenuShared';
+@use '@app/assets/css/toolbar-menu-shared';
 
 .app-menu-bar {
     display: inline-flex;

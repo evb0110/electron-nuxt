@@ -121,7 +121,7 @@ function handleSaveAs() {
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/toolbarMenuShared';
+@use '@app/assets/css/toolbar-menu-shared';
 
 .save-split {
     display: inline-flex;

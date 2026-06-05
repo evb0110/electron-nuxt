@@ -508,7 +508,7 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
 </script>
 
 <style lang="scss" scoped>
-@use '@app/assets/css/settingsPanelShared';
+@use '@app/assets/css/settings-panel-shared';
 
 .settings-agent-card {
     display: flex;

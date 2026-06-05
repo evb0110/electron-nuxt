@@ -28,10 +28,7 @@ const IGNORED_DIRECTORIES = new Set([
 
 const ALLOWED_PATH_PREFIXES = ['app/assets/css/vendor/'];
 
-const ALLOWED_WHOLE_FILES = new Set([
-    'app/assets/css/pdfjs-overrides.css',
-    'app/assets/css/pdfjs-overrides.scss',
-]);
+const ALLOWED_WHOLE_FILES = new Set(['app/assets/css/pdfjs-overrides.scss']);
 
 function toRepoPath(filePath: string) {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');

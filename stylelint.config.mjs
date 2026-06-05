@@ -47,7 +47,6 @@ export default {
         },
         {
             files: [
-                'app/assets/css/pdfjs-overrides.css',
                 'app/assets/css/pdfjs-overrides.scss',
             ],
             rules: {
