@@ -144,7 +144,7 @@ function createUniqueTempPath(targetPath: string) {
 export async function resolveSafeOcrIndexBasePath(
     indexPath: string,
     tempDirPath: string,
-): Promise<string> {
+) {
     const normalizedPath = indexPath.trim();
     if (!normalizedPath) {
         throw new Error('OCR index path must not be empty');
@@ -195,7 +195,7 @@ export async function writeOcrIndexV2(
     languages: string[],
     extractionDpi: number,
     log: TWorkerLog,
-): Promise<void> {
+) {
     const ocrDir = `${workingCopyPath}.ocr`;
     await mkdir(ocrDir, { recursive: true });
     const existingManifest = await readExistingOcrIndexV2Manifest(ocrDir);
@@ -251,7 +251,7 @@ export async function writeOcrIndexV1(
     indexPath: string,
     ocrPageData: IOcrPageWithWords[],
     pageCount: number,
-): Promise<void> {
+) {
     const indexPageData = ocrPageData.map(pd => ({
         pageNumber: pd.pageNumber,
         words: pd.words,

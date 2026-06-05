@@ -118,7 +118,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function rasterizePlacedImage(
         payload: IPdfPlacedImageFinalizePayload,
-    ): Promise<Uint8Array | null> {
+    ) {
         const targetPixelWidth = Math.max(1, Math.round(payload.targetPixelWidth));
         const targetPixelHeight = Math.max(1, Math.round(payload.targetPixelHeight));
         const image = await decodePlacedImageSource(payload);
@@ -331,7 +331,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function serializePdfForSave(
         data: Uint8Array,
         options?: ISerializePdfForSaveOptions,
-    ): Promise<Uint8Array> {
+    ) {
         const payload = await buildSavePayload(options);
         return runSerializedEdit(data, payload);
     }
@@ -339,13 +339,13 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function rewriteMarkupSubtypes(
         data: Uint8Array,
         additionalComments: IAnnotationCommentSummary[] = [],
-    ): Promise<Uint8Array> {
+    ) {
         const payload = createEmptySavePayload();
         applyMarkupPayload(payload, additionalComments);
         return runSerializedEdit(data, payload);
     }
 
-    async function serializeShapeAnnotations(data: Uint8Array): Promise<Uint8Array> {
+    async function serializeShapeAnnotations(data: Uint8Array) {
         const payload = createEmptySavePayload();
         applyShapePayload(payload, {
             includeShapes: true,
@@ -354,7 +354,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return runSerializedEdit(data, payload);
     }
 
-    async function rewriteFreeTextNoteRects(data: Uint8Array): Promise<Uint8Array> {
+    async function rewriteFreeTextNoteRects(data: Uint8Array) {
         const payload = createEmptySavePayload();
         payload.freeTextComments = getFreeTextNoteComments();
         return runSerializedEdit(data, payload);
@@ -363,7 +363,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function rewriteEmbeddedNoteTexts(
         data: Uint8Array,
         pendingTexts: Map<string, string>,
-    ): Promise<Uint8Array> {
+    ) {
         const payload = createEmptySavePayload();
         payload.freeTextComments = getFreeTextNoteComments();
         payload.annotationComments = getAnnotationCommentsForSerialization();
@@ -371,7 +371,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return runSerializedEdit(data, payload);
     }
 
-    async function rewritePageLabels(data: Uint8Array): Promise<Uint8Array> {
+    async function rewritePageLabels(data: Uint8Array) {
         const payload = createEmptySavePayload();
         payload.pageLabelsDirty = pageLabelsDirty.value;
         payload.pageLabelRanges = pageLabelRanges.value;
@@ -381,7 +381,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function embedPlacedImageToPage(
         data: Uint8Array,
         placement: IPdfPlacedImageFinalizePayload,
-    ): Promise<Uint8Array> {
+    ) {
         const payload = createEmptySavePayload();
         payload.placedImage = await toSerializedPlacedImagePayload(placement);
         return runSerializedEdit(data, payload);

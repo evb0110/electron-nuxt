@@ -22,30 +22,6 @@ const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
 type TOcrTextDirection = 'ltr' | 'rtl';
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
 
-interface ITextItem {
-    str: string;
-    dir: TOcrTextDirection;
-    transform: number[]; // [a, b, c, d, tx, ty]
-    width: number;
-    height: number;
-    fontName: string;
-    hasEOL: boolean;
-}
-
-/**
- * PDF.js TextContent interface for TextLayer rendering
- */
-interface ITextContent {
-    items: ITextItem[];
-    styles: Record<string, {
-        fontFamily: string;
-        ascent: number;
-        descent: number;
-        vertical: boolean;
-    }>;
-    lang: string | null;
-}
-
 function normalizeWordsToLineHeights(words: IOcrWord[]): IOcrWord[] {
     const normalizedWords = words.map(word => ({ ...word }));
     if (normalizedWords.length <= 1) {
@@ -108,7 +84,7 @@ export const useOcrTextContent = () => {
      * Uses canvas text metrics to determine what percentage of the font
      * height is above the baseline (the ascent).
      */
-    function getAscentRatio(): number {
+    function getAscentRatio() {
         if (cachedAscentRatio !== null) {
             return cachedAscentRatio;
         }
@@ -205,7 +181,7 @@ export const useOcrTextContent = () => {
         viewport: PageViewport,
         isLastInLine: boolean,
         textDir: TOcrTextDirection,
-    ): ITextItem {
+    ) {
         const { render } = ocrPage;
         const ascentRatio = getAscentRatio();
 
@@ -272,7 +248,7 @@ export const useOcrTextContent = () => {
         workingCopyPath: TDocumentRef,
         pageNumber: number,
         viewport: PageViewport,
-    ): Promise<ITextContent | null> {
+    ) {
         const manifest = await loadManifest(workingCopyPath);
         if (!manifest || manifest.version < 2) {
             return null;
@@ -291,7 +267,7 @@ export const useOcrTextContent = () => {
         const words = normalizeWordsToLineHeights(pageData.words);
 
         // Convert OCR words to TextItems
-        const items: ITextItem[] = words.map((word, idx) =>
+        const items = words.map((word, idx) =>
             transformWordToTextItem(
                 word,
                 pageData,
@@ -319,7 +295,7 @@ export const useOcrTextContent = () => {
      * @param workingCopyPath - Path to the PDF working copy
      * @returns True if OCR manifest exists and is version 2+
      */
-    async function hasOcrData(workingCopyPath: TDocumentRef): Promise<boolean> {
+    async function hasOcrData(workingCopyPath: TDocumentRef) {
         const manifest = await loadManifest(workingCopyPath);
         return manifest !== null && manifest.version >= 2;
     }
@@ -334,7 +310,7 @@ export const useOcrTextContent = () => {
     async function hasPageOcrData(
         workingCopyPath: TDocumentRef,
         pageNumber: number,
-    ): Promise<boolean> {
+    ) {
         const manifest = await loadManifest(workingCopyPath);
         if (!manifest || manifest.version < 2) {
             return false;
@@ -347,7 +323,7 @@ export const useOcrTextContent = () => {
      *
      * @param workingCopyPath - Optional path to clear; clears all if omitted
      */
-    function clearCache(workingCopyPath?: TDocumentRef): void {
+    function clearCache(workingCopyPath?: TDocumentRef) {
         sharedOcrTextContentCache.clearCache(workingCopyPath);
     }
 

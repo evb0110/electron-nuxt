@@ -59,7 +59,7 @@ export function makeSiblingTempPath(targetPath: string) {
     return join(dirname(targetPath), `.${randomSuffix()}.tmp`);
 }
 
-export async function atomicReplace(srcTemp: string, dst: string): Promise<void> {
+export async function atomicReplace(srcTemp: string, dst: string) {
     await fsyncPath(srcTemp);
 
     if (process.platform !== 'win32') {

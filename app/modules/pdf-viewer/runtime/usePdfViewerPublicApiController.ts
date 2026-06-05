@@ -62,7 +62,7 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
     return createPdfViewerPublicApi({
         getViewerContainer: () => options.viewerContainer.value,
         getCurrentPage: () => currentPage.value,
-        scrollToPage: (pageNumber: number) => {
+        scrollToPage: (pageNumber) => {
             options.cancelPendingSearchScroll();
             options.singlePageScroll.scrollToPage(pageNumber);
         },
@@ -206,7 +206,7 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         restorePendingImagePlacement: options.restorePendingImagePlacement,
         invalidatePages: options.invalidatePages,
         suppressAnnotationId: annotationRuntime.suppressAnnotationId,
-        unsuppressAnnotationId: (annotationId: string) => {
+        unsuppressAnnotationId: (annotationId) => {
             managedEmbeddedPdfShapes.unsuppressAnnotationId(annotationId);
             annotations.commentSync.unsuppressAnnotationId(annotationId);
         },

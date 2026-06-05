@@ -17,14 +17,7 @@ function isSupportedLocale(locale: string): locale is TLocale {
     return SUPPORTED_LOCALES.has(locale);
 }
 
-interface IAppTypedI18nComposer {
-    locale: Ref<TLocale>;
-    t: TTranslateFn;
-    setLocale: (locale: TLocale) => Promise<void>;
-    loadLocaleMessages: (locale: TLocale) => Promise<void>;
-}
-
-export const useTypedI18n = (): IAppTypedI18nComposer => {
+export const useTypedI18n = () => {
     const composer = useI18n();
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
     const locale = computed<TLocale>(() => (

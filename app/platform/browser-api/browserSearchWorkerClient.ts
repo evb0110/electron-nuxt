@@ -115,7 +115,7 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
 
     const worker = browserSearchWorkerClient.getWorker();
 
-    const promise: Promise<IBrowserSearchWorkerResultMap[K]> =
+    const promise =
         new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
             browserSearchWorkerClient.registerPendingRequest(request.id, {
                 resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),

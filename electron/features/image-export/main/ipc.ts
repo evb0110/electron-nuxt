@@ -14,7 +14,7 @@ import {
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/i18n';
 
-async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number): Promise<string> {
+async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number) {
     if (!path || typeof path !== 'string' || path.trim() === '') {
         throw new Error('Invalid working copy path');
     }
@@ -55,7 +55,7 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
     return normalized;
 }
 
-function buildImageSuggestedName(pageNumbers: number[] | undefined): string {
+function buildImageSuggestedName(pageNumbers: number[] | undefined) {
     if (!pageNumbers || pageNumbers.length === 0) {
         return 'document-page.png';
     }
@@ -67,7 +67,7 @@ function buildImageSuggestedName(pageNumbers: number[] | undefined): string {
     return 'document-pages.png';
 }
 
-function buildMultiPageTiffSuggestedName(pageNumbers: number[] | undefined): string {
+function buildMultiPageTiffSuggestedName(pageNumbers: number[] | undefined) {
     if (!pageNumbers || pageNumbers.length === 0) {
         return 'document.tiff';
     }

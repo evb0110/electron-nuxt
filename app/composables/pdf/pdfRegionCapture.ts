@@ -29,11 +29,6 @@ export interface ICapturePlan {
     fragments: ICaptureFragment[];
 }
 
-export interface IPdfRegionCaptureResult {
-    blob: Blob;
-    outputRect: IClientRect;
-}
-
 function collectCanvasSources(viewerContainer: HTMLElement): ICanvasSource[] {
     const renderedCanvases = Array.from(
         viewerContainer.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas'),
@@ -169,7 +164,7 @@ function canvasToPngBlob(canvas: HTMLCanvasElement) {
 export async function capturePdfRegionAsPngBlob(
     viewerContainer: HTMLElement,
     selectionRect: IClientRect,
-): Promise<IPdfRegionCaptureResult | null> {
+) {
     const sources = collectCanvasSources(viewerContainer);
     const capturePlan = buildCanvasCapturePlan(selectionRect, sources);
     const outputRect = capturePlan.outputRect;

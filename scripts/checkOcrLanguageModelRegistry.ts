@@ -11,7 +11,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
 const tessdataDirectory = path.join(projectRoot, 'resources', 'tesseract', 'tessdata');
 
-function formatList(values: readonly string[]): string {
+function formatList(values: readonly string[]) {
     return values.length > 0 ? values.join(', ') : '(none)';
 }
 

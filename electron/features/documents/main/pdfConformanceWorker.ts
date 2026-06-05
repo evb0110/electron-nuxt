@@ -19,7 +19,7 @@ type TPdfConformanceWorkerResult =
         error: string;
     };
 
-function resolveWorkerFilePath(): string {
+function resolveWorkerFilePath() {
     const currentWorkerData = workerData as IPdfConformanceWorkerData | undefined;
     if (typeof currentWorkerData?.filePath !== 'string' || currentWorkerData.filePath.trim().length === 0) {
         throw new Error('Invalid PDF conformance worker payload');

@@ -32,14 +32,6 @@ interface IManagedEmbeddedPdfShapesRenderOptions {
     bufferOverride?: number;
 }
 
-type TEmbeddedShapeImportApplyMode = 'replace' | 'reconcile' | 'self-save-metadata';
-
-interface IEmbeddedShapeImportApplyPlan {
-    mode: TEmbeddedShapeImportApplyMode;
-    skipRerender: boolean;
-    reason: string;
-}
-
 interface IUseManagedEmbeddedPdfShapesOptions {
     viewerContainer: Ref<HTMLElement | null>;
     workingCopyPath: Ref<string | null>;
@@ -290,7 +282,7 @@ export function useManagedEmbeddedPdfShapes({
         );
     }
 
-    function planEmbeddedShapeImportApply(path: string | null): IEmbeddedShapeImportApplyPlan {
+    function planEmbeddedShapeImportApply(path: string | null) {
         const isSameSource = path === lastEmbeddedShapeImportPath;
         if (
             shouldAdoptSelfSaveMetadataOnNextImport

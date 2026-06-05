@@ -139,7 +139,7 @@ function createPage(document: FakeDocument) {
     return page;
 }
 
-function toHTMLElement(element: FakeElement): HTMLElement {
+function toHTMLElement(element: FakeElement) {
     return element as never;
 }
 

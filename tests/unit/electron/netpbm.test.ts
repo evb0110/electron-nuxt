@@ -10,7 +10,7 @@ import {
     parseNetpbm,
 } from '@electron/djvu/netpbm';
 
-function netpbm(parts: Array<string | number[]>): Buffer {
+function netpbm(parts: Array<string | number[]>) {
     return Buffer.concat(parts.map((part) => {
         if (typeof part === 'string') {
             return Buffer.from(part, 'ascii');

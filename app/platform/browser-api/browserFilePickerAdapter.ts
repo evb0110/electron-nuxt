@@ -38,7 +38,7 @@ export function configureBrowserFilePickerMessages(options: { largeSaveHandleHin
     browserLargeSaveHandleHintProvider = options.largeSaveHandleHint ?? browserLargeSaveHandleHintProvider;
 }
 
-function getBrowserLargeSaveHandleHint(): string {
+function getBrowserLargeSaveHandleHint() {
     return browserLargeSaveHandleHintProvider();
 }
 

@@ -22,7 +22,7 @@ const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Arrow': 'arrow',
 };
 
-function resolveToolId(label: string): string {
+function resolveToolId(label: string) {
     if (label === 'Select') {
         return 'select';
     }

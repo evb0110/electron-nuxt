@@ -343,7 +343,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
         }, 250);
     }
 
-    window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+    window.addEventListener('unhandledrejection', (event) => {
         const message = event?.reason instanceof Error ? event.reason.message : String(event?.reason ?? '');
         if (isViteOptimizeDepError(message)) {
             log('warn', '[Dev] Matched optimize-deps unhandled rejection', {

@@ -22,7 +22,7 @@ const ARCH_MAP: Record<string, string> = {
     x64: 'x64',
 };
 
-function formatAllowedValues(values: readonly string[] | undefined): string {
+function formatAllowedValues(values: readonly string[] | undefined) {
     if (!values || values.length === 0) {
         return '';
     }
@@ -69,6 +69,6 @@ export function resolvePlatformArch(
 
 export function resolvePlatformArchTag(
     options: IResolvePlatformArchOptions = {},
-): string {
+) {
     return resolvePlatformArch(options).tag;
 }

@@ -112,10 +112,10 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         pdfViewerRef,
         pageContextMenu,
         closePageContextMenu,
-        onExportPages: (pages: number[]) => {
+        onExportPages: (pages) => {
             void handleExportImages(pages);
         },
-        onExtractedDocument: (path: TDocumentRef) => {
+        onExtractedDocument: (path) => {
             emitOpenInNewTab(path);
         },
         ensureHistoryBaselineForExternalMutation,

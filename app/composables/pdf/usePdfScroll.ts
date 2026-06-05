@@ -43,11 +43,6 @@ interface IViewportVisibilityCacheEntry {
     result: IViewportVisibilityResult;
 }
 
-interface IResolvedMostVisiblePage {
-    page: number;
-    authoritative: boolean;
-}
-
 function getLayoutPageTop(
     metrics: TPageLayoutMetrics,
     index: number,
@@ -330,7 +325,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     function resolveMostVisiblePage(
         container: HTMLElement | null,
         totalPages: number,
-    ): IResolvedMostVisiblePage {
+    ) {
         if (!container || totalPages === 0) {
             return {
                 page: getPreviousPageFallback(totalPages),
@@ -363,7 +358,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     function getMostVisiblePage(
         container: HTMLElement | null,
         totalPages: number,
-    ): number {
+    ) {
         return resolveMostVisiblePage(container, totalPages).page;
     }
 

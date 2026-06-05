@@ -8,16 +8,9 @@ export interface IMarkerRectBounds {
     bottom: number;
 }
 
-export interface IOrderedPdfRectBounds {
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-}
-
 export interface INormalizeMarkerRectBoundsOptions { clampSizeToRemaining?: boolean }
 
-export function orderPdfRectBounds(x1: number, y1: number, x2: number, y2: number): IOrderedPdfRectBounds {
+export function orderPdfRectBounds(x1: number, y1: number, x2: number, y2: number) {
     return {
         minX: Math.min(x1, x2),
         maxX: Math.max(x1, x2),

@@ -13,15 +13,15 @@ import {
 const AES_BLOCK = 16;
 const MIN_ENCRYPTED_SIZE = AES_BLOCK * 2;
 
-function toAB(data: Uint8Array): ArrayBuffer {
+function toAB(data: Uint8Array) {
     return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
 }
 
-async function sha(algo: string, data: Uint8Array): Promise<Uint8Array> {
+async function sha(algo: string, data: Uint8Array) {
     return new Uint8Array(await crypto.subtle.digest(algo, toAB(data)));
 }
 
-function concat(...parts: Uint8Array[]): Uint8Array {
+function concat(...parts: Uint8Array[]) {
     let len = 0;
     for (const p of parts) len += p.length;
     const out = new Uint8Array(len);
@@ -30,7 +30,7 @@ function concat(...parts: Uint8Array[]): Uint8Array {
     return out;
 }
 
-function repeat(block: Uint8Array, n: number): Uint8Array {
+function repeat(block: Uint8Array, n: number) {
     const out = new Uint8Array(block.length * n);
     for (let i = 0; i < n; i++) out.set(block, i * block.length);
     return out;
@@ -48,7 +48,7 @@ async function importKey(bytes: Uint8Array, bits: 128 | 256): Promise<CryptoKey>
     );
 }
 
-async function aesEncNoPad(key: CryptoKey, iv: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+async function aesEncNoPad(key: CryptoKey, iv: Uint8Array, data: Uint8Array) {
     const out = new Uint8Array(
         await crypto.subtle.encrypt({
             name: 'AES-CBC',
@@ -58,7 +58,7 @@ async function aesEncNoPad(key: CryptoKey, iv: Uint8Array, data: Uint8Array): Pr
     return out.subarray(0, data.length);
 }
 
-async function aesDecNoPad(key: CryptoKey, iv: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+async function aesDecNoPad(key: CryptoKey, iv: Uint8Array, data: Uint8Array) {
     const lastC = data.subarray(data.length - AES_BLOCK);
     const padXor = new Uint8Array(AES_BLOCK);
     for (let i = 0; i < AES_BLOCK; i++) padXor[i] = 0x10 ^ (lastC[i] ?? 0);
@@ -82,7 +82,7 @@ async function aesDecNoPad(key: CryptoKey, iv: Uint8Array, data: Uint8Array): Pr
     return dec.subarray(0, data.length);
 }
 
-async function aesDec(key: CryptoKey, iv: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+async function aesDec(key: CryptoKey, iv: Uint8Array, data: Uint8Array) {
     return new Uint8Array(
         await crypto.subtle.decrypt({
             name: 'AES-CBC',
@@ -96,7 +96,7 @@ async function computeHash2B(
     password: Uint8Array,
     salt: Uint8Array,
     userKey: Uint8Array,
-): Promise<Uint8Array> {
+) {
     let K = await sha('SHA-256', concat(password, salt, userKey));
     let round = 0;
 
@@ -150,7 +150,7 @@ function parseEncryptDict(dict: PDFDict): IEncryptR6 | null {
     };
 }
 
-async function deriveFileKey(params: IEncryptR6): Promise<Uint8Array | null> {
+async function deriveFileKey(params: IEncryptR6) {
     const empty = new Uint8Array(0);
     const valSalt = params.U.subarray(32, 40);
     const hash = await computeHash2B(empty, valSalt, empty);
@@ -170,7 +170,7 @@ async function deriveFileKey(params: IEncryptR6): Promise<Uint8Array | null> {
 async function decryptContent(
     fileKey: CryptoKey,
     data: Uint8Array,
-): Promise<Uint8Array | null> {
+) {
     if (data.length < MIN_ENCRYPTED_SIZE) {
         return null;
     }
@@ -197,7 +197,7 @@ function bytesToHexString(bytes: Uint8Array): PDFHexString {
 async function decryptStringsInDict(
     dict: PDFDict,
     fileKey: CryptoKey,
-): Promise<void> {
+) {
     for (const [
         key,
         value,
@@ -216,7 +216,7 @@ async function decryptStringsInDict(
 async function decryptStringsInArray(
     arr: PDFArray,
     fileKey: CryptoKey,
-): Promise<void> {
+) {
     for (let i = 0; i < arr.size(); i++) {
         const value = arr.get(i);
         if (value instanceof PDFString || value instanceof PDFHexString) {
@@ -278,7 +278,7 @@ async function decryptIndirectObject(
     }
 }
 
-function hasEncryptMarker(data: Uint8Array): boolean {
+function hasEncryptMarker(data: Uint8Array) {
     const decoder = new TextDecoder('latin1');
     const marker = '/Encrypt';
 
@@ -300,7 +300,7 @@ function hasEncryptMarker(data: Uint8Array): boolean {
     return false;
 }
 
-export async function stripPdfEncryption(data: Uint8Array): Promise<Uint8Array> {
+export async function stripPdfEncryption(data: Uint8Array) {
     if (typeof crypto === 'undefined' || !crypto.subtle) {
         return data;
     }

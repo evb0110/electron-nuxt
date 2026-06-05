@@ -41,7 +41,7 @@ interface IFakeViewerContainer {
 
 interface IFakeTargetElement {closest: (selector: string) => IFakePageElement | null;}
 
-function asElement(value: object): HTMLElement {
+function asElement(value: object) {
     return value as HTMLElement;
 }
 

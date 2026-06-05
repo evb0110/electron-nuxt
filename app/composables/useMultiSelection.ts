@@ -46,7 +46,7 @@ export const useMultiSelection = <T extends string | number>() => {
         opts: IMultiSelectionToggleOptions<T> = {},
     ) {
         const fallbackAnchor = opts.fallbackAnchor ?? null;
-        const anchorId: T | null = anchor.value ?? fallbackAnchor;
+        const anchorId = anchor.value ?? fallbackAnchor;
         const selectionRange = opts.shift
             ? getSelectionRange(id, allIds, anchorId)
             : null;

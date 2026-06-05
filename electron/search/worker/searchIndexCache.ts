@@ -34,7 +34,7 @@ function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
 }
 
-async function statMtimeMs(filePath: string): Promise<number | null> {
+async function statMtimeMs(filePath: string) {
     try {
         return (await stat(filePath)).mtimeMs;
     } catch {

@@ -42,7 +42,7 @@ export async function savePdfAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
-): Promise<string | null> {
+) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedWorkingPath) {
         return null;
@@ -187,7 +187,7 @@ export async function savePdfDialog(
     event: Electron.IpcMainInvokeEvent,
     suggestedName: string,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
-): Promise<string | null> {
+) {
     const normalizedSuggestedName = typeof suggestedName === 'string' && suggestedName.trim().length > 0
         ? suggestedName.trim()
         : 'document.pdf';
@@ -210,7 +210,7 @@ export async function saveDocxAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
-): Promise<string | null> {
+) {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
 
     const suggestedBase = normalizedWorkingPath

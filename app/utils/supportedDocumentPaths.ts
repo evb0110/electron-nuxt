@@ -1,5 +1,3 @@
-export type TSupportedDocumentKind = 'pdf' | 'djvu' | 'image' | 'document';
-
 export const PDF_INSERT_EXTENSIONS = [
     '.pdf',
     '.png',
@@ -56,7 +54,7 @@ export function isSupportedWorkspaceDocumentPath(filePath: string) {
     return hasSupportedDocumentExtension(filePath, WORKSPACE_DOCUMENT_EXTENSIONS);
 }
 
-export function getDocumentKindFromPath(filePath: string): TSupportedDocumentKind {
+export function getDocumentKindFromPath(filePath: string) {
     const extension = getDocumentExtension(filePath);
     if (extension === '.pdf') {
         return 'pdf';

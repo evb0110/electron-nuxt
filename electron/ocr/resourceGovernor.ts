@@ -49,7 +49,7 @@ function removeLease(
     ]) => !predicate(token, lease)));
 }
 
-function parsePositiveInt(value: string | undefined): number | null {
+function parsePositiveInt(value: string | undefined) {
     if (!value) {
         return null;
     }

@@ -19,13 +19,6 @@ export interface IPageBoundedHorizontalScrollInput {
     epsilon?: number;
 }
 
-export interface IPageBoundedHorizontalScrollResult {
-    minScrollLeft: number;
-    maxScrollLeft: number;
-    scrollLeft: number;
-    shouldLock: boolean;
-}
-
 export interface IRenderedSpreadHorizontalBounds {
     left: number;
     width: number;
@@ -45,7 +38,7 @@ function clampNumber(value: number, min: number, max: number) {
 
 export function resolvePageBoundedHorizontalScroll(
     input: IPageBoundedHorizontalScrollInput,
-): IPageBoundedHorizontalScrollResult | null {
+) {
     const viewportWidth = input.viewportWidth;
     const pageWidth = input.pageWidth;
     if (!isFinitePositive(viewportWidth) || !isFinitePositive(pageWidth)) {

@@ -89,11 +89,11 @@ function refreshReferenceElement() {
     referenceElement.value = reference instanceof HTMLElement ? reference : root ?? undefined;
 }
 
-function hasUsefulText(element: HTMLElement): boolean {
+function hasUsefulText(element: HTMLElement) {
     return (element.innerText ?? '').trim().length > 0;
 }
 
-function isElementOverflowing(element: Element): boolean {
+function isElementOverflowing(element: Element) {
     if (!(element instanceof HTMLElement)) {
         return false;
     }
@@ -101,7 +101,7 @@ function isElementOverflowing(element: Element): boolean {
     return element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
 }
 
-function hasOverflowingContent(root: HTMLElement): boolean {
+function hasOverflowingContent(root: HTMLElement) {
     const trigger = root.firstElementChild ?? root;
     if (isElementOverflowing(trigger)) {
         return true;

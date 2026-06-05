@@ -1,12 +1,10 @@
 import type { IpcRenderer } from 'electron';
 import type { IPageOpsCapability } from '@contracts/platformApi';
-import type { TPageOpsRotationAngle } from '@contracts/electronApiPageOps';
 import {
     PAGE_OPS_CHANNELS,
     type IPageOpsInvokeMap,
 } from '@electron/features/page-ops/index';
 import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
-import type { ICropMargins } from '@contracts/shared';
 
 export function createDocumentsPreloadPageOpsClient(
     ipcRenderer: IpcRenderer,
@@ -14,29 +12,29 @@ export function createDocumentsPreloadPageOpsClient(
     const invoke = createTypedIpcInvoker<IPageOpsInvokeMap>(ipcRenderer);
 
     return {
-        delete: (workingCopyPath: string, pages: number[], totalPages: number) =>
+        delete: (workingCopyPath, pages, totalPages) =>
             invoke(PAGE_OPS_CHANNELS.delete, workingCopyPath, pages, totalPages),
-        extract: (workingCopyPath: string, pages: number[]) =>
+        extract: (workingCopyPath, pages) =>
             invoke(PAGE_OPS_CHANNELS.extract, workingCopyPath, pages),
-        reorder: (workingCopyPath: string, newOrder: number[]) =>
+        reorder: (workingCopyPath, newOrder) =>
             invoke(PAGE_OPS_CHANNELS.reorder, workingCopyPath, newOrder),
-        insert: (workingCopyPath: string, totalPages: number, afterPage: number) =>
+        insert: (workingCopyPath, totalPages, afterPage) =>
             invoke(PAGE_OPS_CHANNELS.insert, workingCopyPath, totalPages, afterPage),
         insertFile: (
-            workingCopyPath: string,
-            totalPages: number,
-            afterPage: number,
-            sourcePaths: string[],
+            workingCopyPath,
+            totalPages,
+            afterPage,
+            sourcePaths,
             requestId?: string,
         ) =>
             invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths, requestId),
-        rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) =>
+        rotate: (workingCopyPath, pages, angle) =>
             invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
-        crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) =>
+        crop: (workingCopyPath, pages, margins) =>
             invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, margins),
-        removeCrop: (workingCopyPath: string, pages: number[]) =>
+        removeCrop: (workingCopyPath, pages) =>
             invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages),
-        getPageGeometry: (workingCopyPath: string, pageNumber: number) =>
+        getPageGeometry: (workingCopyPath, pageNumber) =>
             invoke(PAGE_OPS_CHANNELS.getPageGeometry, workingCopyPath, pageNumber),
     };
 }

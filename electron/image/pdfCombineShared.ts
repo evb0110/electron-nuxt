@@ -93,7 +93,7 @@ function appendEmbeddedImagePage(
     targetPdf: PDFDocument,
     embeddedImage: PDFImage,
     dpi: number,
-): number {
+) {
     const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
     const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
     const page = targetPdf.addPage([
@@ -117,16 +117,16 @@ function normalizeCombineInputPaths(inputPaths: string[]): string[] {
         .filter((path) => path.length > 0);
 }
 
-export function isImagePath(filePath: string): boolean {
+export function isImagePath(filePath: string) {
     return SUPPORTED_IMAGE_EXTENSION_SET.has(extname(filePath).toLowerCase());
 }
 
-function isDjvuPath(filePath: string): boolean {
+function isDjvuPath(filePath: string) {
     const extension = extname(filePath).toLowerCase();
     return extension === '.djvu' || extension === '.djv';
 }
 
-function estimateRemainingMs(elapsedMs: number, processed: number, total: number): number {
+function estimateRemainingMs(elapsedMs: number, processed: number, total: number) {
     if (processed <= 0 || total <= processed) {
         return 0;
     }
@@ -155,7 +155,7 @@ async function appendPdfPages(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
-): Promise<number> {
+) {
     const sourceBytes = await readFile(sourcePath);
     const sourcePdf = await PDFDocument.load(sourceBytes);
     const pageIndices = sourcePdf.getPageIndices();
@@ -178,7 +178,7 @@ async function appendBitmapPage(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
-): Promise<number> {
+) {
     assertPageLimit(currentPageCount + 1, limits);
     const originalBytes = await readFile(sourcePath);
     const extension = extname(sourcePath).toLowerCase();
@@ -202,7 +202,7 @@ async function appendTiffPages(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
-): Promise<number> {
+) {
     const tiffBytes = new Uint8Array(await readFile(sourcePath));
     let addedPages = 0;
 
@@ -242,7 +242,7 @@ async function appendImagePages(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
-): Promise<number> {
+) {
     const extension = extname(sourcePath).toLowerCase();
     if (extension === '.tif' || extension === '.tiff') {
         return appendTiffPages(targetPdf, sourcePath, currentPageCount, limits);
@@ -253,7 +253,7 @@ async function appendImagePages(
 export async function createCombinedPdf(
     inputPaths: string[],
     options: ICreateCombinedPdfOptions,
-): Promise<Uint8Array> {
+) {
     const normalizedPaths = normalizeCombineInputPaths(inputPaths);
     if (normalizedPaths.length === 0) {
         throw new Error('No input files were provided');

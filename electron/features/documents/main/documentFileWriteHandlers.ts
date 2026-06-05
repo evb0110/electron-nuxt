@@ -31,7 +31,7 @@ export async function handleFileWrite(
     event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
     data: unknown,
-): Promise<boolean> {
+) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const payload = normalizeIpcWritePayload(data);
 
@@ -62,7 +62,7 @@ export async function handleReplaceWorkingCopyFromPath(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: unknown,
     sourcePath: unknown,
-): Promise<boolean> {
+) {
     const normalizedWorkingCopyPath = normalizeNonEmptyPath(workingCopyPath);
     const normalizedSourcePath = normalizeNonEmptyPath(sourcePath);
 
@@ -99,7 +99,7 @@ export async function handleFileWriteDocx(
     event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
     data: unknown,
-): Promise<boolean> {
+) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const payload = normalizeIpcWritePayload(data);
     if (!consumeAllowedDocxWritePath(normalizedPath, event.sender.id)) {

@@ -158,7 +158,7 @@ export function isAllowedDjvuViewingPath(djvuPath: string, senderId?: number) {
 
 export async function sweepStaleDjvuTempPdfs(
     maxAgeMs = DJVU_STALE_SWEEP_MAX_AGE_MS,
-): Promise<number> {
+) {
     const tempDir = app.getPath('temp');
     const now = Date.now();
     let deletedCount = 0;

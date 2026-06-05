@@ -76,21 +76,7 @@ interface IPrintDialogSubmitPayload {
     orientation: TPrintOrientation;
 }
 
-interface IWorkspacePrintState {
-    printDialogOpen: Ref<boolean>;
-    printDialogSelectedPages: Ref<number[]>;
-    isPreparingPrint: Ref<boolean>;
-    isPreparingCurrentPagePrint: Readonly<Ref<boolean>>;
-    printError: Ref<string | null>;
-    printStatus: Ref<string | null>;
-    handlePrint: () => void;
-    handleQuickPrint: () => Promise<void>;
-    handlePrintCurrentPage: () => Promise<void>;
-    handlePrintDialogOpenChange: (isOpen: boolean) => void;
-    handlePrintDialogSubmit: (payload: IPrintDialogSubmitPayload) => Promise<void>;
-}
-
-export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintState => {
+export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const printDialogOpen = ref(false);

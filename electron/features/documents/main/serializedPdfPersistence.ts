@@ -55,7 +55,7 @@ interface ISerializedPdfPersistenceSession {
 
 const sessions = new Map<string, ISerializedPdfPersistenceSession>();
 
-function getPdfPersistencePortMessageData(messageEvent: unknown): unknown {
+function getPdfPersistencePortMessageData(messageEvent: unknown) {
     if (!messageEvent || typeof messageEvent !== 'object' || !('data' in messageEvent)) {
         return messageEvent;
     }
@@ -86,7 +86,7 @@ function normalizeWorkingPath(workingPath: unknown) {
     return normalizedWorkingPath;
 }
 
-function normalizeTotalBytes(totalBytes: unknown): number {
+function normalizeTotalBytes(totalBytes: unknown) {
     if (typeof totalBytes !== 'number' || !Number.isSafeInteger(totalBytes) || totalBytes <= 0) {
         throw new Error('Invalid total byte count');
     }
@@ -277,7 +277,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
     return validation;
 }
 
-function getChunkBytes(value: unknown): Uint8Array {
+function getChunkBytes(value: unknown) {
     if (value instanceof Uint8Array) {
         return value;
     }
@@ -304,7 +304,7 @@ function isPdfPersistencePortPayload(message: unknown): message is {
     return Boolean(message && typeof message === 'object' && 'type' in message);
 }
 
-function normalizePdfPersistencePortPayload(message: unknown): unknown {
+function normalizePdfPersistencePortPayload(message: unknown) {
     let currentMessage = message;
     for (let depth = 0; depth < 4; depth += 1) {
         if (isPdfPersistencePortPayload(currentMessage)) {

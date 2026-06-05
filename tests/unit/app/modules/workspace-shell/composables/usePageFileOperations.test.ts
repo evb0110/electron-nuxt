@@ -11,6 +11,7 @@ import {
 } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { TOpenFileResult } from '@contracts/platformApi';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
@@ -21,8 +22,8 @@ const {
     mockReadFileRange,
 } = vi.hoisted(() => ({
     mockHasElectronAPI: vi.fn(() => true),
-    mockOpenCombineDialog: vi.fn(async (): Promise<unknown> => null),
-    mockReadFileRange: vi.fn(async (_path: string, _offset: number, _length: number): Promise<Uint8Array> => new Uint8Array([0])),
+    mockOpenCombineDialog: vi.fn<() => Promise<TOpenFileResult | null>>(async () => null),
+    mockReadFileRange: vi.fn(async (_path: string, _offset: number, _length: number) => new Uint8Array([0])),
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));

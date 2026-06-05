@@ -19,7 +19,6 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
 
@@ -209,9 +208,9 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
         annotationCommentsCache,
         getIdentity: () => ({
             resolveCommentFromCache,
-            getEditorIdentity: (editor: IPdfjsEditor) => editor.uid ?? editor.id ?? '',
-            getEditorPendingKey: (editor: IPdfjsEditor) => `pending:${editor.id ?? editor.uid ?? 'unknown'}`,
-            hydrateSummaryFromMemory: (s: IAnnotationCommentSummary) => s,
+            getEditorIdentity: (editor) => editor.uid ?? editor.id ?? '',
+            getEditorPendingKey: (editor) => `pending:${editor.id ?? editor.uid ?? 'unknown'}`,
+            hydrateSummaryFromMemory: (s) => s,
             computeSummaryStableKey: () => 'stable',
             rememberSummaryText,
             forgetSummaryText,

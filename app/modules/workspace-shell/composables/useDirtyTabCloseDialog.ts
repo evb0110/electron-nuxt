@@ -1,23 +1,11 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import type { ITab } from '@app/types/tabs';
 
 interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
 
-interface IUseDirtyTabCloseDialog {
-    dirtyTabCloseDialogOpen: Ref<boolean>;
-    dirtyTabCloseTargetId: Ref<string | null>;
-    dirtyTabCloseTargetName: ComputedRef<string>;
-    confirmDirtyTabClose: () => void;
-    requestDirtyTabCloseConfirmation: (tabId: string) => Promise<boolean>;
-    resolveDirtyTabCloseDialog: (confirmed: boolean) => void;
-}
-
 export const useDirtyTabCloseDialog = (
     deps: IUseDirtyTabCloseDialogDeps,
-): IUseDirtyTabCloseDialog => {
+) => {
     const { tabs } = deps;
     const { t } = useTypedI18n();
     const dirtyTabCloseDialogOpen = ref(false);

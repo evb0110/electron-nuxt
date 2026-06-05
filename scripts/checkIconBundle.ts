@@ -121,7 +121,7 @@ function getProjectTargets(target: TProjectTargetFilter): IProjectTarget[] {
         : PROJECT_TARGETS.filter(projectTarget => projectTarget.label === target);
 }
 
-function formatTarget(target: TProjectTargetFilter): string {
+function formatTarget(target: TProjectTargetFilter) {
     if (target === 'all') {
         return 'app and landing';
     }
@@ -129,7 +129,7 @@ function formatTarget(target: TProjectTargetFilter): string {
     return target;
 }
 
-function toRelative(filePath: string): string {
+function toRelative(filePath: string) {
     return path.relative(projectRoot, filePath);
 }
 
@@ -157,11 +157,11 @@ function isVueNodeLike(value: unknown): value is IVueNodeLike {
     return record !== null && typeof record.type === 'number';
 }
 
-function normalizeContextName(name: string): string {
+function normalizeContextName(name: string) {
     return name.trim().toLowerCase();
 }
 
-function isIconContextName(name: string): boolean {
+function isIconContextName(name: string) {
     return ICON_CONTEXT_NAMES.has(normalizeContextName(name));
 }
 
@@ -200,7 +200,7 @@ function extractVueBlocks(content: string, tagName: 'script' | 'template'): stri
     return blocks;
 }
 
-function isLikelyScriptIconContext(content: string, tokenStartIndex: number): boolean {
+function isLikelyScriptIconContext(content: string, tokenStartIndex: number) {
     const prefix = content.slice(Math.max(0, tokenStartIndex - 100), tokenStartIndex);
     return /(?:^|[\s,{(])(?:icon|name|leadingIcon|trailingIcon|leading-icon|trailing-icon)\s*[:=]\s*$/u.test(prefix);
 }
@@ -209,7 +209,7 @@ function normalizeIconToken(
     rawToken: string,
     collectionHints: ICollectionHints,
     allowUnknownCollection: boolean,
-): string | null {
+) {
     const token = rawToken.trim().toLowerCase();
 
     if (ICON_NAME_PATTERN.test(token)) {
@@ -290,7 +290,7 @@ function parseBabelExpressionAst(expression: string): IBabelNodeLike | null {
     }
 }
 
-function getStaticObjectPropertyName(node: IBabelNodeLike): string | null {
+function getStaticObjectPropertyName(node: IBabelNodeLike) {
     const key = node.key;
     const computed = node.computed === true;
 
@@ -309,7 +309,7 @@ function getStaticObjectPropertyName(node: IBabelNodeLike): string | null {
     return null;
 }
 
-function getVariableDeclaratorName(node: IBabelNodeLike): string | null {
+function getVariableDeclaratorName(node: IBabelNodeLike) {
     const idNode = node.id;
     if (!isBabelNodeLike(idNode) || idNode.type !== 'Identifier' || typeof idNode.name !== 'string') {
         return null;
@@ -317,7 +317,7 @@ function getVariableDeclaratorName(node: IBabelNodeLike): string | null {
     return idNode.name;
 }
 
-function getStaticMemberExpressionPropertyName(node: IBabelNodeLike): string | null {
+function getStaticMemberExpressionPropertyName(node: IBabelNodeLike) {
     if (node.type !== 'MemberExpression' && node.type !== 'OptionalMemberExpression') {
         return null;
     }
@@ -340,7 +340,7 @@ function getStaticMemberExpressionPropertyName(node: IBabelNodeLike): string | n
     return null;
 }
 
-function isIconContextAssignmentTarget(node: unknown): boolean {
+function isIconContextAssignmentTarget(node: unknown) {
     if (!isBabelNodeLike(node)) {
         return false;
     }
@@ -353,7 +353,7 @@ function isIconContextAssignmentTarget(node: unknown): boolean {
     return staticPropertyName !== null && isIconContextName(staticPropertyName);
 }
 
-function getJsxAttributeName(node: IBabelNodeLike): string | null {
+function getJsxAttributeName(node: IBabelNodeLike) {
     if (node.type !== 'JSXAttribute') {
         return null;
     }
@@ -547,7 +547,7 @@ function extractScriptTokenCandidates(content: string): ITokenCandidate[] {
     return candidates;
 }
 
-function getTemplateDirectiveArgumentName(node: IVueNodeLike): string | null {
+function getTemplateDirectiveArgumentName(node: IVueNodeLike) {
     const argNode = node.arg;
     if (!isVueNodeLike(argNode)) {
         return null;
@@ -577,7 +577,7 @@ function extractExpressionTokenCandidates(
     return candidates;
 }
 
-function isTemplateIconAttributeName(attributeName: string): boolean {
+function isTemplateIconAttributeName(attributeName: string) {
     return isIconContextName(attributeName);
 }
 
@@ -958,7 +958,7 @@ async function main() {
     console.log(`Icon bundle coverage check passed for ${formatTarget(target)}.`);
 }
 
-function isDirectExecution(): boolean {
+function isDirectExecution() {
     const entryFilePath = process.argv[1];
     if (!entryFilePath) {
         return false;

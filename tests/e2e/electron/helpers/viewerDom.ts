@@ -100,7 +100,7 @@ export async function findVisiblePointInActiveHost(page: Page, selector: string,
     });
 }
 
-export async function getRenderedPageCount(page: Page): Promise<number> {
+export async function getRenderedPageCount(page: Page) {
     await waitForActiveWorkspaceHost(page);
 
     return evaluateInPage(page, (minHostSizePx: number) => {

@@ -148,7 +148,7 @@ async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY
     throw new Error(`Session '${sessionName}' did not report ready health within ${Math.round(timeoutMs / 1000)}s`);
 }
 
-async function waitForPageTarget(cdpPort: number, timeoutMs = 15_000): Promise<void> {
+async function waitForPageTarget(cdpPort: number, timeoutMs = 15_000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         try {
@@ -170,7 +170,7 @@ async function waitForPageTarget(cdpPort: number, timeoutMs = 15_000): Promise<v
     throw new Error(`No page target found via /json/list within ${Math.round(timeoutMs / 1000)}s`);
 }
 
-async function getBrowserWsEndpoint(cdpPort: number): Promise<string> {
+async function getBrowserWsEndpoint(cdpPort: number) {
     const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
     if (!res.ok) {
         throw new Error(`Failed to fetch /json/version: HTTP ${res.status}`);

@@ -202,7 +202,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         };
     }
 
-    function isActualNaN(value: unknown): boolean {
+    function isActualNaN(value: unknown) {
         return typeof value === 'number' && Number.isNaN(value);
     }
 

@@ -251,7 +251,7 @@ async function handleOcrValidateTools() {
     }
 }
 
-async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number): Promise<string> {
+async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number) {
     let managedSourcePdfPath: string;
     try {
         managedSourcePdfPath = await requireManagedWorkingCopyPath(sourcePdfPath, senderWebContentsId);

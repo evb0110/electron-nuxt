@@ -100,7 +100,7 @@ class FakeWorker {
         this.messageHandlers.forEach((handler) => handler(event));
     }
 
-    public dispatchEvent(_event: Event): boolean {
+    public dispatchEvent(_event: Event) {
         return false;
     }
 

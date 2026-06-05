@@ -389,7 +389,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         withComment: boolean,
         explicitRange: Range | null = null,
         selectionOptions: {markupSubtype?: TMarkupSubtype | null} = {},
-    ): Promise<boolean> {
+    ) {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
             return false;

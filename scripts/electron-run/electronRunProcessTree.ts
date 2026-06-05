@@ -38,7 +38,7 @@ export function killPids(
         signal?: NodeJS.Signals | number;
         exclude?: Set<number>;
     } = {},
-): void {
+) {
     if (!Array.isArray(pids) || pids.length === 0) {
         return;
     }
@@ -138,7 +138,7 @@ export function findPidsByCommandSubstring(substring: string) {
     }
 }
 
-export async function killProcessTree(pid: number, graceMs = 1500): Promise<void> {
+export async function killProcessTree(pid: number, graceMs = 1500) {
     if (!Number.isFinite(pid) || pid <= 0) {
         return;
     }

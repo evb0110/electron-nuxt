@@ -9,13 +9,6 @@ export type TPdfAnnotationSaveExpectedCost =
     | 'small'
     | 'full-document';
 
-export interface IPdfAnnotationSavePlan {
-    route: TPdfAnnotationSaveRoute;
-    expectedCost: TPdfAnnotationSaveExpectedCost;
-    reason: string;
-    unreplayableLiveAnnotationIds: string[];
-}
-
 export interface IPdfAnnotationSavePlanInput {
     hasPendingReplayableEmbeddedChanges: boolean;
     hasEditorOnlyAnnotationsPendingMaterialization: boolean;
@@ -25,7 +18,7 @@ export interface IPdfAnnotationSavePlanInput {
 
 export function buildPdfAnnotationSavePlan(
     input: IPdfAnnotationSavePlanInput,
-): IPdfAnnotationSavePlan {
+) {
     if (
         input.hasPendingReplayableEmbeddedChanges
         && !input.hasEditorOnlyAnnotationsPendingMaterialization

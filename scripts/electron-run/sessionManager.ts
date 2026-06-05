@@ -164,7 +164,7 @@ async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined
     await killProcessTreeForPids(pids, 500);
 }
 
-async function isNuxtRunning(): Promise<boolean> {
+async function isNuxtRunning() {
     try {
         const res = await fetch(`http://127.0.0.1:${getNuxtPort()}`, {
             method: 'HEAD',
@@ -176,14 +176,14 @@ async function isNuxtRunning(): Promise<boolean> {
     }
 }
 
-async function isReusableNuxtServerReady(): Promise<boolean> {
+async function isReusableNuxtServerReady() {
     if (!await isNuxtRunning()) {
         return false;
     }
     return isReusableNuxtServer();
 }
 
-async function isReusableNuxtServer(): Promise<boolean> {
+async function isReusableNuxtServer() {
     try {
         const res = await fetch(`http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`, {
             method: 'GET',
@@ -203,7 +203,7 @@ async function isReusableNuxtServer(): Promise<boolean> {
     }
 }
 
-async function waitForReusableNuxtServer(timeoutMs: number): Promise<boolean> {
+async function waitForReusableNuxtServer(timeoutMs: number) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         if (await isReusableNuxtServer()) {
@@ -214,7 +214,7 @@ async function waitForReusableNuxtServer(timeoutMs: number): Promise<boolean> {
     return false;
 }
 
-export async function killExistingNuxt(): Promise<void> {
+export async function killExistingNuxt() {
     try {
         const pids = getPidsOnPort(getNuxtPort());
         await killProcessTreeForPids(pids, 1200);
@@ -223,7 +223,7 @@ export async function killExistingNuxt(): Promise<void> {
     } catch {}
 }
 
-function clearViteCache(): void {
+function clearViteCache() {
     const cachePaths = [
         join(projectRoot, 'node_modules', '.vite'),
         join(projectRoot, 'node_modules', '.cache', 'vite'),
@@ -1027,7 +1027,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     }
 }
 
-async function checkHydration(page: Page): Promise<boolean> {
+async function checkHydration(page: Page) {
     try {
         return await page.evaluate(() => {
             const automationWindow = window as Window & {__appReady?: boolean;};
@@ -1120,14 +1120,14 @@ async function reattachToAppPage(
     return currentPage;
 }
 
-function isAppPageUrl(url: string): boolean {
+function isAppPageUrl(url: string) {
     const port = getNuxtPort();
     return url.startsWith('evb-viewer://app/')
         || url.includes(`localhost:${port}`)
         || url.includes(`127.0.0.1:${port}`);
 }
 
-function getElectronAppUrl(): string {
+function getElectronAppUrl() {
     return `http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`;
 }
 
@@ -1155,7 +1155,7 @@ function isNavigationAbortedError(error: unknown) {
     return error.message.includes('net::ERR_ABORTED');
 }
 
-async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000): Promise<void> {
+async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000) {
     const start = Date.now();
     let lastLoggedTargets = '';
     while (Date.now() - start < timeoutMs) {
@@ -1189,7 +1189,7 @@ async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000): P
     throw new Error(`No Electron page target found via /json/list within ${Math.round(timeoutMs / 1000)}s`);
 }
 
-async function getBrowserWsEndpoint(cdpPort: number): Promise<string> {
+async function getBrowserWsEndpoint(cdpPort: number) {
     const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
     if (!res.ok) {
         throw new Error(`Failed to fetch /json/version: HTTP ${res.status}`);
@@ -2156,7 +2156,7 @@ export async function stopSession(options: {
     }
 }
 
-export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS): Promise<boolean> {
+export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         if (await isSessionRunning()) {

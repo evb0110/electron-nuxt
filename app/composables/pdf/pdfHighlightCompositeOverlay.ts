@@ -42,11 +42,6 @@ export type THighlightCompositeSource = IHighlightPaintFragment;
 
 interface IMeasuredHighlightCompositeSource extends THighlightCompositeSource { svg: SVGElement; }
 
-interface IHighlightCompositePlan {
-    fragments: IHighlightPaintFragment[];
-    sourceSvgs: Set<SVGElement>;
-}
-
 const OVERLAY_CLASS = 'pdf-highlight-composite-overlay';
 const ORIGINAL_HIDDEN_CLASS = 'pdf-highlight-composite-source';
 const PRESERVE_SNAPSHOT_CLASS = 'pdf-layer-preserve-snapshot';
@@ -264,7 +259,7 @@ function parseHighlightSubpaths(tokens: string[]): IHighlightRect[] | null {
     let active = false;
     let lastCommand: string | null = null;
 
-    const consumeNumber = (): number | null => {
+    const consumeNumber = () => {
         const token = tokens[cursor];
         if (token === undefined) {
             return null;
@@ -274,7 +269,7 @@ function parseHighlightSubpaths(tokens: string[]): IHighlightRect[] | null {
         return Number.isFinite(value) ? value : null;
     };
 
-    const finishSubpath = (): boolean => {
+    const finishSubpath = () => {
         if (!active) {
             return true;
         }
@@ -481,7 +476,7 @@ export function shouldCompositeHighlightSources(sources: readonly THighlightComp
     return false;
 }
 
-function buildCompositePlan(host: HTMLElement): IHighlightCompositePlan {
+function buildCompositePlan(host: HTMLElement) {
     const highlightSvgs = queryAll<SVGElement>(
         host,
         `:scope > svg.highlight:not(.free):not(.${PRESERVE_SNAPSHOT_CLASS})`,

@@ -10,7 +10,7 @@ export function buildOcrTextLayerItemText(word: Pick<IOcrWord, 'text'>) {
 export function isLastOcrWordInLine(
     words: readonly IOcrWord[],
     index: number,
-): boolean {
+) {
     if (index === words.length - 1) {
         return true;
     }

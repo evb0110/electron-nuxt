@@ -32,7 +32,7 @@ function createShapeSerializationPayload(shapes: IShapeAnnotation[]): IPdfSerial
 export async function serializeShapeAnnotationsToDoc(
     data: Uint8Array,
     shapes: IShapeAnnotation[],
-): Promise<Uint8Array> {
+) {
     if (shapes.length === 0) {
         return data;
     }

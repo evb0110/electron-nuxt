@@ -36,11 +36,11 @@ export interface IOcrToolPaths {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 
-function getResourcesBase(): string {
+function getResourcesBase() {
     return resolveOcrResourcesBase(__dirname, isPackaged);
 }
 
-function findOnSystemPath(name: string): string {
+function findOnSystemPath(name: string) {
     const ext = process.platform === 'win32' ? '.exe' : '';
     const fullName = `${name}${ext}`;
 
@@ -62,7 +62,7 @@ function findOnSystemPath(name: string): string {
     return fullName;
 }
 
-function getBinaryPath(dir: string, name: string, optional = false): string {
+function getBinaryPath(dir: string, name: string, optional = false) {
     const ext = process.platform === 'win32' ? '.exe' : '';
     const binPath = join(dir, 'bin', `${name}${ext}`);
 
@@ -252,7 +252,7 @@ export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     return createAwaitablePaths(paths);
 }
 
-async function checkToolExists(path: string): Promise<boolean> {
+async function checkToolExists(path: string) {
     // If path contains a directory separator, check if file exists
     if (path.includes('/') || path.includes('\\')) {
         return existsSync(path);
@@ -270,8 +270,8 @@ function getAvailableLanguages(tessdataPath: string): string[] {
     try {
         const files = readdirSync(tessdataPath);
         return files
-            .filter((f: string) => f.endsWith('.traineddata'))
-            .map((f: string) => f.replace('.traineddata', ''));
+            .filter((f) => f.endsWith('.traineddata'))
+            .map((f) => f.replace('.traineddata', ''));
     } catch {
         return [];
     }

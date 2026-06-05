@@ -476,7 +476,7 @@ export async function convertDjvuPageToImage(
     }
 }
 
-export async function cancelConversion(jobId: string): Promise<boolean> {
+export async function cancelConversion(jobId: string) {
     let canceled = false;
     const terminations: Array<Promise<void>> = [];
 

@@ -31,7 +31,7 @@ async function resolveDocumentSize(path: TDocumentRef, knownSize: number | undef
 export async function readDocumentBytes(
     path: TDocumentRef,
     options: IReadDocumentBytesOptions = {},
-): Promise<Uint8Array> {
+) {
     const documents = getDocumentsCapability();
     const size = await resolveDocumentSize(path, options.knownSize);
 
@@ -74,7 +74,7 @@ export async function readDocumentBytesIfBelowLimit(
     path: TDocumentRef,
     maxBytes: number,
     options: Omit<IReadDocumentBytesOptions, 'maxBytes'> = {},
-): Promise<Uint8Array | null> {
+) {
     const size = await resolveDocumentSize(path, options.knownSize);
     if (size > maxBytes) {
         return null;

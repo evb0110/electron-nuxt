@@ -97,7 +97,7 @@ const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
 const log = createLogger('search-worker');
 
-function assertNever(value: never): never {
+function assertNever(value: never) {
     throw new Error(`Unhandled search worker inbound message: ${JSON.stringify(value)}`);
 }
 

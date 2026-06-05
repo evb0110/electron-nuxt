@@ -19,24 +19,6 @@ interface IEditorPanesStateSnapshot {
 
 interface INormalizeEditorPanesStateParams extends IEditorPanesStateSnapshot { createPane: () => IEditorPaneState; }
 
-interface IUniqueTabsResult {
-    tabs: ITab[];
-    tabIds: Set<string>;
-    hasInvalidTabs: boolean;
-}
-
-interface INormalizedPanesResult {
-    panes: IEditorPaneState[];
-    paneIds: Set<string>;
-    assignedTabIds: Set<string>;
-    hasInvalidPanes: boolean;
-}
-
-interface IActivePaneMruResult {
-    activePaneId: string | null;
-    paneMru: string[];
-}
-
 function readPaneId(pane: IEditorPaneState) {
     const rawPane = pane as IEditorPaneState & { id?: unknown };
     if (typeof rawPane.paneId === 'string' && rawPane.paneId.length > 0) {
@@ -83,7 +65,7 @@ function buildNormalizedPaneMru(
     return nextMru;
 }
 
-function collectUniqueTabs(tabs: ITab[]): IUniqueTabsResult {
+function collectUniqueTabs(tabs: ITab[]) {
     const uniqueTabs: ITab[] = [];
     const validTabIds = new Set<string>();
     let hasInvalidTabs = false;
@@ -107,7 +89,7 @@ function collectUniqueTabs(tabs: ITab[]): IUniqueTabsResult {
 function normalizePaneTabIds(
     panes: IEditorPaneState[],
     validTabIds: Set<string>,
-): INormalizedPanesResult {
+) {
     const normalizedPanes: IEditorPaneState[] = [];
     const validPaneIds = new Set<string>();
     const assignedTabIds = new Set<string>();
@@ -202,7 +184,7 @@ function normalizeActivePaneAndMru(
     paneMru: string[],
     panes: IEditorPaneState[],
     validPaneIds: Set<string>,
-): IActivePaneMruResult {
+) {
     const nextActivePaneId = activePaneId && validPaneIds.has(activePaneId)
         ? activePaneId
         : (panes[0]?.paneId ?? null);

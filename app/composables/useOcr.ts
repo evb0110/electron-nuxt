@@ -548,7 +548,7 @@ export const useOcr = () => {
     async function exportDocx(
         workingCopyPath: TDocumentRef | null,
         pdfDocument: PDFDocumentProxy | null = null,
-    ): Promise<boolean> {
+    ) {
         if (isExporting.value) {
             return false;
         }

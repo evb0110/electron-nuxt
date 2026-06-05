@@ -22,13 +22,13 @@ const tempDirs: string[] = [];
 const helperPath = resolve(process.cwd(), 'scripts/sha256-file.sh');
 const expectedSha256 = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
 
-function createTempDir(): string {
+function createTempDir() {
     const dir = mkdtempSync(join(tmpdir(), 'evb-sha256-file-'));
     tempDirs.push(dir);
     return dir;
 }
 
-function runSha256WithPath(pathValue: string, filePath: string): string {
+function runSha256WithPath(pathValue: string, filePath: string) {
     return execFileSync(
         '/bin/bash',
         [
@@ -48,7 +48,7 @@ function runSha256WithPath(pathValue: string, filePath: string): string {
     ).trim();
 }
 
-function addRequiredUnixTools(binDir: string): void {
+function addRequiredUnixTools(binDir: string) {
     symlinkSync('/usr/bin/awk', join(binDir, 'awk'));
 }
 

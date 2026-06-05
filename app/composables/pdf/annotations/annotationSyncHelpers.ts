@@ -81,19 +81,6 @@ export interface IPdfCommentSummaryDeps {
     resolveKindLabel: (subtype: string | null | undefined) => string;
 }
 
-export interface IEditorMarkerRectResult {
-    markerRect: IAnnotationMarkerRect | null;
-    markerRectFromEditor: IAnnotationMarkerRect | null;
-    pendingAnchorRect: IAnnotationMarkerRect | null;
-    markerDistanceFromPending: number;
-    shouldUsePendingAnchor: boolean;
-}
-
-export interface IMarkupSubtypeOverrideRegistration {
-    annotationId: string;
-    subtype: TMarkupSubtype;
-}
-
 const NOTE_INVISIBLE_CHAR_REGEX = /[\u200B\uFEFF]/g;
 const FREE_TEXT_SUBTYPE_LOWER = 'freetext';
 const PENDING_ANCHOR_DISTANCE_THRESHOLD = 0.14;
@@ -130,7 +117,7 @@ export function safeReadEditorData(editor: IPdfjsEditor): ReturnType<NonNullable
 export function resolveMarkupSubtypeOverrideRegistration(
     annotationId: string | null,
     resolvedSubtype: string | null | undefined,
-): IMarkupSubtypeOverrideRegistration | null {
+) {
     if (!annotationId || !resolvedSubtype) {
         return null;
     }
@@ -146,7 +133,7 @@ export function resolveMarkupSubtypeOverrideRegistration(
     };
 }
 
-export function resolveEditorMarkerRect(editor: IPdfjsEditor): IEditorMarkerRectResult {
+export function resolveEditorMarkerRect(editor: IPdfjsEditor) {
     const editorRotation = normalizePageRotation(
         getOptionalNumber(editor, 'pageRotation')
         ?? getOptionalNumber(editor, 'rotation')
@@ -230,7 +217,7 @@ function resolvePdfCommentMarkerRect(
 export function resolveCombinedAnnotationText(
     annotation: IPdfAnnotationRecord,
     popupAnnotation: IPdfAnnotationRecord | null,
-): string {
+) {
     const annotationText = getAnnotationCommentText(annotation);
     const popupText = popupAnnotation
         ? getAnnotationCommentText(popupAnnotation)
@@ -250,7 +237,7 @@ export function resolveCombinedAnnotationText(
 export function pickLatestAnnotationTimestamp(
     annotation: IPdfAnnotationRecord,
     popupAnnotation: IPdfAnnotationRecord | null,
-): number | null {
+) {
     const own = parsePdfDateTimestamp(annotation.modificationDate)
         ?? parsePdfDateTimestamp(annotation.creationDate);
     const popup = popupAnnotation
@@ -266,7 +253,7 @@ export function pickLatestAnnotationTimestamp(
 export function pickEarliestAnnotationCreationTimestamp(
     annotation: IPdfAnnotationRecord,
     popupAnnotation: IPdfAnnotationRecord | null,
-): number | null {
+) {
     const own = parsePdfDateTimestamp(annotation.creationDate);
     const popup = popupAnnotation
         ? parsePdfDateTimestamp(popupAnnotation.creationDate)

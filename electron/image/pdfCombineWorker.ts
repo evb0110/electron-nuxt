@@ -21,7 +21,7 @@ interface ICombineWorkerResultPayload {
 async function createCombinedPdf(
     inputPaths: string[],
     onProgress?: (progress: ICreateCombinedPdfProgress) => void,
-): Promise<Uint8Array> {
+) {
     return createCombinedPdfShared(inputPaths, {
         onProgress,
         unsupportedFileError: (sourcePath) => `Unsupported file type for worker combine: ${sourcePath}`,
@@ -37,7 +37,7 @@ function resolveWorkerInputPaths(): string[] {
         .filter((path): path is string => typeof path === 'string');
 }
 
-function toTransferableBuffer(data: Uint8Array): ArrayBuffer {
+function toTransferableBuffer(data: Uint8Array) {
     if (
         data.buffer instanceof ArrayBuffer
         && data.byteOffset === 0

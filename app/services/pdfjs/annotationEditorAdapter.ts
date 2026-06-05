@@ -75,7 +75,7 @@ function hasGetLayer(
 function getLayerFromUiManager(
     uiManager: AnnotationEditorUIManager & IUiManagerWithGetLayer,
     pageIndex: number,
-): unknown {
+) {
     const getLayer = getOptionalFunction<[number], unknown>(uiManager, 'getLayer');
     return getLayer
         ? getLayer.call(uiManager, pageIndex)
@@ -377,7 +377,7 @@ export function getAnnotationEditorLayer(
 export function getAnnotationEditorLayerDiv(
     uiManager: AnnotationEditorUIManager,
     pageIndex: number,
-): HTMLElement | null {
+) {
     if (!hasGetLayer(uiManager)) {
         const current: unknown = uiManager.currentLayer as unknown;
         return isRecord(current) && current.div instanceof HTMLElement ? current.div : null;

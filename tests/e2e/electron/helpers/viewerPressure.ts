@@ -21,14 +21,6 @@ export interface IWorkspacePressureSnapshot {
     emptyPlaceholders: number;
 }
 
-export interface IWorkspacePressureTotals {
-    inactiveCanvases: number;
-    inactiveRenderedPages: number;
-    inactiveCanvasPixels: number;
-    inactiveTextSpans: number;
-    inactiveDjvuImages: number;
-}
-
 export async function readWorkspacePressure(page: Page): Promise<IWorkspacePressureSnapshot[]> {
     return evaluateInPage(page, () => {
         const isVisible = (element: HTMLElement) => {
@@ -66,7 +58,7 @@ export async function readWorkspacePressure(page: Page): Promise<IWorkspacePress
     });
 }
 
-export function summarizeInactivePressure(snapshots: IWorkspacePressureSnapshot[]): IWorkspacePressureTotals {
+export function summarizeInactivePressure(snapshots: IWorkspacePressureSnapshot[]) {
     const inactive = snapshots.filter(host => !host.active);
     return {
         inactiveCanvases: sumBy(inactive, host => host.canvases),

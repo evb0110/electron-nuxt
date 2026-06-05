@@ -1,7 +1,6 @@
 import type {
     IPlatformApi,
     IViewerHostApi,
-    TDocumentRef,
 } from '@contracts/platformApi';
 import {
     getPlatformAPI,
@@ -28,16 +27,16 @@ function isStandaloneDisplayMode() {
 
 function createViewerDocumentsCapability(api: IPlatformApi): IViewerHostApi['documents'] {
     return {
-        stat: (ref: TDocumentRef) => api.documents.statFile(ref),
-        read: (ref: TDocumentRef) => api.documents.readFile(ref),
-        readRange: (ref: TDocumentRef, offset: number, length: number) => api.documents.readFileRange(ref, offset, length),
+        stat: (ref) => api.documents.statFile(ref),
+        read: (ref) => api.documents.readFile(ref),
+        readRange: (ref, offset, length) => api.documents.readFileRange(ref, offset, length),
         pickDocument: () => api.documents.openDocumentDialog(),
-        openRecent: (ref: TDocumentRef) => api.documents.openDocumentDirect(ref),
-        save: async (ref: TDocumentRef, bytes: Uint8Array) => {
+        openRecent: (ref) => api.documents.openDocumentDirect(ref),
+        save: async (ref, bytes) => {
             const ok = await api.documents.writeFile(ref, bytes);
             return ok ? ref : null;
         },
-        saveAs: async (suggestedName: string, bytes: Uint8Array) => {
+        saveAs: async (suggestedName, bytes) => {
             const target = await api.documents.savePdfDialog(suggestedName);
             if (!target) {
                 return null;

@@ -4,7 +4,7 @@ import type {
 } from 'child_process';
 import { terminateProcessTree } from '@electron/utils/processTree';
 
-export function shouldUseDetachedProcessGroup(platform: NodeJS.Platform = process.platform): boolean {
+export function shouldUseDetachedProcessGroup(platform: NodeJS.Platform = process.platform) {
     return platform !== 'win32';
 }
 

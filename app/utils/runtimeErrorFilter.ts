@@ -3,7 +3,7 @@ const IGNORABLE_RUNTIME_ERROR_MESSAGES = [
     'ResizeObserver loop limit exceeded',
 ] as const;
 
-function normalizeRuntimeErrorMessage(value: unknown): string | null {
+function normalizeRuntimeErrorMessage(value: unknown) {
     if (typeof value === 'string') {
         const normalized = value.trim();
         return normalized.length > 0
@@ -26,7 +26,7 @@ function normalizeRuntimeErrorMessage(value: unknown): string | null {
     return null;
 }
 
-export function isIgnorableRuntimeErrorMessage(value: unknown): boolean {
+export function isIgnorableRuntimeErrorMessage(value: unknown) {
     const normalizedMessage = normalizeRuntimeErrorMessage(value);
     if (!normalizedMessage) {
         return false;
@@ -35,7 +35,7 @@ export function isIgnorableRuntimeErrorMessage(value: unknown): boolean {
     return IGNORABLE_RUNTIME_ERROR_MESSAGES.some((message) => normalizedMessage.includes(message));
 }
 
-export function getIgnorableRuntimeErrorMessage(value: unknown): string | null {
+export function getIgnorableRuntimeErrorMessage(value: unknown) {
     return isIgnorableRuntimeErrorMessage(value)
         ? normalizeRuntimeErrorMessage(value)
         : null;

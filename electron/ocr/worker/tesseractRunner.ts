@@ -369,7 +369,7 @@ function appendTsvTextRow(
     state.currentWords.push(row.text);
 }
 
-function parseTsvText(tsvContent: string): string {
+function parseTsvText(tsvContent: string) {
     const state: ITsvTextState = {
         currentLineKey: null,
         currentWords: [],

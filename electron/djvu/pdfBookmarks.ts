@@ -10,7 +10,7 @@ import { writePdfBookmarkOutlines } from '@pdf-core/pdfBookmarks';
 async function embedBookmarksIntoPdf(
     pdfData: Uint8Array,
     bookmarks: IPdfBookmarkEntry[],
-): Promise<Uint8Array> {
+) {
     if (bookmarks.length === 0) {
         return pdfData;
     }
@@ -24,7 +24,7 @@ export async function embedBookmarksIntoPdfFile(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-): Promise<number> {
+) {
     const pdfData = await readFile(inputPdfPath);
     const updatedPdfData = await embedBookmarksIntoPdf(pdfData, bookmarks);
     await writeFile(outputPdfPath, updatedPdfData);

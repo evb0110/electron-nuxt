@@ -372,7 +372,7 @@ class FakeContainer extends FakeElement {
     }
 }
 
-function toHTMLElement(element: FakeContainer): HTMLElement {
+function toHTMLElement(element: FakeContainer) {
     return element as never;
 }
 

@@ -64,7 +64,7 @@ async function resolveRevealablePath(filePath: string, owner?: TOpenPathOwner) {
 export async function handleShowItemInFolder(
     event: Electron.IpcMainInvokeEvent,
     filePath: string,
-): Promise<boolean> {
+) {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
     if (!normalizedPath) {
         return false;

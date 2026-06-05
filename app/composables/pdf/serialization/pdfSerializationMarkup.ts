@@ -64,11 +64,6 @@ const PAGE_MARKUP_INDEX_MATCH_BONUS = 0.25;
 const PAGE_MARKUP_INDEX_MISMATCH_PENALTY = 0.08;
 const MAX_RGB_DISTANCE = Math.sqrt((255 ** 2) * 3);
 
-interface IMarkupRewriteInputs {
-    overridesMap: Map<string, TMarkupSubtype>;
-    hintsByPage: Map<number, IMarkupSubtypeHint[]>;
-}
-
 interface IMarkupAnnotationCandidate {
     color: IRgbColor | null;
     dict: PDFDict;
@@ -81,7 +76,7 @@ interface IMarkupAnnotationCandidate {
 function buildMarkupRewriteInputs(
     overrides: Array<readonly [string, TMarkupSubtype]>,
     subtypeHints: IMarkupSubtypeHint[],
-): IMarkupRewriteInputs | null {
+) {
     const overridesMap = new Map<string, TMarkupSubtype>(overrides);
     if (overridesMap.size === 0 && subtypeHints.length === 0) {
         return null;
@@ -251,7 +246,7 @@ function normalizeHintAnnotationRef(hint: IMarkupSubtypeHint) {
 function scoreSubtypeHintForCandidate(
     hint: IMarkupSubtypeHint,
     candidate: IMarkupAnnotationCandidate,
-): number | null {
+) {
     if (hint.consumed || hint.pageIndex < 0) {
         return null;
     }
@@ -563,7 +558,7 @@ function buildSquigglyAppearanceOperators(values: readonly number[], color: IRgb
 // Squiggly needs an explicit appearance stream. Highlight/Underline/StrikeOut are
 // re-synthesised from QuadPoints by readers (including Apple Preview / Quartz),
 // but Squiggly is not, so without an /AP the annotation renders invisibly there.
-function writeSquigglyAppearanceStream(doc: PDFDocument, dict: PDFDict, color: IRgbColor): boolean {
+function writeSquigglyAppearanceStream(doc: PDFDocument, dict: PDFDict, color: IRgbColor) {
     const quad = readPdfMarkupQuadPoints(dict);
     const rect = normalizePdfRect(readPdfRectFromDict(dict) ?? []);
     if (!quad || !rect) {
@@ -601,7 +596,7 @@ function applySubtypeRewriteToDict(
     subtypeName: PDFName,
     targetSubtype: TMarkupSubtype,
     color?: string | null,
-): boolean {
+) {
     let modified = false;
     const targetColor = resolveHintTargetColor(targetSubtype, color);
     if (targetColor) {

@@ -56,7 +56,7 @@ export async function rewriteBookmarks(
         totalPages: Ref<number>;
         untitledLabel: string;
     },
-): Promise<Uint8Array> {
+) {
     if (!deps.bookmarksDirty.value) {
         return data;
     }

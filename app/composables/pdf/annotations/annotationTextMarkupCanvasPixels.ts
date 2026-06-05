@@ -142,7 +142,7 @@ const ANNOTATION_SWATCH_RGB: IAnnotationSwatchRgb[] = ANNOTATION_COLOR_SWATCHES.
         : [];
 });
 
-function nearestAnnotationSwatch(r: number, g: number, b: number): string {
+function nearestAnnotationSwatch(r: number, g: number, b: number) {
     let bestColor: string | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const entry of ANNOTATION_SWATCH_RGB) {
@@ -170,7 +170,7 @@ export function sampleCanvasTextMarkupColorInRect(
     canvas: HTMLCanvasElement,
     pageContainer: HTMLElement,
     targetRect: IAnnotationMarkerRect,
-): string | null {
+) {
     const canvasRect = canvas.getBoundingClientRect();
     const pageRect = pageContainer.getBoundingClientRect();
     if (

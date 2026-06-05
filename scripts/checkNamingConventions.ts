@@ -55,7 +55,7 @@ const splitPath = (path: string) => path.split(sep);
 
 const isInsideRouteDirectory = (path: string) => splitPath(path).some((part) => ROUTE_DIRECTORY_NAMES.has(part));
 
-const stripKnownTypeScriptSuffixes = (fileName: string): string => {
+const stripKnownTypeScriptSuffixes = (fileName: string) => {
     let stem = fileName;
 
     if (stem.endsWith('.d.ts')) {
@@ -93,13 +93,13 @@ const stripKnownTypeScriptSuffixes = (fileName: string): string => {
     return parts.join('.');
 };
 
-const isValidTypeScriptFileName = (fileName: string): boolean => {
+const isValidTypeScriptFileName = (fileName: string) => {
     const stem = stripKnownTypeScriptSuffixes(fileName);
 
     return isCamel(stem);
 };
 
-const isValidVueFileName = (relativePath: string, fileName: string): boolean => {
+const isValidVueFileName = (relativePath: string, fileName: string) => {
     const stem = fileName.slice(0, -'.vue'.length);
 
     if (fileName === 'app.vue' || fileName === 'error.vue') {
@@ -113,7 +113,7 @@ const isValidVueFileName = (relativePath: string, fileName: string): boolean => 
     return isPascal(stem);
 };
 
-const collectNamingIssues = async (directory: string, issues: TNamingIssue[]): Promise<void> => {
+const collectNamingIssues = async (directory: string, issues: TNamingIssue[]) => {
     const entries = await readdir(directory, { withFileTypes: true });
 
     for (const entry of entries) {

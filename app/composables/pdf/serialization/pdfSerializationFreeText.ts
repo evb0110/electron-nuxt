@@ -323,11 +323,6 @@ interface IReplayableNewFreeTextNoteMatch {
     ref: PDFRef;
 }
 
-interface IReplayableNewFreeTextNoteLookup {
-    existing: IReplayableNewFreeTextNoteMatch | null;
-    nameClaimedBySourceComment: boolean;
-}
-
 function findExistingReplayableNewFreeTextNote(
     doc: PDFDocument,
     annots: PDFArray | undefined,
@@ -336,7 +331,7 @@ function findExistingReplayableNewFreeTextNote(
     pageView?: number[],
     pageRotation?: ReturnType<typeof normalizePageRotation>,
     pageComments: IAnnotationCommentSummary[] = [],
-): IReplayableNewFreeTextNoteLookup {
+) {
     if (!annots) {
         return {
             existing: null,

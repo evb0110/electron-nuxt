@@ -11,7 +11,7 @@ function getLocalStorageSafe(): IStorageLike | null {
     return storage ?? null;
 }
 
-export function safeGetLocalStorageItem(key: string): string | null {
+export function safeGetLocalStorageItem(key: string) {
     const storage = getLocalStorageSafe();
     if (!storage || typeof storage.getItem !== 'function') {
         return null;

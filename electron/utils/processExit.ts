@@ -8,7 +8,7 @@ const WINDOWS_NTSTATUS_HINTS: Record<string, string> = {
     '0xC0000142': 'STATUS_DLL_INIT_FAILED (a dependent DLL failed to initialize)',
 };
 
-function normalizeWindowsNtStatus(exitCode: number): number | null {
+function normalizeWindowsNtStatus(exitCode: number) {
     const normalized = exitCode >>> 0;
     if (normalized <= 0x7FFFFFFF) {
         return null;
@@ -19,7 +19,7 @@ function normalizeWindowsNtStatus(exitCode: number): number | null {
 export function describeProcessExitCode(
     exitCode: number,
     options: IDescribeProcessExitCodeOptions = {},
-): string {
+) {
     const platform = options.platform ?? process.platform;
     if (platform !== 'win32') {
         return String(exitCode);

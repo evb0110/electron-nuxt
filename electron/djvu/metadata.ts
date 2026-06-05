@@ -68,7 +68,7 @@ async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): P
     };
 }
 
-export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataOptions = {}): Promise<number> {
+export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataOptions = {}) {
     const result = await runDjvused([
         filePath,
         '-e',
@@ -84,7 +84,7 @@ export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataO
     return count;
 }
 
-export async function getDjvuOutline(filePath: string, options: IDjvuMetadataOptions = {}): Promise<string> {
+export async function getDjvuOutline(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
         const result = await runDjvused([
             filePath,
@@ -129,7 +129,7 @@ export async function getDjvuMetadata(
     }
 }
 
-export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}): Promise<number> {
+export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
         const result = await runDjvused([
             filePath,
@@ -147,7 +147,7 @@ export async function getDjvuResolution(filePath: string, options: IDjvuMetadata
     }
 }
 
-export async function getDjvuHasText(filePath: string, options: IDjvuMetadataOptions = {}): Promise<boolean> {
+export async function getDjvuHasText(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
         const result = await runDjvused([
             filePath,

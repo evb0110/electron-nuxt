@@ -3,7 +3,7 @@ import { clamp } from 'es-toolkit/math';
 
 export type TSpreadStepDirection = -1 | 1;
 
-function getLastSpreadStartPage(viewMode: TPdfViewMode, totalPages: number): number {
+function getLastSpreadStartPage(viewMode: TPdfViewMode, totalPages: number) {
     if (totalPages <= 1 || viewMode === 'single') {
         return Math.max(1, totalPages);
     }
@@ -32,7 +32,7 @@ export function isStandaloneSpreadPage(
     page: number,
     viewMode: TPdfViewMode,
     totalPages: number,
-): boolean {
+) {
     if (page < 1 || page > totalPages) {
         return false;
     }
@@ -56,7 +56,7 @@ export function getSpreadStartForPage(
     page: number,
     viewMode: TPdfViewMode,
     totalPages: number,
-): number {
+) {
     const clampedPage = clamp(page, 1, Math.max(1, totalPages));
     if (viewMode === 'single' || totalPages <= 1) {
         return clampedPage;
@@ -81,7 +81,7 @@ export function stepBySpread(
     totalPages: number,
     direction: TSpreadStepDirection,
     steps = 1,
-): number {
+) {
     const stepCount = Math.max(1, steps);
     let spreadStart = getSpreadStartForPage(page, viewMode, totalPages);
     const minStart = 1;

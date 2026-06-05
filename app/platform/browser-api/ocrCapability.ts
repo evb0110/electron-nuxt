@@ -127,7 +127,7 @@ async function runRecognitionJobs(
 
     try {
         let nextPageIndex = 0;
-        const runNextPage = async (): Promise<void> => {
+        const runNextPage = async () => {
             const page = pages[nextPageIndex];
             nextPageIndex += 1;
             if (!page) {
@@ -184,7 +184,7 @@ async function runRecognitionJobs(
 }
 
 function createTesseractImageInput(imageData: Uint8Array) {
-    const imageBytes: Uint8Array<ArrayBuffer> = new Uint8Array(imageData.byteLength);
+    const imageBytes = new Uint8Array(imageData.byteLength);
     imageBytes.set(imageData);
     return new Blob([imageBytes], {type: 'image/png'});
 }

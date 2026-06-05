@@ -61,13 +61,7 @@ export function hasEditorCommentPayload(editor: IPdfjsEditor | null | undefined)
     return false;
 }
 
-interface IEditorContainers {
-    editorDiv: HTMLElement | null;
-    pageContainer: HTMLElement | null;
-    editorLayer: HTMLElement | null;
-}
-
-function findEditorContainers(editor: IPdfjsEditor): IEditorContainers {
+function findEditorContainers(editor: IPdfjsEditor) {
     const editorDiv = editor.div ?? null;
     const pageContainer = editorDiv?.closest<HTMLElement>('.page_container') ?? null;
     const editorLayer = (
@@ -96,7 +90,7 @@ function hasPositiveSize(rect: DOMRect | null): rect is DOMRect {
     return Boolean(rect && rect.width > 0 && rect.height > 0);
 }
 
-function hasMeaningfulLayerOffset(pageRect: DOMRect, layerRect: DOMRect): boolean {
+function hasMeaningfulLayerOffset(pageRect: DOMRect, layerRect: DOMRect) {
     return Math.abs(layerRect.left - pageRect.left) > 0.5
         || Math.abs(layerRect.top - pageRect.top) > 0.5
         || Math.abs(layerRect.width - pageRect.width) > 0.5

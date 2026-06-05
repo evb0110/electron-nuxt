@@ -95,7 +95,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     return parsed;
 }
 
-export async function saveSettings(settings: ISettingsData): Promise<void> {
+export async function saveSettings(settings: ISettingsData) {
     const safeSettings = sanitizeSettings(settings);
     const storagePath = getStoragePath();
     await queueSettingsMutation(async () => {

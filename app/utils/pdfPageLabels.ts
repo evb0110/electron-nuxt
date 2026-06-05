@@ -406,7 +406,7 @@ export function derivePageLabelRangesFromLabels(pageLabels: string[] | null, tot
     return normalizePageLabelRanges(ranges, totalPages);
 }
 
-export function findPageByPageLabelInput(input: string, totalPages: number, pageLabels: string[] | null): number | null {
+export function findPageByPageLabelInput(input: string, totalPages: number, pageLabels: string[] | null) {
     const trimmed = input.trim();
     if (trimmed.length === 0) {
         return null;
@@ -435,7 +435,7 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
     return null;
 }
 
-export function getVisiblePageLabel(page: number, pageLabels: string[] | null): string | null {
+export function getVisiblePageLabel(page: number, pageLabels: string[] | null) {
     const rawLabel = pageLabels?.[page - 1] ?? '';
     const label = rawLabel.trim();
     if (!label) {
@@ -444,7 +444,7 @@ export function getVisiblePageLabel(page: number, pageLabels: string[] | null): 
     return label;
 }
 
-export function formatPageIndicator(page: number, pageLabels: string[] | null): string {
+export function formatPageIndicator(page: number, pageLabels: string[] | null) {
     return formatPageIndicatorWithOptions(page, pageLabels);
 }
 
@@ -454,7 +454,7 @@ export function formatPageIndicatorWithOptions(
     page: number,
     pageLabels: string[] | null,
     options: IPageIndicatorFormatOptions = {},
-): string {
+) {
     const logical = getVisiblePageLabel(page, pageLabels);
     if (!logical || logical === String(page)) {
         return String(page);
@@ -471,7 +471,7 @@ export function getMaxPageIndicatorLength(
     totalPages: number,
     pageLabels: string[] | null,
     options: IPageIndicatorFormatOptions = {},
-): number {
+) {
     if (totalPages <= 0) {
         return 0;
     }
@@ -488,13 +488,6 @@ export function getMaxPageIndicatorLength(
     return maxLength;
 }
 
-export interface IPageIndicatorLayoutMetrics {
-    currentWidthCh: number;
-    totalWidthCh: number;
-    separatorWidthCh: number;
-    displayWidthCh: number;
-}
-
 const PAGE_INDICATOR_MIN_TOTAL_WIDTH_CH = 3;
 
 export function getPageIndicatorLayoutMetrics(
@@ -502,7 +495,7 @@ export function getPageIndicatorLayoutMetrics(
     pageLabels: string[] | null,
     showTotal: boolean,
     options: IPageIndicatorFormatOptions = {},
-): IPageIndicatorLayoutMetrics {
+) {
     const currentMinimumWidth = showTotal ? 5 : 3;
     const currentWidthCh = Math.max(currentMinimumWidth, getMaxPageIndicatorLength(totalPages, pageLabels, options));
 
@@ -529,7 +522,7 @@ export function getPageIndicatorLayoutMetrics(
     };
 }
 
-export function isImplicitDefaultPageLabels(ranges: IPdfPageLabelRange[], totalPages: number): boolean {
+export function isImplicitDefaultPageLabels(ranges: IPdfPageLabelRange[], totalPages: number) {
     const normalizedRanges = normalizePageLabelRanges(ranges, totalPages);
     if (normalizedRanges.length !== 1) {
         return false;
@@ -593,7 +586,7 @@ export function parsePageRangeInput(input: string, totalPages: number): IPdfPage
     };
 }
 
-export function formatPageRange(range: IPdfPageRange): string {
+export function formatPageRange(range: IPdfPageRange) {
     if (range.startPage === range.endPage) {
         return String(range.startPage);
     }

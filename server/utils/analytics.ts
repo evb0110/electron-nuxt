@@ -42,11 +42,11 @@ export function extractGeo(event: H3Event): IGeoData {
     };
 }
 
-export function getAnalyticsRequestHost(event: H3Event): string {
+export function getAnalyticsRequestHost(event: H3Event) {
     return getRequestURL(event).host.trim().toLowerCase();
 }
 
-export async function hashVisitorIdentity(event: H3Event): Promise<string> {
+export async function hashVisitorIdentity(event: H3Event) {
     const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
     const ua = getHeader(event, 'user-agent') ?? '';
     const dailySalt = new Date().toISOString().slice(0, 10);
@@ -59,7 +59,7 @@ export async function hashVisitorIdentity(event: H3Event): Promise<string> {
         .join('');
 }
 
-export function isAnalyticsWriteAllowed(event: H3Event): boolean {
+export function isAnalyticsWriteAllowed(event: H3Event) {
     void event;
     const env = getRuntimeEnv();
 

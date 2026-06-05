@@ -58,7 +58,7 @@ async function replaceOriginalWithValidatedTemp(
 export async function handleFileSave(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
-): Promise<boolean> {
+) {
     if (!workingPath || workingPath.trim() === '') {
         throw new Error('Invalid file path');
     }

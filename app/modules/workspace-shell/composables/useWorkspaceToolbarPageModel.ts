@@ -57,7 +57,7 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
 
     const currentPage = computed({
         get: () => optimisticPage.value,
-        set: (page: number) => {
+        set: (page) => {
             optimisticPage.value = page;
         },
     });

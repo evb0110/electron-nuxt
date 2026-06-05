@@ -22,11 +22,11 @@ interface IBuildDjvuRuntimeEnvOptions {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_UTF8_LOCALE = 'C.UTF-8';
 
-function hasExpectedDjvuResources(resourcesBase: string): boolean {
+function hasExpectedDjvuResources(resourcesBase: string) {
     return existsSync(join(resourcesBase, 'djvulibre'));
 }
 
-function getResourcesBase(): string {
+function getResourcesBase() {
     if (app.isPackaged) {
         return process.resourcesPath;
     }
@@ -40,7 +40,7 @@ function getResourcesBase(): string {
     return resolved ?? candidates[0]!;
 }
 
-function getBinaryPath(dir: string, name: string): string {
+function getBinaryPath(dir: string, name: string) {
     const ext = process.platform === 'win32' ? '.exe' : '';
     const binPath = join(dir, 'bin', `${name}${ext}`);
 
@@ -67,7 +67,7 @@ export function getDjvuToolPaths(): IDjvuToolPaths {
     };
 }
 
-function getDjvuLibDir(): string {
+function getDjvuLibDir() {
     const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
     return join(resourcesBase, 'djvulibre', platformArch, 'lib');

@@ -12,12 +12,6 @@ export interface IPdfAnnotationRefDict {
     ref: PDFRef;
 }
 
-export interface IPdfPageAnnotationContext {
-    pageView: number[];
-    pageRotation: ReturnType<typeof normalizePageRotation>;
-    annots: PDFArray;
-}
-
 export function lookupAnnotationRefDict(
     doc: PDFDocument,
     value: unknown,
@@ -52,7 +46,7 @@ export function iterateAnnotationRefDicts(
 
 export function resolvePageAnnotationContext(
     page: ReturnType<PDFDocument['getPages']>[number],
-): IPdfPageAnnotationContext | null {
+) {
     const pageView = resolvePdfPageView(page);
     if (!pageView) {
         return null;

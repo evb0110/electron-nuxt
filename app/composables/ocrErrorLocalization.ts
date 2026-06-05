@@ -17,8 +17,6 @@ export const OCR_ERROR_MESSAGE_KEYS = [
 
 export type TOcrErrorFallbackKey = (typeof OCR_ERROR_MESSAGE_KEYS)[number];
 
-export interface IOcrErrorLocalizer { localizeOcrError: (errorValue: unknown, fallbackKey: TOcrErrorFallbackKey) => string; }
-
 function normalizeOcrErrorMessage(message: string) {
     return message.replace(REMOTE_METHOD_PREFIX_RE, '').trim();
 }
@@ -31,7 +29,7 @@ function truncateOcrErrorDetails(message: string) {
     return `${trimmed.slice(0, 237)}...`;
 }
 
-export const useOcrErrorLocalizer = (): IOcrErrorLocalizer => {
+export const useOcrErrorLocalizer = () => {
     const { t } = useTypedI18n();
 
     function isKnownLocalizedOcrError(message: string) {

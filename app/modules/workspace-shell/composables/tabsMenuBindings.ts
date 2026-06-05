@@ -252,10 +252,10 @@ export function registerTabsMenuBindings(
 
     const cleanups = [
         ...registerDocumentMenuActions(api.documents, deps, runMenuAction),
-        api.documents?.onMenuOpenRecentFile?.((path: TDocumentRef) => {
+        api.documents?.onMenuOpenRecentFile?.((path) => {
             enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
-        api.documents?.onMenuOpenExternalPaths?.((paths: TDocumentRef[]) => {
+        api.documents?.onMenuOpenExternalPaths?.((paths) => {
             enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
         }),
         api.documents?.onMenuClearRecentFiles?.(() => {

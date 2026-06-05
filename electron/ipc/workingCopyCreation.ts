@@ -32,7 +32,7 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('working-copy');
 
-export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number): Promise<string> {
+export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number) {
     const workDir = createWorkingDirectory();
     try {
         const fileName = basename(originalPath);
@@ -55,7 +55,7 @@ export async function createWorkingCopyFromPath(
     sourcePath: TOpenPath,
     originalPath?: string,
     ownerWebContentsId?: number,
-): Promise<string> {
+) {
     const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
         : sourcePath;
@@ -88,7 +88,7 @@ export async function createWorkingCopyFromData(
     data: Uint8Array,
     originalPath?: string,
     ownerWebContentsId?: number,
-): Promise<string> {
+) {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
         : null;

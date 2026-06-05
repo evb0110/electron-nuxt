@@ -188,7 +188,7 @@ async function runDjvuConversionJobWithSlot<T>(
     }
 }
 
-async function requestDjvuCancel(jobId: string): Promise<boolean> {
+async function requestDjvuCancel(jobId: string) {
     const normalizedJobId = typeof jobId === 'string' ? jobId.trim() : '';
     if (!normalizedJobId) {
         return false;
@@ -291,7 +291,7 @@ async function embedPdfBookmarks(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-): Promise<void> {
+) {
     if (bookmarks.length === 0) {
         return;
     }

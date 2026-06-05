@@ -85,7 +85,7 @@ const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
 
 let runtimeTessdataSeedPromise: Promise<void> | null = null;
 
-function getElectronUserDataPath(): string {
+function getElectronUserDataPath() {
     const appName = 'EVB Viewer';
     if (process.platform === 'win32') {
         return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), appName);
@@ -132,7 +132,7 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function getErrorCode(error: unknown): string | null {
+function getErrorCode(error: unknown) {
     const visited = new Set<unknown>();
     let current: unknown = error;
 
