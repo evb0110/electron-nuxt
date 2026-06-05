@@ -26,6 +26,22 @@ import {
     shouldRefreshWorkingCopyAfterSaveAs,
 } from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
+import {
+    appendHistoryEntry,
+    type IByteHistoryEntry,
+    type IPathHistoryEntry,
+    type TPdfHistoryEntry,
+} from '@app/composables/pdfFileHistory';
+import {
+    readPdfConformanceProfile,
+    shouldForcePdfSaveAs,
+} from '@app/composables/pdfFileConformance';
+import {
+    createFailedPdfPersistResult,
+    createPdfPersistResult,
+    savePdfBytesAs,
+    savePdfBytesToWorkingCopy,
+} from '@app/composables/pdfFilePersistence';
 
 interface IOpenBatchProgressState {
     processed: number;
@@ -35,94 +51,7 @@ interface IOpenBatchProgressState {
     estimatedRemainingMs: number | null;
 }
 
-interface IByteHistoryEntry {
-    kind: 'bytes';
-    snapshot: Uint8Array;
-}
-
-interface IPathHistoryEntry {
-    kind: 'path';
-    path: TDocumentRef;
-    size: number;
-    originalPath: TDocumentRef | null;
-}
-
-type TPdfHistoryEntry = IByteHistoryEntry | IPathHistoryEntry;
-
-interface IAppendHistoryResult {
-    history: TPdfHistoryEntry[];
-    historyIndex: number;
-    historyCleanIndex: number;
-}
-
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
-
-function getHistoryBytes(entries: readonly TPdfHistoryEntry[]) {
-    return entries.reduce(
-        (total, entry) => total + (entry.kind === 'bytes' ? entry.snapshot.byteLength : 0),
-        0,
-    );
-}
-
-function trimHistoryByLimits(
-    entries: readonly TPdfHistoryEntry[],
-    limits: {
-        maxEntries: number;
-        maxBytes: number;
-    },
-) {
-    const entryTrimmedHistory = entries.slice(-limits.maxEntries);
-    let totalBytes = getHistoryBytes(entryTrimmedHistory);
-    const byteTrimmedHistory = [...entryTrimmedHistory];
-
-    while (byteTrimmedHistory.length > 1 && totalBytes > limits.maxBytes) {
-        const [firstEntry] = byteTrimmedHistory;
-        totalBytes -= firstEntry?.kind === 'bytes' ? firstEntry.snapshot.byteLength : 0;
-        byteTrimmedHistory.shift();
-    }
-
-    return {
-        history: byteTrimmedHistory,
-        removedFromStart: entries.length - byteTrimmedHistory.length,
-    };
-}
-
-function appendHistoryEntry(state: {
-    history: readonly TPdfHistoryEntry[];
-    historyIndex: number;
-    historyCleanIndex: number;
-}, entry: TPdfHistoryEntry, limits: {
-    maxEntries: number;
-    maxBytes: number;
-}): IAppendHistoryResult {
-    if (state.history.length === 0) {
-        return {
-            history: [entry],
-            historyIndex: 0,
-            historyCleanIndex: 0,
-        };
-    }
-
-    const appendedHistory = [
-        ...state.history.slice(0, state.historyIndex + 1),
-        entry,
-    ];
-    const trimmed = trimHistoryByLimits(appendedHistory, limits);
-    const cleanIndexBeforeTrim = state.historyCleanIndex > state.historyIndex
-        ? -1
-        : state.historyCleanIndex;
-    const historyCleanIndex = cleanIndexBeforeTrim < 0
-        ? -1
-        : trimmed.removedFromStart > cleanIndexBeforeTrim
-            ? -1
-            : cleanIndexBeforeTrim - trimmed.removedFromStart;
-
-    return {
-        history: trimmed.history,
-        historyIndex: trimmed.history.length - 1,
-        historyCleanIndex,
-    };
-}
 
 export const usePdfFile = () => {
     const analytics = useAnalytics();
@@ -711,18 +640,6 @@ export const usePdfFile = () => {
         };
     }
 
-    async function readPdfConformanceProfile(path: TDocumentRef) {
-        try {
-            return await getDocumentsCapability().analyzePdfConformance(path);
-        } catch (conformanceError) {
-            BrowserLogger.warn('pdf-file', 'Failed to analyze PDF conformance profile', {
-                path,
-                error: conformanceError,
-            });
-            return null;
-        }
-    }
-
     async function refreshPdfConformanceProfile(path: TDocumentRef | null) {
         if (!path) {
             clearPdfConformanceProfile();
@@ -877,14 +794,11 @@ export const usePdfFile = () => {
     }
 
     function shouldForceSaveAs(mode: TPdfSaveMode) {
-        if (requiresSaveAsOnFirstSave.value) {
-            return true;
-        }
-        if (!pdfConformanceProfile.value?.isSigned) {
-            return false;
-        }
-
-        return mode === 'rewrite' || mode === 'save_as_rewrite';
+        return shouldForcePdfSaveAs(
+            mode,
+            pdfConformanceProfile.value,
+            requiresSaveAsOnFirstSave.value,
+        );
     }
 
     async function shouldForceSaveAsForWorkingCopy(
@@ -1150,19 +1064,14 @@ export const usePdfFile = () => {
         didSaveAs: boolean,
         outPath: TDocumentRef | null = success && !didSaveAs ? originalPath.value : null,
     ): IPdfPersistResult {
-        return {
-            success,
-            outPath,
-            saveMode,
-            didSaveAs,
-        };
+        return createPdfPersistResult(success, saveMode, didSaveAs, outPath);
     }
 
     function createFailedPersistResult(
         saveMode: TPdfSaveMode,
         didSaveAs: boolean,
     ): IPdfPersistResult {
-        return createPersistResult(false, saveMode, didSaveAs);
+        return createFailedPdfPersistResult(saveMode, didSaveAs);
     }
 
     async function runPersistOperation(
@@ -1193,47 +1102,6 @@ export const usePdfFile = () => {
             error.value = e instanceof Error ? e.message : t('errors.file.save');
             return createFailedPersistResult(saveMode, didSaveAs);
         }
-    }
-
-    async function savePdfBytesToWorkingCopy(
-        workingPath: TDocumentRef,
-        data: Uint8Array,
-    ) {
-        const documents = getDocumentsCapability();
-        if (typeof documents.savePdfData === 'function') {
-            return documents.savePdfData(workingPath, data);
-        }
-
-        const validation = await documents.validatePdfData(data);
-        if (validation.isValid) {
-            await documents.writeFile(workingPath, data);
-            await documents.saveFile(workingPath);
-        }
-        return validation;
-    }
-
-    async function savePdfBytesAs(
-        workingPath: TDocumentRef,
-        data: Uint8Array,
-    ) {
-        const documents = getDocumentsCapability();
-        if (typeof documents.savePdfDataAs === 'function') {
-            return documents.savePdfDataAs(workingPath, data);
-        }
-
-        const validation = await documents.validatePdfData(data);
-        if (!validation.isValid) {
-            return {
-                path: null,
-                validation,
-            };
-        }
-
-        await documents.writeFile(workingPath, data);
-        return {
-            path: await documents.savePdfAs(workingPath),
-            validation,
-        };
     }
 
     async function saveFile(
