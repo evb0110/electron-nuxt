@@ -24,7 +24,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import {DOCUMENTS_EVENT_CHANNELS} from '@electron/features/documents/contract';
 import {
     openInputPaths,
-    type IOpenFileResult,
+    type TOpenFileResult,
 } from '@electron/features/documents/main/documentOpen.service';
 import {
     errorWithDetails,
@@ -41,7 +41,7 @@ function sendOpenBatchProgress(
     payload: TOpenBatchProgressPayload,
 ) {
     try {
-        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress, payload);
+        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress, payload);
     } catch (error) {
         logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
     }
@@ -60,9 +60,9 @@ async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebCont
 export async function handleOpenPdfDirect(
     event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
-): Promise<IOpenFileResult | null> {
+): Promise<TOpenFileResult | null> {
     if (typeof filePath !== 'string' || filePath.trim() === '') {
-        logger.warn('openPdfDirect received empty path');
+        logger.warn('openDocumentDirect received empty path');
         return null;
     }
 
@@ -78,10 +78,10 @@ export async function handleOpenPdfDirect(
         normalizedPath = recentOpenPath;
     }
 
-    logger.info(`openPdfDirect request: ${normalizedPath}`);
+    logger.info(`openDocumentDirect request: ${normalizedPath}`);
     try {
         const result = await openInputPaths([normalizedPath], {}, event.sender);
-        logger.info(`openPdfDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
+        logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
         logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
@@ -93,7 +93,7 @@ export async function handleOpenPdfDirectBatch(
     event: Electron.IpcMainInvokeEvent,
     filePaths: unknown,
     requestId?: string,
-): Promise<IOpenFileResult | null> {
+): Promise<TOpenFileResult | null> {
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
         return null;
     }
@@ -118,7 +118,7 @@ export async function handleOpenPdfDirectBatch(
     }
 }
 
-export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
+export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): Promise<TOpenFileResult | null> {
     const result = await showOpenDocumentDialog(event, {
         title: te('dialogs.openDocument'),
         extensions: [
@@ -141,7 +141,7 @@ export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): P
     }
 }
 
-export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
+export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent): Promise<TOpenFileResult | null> {
     const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: te('dialogs.openFolder'),
@@ -189,7 +189,7 @@ export async function handleOpenFolderDialog(event: Electron.IpcMainInvokeEvent)
     }
 }
 
-export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent): Promise<IOpenFileResult | null> {
+export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent): Promise<TOpenFileResult | null> {
     const result = await showOpenDocumentDialog(event, {
         title: te('dialogs.combineFiles'),
         extensions: [

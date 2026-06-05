@@ -1,11 +1,11 @@
 import {createOcrService} from '@electron/features/ocr/service';
 import type {
-    IIpcMainRegistrar,
+    TOcrIpcMainRegistrar,
     IOcrService,
 } from '@electron/features/ocr/ports';
 
 export function registerOcrIpcAdapter(
-    registrar: IIpcMainRegistrar,
+    registrar: TOcrIpcMainRegistrar,
     service: IOcrService = createOcrService(),
 ) {
     service.registerHandlers(registrar);

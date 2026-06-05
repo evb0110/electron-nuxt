@@ -31,8 +31,8 @@ function createViewerDocumentsCapability(api: IPlatformApi): IViewerHostApi['doc
         stat: (ref: TDocumentRef) => api.documents.statFile(ref),
         read: (ref: TDocumentRef) => api.documents.readFile(ref),
         readRange: (ref: TDocumentRef, offset: number, length: number) => api.documents.readFileRange(ref, offset, length),
-        pickDocument: () => api.documents.openPdfDialog(),
-        openRecent: (ref: TDocumentRef) => api.documents.openPdfDirect(ref),
+        pickDocument: () => api.documents.openDocumentDialog(),
+        openRecent: (ref: TDocumentRef) => api.documents.openDocumentDirect(ref),
         save: async (ref: TDocumentRef, bytes: Uint8Array) => {
             const ok = await api.documents.writeFile(ref, bytes);
             return ok ? ref : null;

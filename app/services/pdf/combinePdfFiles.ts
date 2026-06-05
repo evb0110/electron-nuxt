@@ -64,7 +64,7 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
 
     const requestId = crypto.randomUUID();
     let latestProgress: ICombinePdfProgress | null = null;
-    const stopProgress = documents.onOpenPdfDirectBatchProgress((nextProgress) => {
+    const stopProgress = documents.onOpenDocumentDirectBatchProgress((nextProgress) => {
         if (nextProgress.requestId !== requestId) {
             return;
         }
@@ -80,7 +80,7 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
     });
 
     try {
-        const result = await documents.openPdfDirectBatch(inputPaths, requestId);
+        const result = await documents.openDocumentDirectBatch(inputPaths, requestId);
         if (!result) {
             throw new Error(options.openErrorMessage);
         }

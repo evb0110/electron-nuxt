@@ -116,7 +116,7 @@ export const usePdfFile = () => {
     }
 
     async function pickFileToOpen() {
-        return getDocumentsCapability().openPdfDialog();
+        return getDocumentsCapability().openDocumentDialog();
     }
 
     async function trackOpenedDocument(
@@ -230,7 +230,7 @@ export const usePdfFile = () => {
         openBatchProgress.value = null;
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
-            const result = await getDocumentsCapability().openPdfDirect(path);
+            const result = await getDocumentsCapability().openDocumentDirect(path);
             if (!isCurrentOpenRequest(openRequestId)) {
                 if (result) {
                     return {
@@ -248,7 +248,7 @@ export const usePdfFile = () => {
                 error.value = message;
                 BrowserLogger.warn(
                     RECENT_OPEN_LOG_SECTION,
-                    'openPdfDirect returned null',
+                    'openDocumentDirect returned null',
                     { path },
                 );
                 return {
@@ -259,7 +259,7 @@ export const usePdfFile = () => {
 
             BrowserLogger.debug(
                 RECENT_OPEN_LOG_SECTION,
-                'openPdfDirect returned result',
+                'openDocumentDirect returned result',
                 {
                     path,
                     kind: result.kind,
@@ -372,7 +372,7 @@ export const usePdfFile = () => {
                 estimatedRemainingMs: null,
             };
 
-            const stopProgress = documents.onOpenPdfDirectBatchProgress(
+            const stopProgress = documents.onOpenDocumentDirectBatchProgress(
                 (progress) => {
                     if (
                         progress.requestId !== requestId
@@ -396,7 +396,7 @@ export const usePdfFile = () => {
 
             let result: TOpenFileResult | null = null;
             try {
-                result = await documents.openPdfDirectBatch(
+                result = await documents.openDocumentDirectBatch(
                     normalizedPaths,
                     requestId,
                 );

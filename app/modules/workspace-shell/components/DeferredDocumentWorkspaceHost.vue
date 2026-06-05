@@ -941,7 +941,7 @@ async function pickFileFromUi() {
                 requestAnimationFrame(() => resolve());
             });
         });
-        return await getPlatformAPI().documents.openPdfDialog();
+        return await getPlatformAPI().documents.openDocumentDialog();
     } finally {
         filePickerInFlightCount.value = Math.max(0, filePickerInFlightCount.value - 1);
     }

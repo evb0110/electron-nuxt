@@ -230,15 +230,21 @@ export function createDocumentsPreloadFileClient(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage'>,
 ): TDocumentsPreloadFileClient {
     const invoke = createTypedIpcInvoker<IDocumentsInvokeMap>(ipcRenderer);
+    const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
+    const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
+    const openDocumentDirectBatch = (paths: string[], requestId?: string) =>
+        invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId);
 
     return {
-        openPdfDialog: () => invoke(DOCUMENTS_CHANNELS.openPdfDialog),
+        openDocumentDialog,
+        openPdfDialog: openDocumentDialog,
         openCombineDialog: () => invoke(DOCUMENTS_CHANNELS.openCombineDialog),
         openFolderDialog: () => invoke(DOCUMENTS_CHANNELS.openFolderDialog),
         openImageDialog: () => invoke(DOCUMENTS_CHANNELS.openImageDialog),
-        openPdfDirect: (path: string) => invoke(DOCUMENTS_CHANNELS.openPdfDirect, path),
-        openPdfDirectBatch: (paths: string[], requestId?: string) =>
-            invoke(DOCUMENTS_CHANNELS.openPdfDirectBatch, paths, requestId),
+        openDocumentDirect,
+        openPdfDirect: openDocumentDirect,
+        openDocumentDirectBatch,
+        openPdfDirectBatch: openDocumentDirectBatch,
         savePdfAs: (workingPath: string) => invoke(DOCUMENTS_CHANNELS.savePdfAs, workingPath),
         savePdfDataAs: async (workingPath: string, data: Uint8Array) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');

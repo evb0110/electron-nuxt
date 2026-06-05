@@ -46,8 +46,8 @@ export interface IAnnotationSettings {
     highlightColor: string;
     highlightOpacity: number;
     highlightThickness: number;
-    highlightFree: boolean;
-    highlightShowAll: boolean;
+    highlightFreehandEnabled: boolean;
+    showAllHighlights: boolean;
     underlineColor: string;
     underlineOpacity: number;
     strikethroughColor: string;

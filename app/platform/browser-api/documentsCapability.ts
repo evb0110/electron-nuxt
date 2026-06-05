@@ -20,7 +20,7 @@ import {
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { createBrowserImageExportCapability } from '@app/platform/browser-api/documentsImageExportCapability';
 import { browserDocumentsMenuCapability } from '@app/platform/browser-api/documentsMenuCapability';
-import { createBrowserPageOps } from '@app/platform/browser-api/documentsPageOps';
+import { createBrowserPageOpsCapability } from '@app/platform/browser-api/documentsPageOpsCapability';
 import {
     DEFAULT_LOCALE,
     LOCALE_MESSAGES,
@@ -83,7 +83,7 @@ export function createBrowserDocumentsCapability(
         errorMessageProvider,
     });
     const imageExportCapability = createBrowserImageExportCapability();
-    const pageOpsCapability = createBrowserPageOps({
+    const pageOpsCapability = createBrowserPageOpsCapability({
         clearSearchCaches: options.clearSearchCaches,
         openInputAccept: OPEN_PDF_IMAGE_ACCEPT,
         pickFiles,

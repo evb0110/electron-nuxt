@@ -1,7 +1,7 @@
 import type {
     IDocumentsFileCapability,
     IDocumentsMenuCapability,
-    IOpenPdfDirectBatchProgress,
+    TOpenDocumentDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
 import type {
     IBeginSerializedPdfPersistenceResult,
@@ -9,11 +9,14 @@ import type {
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 
 export const DOCUMENTS_CHANNELS = {
+    openDocumentDialog: 'dialog:openPdf',
     openPdfDialog: 'dialog:openPdf',
     openCombineDialog: 'dialog:openCombine',
     openFolderDialog: 'dialog:openFolder',
     openImageDialog: 'dialog:openImage',
+    openDocumentDirect: 'dialog:openPdfDirect',
     openPdfDirect: 'dialog:openPdfDirect',
+    openDocumentDirectBatch: 'dialog:openPdfDirectBatch',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',
     registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
     allowRendererFileOpen: 'dialog:allowRendererFileOpen',
@@ -85,13 +88,14 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuOpenRecentFile: 'menu:openRecentFile',
     menuOpenExternalPaths: 'menu:openExternalPaths',
     menuClearRecentFiles: 'menu:clearRecentFiles',
+    openDocumentDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
 
 export interface IDocumentsInvokeMap {
-    [DOCUMENTS_CHANNELS.openPdfDialog]: {
+    [DOCUMENTS_CHANNELS.openDocumentDialog]: {
         args: [];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openPdfDialog']>>;
+        result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDialog']>>;
     };
     [DOCUMENTS_CHANNELS.openCombineDialog]: {
         args: [];
@@ -105,13 +109,13 @@ export interface IDocumentsInvokeMap {
         args: [];
         result: Awaited<ReturnType<IDocumentsFileCapability['openImageDialog']>>;
     };
-    [DOCUMENTS_CHANNELS.openPdfDirect]: {
+    [DOCUMENTS_CHANNELS.openDocumentDirect]: {
         args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openPdfDirect']>>;
+        result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDirect']>>;
     };
-    [DOCUMENTS_CHANNELS.openPdfDirectBatch]: {
+    [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: {
         args: [paths: string[], requestId?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openPdfDirectBatch']>>;
+        result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDirectBatch']>>;
     };
     [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: {
         args: [token: string];
@@ -293,7 +297,7 @@ export interface IDocumentsEventMap {
     [DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile]: string;
     [DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths]: string[];
     [DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles]: undefined;
-    [DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress]: IOpenPdfDirectBatchProgress;
+    [DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress]: TOpenDocumentDirectBatchProgress;
 }
 
 export type { TOpenFileResult } from '@contracts/electronApiDocuments';

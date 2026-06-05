@@ -46,7 +46,7 @@ import {
     enqueueWorkingCopyMutation,
 } from '@electron/ipc/workingCopyMutationQueue';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
-import type { IIpcMainRegistrar } from '@electron/features/page-ops/ports';
+import type { TPageOpsIpcMainRegistrar } from '@electron/features/page-ops/ports';
 
 type TOpenBatchProgressPayload = ICreatePdfFromInputPathsProgress & {requestId: string;};
 
@@ -55,7 +55,7 @@ function sendOpenBatchProgress(
     payload: TOpenBatchProgressPayload,
 ) {
     try {
-        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress, payload);
+        event.sender.send(DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress, payload);
     } catch {
         // Progress is best effort; the page operation result remains authoritative.
     }
@@ -402,7 +402,7 @@ async function handlePageOpsGetPageGeometry(
     return getPageGeometry(normalizedWorkingCopyPath, pageNumber, event.sender?.id);
 }
 
-export function registerPageOpsHandlers(registrar: IIpcMainRegistrar = ipcMain) {
+export function registerPageOpsHandlers(registrar: TPageOpsIpcMainRegistrar = ipcMain) {
     registrar.handle(PAGE_OPS_CHANNELS.delete, handlePageOpsDelete);
     registrar.handle(PAGE_OPS_CHANNELS.extract, handlePageOpsExtract);
     registrar.handle(PAGE_OPS_CHANNELS.reorder, handlePageOpsReorder);

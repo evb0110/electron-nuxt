@@ -51,7 +51,7 @@ import {
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
-import type { IIpcMainRegistrar } from '@electron/features/ocr/ports';
+import type { TOcrIpcMainRegistrar } from '@electron/features/ocr/ports';
 
 const log = createLogger('ocr-ipc');
 
@@ -368,7 +368,7 @@ async function handleOcrAcknowledgeResultFileValidated(
     }
 }
 
-export function registerOcrHandlers(registrar: IIpcMainRegistrar = ipcMain) {
+export function registerOcrHandlers(registrar: TOcrIpcMainRegistrar = ipcMain) {
     registrar.handle(OCR_CHANNELS.recognize, handleOcrRecognize);
     registrar.handle(OCR_CHANNELS.recognizeBatch, handleOcrRecognizeBatch);
     registrar.handle(OCR_CHANNELS.createSearchablePdf, handleOcrCreateSearchablePdf);
