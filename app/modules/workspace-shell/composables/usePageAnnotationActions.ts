@@ -20,31 +20,23 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import { getShapeRect } from '@app/composables/pdf/pdfShapeResize';
-import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
 import {
-    isNoteEligibleComment,
-    markerRectCenterDistance,
-} from '@app/composables/pdf/annotations/annotationRules';
+    commentsShareDeleteTarget as doCommentsShareDeleteTarget,
+    getAnnotationPageNumber,
+    isFreshEditorNoteCreationForUndo,
+    isUndoableFreshEmptyEditorNote,
+    withOpenedAnnotationNoteCreationTimestamp,
+} from '@app/modules/workspace-shell/composables/pageAnnotationNoteRules';
 import { resolveAnnotationCommentTextMarkupColor } from '@app/composables/pdf/annotations/annotationDomRemoval';
-
-const SUPPORTED_IMAGE_MIME_TYPES = [
-    'image/apng',
-    'image/avif',
-    'image/bmp',
-    'image/gif',
-    'image/jpeg',
-    'image/png',
-    'image/svg+xml',
-    'image/webp',
-    'image/x-icon',
-] as const;
-const PREFERRED_CLIPBOARD_IMAGE_TYPES = SUPPORTED_IMAGE_MIME_TYPES.filter(type => type !== 'image/svg+xml');
-const FRESH_NOTE_CREATION_UNDO_WINDOW_MS = 5_000;
-const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
+import {
+    pickPageAnnotationImageFile,
+    readPageAnnotationImageFileFromClipboard,
+} from '@app/modules/workspace-shell/composables/pageAnnotationImageFiles';
+import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/composables/pageAnnotationShapeDefaults';
 
 type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     'cancelCommentPlacement'
@@ -264,106 +256,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         return true;
     }
 
-    function mimeTypeFromPath(path: string) {
-        const normalized = path.toLowerCase();
-        if (normalized.endsWith('.apng')) {
-            return 'image/apng';
-        }
-        if (normalized.endsWith('.avif')) {
-            return 'image/avif';
-        }
-        if (normalized.endsWith('.bmp')) {
-            return 'image/bmp';
-        }
-        if (normalized.endsWith('.gif')) {
-            return 'image/gif';
-        }
-        if (normalized.endsWith('.jpeg') || normalized.endsWith('.jpg')) {
-            return 'image/jpeg';
-        }
-        if (normalized.endsWith('.png')) {
-            return 'image/png';
-        }
-        if (normalized.endsWith('.svg') || normalized.endsWith('.svgz')) {
-            return 'image/svg+xml';
-        }
-        if (normalized.endsWith('.webp')) {
-            return 'image/webp';
-        }
-        if (normalized.endsWith('.ico')) {
-            return 'image/x-icon';
-        }
-        return 'image/png';
-    }
-
-    function extensionForMimeType(mimeType: string) {
-        switch (mimeType) {
-            case 'image/apng':
-                return 'apng';
-            case 'image/avif':
-                return 'avif';
-            case 'image/bmp':
-                return 'bmp';
-            case 'image/gif':
-                return 'gif';
-            case 'image/jpeg':
-                return 'jpg';
-            case 'image/png':
-                return 'png';
-            case 'image/webp':
-                return 'webp';
-            case 'image/x-icon':
-                return 'ico';
-            default:
-                return 'img';
-        }
-    }
-
-    async function pickImageFile() {
-        const documents = getDocumentsCapability();
-        const imagePath = await documents.openImageDialog();
-        if (!imagePath) {
-            return null;
-        }
-
-        try {
-            const bytes = await documents.readFile(imagePath);
-            const fileBytes = Uint8Array.from(bytes);
-            const mimeType = mimeTypeFromPath(imagePath);
-            const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
-            return new File([fileBytes], fileName, {
-                type: mimeType,
-                lastModified: Date.now(),
-            });
-        } finally {
-            if (typeof documents.cleanupFile === 'function') {
-                await documents.cleanupFile(imagePath).catch(() => {});
-            }
-        }
-    }
-
-    async function readImageFileFromClipboard() {
-        if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.read !== 'function') {
-            return null;
-        }
-
-        const items = await globalThis.navigator.clipboard.read();
-        for (const item of items) {
-            const mimeType = PREFERRED_CLIPBOARD_IMAGE_TYPES.find(type => item.types.includes(type));
-            if (!mimeType) {
-                continue;
-            }
-
-            const blob = await item.getType(mimeType);
-            return new File([blob], `clipboard-image.${extensionForMimeType(mimeType)}`, {
-                type: mimeType,
-                lastModified: Date.now(),
-            });
-        }
-
-        return null;
-    }
-
     async function handleCommentSelection() {
         if (!pdfViewerRef.value) {
             return;
@@ -437,113 +329,21 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         dragMode.value = false;
     }
 
-    function withOpenedAnnotationNoteCreationTimestamp(comment: IAnnotationCommentSummary) {
-        if (comment.source !== 'editor' || comment.createdAt || comment.modifiedAt) {
-            return comment;
-        }
-        return {
-            ...comment,
-            createdAt: Date.now(),
-        };
-    }
-
-    function getAnnotationPageNumber(comment: IAnnotationCommentSummary) {
-        const pageNumber = Number.isFinite(comment.pageNumber)
-            ? comment.pageNumber
-            : comment.pageIndex + 1;
-        return Math.max(1, Math.round(pageNumber));
-    }
-
     function invalidateAnnotationPage(comment: IAnnotationCommentSummary) {
         const page = getAnnotationPageNumber(comment);
         pdfViewerRef.value?.invalidatePages([page]);
         invalidateThumbnailPages?.([page]);
     }
 
-    function hasOpenAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
-        return annotationNoteWindows.value.some(note => commentsShareDeleteTarget(note.comment, comment));
-    }
-
-    function isFreshEditorNoteCreationForUndo(
-        originalComment: IAnnotationCommentSummary,
-        noteComment: IAnnotationCommentSummary,
-        wasAlreadyOpen: boolean,
-    ) {
-        if (
-            wasAlreadyOpen
-            || originalComment.source !== 'editor'
-            || noteComment.source !== 'editor'
-            || !isNoteEligibleComment(noteComment)
-            || noteComment.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length > 0
-        ) {
-            return false;
-        }
-
-        const timestamp = noteComment.createdAt ?? noteComment.modifiedAt;
-        return typeof timestamp === 'number'
-            && Number.isFinite(timestamp)
-            && Math.abs(Date.now() - timestamp) <= FRESH_NOTE_CREATION_UNDO_WINDOW_MS;
-    }
-
-    function isUndoableFreshEmptyEditorNote(note: {
-        comment: IAnnotationCommentSummary;
-        text?: string | undefined;
-        createdAtMs?: number | undefined;
-    }) {
-        const { comment } = note;
-        const noteText = typeof note.text === 'string' ? note.text : comment.text;
-        if (
-            comment.source !== 'editor'
-            || !isNoteEligibleComment(comment)
-            || noteText.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length > 0
-        ) {
-            return false;
-        }
-
-        const timestamp = comment.createdAt ?? comment.modifiedAt ?? note.createdAtMs;
-        return (
-            typeof timestamp !== 'number'
-            || !Number.isFinite(timestamp)
-            || Math.abs(Date.now() - timestamp) <= FRESH_NOTE_CREATION_UNDO_WINDOW_MS
-        );
-    }
-
     function commentsShareDeleteTarget(
         left: IAnnotationCommentSummary,
         right: IAnnotationCommentSummary,
     ) {
-        if (left.stableKey && left.stableKey === right.stableKey) {
-            return true;
-        }
-        if (isSameAnnotationComment(left, right)) {
-            return true;
-        }
-        if (left.pageIndex !== right.pageIndex) {
-            return false;
-        }
-        if (left.annotationId && left.annotationId === right.annotationId) {
-            return true;
-        }
-        if (left.uid && left.uid === right.uid) {
-            return true;
-        }
-        if (left.id && left.id === right.id && left.source === right.source) {
-            return true;
-        }
-        if (!isNoteEligibleComment(left) || !isNoteEligibleComment(right)) {
-            return false;
-        }
+        return doCommentsShareDeleteTarget(left, right, isSameAnnotationComment);
+    }
 
-        const leftText = left.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim();
-        const rightText = right.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim();
-        const sameText = leftText.length > 0 && leftText === rightText;
-        const closePlacement = markerRectCenterDistance(left.markerRect, right.markerRect) < 0.035;
-        const oneHasStableEditorRef = Boolean(left.annotationId || left.uid) !== Boolean(right.annotationId || right.uid);
-        return (
-            sameText && (closePlacement || oneHasStableEditorRef)
-        ) || (
-            closePlacement && oneHasStableEditorRef
-        );
+    function hasOpenAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
+        return annotationNoteWindows.value.some(note => commentsShareDeleteTarget(note.comment, comment));
     }
 
     function getAnnotationCommentsSnapshot() {
@@ -914,78 +714,17 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    function updateShapeColorDefault(
-        settings: IAnnotationSettings,
-        isInkShape: boolean,
-        color: string | null | undefined,
-    ) {
-        if (typeof color !== 'string' || !color.trim()) {
-            return false;
-        }
-        if (isInkShape) {
-            settings.inkColor = color;
-        } else {
-            settings.shapeColor = color;
-        }
-        return true;
-    }
-
-    function updateShapeStrokeWidthDefault(
-        settings: IAnnotationSettings,
-        isInkShape: boolean,
-        strokeWidth: number | null | undefined,
-    ) {
-        if (typeof strokeWidth !== 'number' || !Number.isFinite(strokeWidth)) {
-            return false;
-        }
-        if (isInkShape) {
-            settings.inkThickness = strokeWidth;
-        } else {
-            settings.shapeStrokeWidth = strokeWidth;
-        }
-        return true;
-    }
-
-    function updateShapeOpacityDefault(
-        settings: IAnnotationSettings,
-        isInkShape: boolean,
-        opacity: number | null | undefined,
-    ) {
-        if (typeof opacity !== 'number' || !Number.isFinite(opacity)) {
-            return false;
-        }
-        if (isInkShape) {
-            settings.inkOpacity = opacity;
-        } else {
-            settings.shapeOpacity = opacity;
-        }
-        return true;
-    }
-
-    function updateShapeFillColorDefault(
-        settings: IAnnotationSettings,
-        fillColor: string | null | undefined,
-    ) {
-        settings.shapeFillColor = fillColor ?? 'transparent';
-        return true;
-    }
-
     function updateShapeDefaultSettings(
         updates: Partial<IShapeAnnotation>,
-        isInkShape: boolean,
+        isInkShape: boolean | undefined,
     ) {
-        const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
-        const didUpdateDefaults = [
-            updateShapeColorDefault(nextSettings, isInkShape, updates.color),
-            updateShapeStrokeWidthDefault(nextSettings, isInkShape, updates.strokeWidth),
-            updateShapeOpacityDefault(nextSettings, isInkShape, updates.opacity),
-            'fillColor' in updates
-                ? updateShapeFillColorDefault(nextSettings, updates.fillColor)
-                : false,
-        ].some(Boolean);
-
-        if (didUpdateDefaults) {
-            annotationSettings.value = nextSettings;
+        const nextDefaults = resolveShapeAnnotationDefaultSettings(
+            annotationSettings.value,
+            updates,
+            isInkShape,
+        );
+        if (nextDefaults.didUpdate) {
+            annotationSettings.value = nextDefaults.settings;
         }
     }
 
@@ -1126,7 +865,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
 
         closeAnnotationContextMenu();
-        const file = await pickImageFile();
+        const file = await pickPageAnnotationImageFile();
         if (!file) {
             return;
         }
@@ -1150,7 +889,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
 
         try {
-            const file = await readImageFileFromClipboard();
+            const file = await readPageAnnotationImageFileFromClipboard();
             if (!file) {
                 return;
             }

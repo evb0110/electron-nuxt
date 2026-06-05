@@ -102,10 +102,32 @@ import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createHiddenAnnotationOperationsFilter } from '@app/composables/pdf/pdfHiddenAnnotationOperations';
-import { drawAnnotationCommentTextMarkupCanvasVisual } from '@app/composables/pdf/annotations/annotationDomRemoval';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/editedTextMarkupCanvasSuppression';
-import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import {
+    createEditedTextMarkupThumbnailVisualSignature,
+    createHiddenAnnotationIdsSignature,
+    drawEditedTextMarkupThumbnailVisuals,
+    getEditedTextMarkupThumbnailComments,
+    getEditedTextMarkupThumbnailSuppressionIds,
+} from '@app/components/pdf/pdfThumbnailTextMarkupVisuals';
+import {
+    DEFAULT_THUMBNAIL_ITEM_HEIGHT,
+    VIRTUAL_OVERSCAN,
+    createThumbnailCanvasStyle,
+    createThumbnailItemStyle,
+    getMaxThumbnailScrollTop,
+    getThumbnailComfortPaddingPx,
+    isThumbnailPageWithinComfortViewport,
+    isValidThumbnailAspectRatio,
+    resolveCurrentPageThumbnailScrollTop,
+    resolvePageAtScrollOffset as resolvePageAtThumbnailScrollOffset,
+    resolveThumbnailContentHeight,
+    resolveThumbnailInsertionIndex,
+    resolveThumbnailItemHeightFromAspect,
+    resolveThumbnailItemHeights,
+    resolveThumbnailPageBounds,
+    resolveThumbnailPageTops,
+    type IThumbnailLayoutSnapshot,
+} from '@app/components/pdf/pdfThumbnailLayout';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -123,20 +145,11 @@ interface IProps {
     isActive?: boolean | undefined;
 }
 
-const THUMBNAIL_GAP = 8;
-const DEFAULT_THUMBNAIL_ITEM_HEIGHT = 220;
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
-const THUMBNAIL_ITEM_VERTICAL_PADDING = 8;
-const THUMBNAIL_ITEM_CONTENT_GAP = 4;
-const THUMBNAIL_NUMBER_LINE_HEIGHT = 16;
-const THUMBNAIL_CANVAS_BORDER_WIDTH = 2;
-const VIRTUAL_OVERSCAN = 8;
 const THUMBNAIL_RENDER_CONCURRENCY = 2;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
 const MAX_THUMBNAIL_OUTPUT_SCALE = 2;
-const AUTO_SYNC_COMFORT_PADDING_MIN_PX = 16;
-const AUTO_SYNC_COMFORT_PADDING_MAX_PX = 48;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
 const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 const AUTO_SYNC_LAYOUT_RETRY_COUNT = 4;
@@ -207,58 +220,19 @@ const selectionFocusPage = ref<number | null>(null);
 
 const multiSelection = useMultiSelection<number>();
 const selectedPagesSet = computed(() => new Set(selectedPages ?? []));
-const editedTextMarkupComments = computed(() => (annotationComments ?? []).filter(comment => (
-    comment.colorEdited === true
-    && Boolean(comment.color)
-    && Boolean(comment.markerRect)
-    && isTextMarkupSubtype(comment.subtype)
-)));
-const hiddenAnnotationIdSet = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
+const editedTextMarkupComments = computed(() => getEditedTextMarkupThumbnailComments(annotationComments ?? []));
+const hiddenAnnotationIdSet = computed(() => getEditedTextMarkupThumbnailSuppressionIds(
     annotationComments ?? [],
     hiddenAnnotationIds ?? [],
 ));
-const hiddenAnnotationIdsSignature = computed(() => (
-    [...hiddenAnnotationIdSet.value].sort((left, right) => left.localeCompare(right)).join('\u0000')
+const hiddenAnnotationIdsSignature = computed(() => createHiddenAnnotationIdsSignature(hiddenAnnotationIdSet.value));
+const editedTextMarkupVisualSignature = computed(() => createEditedTextMarkupThumbnailVisualSignature(
+    editedTextMarkupComments.value,
+    annotationSettings,
 ));
-const editedTextMarkupVisualSignature = computed(() => editedTextMarkupComments.value
-    .map((comment) => [
-        comment.stableKey,
-        comment.annotationId ?? '',
-        comment.pageNumber,
-        comment.subtype ?? '',
-        comment.color ?? '',
-        (comment.subtype ?? '').trim().toLowerCase() === 'highlight'
-            ? annotationSettings?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity
-            : '',
-        comment.markerRect?.left ?? '',
-        comment.markerRect?.top ?? '',
-        comment.markerRect?.width ?? '',
-        comment.markerRect?.height ?? '',
-    ].join('\u0001'))
-    .sort((left, right) => left.localeCompare(right))
-    .join('\u0000'));
-
-function isValidAspectRatio(value: number | null | undefined): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
-
-function resolveThumbnailItemHeightFromAspect(
-    aspectRatio: number | null | undefined,
-    renderWidth = thumbnailRenderWidth.value,
-) {
-    if (!isValidAspectRatio(aspectRatio)) {
-        return DEFAULT_THUMBNAIL_ITEM_HEIGHT;
-    }
-
-    return resolveThumbnailItemHeightFromCanvasHeight(renderWidth * aspectRatio);
-}
 
 function getThumbnailAspectRatio(page: number) {
     return thumbnailAspectRatios.value[page - 1] ?? null;
-}
-
-function getThumbnailItemHeight(page: number) {
-    return thumbnailItemHeights.value[page - 1] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
 }
 
 function getThumbnailTop(page: number) {
@@ -266,37 +240,26 @@ function getThumbnailTop(page: number) {
 }
 
 const thumbnailItemHeights = computed(() => {
-    if (totalPages <= 0) {
-        return [] as number[];
-    }
-
-    return Array.from({length: totalPages}, (_, index) =>
-        resolveThumbnailItemHeightFromAspect(thumbnailAspectRatios.value[index]),
+    return resolveThumbnailItemHeights(
+        totalPages,
+        thumbnailAspectRatios.value,
+        thumbnailRenderWidth.value,
     );
 });
 
 const thumbnailPageTops = computed(() => {
-    const tops: number[] = [];
-    let offset = 0;
-    for (let index = 0; index < thumbnailItemHeights.value.length; index += 1) {
-        tops[index] = offset;
-        offset += (thumbnailItemHeights.value[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT);
-        if (index < thumbnailItemHeights.value.length - 1) {
-            offset += THUMBNAIL_GAP;
-        }
-    }
-    return tops;
+    return resolveThumbnailPageTops(thumbnailItemHeights.value);
 });
 
 const thumbnailContentHeight = computed(() => {
-    if (totalPages <= 0) {
-        return 0;
-    }
-    const lastPage = totalPages;
-    return getThumbnailTop(lastPage) + getThumbnailItemHeight(lastPage);
+    return resolveThumbnailContentHeight(
+        totalPages,
+        thumbnailPageTops.value,
+        thumbnailItemHeights.value,
+    );
 });
 
-const thumbnailLayoutSnapshot = computed(() => ({
+const thumbnailLayoutSnapshot = computed<IThumbnailLayoutSnapshot>(() => ({
     tops: thumbnailPageTops.value,
     heights: thumbnailItemHeights.value,
     totalHeight: thumbnailContentHeight.value,
@@ -306,36 +269,11 @@ function resolvePageAtScrollOffset(
     offset: number,
     layout = thumbnailLayoutSnapshot.value,
 ) {
-    if (totalPages <= 0) {
-        return null;
-    }
-
-    const safeOffset = Math.max(0, offset);
-    for (let index = 0; index < totalPages; index += 1) {
-        const top = layout.tops[index] ?? 0;
-        const height = layout.heights[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
-        if (safeOffset < top + height + THUMBNAIL_GAP) {
-            return index + 1;
-        }
-    }
-
-    return totalPages;
+    return resolvePageAtThumbnailScrollOffset(offset, totalPages, layout);
 }
 
 function resolveInsertionIndex(offset: number) {
-    if (totalPages <= 0) {
-        return 0;
-    }
-
-    for (let index = 0; index < totalPages; index += 1) {
-        const top = thumbnailPageTops.value[index] ?? 0;
-        const height = thumbnailItemHeights.value[index] ?? DEFAULT_THUMBNAIL_ITEM_HEIGHT;
-        if (offset < top + height / 2) {
-            return index;
-        }
-    }
-
-    return totalPages;
+    return resolveThumbnailInsertionIndex(offset, totalPages, thumbnailLayoutSnapshot.value);
 }
 
 const visibleStartIndex = computed(() => {
@@ -381,14 +319,11 @@ const virtualWrapperStyle = computed(() => {
 });
 
 function getThumbnailCanvasStyle(page: number) {
-    const aspectRatio = getThumbnailAspectRatio(page);
-    return aspectRatio && aspectRatio > 0
-        ? {aspectRatio: `1 / ${aspectRatio}`}
-        : {};
+    return createThumbnailCanvasStyle(getThumbnailAspectRatio(page));
 }
 
 function getThumbnailStyle(page: number) {
-    return {transform: `translateY(${getThumbnailTop(page)}px)`};
+    return createThumbnailItemStyle(getThumbnailTop(page));
 }
 
 function getThumbnailRenderKey(page: number) {
@@ -641,14 +576,6 @@ function clearVisibleThumbnailCanvases(pages: number[] | null = null) {
     }
 }
 
-function resolveThumbnailItemHeightFromCanvasHeight(canvasHeight: number) {
-    return Math.ceil(canvasHeight)
-        + THUMBNAIL_ITEM_VERTICAL_PADDING
-        + THUMBNAIL_ITEM_CONTENT_GAP
-        + THUMBNAIL_NUMBER_LINE_HEIGHT
-        + THUMBNAIL_CANVAS_BORDER_WIDTH;
-}
-
 function updateThumbnailAspectRatioForPage(
     page: number,
     viewportWidth: number,
@@ -683,7 +610,10 @@ function updateThumbnailAspectRatioForPage(
         page,
         previousAspectRatio: previousAspectRatio === null ? null : roundMetric(previousAspectRatio),
         nextAspectRatio: roundMetric(nextAspectRatio),
-        itemHeight: roundMetric(resolveThumbnailItemHeightFromAspect(nextAspectRatio)),
+        itemHeight: roundMetric(resolveThumbnailItemHeightFromAspect(
+            nextAspectRatio,
+            thumbnailRenderWidth.value,
+        )),
         currentPage: currentPage,
         totalPages: totalPages,
         ...data,
@@ -752,30 +682,10 @@ function isThumbnailPaneActive() {
 
 function isThumbnailLayoutStabilizing() {
     return (
-        thumbnailAspectRatios.value.every(aspectRatio => !isValidAspectRatio(aspectRatio))
+        thumbnailAspectRatios.value.every(aspectRatio => !isValidThumbnailAspectRatio(aspectRatio))
         || measurementState !== 'ready'
         || renderedCanvases.size === 0
     );
-}
-
-function getComfortPaddingPx(container: HTMLElement) {
-    return Math.min(
-        AUTO_SYNC_COMFORT_PADDING_MAX_PX,
-        Math.max(
-            AUTO_SYNC_COMFORT_PADDING_MIN_PX,
-            Math.round(container.clientHeight * 0.12),
-        ),
-    );
-}
-
-function getPageBounds(page: number) {
-    const top = Math.max(0, getThumbnailTop(page));
-    const height = Math.max(1, getThumbnailItemHeight(page));
-    return {
-        top,
-        bottom: top + height,
-        height,
-    };
 }
 
 function clampPage(page: number) {
@@ -823,7 +733,7 @@ function preserveVisibleAnchorAfterThumbnailLayoutChange(
     const nextScrollTop = getThumbnailTop(anchorPage) + anchorOffset;
     return applyThumbnailScrollTop(
         container,
-        clamp(nextScrollTop, 0, getMaxScrollTop(container)),
+        clamp(nextScrollTop, 0, getMaxThumbnailScrollTop(container)),
     );
 }
 
@@ -913,60 +823,22 @@ function handleContainerKeyDown(event: KeyboardEvent) {
     scrollPageIntoKeyboardView(nextFocusPage);
 }
 
-function getMaxScrollTop(container: HTMLElement) {
-    return Math.max(0, container.scrollHeight - container.clientHeight);
-}
-
-function isPageWithinComfortViewport(container: HTMLElement, page: number) {
-    const {
-        top,
-        bottom,
-    } = getPageBounds(page);
-    const comfortPadding = getComfortPaddingPx(container);
-    const viewportTop = container.scrollTop;
-    const viewportBottom = viewportTop + container.clientHeight;
-    const comfortTop = viewportTop + comfortPadding;
-    const comfortBottom = viewportBottom - comfortPadding;
-
-    return top >= comfortTop && bottom <= comfortBottom;
-}
-
 function resolveCurrentPageSyncScrollTop(container: HTMLElement, page: number) {
-    if (container.clientHeight <= 0) {
-        return null;
-    }
-
-    const {
-        top,
-        bottom,
-        height,
-    } = getPageBounds(page);
-    const comfortPadding = getComfortPaddingPx(container);
-    const viewportTop = container.scrollTop;
-    const viewportBottom = viewportTop + container.clientHeight;
-    const comfortTop = viewportTop + comfortPadding;
-    const comfortBottom = viewportBottom - comfortPadding;
-    const maxScrollTop = getMaxScrollTop(container);
-
-    if (top >= comfortTop && bottom <= comfortBottom) {
-        return null;
-    }
-
-    if (bottom <= viewportTop || top >= viewportBottom) {
-        const centeredScrollTop = top - Math.max(0, (container.clientHeight - height) / 2);
-        return clamp(centeredScrollTop, 0, maxScrollTop);
-    }
-
-    if (top < comfortTop) {
-        return clamp(top - comfortPadding, 0, maxScrollTop);
-    }
-
-    return clamp(bottom + comfortPadding - container.clientHeight, 0, maxScrollTop);
+    return resolveCurrentPageThumbnailScrollTop(
+        container,
+        resolveThumbnailPageBounds(page, thumbnailLayoutSnapshot.value),
+    );
 }
 
 function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number) {
     const thumbnail = getThumbnailElement(page);
-    if (!thumbnail || isPageWithinComfortViewport(container, page)) {
+    if (
+        !thumbnail
+        || isThumbnailPageWithinComfortViewport(
+            container,
+            resolveThumbnailPageBounds(page, thumbnailLayoutSnapshot.value),
+        )
+    ) {
         return null;
     }
 
@@ -974,7 +846,7 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
     const thumbnailRect = thumbnail.getBoundingClientRect();
     const thumbnailTop = container.scrollTop + thumbnailRect.top - containerRect.top;
     const thumbnailBottom = thumbnailTop + thumbnailRect.height;
-    const comfortPadding = getComfortPaddingPx(container);
+    const comfortPadding = getThumbnailComfortPaddingPx(container);
     const scrollsTowardBottom = thumbnailBottom > (
         container.scrollTop + container.clientHeight - comfortPadding
     );
@@ -982,7 +854,7 @@ function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number
         ? thumbnailBottom + comfortPadding - container.clientHeight
         : thumbnailTop - comfortPadding;
 
-    return clamp(nextScrollTop, 0, getMaxScrollTop(container));
+    return clamp(nextScrollTop, 0, getMaxThumbnailScrollTop(container));
 }
 
 function isThumbnailElementFullyVisible(container: HTMLElement, page: number) {
@@ -1465,38 +1337,6 @@ function shouldIgnoreThumbnailRenderError(
     );
 }
 
-function resolveThumbnailTextMarkupColor(comment: IAnnotationCommentSummary) {
-    return comment.color?.trim() || null;
-}
-
-function resolveThumbnailTextMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {
-    if ((comment.subtype ?? '').trim().toLowerCase() !== 'highlight') {
-        return null;
-    }
-    return annotationSettings?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
-}
-
-function drawEditedTextMarkupThumbnailVisuals(
-    pageNum: number,
-    canvas: HTMLCanvasElement,
-    context: CanvasRenderingContext2D,
-) {
-    editedTextMarkupComments.value
-        .filter(comment => Math.floor(comment.pageNumber) === pageNum)
-        .forEach((comment) => {
-            const color = resolveThumbnailTextMarkupColor(comment);
-            if (color) {
-                drawAnnotationCommentTextMarkupCanvasVisual(
-                    canvas,
-                    context,
-                    comment,
-                    color,
-                    { highlightOpacity: resolveThumbnailTextMarkupHighlightOpacity(comment) },
-                );
-            }
-        });
-}
-
 async function renderPreparedThumbnail(
     pdfDocument: PDFDocumentProxy,
     pageNum: number,
@@ -1553,7 +1393,13 @@ async function renderPreparedThumbnail(
             && getThumbnailRenderKey(pageNum) === renderKey
             && isCanvasForRenderKey(canvas, renderKey)
         ) {
-            drawEditedTextMarkupThumbnailVisuals(pageNum, canvas, context);
+            drawEditedTextMarkupThumbnailVisuals({
+                annotationSettings,
+                canvas,
+                comments: editedTextMarkupComments.value,
+                context,
+                pageNum,
+            });
         }
         finalizeRenderedThumbnail(pageNum, canvas, renderKey);
     } finally {
@@ -1839,7 +1685,7 @@ watch(
 
         void nextTick(() => {
             updateViewportMetrics();
-            if (!isValidAspectRatio(getThumbnailAspectRatio(clampPage(currentPage || 1)))) {
+            if (!isValidThumbnailAspectRatio(getThumbnailAspectRatio(clampPage(currentPage || 1)))) {
                 void preloadThumbnailAspectRatio(doc, renderRunId);
                 return;
             }
