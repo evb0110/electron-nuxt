@@ -410,6 +410,11 @@ import type {
 import { getAgentAssistantPanelView } from '@app/components/agent/agentAssistantPanelState';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getPlatformAPI } from '@app/utils/platform';
+import {
+    defaultDocument,
+    defaultWindow,
+    useEventListener,
+} from '@vueuse/core';
 
 const {
     activeDocumentName = null,
@@ -946,19 +951,17 @@ watch(() => chatScope?.key ?? null, () => {
 let unsubscribe: (() => void) | null = null;
 onMounted(() => {
     unsubscribe = getPlatformAPI().agent.onAssistantEvent(handleAssistantEvent);
-    window.addEventListener('focus', refreshStateAfterWindowReturn);
-    document.addEventListener('visibilitychange', refreshStateAfterWindowReturn);
-    window.addEventListener('keydown', handleExpandedImageKeydown);
     guardAsync(refreshState(), {
         scope: 'assistant',
         message: 'Failed to load assistant state',
     });
 });
 
+useEventListener(defaultWindow, 'focus', refreshStateAfterWindowReturn);
+useEventListener(defaultDocument, 'visibilitychange', refreshStateAfterWindowReturn);
+useEventListener(defaultWindow, 'keydown', handleExpandedImageKeydown);
+
 onUnmounted(() => {
-    window.removeEventListener('focus', refreshStateAfterWindowReturn);
-    document.removeEventListener('visibilitychange', refreshStateAfterWindowReturn);
-    window.removeEventListener('keydown', handleExpandedImageKeydown);
     unsubscribe?.();
     unsubscribe = null;
 });
