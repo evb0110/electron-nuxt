@@ -75,12 +75,29 @@ describe('sessionManager automation launch args', () => {
     it('lets isolated automation Nuxt servers bypass the global dev lock', () => {
         expect(buildNuxtDevServerEnv({ PATH: '/bin' }, 3123)).toEqual({
             PATH: '/bin',
+            NODE_ENV: 'development',
             PORT: '3123',
             HOST: '127.0.0.1',
             NUXT_IGNORE_LOCK: '1',
         });
 
         expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
+    });
+
+    it('does not leak Vitest worker mode into the Nuxt dev server', () => {
+        expect(buildNuxtDevServerEnv({
+            NODE_ENV: 'test',
+            VITEST: 'true',
+            VITEST_POOL_ID: '1',
+            VITEST_WORKER_ID: '1',
+            CI: 'true',
+        }, 3125)).toEqual({
+            NODE_ENV: 'development',
+            CI: 'true',
+            PORT: '3125',
+            HOST: '127.0.0.1',
+            NUXT_IGNORE_LOCK: '1',
+        });
     });
 
     it('defaults to hidden windows in non-interactive (CI) environments', () => {

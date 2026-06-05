@@ -61,8 +61,20 @@ export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
 }
 
 export function buildNuxtDevServerEnv(env: NodeJS.ProcessEnv, port: number) {
+    const launchEnv: NodeJS.ProcessEnv = {};
+    for (const [
+        key,
+        value,
+    ] of Object.entries(env)) {
+        if (key === 'VITEST' || key.startsWith('VITEST_')) {
+            continue;
+        }
+        launchEnv[key] = value;
+    }
+
     return {
-        ...env,
+        ...launchEnv,
+        NODE_ENV: 'development',
         PORT: String(port),
         HOST: '127.0.0.1',
         NUXT_IGNORE_LOCK: env.NUXT_IGNORE_LOCK ?? '1',

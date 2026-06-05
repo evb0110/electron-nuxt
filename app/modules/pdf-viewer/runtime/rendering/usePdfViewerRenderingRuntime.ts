@@ -4,7 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
+import type { IPdfjsL10n } from '@app/types/pdfjs';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import {
     usePdfPageRenderer,
@@ -28,7 +28,7 @@ interface IUsePdfViewerRenderingRuntimeOptions {
     canvasHiddenAnnotationIds?: Ref<Set<string>> | ComputedRef<Set<string>> | undefined;
     managedAnnotationIds: Ref<Set<string>> | ComputedRef<Set<string>>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
-    annotationL10n: ShallowRef<IL10n | null>;
+    annotationL10n: ShallowRef<IPdfjsL10n | null>;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     suppressSnap: () => void;
     beginSearchNavigation: (pageNumber: number) => void;

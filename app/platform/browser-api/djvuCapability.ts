@@ -148,6 +148,10 @@ function createCanvas(width: number, height: number) {
 function getCanvas2dContext(
     canvas: TDjvuCanvas,
 ): OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null {
+    if (typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement) {
+        return canvas.getContext('2d');
+    }
+
     return canvas.getContext('2d');
 }
 

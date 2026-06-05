@@ -384,7 +384,7 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
         throw new Error(`Unable to find the visible page input for page ${pageNumber}`);
     }
 
-    await session.page.mouse.click(inputPoint.x, inputPoint.y, { clickCount: 3 });
+    await session.page.mouse.click(inputPoint.x, inputPoint.y, { count: 3 });
     await session.page.keyboard.type(String(pageNumber));
     await session.page.keyboard.press('Enter');
 

@@ -57,6 +57,8 @@ type TUiManagerCommandParams = Parameters<TAnnotationEditorUIManager['addCommand
     overwriteIfSameType?: unknown;
 };
 
+interface IPdfjsAnnotationStorageCallbacks {onSetModified: (() => void) | null;}
+
 function toEditorParamValue(value: unknown): TEditorParamValue {
     return value;
 }
@@ -172,6 +174,15 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         | ((event: { details?: Partial<IAnnotationEditorState> }) => void)
         | null = null;
     let annotationStorageModifiedHandler: (() => void) | null = null;
+
+    function getAnnotationStorageCallbacks(
+        doc: PDFDocumentProxy,
+    ): IPdfjsAnnotationStorageCallbacks | null {
+        const annotationStorage = doc.annotationStorage;
+        return annotationStorage && typeof annotationStorage === 'object'
+            ? annotationStorage
+            : null;
+    }
 
     function scheduleCreatedEditorPostProcessing(task: () => void) {
         if (typeof window === 'undefined') {
@@ -356,14 +367,17 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
 
         try {
             const pdfDoc = pdfDocument.value;
+            const annotationStorage = pdfDoc
+                ? getAnnotationStorageCallbacks(pdfDoc)
+                : null;
             if (
-                pdfDoc?.annotationStorage
+                annotationStorage
                 && annotationStorageModifiedHandler
-                && pdfDoc.annotationStorage.onSetModified === annotationStorageModifiedHandler
+                && annotationStorage.onSetModified === annotationStorageModifiedHandler
             ) {
                 // Clear our callback so previous document/editor instances do not
                 // retain bridge closures after teardown.
-                pdfDoc.annotationStorage.onSetModified = undefined;
+                annotationStorage.onSetModified = null;
             }
         } catch {
             // Best-effort teardown.
@@ -704,7 +718,11 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 commentSync.scheduleAnnotationCommentsSync();
                 freeTextResize.patchResizableFreeTextEditors(uiManager);
             };
-            pdfDoc.annotationStorage.onSetModified = annotationStorageModifiedHandler;
+            const annotationStorage = getAnnotationStorageCallbacks(pdfDoc);
+            if (!annotationStorage) {
+                throw new Error('PDF.js annotation storage is unavailable');
+            }
+            annotationStorage.onSetModified = annotationStorageModifiedHandler;
         } catch (error) {
             annotationStorageModifiedHandler = null;
             BrowserLogger.warn('annotations', 'Failed to attach annotation modified handler', error);

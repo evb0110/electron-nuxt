@@ -14,22 +14,31 @@
   "dependencies": {
     "@iconify-json/circle-flags": "^1.2.10",
     "@iconify-json/ph": "^1.2.2",
-    "@iconify-json/simple-icons": "^1.2.80",
+    "@iconify-json/simple-icons": "^1.2.85",
     "@neondatabase/serverless": "^1.1.0",
-    "@nuxt/ui": "^4.7.1",
-    "@nuxtjs/i18n": "^10.3.0",
-    "@nuxtjs/sitemap": "^7.6.0",
+    "@nuxt/ui": "^4.8.2",
+    "@nuxtjs/i18n": "^10.4.0",
+    "@nuxtjs/sitemap": "^8.0.15",
     "drizzle-orm": "^0.45.2",
-    "es-toolkit": "^1.46.0",
-    "nuxt": "^4.4.2",
-    "tailwindcss": "^4.2.4"
+    "es-toolkit": "^1.47.0",
+    "nuxt": "4.4.2",
+    "tailwindcss": "^4.3.0",
+    "vue-i18n": "^11.4.4",
+    "vue-router": "^5.1.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.10",
-    "terser": "^5.46.2",
-    "typescript": "^5.9.3",
-    "vue-tsc": "^3.2.7",
+    "terser": "^5.48.0",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.3.3",
     "whatwg-fetch": "^3.6.20"
   },
-  "packageManager": "pnpm@10.32.1"
+  "packageManager": "pnpm@10.32.1",
+  "pnpm": {
+    "overrides": {
+      "@nuxt/cli": "3.35.1",
+      "@tiptap/y-tiptap": "3.0.4",
+      "@vue/compiler-sfc": "3.5.35"
+    }
+  }
 }

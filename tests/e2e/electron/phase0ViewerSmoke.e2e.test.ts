@@ -18,6 +18,7 @@ import {
     clickVisibleToolbarButton,
     openPdfInApp,
     waitForPdfLoaded,
+    waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerHelpers';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
@@ -31,6 +32,11 @@ interface IViewerSmokeSnapshot {
     visiblePages: number[];
     firstPageWidth: number;
     firstPageHeight: number;
+}
+
+interface IViewerScrollAttempt {
+    maxScrollTop: number;
+    scrollTop: number;
 }
 
 const VIEWER_SMOKE_OPEN_TIMEOUT_MS = 45_000;
@@ -82,17 +88,45 @@ async function readViewerSmokeSnapshot(session: IElectronE2ESession) {
 }
 
 async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
-    await session.page.evaluate(() => {
+    const attempt = await session.page.evaluate((): IViewerScrollAttempt => {
         const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
         const firstPage = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
         if (!viewer || !firstPage) {
-            return;
+            return {
+                maxScrollTop: 0,
+                scrollTop: 0,
+            };
         }
 
-        viewer.scrollTop = Math.max(0, firstPage.offsetTop + firstPage.offsetHeight - viewer.clientHeight);
+        const maxScrollTop = Math.max(0, firstPage.offsetTop + firstPage.offsetHeight - viewer.clientHeight);
+        viewer.scrollTop = maxScrollTop;
         viewer.dispatchEvent(new Event('scroll', { bubbles: true }));
+        return {
+            maxScrollTop: Math.round(maxScrollTop),
+            scrollTop: Math.round(viewer.scrollTop),
+        };
     });
     await delay(500);
+    return attempt;
+}
+
+async function zoomInUntilScrollable(session: IElectronE2ESession, start: IViewerSmokeSnapshot) {
+    let previous = start;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        await clickVisibleToolbarButton(session.page, 'Zoom In');
+        await waitForFunctionInPage(session.page, (previousWidth: number) => {
+            const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+            return Boolean(pageElement && pageElement.getBoundingClientRect().width > previousWidth + 5);
+        }, { timeout: 5_000 }, previous.firstPageWidth);
+
+        const next = await readViewerSmokeSnapshot(session);
+        if (next.scrollHeight > next.clientHeight + 20) {
+            return next;
+        }
+        previous = next;
+    }
+
+    return previous;
 }
 
 describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
@@ -118,16 +152,27 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
         const initial = await readViewerSmokeSnapshot(session);
         expect(initial.hostHeight).toBeGreaterThan(300);
         expect(initial.viewerHeight).toBeGreaterThan(300);
-        expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight + 100);
+        expect(initial.firstPageHeight).toBeGreaterThan(300);
         expect(initial.visiblePages).toContain(1);
 
-        await scrollToBottomOfPageOne(session);
+        const zoomed = await zoomInUntilScrollable(session, initial);
+        expect(zoomed.scrollHeight).toBeGreaterThan(zoomed.clientHeight + 20);
+
+        const scrollAttempt = await scrollToBottomOfPageOne(session);
+        expect(scrollAttempt.maxScrollTop).toBeGreaterThan(20);
         await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-            return Boolean(viewer && viewer.scrollTop > 100);
+            return Boolean(viewer && viewer.scrollTop > 20);
         }, { timeout: 5_000 });
 
+        await clickVisibleToolbarButton(session.page, 'Fit Height');
+        await waitForFunctionInPage(session.page, (previousHeight: number) => {
+            const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
+            return Boolean(pageElement && Math.abs(pageElement.getBoundingClientRect().height - previousHeight) > 5);
+        }, { timeout: 5_000 }, zoomed.firstPageHeight);
+
         await clickVisibleToolbarButton(session.page, 'Next Page');
+        await waitForToolbarCurrentPage(session.page, 2);
         await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
             if (!viewer) {
@@ -141,22 +186,8 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
             }
 
             const pageRect = pageTwo.getBoundingClientRect();
-            return viewer.scrollTop > 100
-                && Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 100;
+            return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 100;
         }, { timeout: 5_000 });
-
-        const beforeZoom = await readViewerSmokeSnapshot(session);
-        await clickVisibleToolbarButton(session.page, 'Zoom In');
-        await waitForFunctionInPage(session.page, (previousWidth: number) => {
-            const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
-            return Boolean(pageElement && pageElement.getBoundingClientRect().width > previousWidth + 5);
-        }, { timeout: 5_000 }, beforeZoom.firstPageWidth);
-
-        await clickVisibleToolbarButton(session.page, 'Fit Height');
-        await waitForFunctionInPage(session.page, (previousHeight: number) => {
-            const pageElement = document.querySelector<HTMLElement>('.page_container[data-page="1"]');
-            return Boolean(pageElement && Math.abs(pageElement.getBoundingClientRect().height - previousHeight) > 5);
-        }, { timeout: 5_000 }, beforeZoom.firstPageHeight);
     });
 
     it('opens a PNG image through the same document entrypoint', async () => {

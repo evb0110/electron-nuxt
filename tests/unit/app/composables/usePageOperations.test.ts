@@ -35,12 +35,19 @@ const reportRuntimeError = vi.fn();
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getPageOpsCapability: () => pageOpsApi,
-    getDocumentsCapability: () => ({onOpenPdfDirectBatchProgress: (callback: TBatchProgressListener) => {
-        progressListeners.add(callback);
-        return () => {
-            progressListeners.delete(callback);
+    getDocumentsCapability: () => {
+        const onOpenDocumentDirectBatchProgress = (callback: TBatchProgressListener) => {
+            progressListeners.add(callback);
+            return () => {
+                progressListeners.delete(callback);
+            };
         };
-    }}),
+
+        return {
+            onOpenDocumentDirectBatchProgress,
+            onOpenPdfDirectBatchProgress: onOpenDocumentDirectBatchProgress,
+        };
+    },
 }));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));

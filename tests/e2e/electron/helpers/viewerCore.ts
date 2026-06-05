@@ -892,7 +892,11 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
         return;
     }
 
-    await waitForToolbarCurrentPage(page, pageNumber);
+    try {
+        await waitForToolbarCurrentPage(page, pageNumber, 5_000);
+    } catch {
+        await goToPageViaToolbar(page, pageNumber);
+    }
 }
 
 async function readActiveViewerCurrentPageState(page: Page) {
@@ -962,7 +966,7 @@ export async function goToPageViaToolbar(page: Page, pageNumber: number) {
 
     await page.mouse.click(displayPoint.x, displayPoint.y);
     await page.waitForSelector('.page-controls-inline-input', { timeout: DEFAULT_TIMEOUT_MS });
-    await page.click('.page-controls-inline-input', { clickCount: 3 });
+    await page.click('.page-controls-inline-input', { count: 3 });
     await page.keyboard.type(String(pageNumber));
     await page.keyboard.press('Enter');
     await waitForToolbarCurrentPage(page, pageNumber);

@@ -107,3 +107,39 @@ export interface IPdfjsAnnotationEditorLayer extends IPdfjsEditorParent {
         data?: Record<string, unknown>,
     ) => unknown;
 }
+
+export interface IPdfjsL10n {
+    getLanguage: () => string | Promise<string>;
+    getDirection: () => 'ltr' | 'rtl' | string | Promise<'ltr' | 'rtl' | string>;
+    get: (
+        ids: unknown,
+        args?: null,
+        fallback?: unknown,
+    ) => Promise<unknown>;
+    translate: (element: unknown) => Promise<void>;
+    translateOnce?: (element: unknown) => Promise<void>;
+    destroy?: () => Promise<void>;
+    pause: () => void;
+    resume: () => void;
+}
+
+export interface IPdfjsLinkService {
+    pagesCount: number;
+    page: number;
+    rotation: number;
+    isInPresentationMode: boolean;
+    externalLinkEnabled: boolean;
+    goToDestination: (dest: string | unknown[]) => Promise<void>;
+    goToPage: (page: number | string) => void;
+    goToXY: (pageNumber: number, x: number, y: number, options?: object) => void;
+    addLinkAttributes: (
+        link: HTMLAnchorElement,
+        url: string,
+        newWindow?: boolean,
+    ) => void;
+    getDestinationHash: (dest?: string | unknown[]) => string;
+    getAnchorUrl: (hash?: string) => string;
+    setHash: (hash: string) => void;
+    executeNamedAction: (action: string) => void;
+    executeSetOCGState: (state: unknown) => void;
+}

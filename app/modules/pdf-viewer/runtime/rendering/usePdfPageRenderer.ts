@@ -5,8 +5,8 @@ import type {
     IPdfPageMetric,
     IPdfSearchMatch,
 } from '@app/types/pdf';
+import type { IPdfjsL10n } from '@app/types/pdfjs';
 import type { TDocumentRef } from '@contracts/platformApi';
-import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -60,7 +60,7 @@ export interface IUsePdfPageRendererOptions {
     outputScale?: number;
 
     annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
-    annotationL10n?: MaybeRefOrGetter<IL10n | null>;
+    annotationL10n?: MaybeRefOrGetter<IPdfjsL10n | null>;
 
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
