@@ -12,7 +12,7 @@
 - Framework preset: `Nuxt.js`
 - Build command: leave unset so Vercel uses the repo default `pnpm build`
 - Output directory: leave unset
-- Install command: leave unset unless Vercel auto-detection regresses; the default `pnpm install` is compatible with `pnpm-lock.yaml`
+- Install command: leave unset unless Vercel auto-detection regresses; the default `pnpm install` is compatible with `pnpm-lock.yaml` and `pnpm-workspace.yaml`
 - Development command: optional `pnpm dev:web`
 
 ## Notes
@@ -24,6 +24,7 @@
 - `nuxt.config.ts` writes Nitro output to `.vercel/output` for Vercel-hosted builds and local `vercel build`, which lets Vercel consume the Build Output API artifact while Electron and release flows keep using `nuxt-output/`.
 - Desktop release artifacts are intentionally written to `release/`, not `dist/`, so they cannot be mistaken for web output during Vercel deploys.
 - Local Vercel link metadata lives in `.vercel/` and is gitignored.
+- Vercel only needs the root workspace package; the separate `landing/` app has its own package manager files and deploy path.
 
 ## Suggested Dashboard Settings
 

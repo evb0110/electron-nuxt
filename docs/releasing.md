@@ -8,7 +8,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: linting, typechecking, Electron install verification, fast release-critical tests, strict current-platform build and packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, creates the matching `v*` tag, and pushes the branch update and tag atomically.
-4. The tag push triggers the GitHub [`Release`](../.github/workflows/release.yml) workflow, which reruns the focused release checks, packages, and publishes the release in one run.
+4. The tag push triggers the GitHub [`Release`](../.github/workflows/release.yml) workflow, which reruns the focused release checks, packages the main artifacts, and publishes the release in one run.
 
 ## Local guardrails
 
@@ -33,7 +33,8 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 - The release must publish as soon as the core release matrix is done: macOS arm64, Linux x64/arm64, and Windows x64/arm64.
 - The supplemental `macos-15-intel` lane is intentionally not on the critical path. It runs in parallel and attaches its ZIP to the already-published GitHub release afterward.
-- Do not move the `macos-15-intel` build back into the blocking reusable build workflow or make `Create GitHub Release` depend on it. If that happens, Intel runner slowness or flakes will delay the whole release again.
+- The supplemental Windows 7 legacy lane is best-effort only. It packages a renamed legacy installer when available and must not block the main release.
+- Do not move the `macos-15-intel` or Windows 7 legacy builds back into the blocking reusable build workflow or make `Create GitHub Release` depend on them. If that happens, supplemental runner slowness or flakes will delay the whole release again.
 
 ## Recovery flow
 
