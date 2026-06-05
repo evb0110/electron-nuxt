@@ -9,7 +9,7 @@ import {
 } from '@app/composables/pdf/annotationGeometry';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
-function makeDomRect(left: number, top: number, width: number, height: number): DOMRect {
+function makeDomRect(left: number, top: number, width: number, height: number) {
     return {
         x: left,
         y: top,

@@ -438,7 +438,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return toOpaqueHighlightDisplayColor(color, settings.highlightOpacity);
     }
 
-    function resolveHighlightOpacityForTool(settings: IAnnotationSettings, tool: TAnnotationTool): number {
+    function resolveHighlightOpacityForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
         switch (tool) {
             case 'underline':
                 return settings.underlineOpacity;

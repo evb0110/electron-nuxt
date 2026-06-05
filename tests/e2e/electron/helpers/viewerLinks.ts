@@ -57,7 +57,7 @@ export async function installOpenExternalSpy(page: Page) {
                 root.__e2eOriginalOpenExternal = electronApi.shell.openExternal.bind(electronApi.shell);
             }
 
-            electronApi.shell.openExternal = async (url: string) => {
+            electronApi.shell.openExternal = async (url) => {
                 root.__e2eOpenExternalCalls?.push(String(url));
                 return;
             };

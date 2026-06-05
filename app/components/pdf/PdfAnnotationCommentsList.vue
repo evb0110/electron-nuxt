@@ -150,8 +150,6 @@ import {
     isTextMarkupSubtype,
 } from '@app/services/pdf/annotationSubtype';
 
-type TInlineChipKind = 'solid';
-type TTextMarkupKind = 'highlight' | 'underline' | 'strikeout' | 'squiggly';
 const POINT_NOTE_MARKER_MAX_SIZE = 0.02;
 
 interface IProps {
@@ -330,7 +328,7 @@ function hasUserPreviewText(comment: IAnnotationCommentSummary) {
     return Boolean(getAnnotationCommentPreviewText(comment));
 }
 
-function textMarkupKind(comment: IAnnotationCommentSummary): TTextMarkupKind | null {
+function textMarkupKind(comment: IAnnotationCommentSummary) {
     if (!comment.color || !hasUserPreviewText(comment)) {
         return null;
     }
@@ -356,7 +354,7 @@ function textMarkupStyle(comment: IAnnotationCommentSummary) {
     return {'--note-item-marker-color': comment.color ?? 'currentcolor'};
 }
 
-function inlineChipKind(comment: IAnnotationCommentSummary): TInlineChipKind | null {
+function inlineChipKind(comment: IAnnotationCommentSummary) {
     if (!comment.color) {
         return null;
     }

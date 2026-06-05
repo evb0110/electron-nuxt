@@ -110,7 +110,7 @@ class PdfCombineWorkerStartupError extends Error {
     }
 }
 
-function assertNever(value: never): never {
+function assertNever(value: never) {
     throw new Error(`Unhandled image combine worker payload: ${JSON.stringify(value)}`);
 }
 
@@ -175,24 +175,24 @@ function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | nu
     }
 }
 
-export function isPdfPath(filePath: string): boolean {
+export function isPdfPath(filePath: string) {
     return extname(filePath).toLowerCase() === '.pdf';
 }
 
-export function isDjvuPath(filePath: string): boolean {
+export function isDjvuPath(filePath: string) {
     const extension = extname(filePath).toLowerCase();
     return extension === '.djvu' || extension === '.djv';
 }
 
-export function isPdfOrImagePath(filePath: string): boolean {
+export function isPdfOrImagePath(filePath: string) {
     return isPdfPath(filePath) || isImagePath(filePath);
 }
 
-export function isSupportedOpenPath(filePath: string): boolean {
+export function isSupportedOpenPath(filePath: string) {
     return isPdfOrImagePath(filePath) || isDjvuPath(filePath);
 }
 
-export function buildCombinedPdfOutputPath(inputPaths: string[]): string {
+export function buildCombinedPdfOutputPath(inputPaths: string[]) {
     if (inputPaths.length === 0) {
         return 'combined.pdf';
     }
@@ -249,7 +249,7 @@ async function createPdfFromInputPathsLocal(
     });
 }
 
-function canCombineInWorker(inputPaths: string[]): boolean {
+function canCombineInWorker(inputPaths: string[]) {
     return inputPaths.every((sourcePath) => {
         const extension = extname(sourcePath).toLowerCase();
         return (
@@ -258,7 +258,7 @@ function canCombineInWorker(inputPaths: string[]): boolean {
     });
 }
 
-function getCombineWorkerPath(): string {
+function getCombineWorkerPath() {
     const defaultPath = join(__dirname, COMBINE_WORKER_FILENAME);
     const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
     if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {

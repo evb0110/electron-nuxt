@@ -248,7 +248,7 @@ function formatRuntimeErrorReports() {
     return runtimeErrorReports.value.map(formatRuntimeErrorReport).join('\n\n---\n\n');
 }
 
-async function copyText(value: string): Promise<boolean> {
+async function copyText(value: string) {
     if (!import.meta.client || !isClipboardSupported.value) {
         return false;
     }

@@ -69,7 +69,7 @@ class FakeWorker {
         });
     }
 
-    public dispatchEvent(_event: Event): boolean {
+    public dispatchEvent(_event: Event) {
         return false;
     }
 

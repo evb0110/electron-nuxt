@@ -5,7 +5,7 @@ import {
 import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 
-function parsePositiveInt(value: string | undefined): number | null {
+function parsePositiveInt(value: string | undefined) {
     if (!value) {
         return null;
     }
@@ -16,14 +16,14 @@ function parsePositiveInt(value: string | undefined): number | null {
     return parsed;
 }
 
-function getCpuCount(): number {
+function getCpuCount() {
     const count = typeof availableParallelism === 'function'
         ? availableParallelism()
         : cpus().length;
     return Math.max(1, count);
 }
 
-export function getOcrConcurrency(targetCount: number): number {
+export function getOcrConcurrency(targetCount: number) {
     const configured = parsePositiveInt(process.env.OCR_CONCURRENCY);
     const safeTargetCount = Math.max(1, targetCount);
     if (configured) {
@@ -34,7 +34,7 @@ export function getOcrConcurrency(targetCount: number): number {
     return clamp(defaultConcurrency, 1, safeTargetCount);
 }
 
-export function getTesseractThreadLimit(concurrency: number): number {
+export function getTesseractThreadLimit(concurrency: number) {
     const configured = parsePositiveInt(process.env.OCR_TESSERACT_THREADS);
     if (configured) {
         return configured;
@@ -47,7 +47,7 @@ export async function forEachConcurrent<T>(
     items: T[],
     concurrency: number,
     fn: (item: T, index: number) => Promise<void>,
-): Promise<void> {
+) {
     if (items.length === 0) {
         return;
     }
@@ -60,7 +60,7 @@ export async function forEachConcurrent<T>(
 export function getSequentialProgressPage(
     pages: Array<{ pageNumber: number }>,
     processedCount: number,
-): number {
+) {
     if (pages.length === 0) {
         return 0;
     }

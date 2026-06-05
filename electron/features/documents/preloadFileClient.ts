@@ -245,8 +245,8 @@ export function createDocumentsPreloadFileClient(
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
-        savePdfAs: (workingPath: string) => invoke(DOCUMENTS_CHANNELS.savePdfAs, workingPath),
-        savePdfDataAs: async (workingPath: string, data: Uint8Array) => {
+        savePdfAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.savePdfAs, workingPath),
+        savePdfDataAs: async (workingPath, data) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
             const checkedData = assertPersistenceData(data, 'savePdfDataAs.data');
             const beginResult = await invoke(
@@ -263,20 +263,20 @@ export function createDocumentsPreloadFileClient(
 
             return streamPdfBytesToPersistencePort(ipcRenderer, beginResult.sessionId, checkedData);
         },
-        savePdfDialog: (suggestedName: string) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
-        saveDocxAs: (workingPath: string) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
-        readFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
-        statFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
-        readFileRange: (path: string, offset: number, length: number) =>
+        savePdfDialog: (suggestedName) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
+        saveDocxAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
+        readFile: (path) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
+        statFile: (path) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
+        readFileRange: (path, offset, length) =>
             invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
-        readTextFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileReadText, path),
-        fileExists: (path: string) => invoke(DOCUMENTS_CHANNELS.fileExists, path),
-        analyzePdfConformance: (path: string) =>
+        readTextFile: (path) => invoke(DOCUMENTS_CHANNELS.fileReadText, path),
+        fileExists: (path) => invoke(DOCUMENTS_CHANNELS.fileExists, path),
+        analyzePdfConformance: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfAnalyzeConformance,
                 assertAbsolutePath(path, 'analyzePdfConformance.path'),
             ),
-        validatePdfData: (data: Uint8Array, fileName?: string) =>
+        validatePdfData: (data, fileName?: string) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfValidateData,
                 assertWriteData(data, 'validatePdfData.data'),
@@ -284,12 +284,12 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'validatePdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        validatePdfPath: (path: string) =>
+        validatePdfPath: (path) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfValidatePath,
                 assertAbsolutePath(path, 'validatePdfPath.path'),
             ),
-        openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) =>
+        openPdfInDefaultAppData: (data, fileName?: string) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData,
                 assertWriteData(data, 'openPdfInDefaultAppData.data'),
@@ -297,7 +297,7 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'openPdfInDefaultAppData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        openPdfInDefaultAppPath: (path: string, fileName?: string) =>
+        openPdfInDefaultAppPath: (path, fileName?: string) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath,
                 assertAbsolutePath(path, 'openPdfInDefaultAppPath.path'),
@@ -305,7 +305,7 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'openPdfInDefaultAppPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        printPdfData: (data: Uint8Array, fileName?: string) =>
+        printPdfData: (data, fileName?: string) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfPrintData,
                 assertWriteData(data, 'printPdfData.data'),
@@ -313,7 +313,7 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'printPdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        printPdfPath: (path: string, fileName?: string, pageNumbers?: number[]) =>
+        printPdfPath: (path, fileName?: string, pageNumbers?: number[]) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfPrintPath,
                 assertAbsolutePath(path, 'printPdfPath.path'),
@@ -324,39 +324,39 @@ export function createDocumentsPreloadFileClient(
                     ? pageNumbers.map((pageNumber, index) => assertPositiveInteger(pageNumber, `printPdfPath.pageNumbers[${index}]`))
                     : undefined,
             ),
-        writeFile: (path: string, data: Uint8Array) =>
+        writeFile: (path, data) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileWrite,
                 assertAbsolutePath(path, 'writeFile.path'),
                 assertWriteData(data, 'writeFile.data'),
             ),
-        replaceWorkingCopyFromPath: (workingCopyPath: string, sourcePath: string) =>
+        replaceWorkingCopyFromPath: (workingCopyPath, sourcePath) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath,
                 assertAbsolutePath(workingCopyPath, 'replaceWorkingCopyFromPath.workingCopyPath'),
                 assertAbsolutePath(sourcePath, 'replaceWorkingCopyFromPath.sourcePath'),
             ),
-        writeDocxFile: (path: string, data: Uint8Array) =>
+        writeDocxFile: (path, data) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileWriteDocx,
                 assertAbsolutePath(path, 'writeDocxFile.path'),
                 assertWriteData(data, 'writeDocxFile.data'),
             ),
-        createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) =>
+        createWorkingCopyFromData: (fileName, data, originalPath?: string) =>
             invoke(
                 DOCUMENTS_CHANNELS.createWorkingCopyFromData,
                 assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
                 assertWriteData(data, 'createWorkingCopyFromData.data'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
             ),
-        createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) =>
+        createWorkingCopyFromPath: (sourcePath, originalPath?: string) =>
             invoke(
                 DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
                 assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
-        saveFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileSave, path),
-        savePdfData: async (path: string, data: Uint8Array) => {
+        saveFile: (path) => invoke(DOCUMENTS_CHANNELS.fileSave, path),
+        savePdfData: async (path, data) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');
             const beginResult = await invoke(
@@ -367,13 +367,13 @@ export function createDocumentsPreloadFileClient(
             const result = await streamPdfBytesToPersistencePort(ipcRenderer, beginResult.sessionId, checkedData);
             return result.validation;
         },
-        cleanupFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
-        cleanupOcrTemp: (path: string) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
-        setWindowTitle: (title: string) => invoke(DOCUMENTS_CHANNELS.windowSetTitle, title),
-        showItemInFolder: (path: string) => invoke(DOCUMENTS_CHANNELS.shellShowItemInFolder, path),
+        cleanupFile: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
+        cleanupOcrTemp: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
+        setWindowTitle: (title) => invoke(DOCUMENTS_CHANNELS.windowSetTitle, title),
+        showItemInFolder: (path) => invoke(DOCUMENTS_CHANNELS.shellShowItemInFolder, path),
         recentFiles: {
             get: () => invoke(DOCUMENTS_CHANNELS.recentFilesGet),
-            remove: (path: string) => invoke(DOCUMENTS_CHANNELS.recentFilesRemove, path),
+            remove: (path) => invoke(DOCUMENTS_CHANNELS.recentFilesRemove, path),
             clear: () => invoke(DOCUMENTS_CHANNELS.recentFilesClear),
         },
     };

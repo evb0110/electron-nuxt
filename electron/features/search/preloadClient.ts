@@ -1,6 +1,5 @@
 import type {IpcRenderer} from 'electron';
 import type {
-    IPdfSearchProgress,
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
     ISearchPreloadClient,
@@ -22,8 +21,8 @@ export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPrel
 
     return {
         run: (
-            pdfPath: string,
-            query: string,
+            pdfPath,
+            query,
             options?: IPdfSearchRequestOptions,
         ): Promise<IPdfSearchResponse> => invoke(SEARCH_CHANNELS.search, {
             pdfPath,
@@ -31,16 +30,16 @@ export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPrel
             ...options,
         }),
         warmIndex: (
-            pdfPath: string,
+            pdfPath,
             options?: IPdfSearchRequestOptions,
-        ): Promise<boolean> => invoke(SEARCH_CHANNELS.warmIndex, {
+        ) => invoke(SEARCH_CHANNELS.warmIndex, {
             pdfPath,
             ...options,
         }),
         cancel: (requestId?: string): Promise<{ canceled: boolean }> =>
             invoke(SEARCH_CHANNELS.cancel, requestId),
-        onProgress: (callback: (progress: IPdfSearchProgress) => void): (() => void) =>
+        onProgress: (callback): (() => void) =>
             eventSubscriber.onPayload(SEARCH_EVENT_CHANNELS.progress, callback),
-        resetCache: (): Promise<boolean> => invoke(SEARCH_CHANNELS.resetCache),
+        resetCache: () => invoke(SEARCH_CHANNELS.resetCache),
     };
 }

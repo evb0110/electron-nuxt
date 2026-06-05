@@ -137,7 +137,7 @@ export const usePdfScale = (
         });
     }
 
-    function computeFitWidthScale(container: HTMLElement | null): boolean {
+    function computeFitWidthScale(container: HTMLElement | null) {
         const totalPages = toValue(numPages);
         const normalizedPageMetrics = getNormalizedPageMetrics();
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');

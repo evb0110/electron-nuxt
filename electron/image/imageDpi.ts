@@ -30,7 +30,7 @@ function isPngPhysChunk(data: Uint8Array, offset: number) {
     );
 }
 
-function parsePngPhysDpi(data: Uint8Array, offset: number): number | null {
+function parsePngPhysDpi(data: Uint8Array, offset: number) {
     const xPixelsPerUnit = readUint32BE(data, offset + PNG_CHUNK_HEADER_LENGTH);
     const yPixelsPerUnit = readUint32BE(data, offset + PNG_CHUNK_HEADER_LENGTH + 4);
     const unit = data[offset + PNG_CHUNK_HEADER_LENGTH + 8]!;
@@ -61,7 +61,7 @@ function getNextPngChunk(data: Uint8Array, offset: number): IPngChunk | null {
     };
 }
 
-function readPngDpi(data: Uint8Array): number | null {
+function readPngDpi(data: Uint8Array) {
     if (data.length < PNG_SIGNATURE_LENGTH) {
         return null;
     }
@@ -131,7 +131,7 @@ function readJpegSegmentDpi(data: Uint8Array, offset: number, marker: number) {
     return readJfifDensityDpi(data, offset);
 }
 
-function readJpegDpi(data: Uint8Array): number | null {
+function readJpegDpi(data: Uint8Array) {
     if (data.length < 20 || data[0] !== 0xFF || data[1] !== 0xD8) {
         return null;
     }
@@ -162,11 +162,11 @@ interface ITiffResolutionTags {
     t296?: unknown;
 }
 
-function extractNumber(value: unknown): number | null {
+function extractNumber(value: unknown) {
     return typeof value === 'number' && value > 0 ? value : null;
 }
 
-function extractTiffRational(value: unknown): number | null {
+function extractTiffRational(value: unknown) {
     const numericValue = extractNumber(value);
     if (numericValue !== null) {
         return numericValue;
@@ -189,7 +189,7 @@ function extractTiffRational(value: unknown): number | null {
     return numerator;
 }
 
-function extractTiffUnit(value: unknown): number {
+function extractTiffUnit(value: unknown) {
     if (typeof value === 'number') {
         return value;
     }
@@ -199,7 +199,7 @@ function extractTiffUnit(value: unknown): number {
     return 2;
 }
 
-export function readTiffFrameDpi(ifd: ITiffResolutionTags): number | null {
+export function readTiffFrameDpi(ifd: ITiffResolutionTags) {
     const xRes = extractTiffRational(ifd.t282);
     const yRes = extractTiffRational(ifd.t283);
     const unit = extractTiffUnit(ifd.t296);

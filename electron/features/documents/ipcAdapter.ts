@@ -174,7 +174,7 @@ export function registerDocumentsIpcAdapter(
     register(DOCUMENTS_CHANNELS.menuSetTabCount, (event, tabCount) => service.setMenuTabCount(event, tabCount));
     register(DOCUMENTS_CHANNELS.recentFilesGet, event => service.getRecentFiles(event));
     register(DOCUMENTS_CHANNELS.recentFilesRemove, (event, originalPath) => service.removeRecentFile(event, originalPath));
-    register(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event: IpcMainInvokeEvent, token: unknown) => {
+    register(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event, token: unknown) => {
         const normalizedToken = typeof token === 'string' ? token.trim() : '';
         if (!normalizedToken) {
             return false;
@@ -189,7 +189,7 @@ export function registerDocumentsIpcAdapter(
         registerRendererFileOpenTokenCleanup(event, senderId);
         return true;
     });
-    register(DOCUMENTS_CHANNELS.allowRendererFileOpen, (event: IpcMainInvokeEvent, request: unknown) => {
+    register(DOCUMENTS_CHANNELS.allowRendererFileOpen, (event, request: unknown) => {
         const senderId = getSenderId(event);
         const filePath = isRecord(request) ? request.filePath : '';
         const token = isRecord(request) ? request.token : '';
@@ -206,11 +206,11 @@ export function registerDocumentsIpcAdapter(
     });
     register(
         DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
-        (event: IpcMainInvokeEvent, sourcePath: string, originalPath?: string) =>
+        (event, sourcePath: string, originalPath?: string) =>
             requireWorkingCopySourcePath(event, sourcePath)
                 .then(trustedSourcePath => service.createWorkingCopyFromPath(event, trustedSourcePath, originalPath)),
     );
-    register(DOCUMENTS_CHANNELS.fileCleanup, (event: IpcMainInvokeEvent, workingPath: string) => {
+    register(DOCUMENTS_CHANNELS.fileCleanup, (event, workingPath: string) => {
         service.cleanupFile(event, workingPath);
         return undefined;
     });

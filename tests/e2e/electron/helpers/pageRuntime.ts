@@ -11,7 +11,7 @@ type TSerializableValue =
 
 type TPageFunction<TResult, TArgs extends TSerializableValue[]> = (...args: TArgs) => TResult;
 
-function serializeForPage(value: TSerializableValue): string {
+function serializeForPage(value: TSerializableValue) {
     if (value === undefined) {
         return 'undefined';
     }

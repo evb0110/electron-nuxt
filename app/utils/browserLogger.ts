@@ -50,7 +50,7 @@ const THROTTLED_LOG_STATE = new Map<string, {
 }>();
 const MAX_THROTTLED_LOG_STATE_ENTRIES = 512;
 
-const configuredLogLevel: TBrowserLogLevel = (() => {
+const configuredLogLevel = (() => {
     if (typeof window === 'undefined') {
         return DEFAULT_LOG_LEVEL;
     }
@@ -86,7 +86,7 @@ function shouldDemoteWarning(section: string) {
     return DIAGNOSTIC_WARNING_SECTIONS.has(section);
 }
 
-function serializeForRendererLog(value: unknown): unknown {
+function serializeForRendererLog(value: unknown) {
     if (value === undefined) {
         return undefined;
     }
@@ -131,7 +131,7 @@ function forwardToMain(entry: IRendererLogEntry) {
     }
 }
 
-function resolveLazyValue(value: TLazyValue | undefined): unknown {
+function resolveLazyValue(value: TLazyValue | undefined) {
     return typeof value === 'function'
         ? (value as () => unknown)()
         : value;

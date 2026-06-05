@@ -126,7 +126,7 @@ function canUseWorkingCopyEntry(entry: IWorkingCopyOriginalEntry, senderWebConte
     return entry.ownerWebContentsId === undefined || entry.ownerWebContentsId === senderWebContentsId;
 }
 
-export function findWorkingCopyPathByOriginalPath(originalPath: string, senderWebContentsId?: number): string | null {
+export function findWorkingCopyPathByOriginalPath(originalPath: string, senderWebContentsId?: number) {
     const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
     if (!normalizedOriginalPath) {
         return null;

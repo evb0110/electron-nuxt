@@ -14,7 +14,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 function createContainer(
     width: number,
     height: number,
-): HTMLElement {
+) {
     return {
         clientWidth: width,
         clientHeight: height,

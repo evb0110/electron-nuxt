@@ -140,7 +140,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         return capturePdfSnapshotPayload();
     }
 
-    async function restoreSplitPayload(payload: TSplitPayload): Promise<void> {
+    async function restoreSplitPayload(payload: TSplitPayload) {
         if (payload.kind === 'empty') {
             return;
         }

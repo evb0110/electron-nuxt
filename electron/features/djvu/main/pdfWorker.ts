@@ -62,7 +62,7 @@ function getTask(): TDjvuPdfWorkerTask {
     }
 }
 
-function toTransferableBuffer(data: Uint8Array): ArrayBuffer {
+function toTransferableBuffer(data: Uint8Array) {
     if (
         data.buffer instanceof ArrayBuffer
         && data.byteOffset === 0

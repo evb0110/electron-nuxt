@@ -344,10 +344,10 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
     }
 
     return {
-        debug: (msg: string) => log('DEBUG', msg),
-        info: (msg: string) => log('INFO', msg),
-        warn: (msg: string) => log('WARN', msg),
-        error: (msg: string) => log('ERROR', msg),
+        debug: (msg) => log('DEBUG', msg),
+        info: (msg) => log('INFO', msg),
+        warn: (msg) => log('WARN', msg),
+        error: (msg) => log('ERROR', msg),
     };
 }
 

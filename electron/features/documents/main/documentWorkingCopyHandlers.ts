@@ -46,7 +46,7 @@ export async function handleCreateWorkingCopyFromData(
     fileName: string,
     data: Uint8Array,
     originalPath?: string,
-): Promise<string> {
+) {
     const normalizedName = typeof fileName === 'string' ? fileName.trim() : '';
     if (!normalizedName) {
         throw new Error('Invalid file name');
@@ -68,7 +68,7 @@ export async function handleCreateWorkingCopyFromPath(
     event: Electron.IpcMainInvokeEvent,
     sourcePath: TOpenPath,
     originalPath?: string,
-): Promise<string> {
+) {
     if (!existsSync(sourcePath)) {
         throw new Error(`File not found: ${sourcePath}`);
     }

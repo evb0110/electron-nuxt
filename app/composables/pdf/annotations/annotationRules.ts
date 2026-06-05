@@ -11,7 +11,7 @@ export function isNoteEligible(
     hasNote?: boolean,
     source?: IAnnotationCommentSummary['source'],
     text?: string,
-): boolean {
+) {
     if (hasNote === true) {
         return true;
     }
@@ -32,7 +32,7 @@ export function isNoteEligible(
     return source === 'editor' && typeof text === 'string' && text.trim().length > 0;
 }
 
-export function isNoteEligibleComment(comment: IAnnotationCommentSummary | null | undefined): boolean {
+export function isNoteEligibleComment(comment: IAnnotationCommentSummary | null | undefined) {
     if (!comment) {
         return false;
     }
@@ -42,19 +42,19 @@ export function isNoteEligibleComment(comment: IAnnotationCommentSummary | null 
 export function compareAnnotations(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
-): number {
+) {
     return compareAnnotationCommentSummaries(left, right);
 }
 
-export function isSelectionMarkupTool(tool: TAnnotationTool): boolean {
+export function isSelectionMarkupTool(tool: TAnnotationTool) {
     return tool === 'highlight' || tool === 'underline' || tool === 'strikethrough' || tool === 'squiggly';
 }
 
-export function isSelectionInteractionTool(tool: TAnnotationTool): boolean {
+export function isSelectionInteractionTool(tool: TAnnotationTool) {
     return tool === 'select';
 }
 
-export function isAuthoringAnnotationTool(tool: TAnnotationTool): boolean {
+export function isAuthoringAnnotationTool(tool: TAnnotationTool) {
     return tool !== 'none' && tool !== 'select';
 }
 
@@ -62,7 +62,7 @@ export function isShapeTool(tool: TAnnotationTool): tool is Extract<TAnnotationT
     return tool === 'draw' || tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
 }
 
-export function shouldForceTextMarkup(tool: TAnnotationTool): boolean {
+export function shouldForceTextMarkup(tool: TAnnotationTool) {
     return tool === 'underline' || tool === 'strikethrough' || tool === 'squiggly';
 }
 
@@ -75,7 +75,7 @@ export const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubt
 export function markerRectCenterDistance(
     left: IAnnotationMarkerRect | null | undefined,
     right: IAnnotationMarkerRect | null | undefined,
-): number {
+) {
     if (!left || !right) {
         return Number.POSITIVE_INFINITY;
     }

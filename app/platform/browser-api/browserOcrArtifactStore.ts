@@ -92,7 +92,7 @@ export async function writeBrowserOcrArtifactJson(
     workingCopyPath: TDocumentRef,
     relativePath: string,
     value: unknown,
-): Promise<void> {
+) {
     const db = await openBrowserOcrArtifactDb();
     if (!db) {
         return;
@@ -115,7 +115,7 @@ export async function writeBrowserOcrArtifactJson(
 
 export async function clearBrowserOcrArtifacts(
     workingCopyPath: TDocumentRef,
-): Promise<void> {
+) {
     const db = await openBrowserOcrArtifactDb();
     if (!db) {
         return;

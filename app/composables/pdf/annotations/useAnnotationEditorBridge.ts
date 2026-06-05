@@ -480,7 +480,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         };
 
         const originalKeydown = uiManager.keydown.bind(uiManager);
-        uiManager.keydown = (event: KeyboardEvent) => {
+        uiManager.keydown = (event) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }
@@ -488,7 +488,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         };
 
         const originalKeyup = uiManager.keyup.bind(uiManager);
-        uiManager.keyup = (event: KeyboardEvent) => {
+        uiManager.keyup = (event) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }
@@ -496,7 +496,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         };
 
         const originalCopy = uiManager.copy.bind(uiManager);
-        uiManager.copy = (event: ClipboardEvent) => {
+        uiManager.copy = (event) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }
@@ -504,7 +504,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         };
 
         const originalCut = uiManager.cut.bind(uiManager);
-        uiManager.cut = (event: ClipboardEvent) => {
+        uiManager.cut = (event) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }
@@ -512,7 +512,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         };
 
         const originalPaste = uiManager.paste.bind(uiManager);
-        uiManager.paste = async (event: ClipboardEvent) => {
+        uiManager.paste = async (event) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }

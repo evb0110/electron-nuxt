@@ -75,7 +75,7 @@ function emitBatchOpenProgress(
     });
 }
 
-export async function decryptBrowserWorkingCopy(workingPath: string): Promise<void> {
+export async function decryptBrowserWorkingCopy(workingPath: string) {
     try {
         const { size } = await browserDocumentStore.stat(workingPath);
         if (size > BROWSER_EAGER_DECRYPT_BYTES) {

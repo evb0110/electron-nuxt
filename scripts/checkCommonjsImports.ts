@@ -80,7 +80,7 @@ function isImportSpecifier(value: unknown): value is IImportSpecifierLike {
     return isRecord(value) && value.type === 'ImportSpecifier';
 }
 
-function getVueScriptContent(source: string): string {
+function getVueScriptContent(source: string) {
     const scriptBlocks = [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/giu)];
 
     return scriptBlocks
@@ -88,7 +88,7 @@ function getVueScriptContent(source: string): string {
         .join('\n');
 }
 
-function getParseableSource(filePath: string, source: string): string {
+function getParseableSource(filePath: string, source: string) {
     return filePath.endsWith('.vue')
         ? getVueScriptContent(source)
         : source;
@@ -117,7 +117,7 @@ async function collectSourceFiles(dirPath: string): Promise<string[]> {
     return files;
 }
 
-function getImportedName(specifier: IImportSpecifierLike): string {
+function getImportedName(specifier: IImportSpecifierLike) {
     const imported = specifier.imported;
     if (imported.type === 'Identifier') {
         return imported.name ?? '<unknown>';

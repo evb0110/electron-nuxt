@@ -210,7 +210,7 @@ export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent
     }
 }
 
-export async function handleOpenImageDialog(event: Electron.IpcMainInvokeEvent): Promise<string | null> {
+export async function handleOpenImageDialog(event: Electron.IpcMainInvokeEvent) {
     const parentWindow = getDialogParentWindow(event);
     const dialogOptions = {
         title: te('dialogs.openImage'),

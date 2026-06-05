@@ -50,7 +50,7 @@ export function usePdfSelectedShapeCommands(options: {
             return;
         }
 
-        const nextShape: IShapeAnnotation = cloneShape({
+        const nextShape = cloneShape({
             ...previousShape,
             ...updates,
         });

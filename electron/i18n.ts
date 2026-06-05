@@ -20,7 +20,7 @@ function resolveLocale(locale: string): TLocale {
         : DEFAULT_LOCALE;
 }
 
-export function te<TKey extends TTranslationKey>(path: TKey, ...args: TTeArgs<TKey>): string {
+export function te<TKey extends TTranslationKey>(path: TKey, ...args: TTeArgs<TKey>) {
     const params = normalizeTranslationParams(args[0]);
     const locale = getCurrentLocaleSync();
     const resolvedLocale = resolveLocale(locale);

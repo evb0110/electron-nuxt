@@ -61,7 +61,7 @@ function sendOpenBatchProgress(
     }
 }
 
-async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: number): Promise<string> {
+async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: number) {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
         throw new Error('Invalid working copy path');
@@ -83,11 +83,11 @@ async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: numb
     return resolvedPath;
 }
 
-async function validateQueuedWorkingCopyPath(path: string, senderWebContentsId?: number): Promise<string> {
+async function validateQueuedWorkingCopyPath(path: string, senderWebContentsId?: number) {
     return validateWorkingCopyPath(path, senderWebContentsId);
 }
 
-async function resolveWorkingCopyPath(path: unknown, senderWebContentsId?: number): Promise<string> {
+async function resolveWorkingCopyPath(path: unknown, senderWebContentsId?: number) {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
         throw new Error('Invalid working copy path');

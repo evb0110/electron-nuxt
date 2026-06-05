@@ -13,7 +13,7 @@ export function createTesseractFinalize<TResult>(
 ): TTesseractFinalize<TResult> {
     let settled = false;
 
-    return (result: TResult) => {
+    return (result) => {
         if (settled) {
             return;
         }

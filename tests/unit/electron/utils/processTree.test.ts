@@ -26,7 +26,7 @@ describePosix('terminateProcessTree (posix)', () => {
             pid: number;
             signal: NodeJS.Signals | 0 | undefined;
         }> = [];
-        const killSpy = vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
+        const killSpy = vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((pid, signal?: NodeJS.Signals | 0) => {
             killCalls.push({
                 pid,
                 signal,
@@ -55,7 +55,7 @@ describePosix('terminateProcessTree (posix)', () => {
             pid: number;
             signal: NodeJS.Signals | 0 | undefined;
         }> = [];
-        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((pid, signal?: NodeJS.Signals | 0) => {
             killCalls.push({
                 pid,
                 signal,

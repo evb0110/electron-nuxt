@@ -2,13 +2,7 @@ import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { DEFAULT_TIMEOUT_MS } from '@tests/e2e/electron/helpers/viewerDom';
 
-export interface ITabSnapshot {
-    id: string;
-    label: string;
-    isActive: boolean;
-}
-
-export async function getTabSnapshots(page: Page): Promise<ITabSnapshot[]> {
+export async function getTabSnapshots(page: Page) {
     return page.evaluate(() => {
         return Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')).map((tab) => ({
             id: tab.dataset.tabId ?? '',

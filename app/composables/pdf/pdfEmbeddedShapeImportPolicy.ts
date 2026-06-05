@@ -1,14 +1,9 @@
-export interface IEmbeddedShapeImportLoadPolicy {
-    awaitBeforeInitialRender: boolean;
-    deferUntilAfterInitialRender: boolean;
-}
-
 export const EMBEDDED_SHAPE_IMPORT_INITIAL_RENDER_MAX_BYTES = 8 * 1024 * 1024;
 
 export function resolveEmbeddedShapeImportLoadPolicy(
     sourceData: Uint8Array | null | undefined,
     workingCopyPath: string | null | undefined,
-): IEmbeddedShapeImportLoadPolicy {
+) {
     const hasSourceData = sourceData instanceof Uint8Array && sourceData.byteLength > 0;
     const hasWorkingCopyPath = typeof workingCopyPath === 'string' && workingCopyPath.trim().length > 0;
 

@@ -196,7 +196,7 @@ function parseInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
 function readRequiredPath(
     data: Record<string, unknown>,
     key: keyof IWorkerPaths,
-): string {
+) {
     const value = data[key];
     if (typeof value !== 'string' || value.trim().length === 0) {
         throw new Error(`Invalid OCR workerData.${String(key)} path`);
@@ -585,7 +585,7 @@ async function processOcrPages(
 
     sendProgress(jobId, targetPages[0]?.pageNumber ?? 0, 0, targetPages.length);
 
-    const processPageWithLimit = limitAsync(async (page: IOcrPdfPageRequest) => {
+    const processPageWithLimit = limitAsync(async (page) => {
         const result = await processOcrPage(page, context);
         processedCount += 1;
         sendProgress(

@@ -69,7 +69,7 @@ export async function sendCommand(
     command: TElectronRunCommand,
     args: unknown[] = [],
     requestTimeoutMs = COMMAND_REQUEST_TIMEOUT_MS,
-): Promise<unknown> {
+) {
     const start = Date.now();
     const waitLogger = createWaitLogger();
 

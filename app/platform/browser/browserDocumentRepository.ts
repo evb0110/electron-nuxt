@@ -168,7 +168,7 @@ export class BrowserDocumentStore {
         fileName: string,
         data: Uint8Array | ArrayBuffer,
         options: ICreateStoredDocumentOptions,
-    ): Promise<string> {
+    ) {
         await this.ensureMaintenance();
         const sourceBytes = toUint8Array(data);
         const storageMode = resolveStoredDocumentStorageMode(
@@ -235,7 +235,7 @@ export class BrowserDocumentStore {
         return ref;
     }
 
-    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string): Promise<string> {
+    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = fileName ?? sourceEntry.fileName;
         return this.createStoredDocument(nextName, new Uint8Array(), {
@@ -257,7 +257,7 @@ export class BrowserDocumentStore {
             saveKind?: IBrowserDocumentEntry['saveKind'];
             saveHandle?: FileSystemFileHandle | null;
         } = {},
-    ): Promise<string> {
+    ) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = options.fileName ?? sourceEntry.fileName;
         const nextKind = options.kind ?? sourceEntry.kind;
@@ -415,7 +415,7 @@ export class BrowserDocumentStore {
         ref: string,
         data: Uint8Array | ArrayBuffer,
         options: IWriteDocumentOptions = {},
-    ): Promise<boolean> {
+    ) {
         return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, options));
     }
 
@@ -423,7 +423,7 @@ export class BrowserDocumentStore {
         ref: string,
         data: Uint8Array | ArrayBuffer,
         options: IWriteDocumentOptions = {},
-    ): Promise<boolean> {
+    ) {
         const entry = await this.requireEntry(ref);
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)
@@ -509,16 +509,16 @@ export class BrowserDocumentStore {
         return true;
     }
 
-    public async readText(ref: string): Promise<string> {
+    public async readText(ref: string) {
         const bytes = await this.read(ref);
         return new TextDecoder().decode(bytes);
     }
 
-    public async exists(ref: string): Promise<boolean> {
+    public async exists(ref: string) {
         return (await this.ensureEntry(ref)) !== null;
     }
 
-    public async remove(ref: string): Promise<void> {
+    public async remove(ref: string) {
         await this.runRefMutation(ref, async () => {
             await this.ensureMaintenance();
             const entry = await this.ensureEntry(ref);
@@ -536,14 +536,14 @@ export class BrowserDocumentStore {
         this.entries.delete(ref);
     }
 
-    public async cleanupDetachedDocument(ref: string): Promise<boolean> {
+    public async cleanupDetachedDocument(ref: string) {
         return this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
     }
 
     private async cleanupDetachedPersistedRecord(
         ref: string,
         options?: { allowDurable?: boolean },
-    ): Promise<boolean> {
+    ) {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (!entry) {
@@ -581,7 +581,7 @@ export class BrowserDocumentStore {
         sourceRef: string,
         saveName: string,
         saveHandle?: FileSystemFileHandle | null,
-    ): Promise<void> {
+    ) {
         const workingEntry = await this.requireEntry(workingRef);
         workingEntry.sourceRef = sourceRef;
         workingEntry.saveName = saveName;
@@ -598,7 +598,7 @@ export class BrowserDocumentStore {
         saveName: string,
         saveKind: IBrowserDocumentEntry['saveKind'],
         saveHandle?: FileSystemFileHandle | null,
-    ): Promise<void> {
+    ) {
         const entry = await this.requireEntry(ref);
         entry.saveName = saveName;
         entry.saveKind = saveKind;
@@ -609,18 +609,18 @@ export class BrowserDocumentStore {
     public async setRetention(
         ref: string,
         retention: IBrowserDocumentEntry['retention'],
-    ): Promise<void> {
+    ) {
         const entry = await this.requireEntry(ref);
         entry.retention = retention;
         await persistRecord(this.toPersistedRecord(entry, entry.data, false));
     }
 
-    public async getSourceRef(ref: string): Promise<string> {
+    public async getSourceRef(ref: string) {
         const entry = await this.requireEntry(ref);
         return entry.sourceRef ?? ref;
     }
 
-    public async ensureByteBackedSource(ref: string): Promise<void> {
+    public async ensureByteBackedSource(ref: string) {
         const entry = await this.requireEntry(ref);
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             await this.ensureByteBackedSource(entry.sourceRef);
@@ -693,7 +693,7 @@ export class BrowserDocumentStore {
             saveHandle?: FileSystemFileHandle | null;
             saveName?: string;
         },
-    ): Promise<void> {
+    ) {
         const entry = await this.requireEntry(ref);
         await this.clearExternalStorage(entry);
         entry.data = new Uint8Array();
@@ -716,7 +716,7 @@ export class BrowserDocumentStore {
     public async prepareChunkedDocument(
         ref: string,
         options?: { chunkSize?: number },
-    ): Promise<void> {
+    ) {
         await this.runRefMutation(ref, async () => {
             const entry = await this.requireEntry(ref);
             await this.clearPendingChunks(entry);
@@ -731,7 +731,7 @@ export class BrowserDocumentStore {
         ref: string,
         index: number,
         data: Uint8Array,
-    ): Promise<void> {
+    ) {
         await this.runRefMutation(ref, async () => {
             const entry = await this.requireEntry(ref);
             if (!entry.pendingChunkGeneration) {
@@ -764,7 +764,7 @@ export class BrowserDocumentStore {
             chunkSize?: number;
             saveName?: string;
         },
-    ): Promise<void> {
+    ) {
         await this.runRefMutation(ref, async () => {
             const entry = await this.requireEntry(ref);
             const stagedGeneration = entry.pendingChunkGeneration;
@@ -842,7 +842,7 @@ export class BrowserDocumentStore {
         });
     }
 
-    public async clearChunkedDocument(ref: string): Promise<void> {
+    public async clearChunkedDocument(ref: string) {
         await this.runRefMutation(ref, async () => {
             const entry = await this.ensureEntry(ref);
             if (!entry) {
@@ -894,7 +894,7 @@ export class BrowserDocumentStore {
         );
     }
 
-    private async ensureMaintenance(): Promise<void> {
+    private async ensureMaintenance() {
         if (this.maintenanceComplete) {
             return;
         }
@@ -952,7 +952,7 @@ export class BrowserDocumentStore {
         );
     }
 
-    private async sweepPersistedOrphans(): Promise<void> {
+    private async sweepPersistedOrphans() {
         const records = await this.getAllPersistedRecords();
         if (records.length === 0) {
             return;
@@ -1082,7 +1082,7 @@ export class BrowserDocumentStore {
         entry: IBrowserDocumentEntry,
         file: File,
         options: { deleteRecordOnFailure?: boolean } = {},
-    ): Promise<void> {
+    ) {
         const pendingLoad = (async () => {
             if (entry.storageMode === 'chunked') {
                 const stagedLayout = await this.persistChunkGeneration(
@@ -1351,7 +1351,7 @@ export class BrowserDocumentStore {
         return output;
     }
 
-    private async loadChunk(ref: string, index: number, generation?: string): Promise<Uint8Array | null> {
+    private async loadChunk(ref: string, index: number, generation?: string) {
         const rawChunk = await loadChunkRecord(ref, index, generation);
         const normalizedChunk = toPersistedChunkRecord(rawChunk);
         return normalizedChunk ? cloneBytes(normalizedChunk.data) : null;

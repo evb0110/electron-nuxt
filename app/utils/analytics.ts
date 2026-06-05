@@ -1,6 +1,6 @@
 const FILE_SIZE_MB = 1024 * 1024;
 
-export function bucketFileSize(sizeInBytes: number | null | undefined): string | null {
+export function bucketFileSize(sizeInBytes: number | null | undefined) {
     if (typeof sizeInBytes !== 'number' || !Number.isFinite(sizeInBytes) || sizeInBytes < 0) {
         return null;
     }
@@ -20,7 +20,7 @@ export function bucketFileSize(sizeInBytes: number | null | undefined): string |
     return '200mb_plus';
 }
 
-export function bucketPageCount(pageCount: number | null | undefined): string | null {
+export function bucketPageCount(pageCount: number | null | undefined) {
     if (!Number.isInteger(pageCount) || pageCount === null || pageCount === undefined || pageCount <= 0) {
         return null;
     }
@@ -40,7 +40,7 @@ export function bucketPageCount(pageCount: number | null | undefined): string | 
     return '101_plus';
 }
 
-export function bucketQueryLength(length: number): string {
+export function bucketQueryLength(length: number) {
     if (length <= 1) {
         return '1_or_less';
     }
@@ -56,7 +56,7 @@ export function bucketQueryLength(length: number): string {
     return '16_plus';
 }
 
-export function getLowercaseExtension(fileName: string | null | undefined): string | null {
+export function getLowercaseExtension(fileName: string | null | undefined) {
     if (!fileName) {
         return null;
     }

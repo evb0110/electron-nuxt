@@ -5,7 +5,6 @@ import type {
     TSearchDirection,
 } from '@app/types/pdf';
 import type {
-    IPdfSearchProgress,
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
 } from '@contracts/search';
@@ -308,7 +307,7 @@ export const usePdfSearch = () => {
             const searchId = requestId;
             activeRequestId = requestId;
 
-            progressCleanup = api.onProgress((progress: IPdfSearchProgress) => {
+            progressCleanup = api.onProgress((progress) => {
                 if (runId !== searchRunId) {
                     return;
                 }
@@ -338,7 +337,7 @@ export const usePdfSearch = () => {
                 requestOptions.pageCount = pageCount;
             }
 
-            const response: IPdfSearchResponse = await api.run(pdfPath, query, requestOptions);
+            const response = await api.run(pdfPath, query, requestOptions);
 
             if (runId !== searchRunId) {
                 return;
@@ -376,7 +375,7 @@ export const usePdfSearch = () => {
         pdfPath: string,
         pageCount?: number,
         options: Partial<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>> = searchOptions.value,
-    ): Promise<boolean> {
+    ) {
         searchQuery.value = query;
         searchOptions.value = {
             matchCase: Boolean(options.matchCase),

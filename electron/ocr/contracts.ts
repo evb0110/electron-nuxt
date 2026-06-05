@@ -241,7 +241,7 @@ export function validateCreateSearchablePdfPayload(
     return payload;
 }
 
-export function validateCancelRequestId(requestIdPayload: unknown): string {
+export function validateCancelRequestId(requestIdPayload: unknown) {
     return asRequestId(requestIdPayload, 'requestId');
 }
 

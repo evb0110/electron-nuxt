@@ -244,7 +244,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             });
         },
         markShapeStateSaved: () => pdfViewerRef.value?.markSavedShapeState?.(),
-        preparePersistedShapeStateForSave: (data: Uint8Array) => (
+        preparePersistedShapeStateForSave: (data) => (
             pdfViewerRef.value?.preparePersistedManagedShapesForSave?.(data) ?? Promise.resolve(null)
         ),
         restorePreparedPersistedShapeState: (snapshot: unknown) => (

@@ -38,16 +38,16 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
                 imageData: Uint8Array;
                 languages: string[];
             }>,
-            requestId: string,
+            requestId,
         ) => invoke(OCR_CHANNELS.recognizeBatch, pages, requestId),
 
-        cancel: (requestId: string) => invoke(OCR_CHANNELS.cancel, requestId),
+        cancel: (requestId) => invoke(OCR_CHANNELS.cancel, requestId),
 
         getLanguages: () => invoke(OCR_CHANNELS.getLanguages),
 
         validateTools: () => invoke(OCR_CHANNELS.validateTools),
 
-        installLanguages: async (languages: string[], requestId: string) => {
+        installLanguages: async (languages, requestId) => {
             const checkedRequestId = assertRequestId(requestId, 'ocrInstallLanguages.requestId');
             const validation = await invoke(OCR_CHANNELS.validateTools);
             return {
@@ -60,7 +60,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             };
         },
 
-        acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) =>
+        acknowledgeResultFile: (requestId, pdfPath?: TDocumentRef) =>
             invoke(
                 OCR_CHANNELS.acknowledgeResultFile,
                 assertRequestId(requestId, 'ocrAcknowledgeResultFile.requestId'),
@@ -68,12 +68,9 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
             ),
 
         createSearchablePdf: (
-            sourcePdfPath: string,
-            pages: Array<{
-                pageNumber: number;
-                languages: string[];
-            }>,
-            requestId: string,
+            sourcePdfPath,
+            pages,
+            requestId,
             renderDpi?: number,
         ) => invoke(
             OCR_CHANNELS.createSearchablePdf,
@@ -100,7 +97,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         preprocessing: {
             validate: () => invoke(OCR_CHANNELS.preprocessingValidate),
-            preprocessPage: (imageData: Uint8Array, usePreprocessing: boolean) =>
+            preprocessPage: (imageData, usePreprocessing) =>
                 invoke(
                     OCR_CHANNELS.preprocessingPreprocessPage,
                     imageData,

@@ -201,15 +201,15 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         getIdentity: () => identity,
         getMarkupSubtype: () => toolState,
         getStore: () => ({
-            setAnnotations: (comments: IAnnotationCommentSummary[]) => {
+            setAnnotations: (comments) => {
                 const appliedComments = emitAnnotationComments(comments) ?? comments;
                 annotationCommentsCache.value = appliedComments;
                 return appliedComments;
             },
-            setLinkAnnotations: (links: ILinkAnnotation[]) => {
+            setLinkAnnotations: (links) => {
                 linkAnnotations.value = links;
             },
-            setActiveKey: (key: string | null) => {
+            setActiveKey: (key) => {
                 activeCommentStableKey.value = key;
             },
         }),

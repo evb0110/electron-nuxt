@@ -58,7 +58,7 @@ export function buildTiffImageIfd(page: ITiffImageDescriptor, dataOffset: number
     };
 }
 
-export function getTiffValueCount(value: unknown): number {
+export function getTiffValueCount(value: unknown) {
     if (Array.isArray(value)) {
         return value.length;
     }

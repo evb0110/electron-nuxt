@@ -22,11 +22,11 @@ export function detectPdfaLevelFromPdfText(text: string): TPdfaLevel | null {
     return `PDF/A-${partMatch[1].trim()}${conformance}`;
 }
 
-export function hasPdfSignatureMarkersInPdfText(text: string): boolean {
+export function hasPdfSignatureMarkersInPdfText(text: string) {
     return PDF_SIGNATURE_PATTERN.test(text);
 }
 
-export function hasPdfEncryptMarkersInPdfText(text: string): boolean {
+export function hasPdfEncryptMarkersInPdfText(text: string) {
     return PDF_ENCRYPT_PATTERN.test(text);
 }
 

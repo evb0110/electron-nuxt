@@ -78,7 +78,7 @@ export const usePdfSkeletonInsets = (
         pdfPage: PDFPageProxy,
         renderVersion: number,
         getCurrentVersion: () => number,
-    ): Promise<void> {
+    ) {
         void pdfPage;
         const width = toValue(basePageWidth);
         const height = toValue(basePageHeight);

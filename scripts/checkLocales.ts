@@ -69,7 +69,7 @@ function getLeafPath(node: unknown, dottedPath: string): TTranslationLeaf | null
         : null;
 }
 
-function hasLeafPath(node: unknown, dottedPath: string): boolean {
+function hasLeafPath(node: unknown, dottedPath: string) {
     return getLeafPath(node, dottedPath) !== null;
 }
 
@@ -104,7 +104,7 @@ function diffKeys(expected: Set<string>, actual: Set<string>) {
     };
 }
 
-function formatKeyList(keys: string[]): string {
+function formatKeyList(keys: string[]) {
     if (keys.length === 0) {
         return '(none)';
     }
@@ -207,7 +207,7 @@ async function loadLocaleMessages(relativeDirectory: string): Promise<Record<str
     return Object.fromEntries(entries);
 }
 
-async function loadDefaultExport(relativePath: string): Promise<unknown> {
+async function loadDefaultExport(relativePath: string) {
     const absolutePath = path.join(projectRoot, relativePath);
     const module = await import(pathToFileURL(absolutePath).href) as {default?: unknown;};
     return module.default;
@@ -253,7 +253,7 @@ function parseTarget(argv = process.argv.slice(2)): TLocaleTarget {
     throw new Error(`Expected --target to be one of: app, landing, all. Received "${target}".`);
 }
 
-function formatTarget(target: TLocaleTarget): string {
+function formatTarget(target: TLocaleTarget) {
     if (target === 'app') {
         return 'desktop package locales';
     }

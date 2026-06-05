@@ -84,11 +84,6 @@ export function normalizePageWheelDelta(
     return delta;
 }
 
-interface IWheelPageAccumulatorResult {
-    stepsToFlip: number;
-    state: IWheelPageAccumulatorState;
-}
-
 interface IAccumulateWheelForPageFlipsInput {
     state: IWheelPageAccumulatorState;
     delta: number;
@@ -106,7 +101,7 @@ export function resolveSnapAnchorForWheelDirection(
 
 export function accumulateWheelForPageFlips(
     input: IAccumulateWheelForPageFlipsInput,
-): IWheelPageAccumulatorResult {
+) {
     const {
         delta,
         direction,

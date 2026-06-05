@@ -18,7 +18,7 @@ interface IFakeRect {
     height: number;
 }
 
-function toDomRect(rect: IFakeRect): DOMRect {
+function toDomRect(rect: IFakeRect) {
     return {
         x: rect.left,
         y: rect.top,
@@ -38,14 +38,14 @@ interface IFakeDivOptions {
     editorLayerByClass?: Record<string, HTMLElement | null>;
 }
 
-function createDiv(options: IFakeDivOptions): HTMLElement {
-    const closest = vi.fn((selector: string): HTMLElement | null => {
+function createDiv(options: IFakeDivOptions) {
+    const closest = vi.fn((selector: string) => {
         if (selector === '.page_container') {
             return options.pageContainer ?? null;
         }
         return options.editorLayerByClass?.[selector] ?? null;
     });
-    const getBoundingClientRect = vi.fn((): DOMRect =>
+    const getBoundingClientRect = vi.fn(() =>
         toDomRect(options.boundingRect ?? {
             left: 0,
             top: 0,
@@ -58,8 +58,8 @@ function createDiv(options: IFakeDivOptions): HTMLElement {
     });
 }
 
-function createPageContainer(rect: IFakeRect): HTMLElement {
-    return cast<HTMLElement>({getBoundingClientRect: vi.fn((): DOMRect => toDomRect(rect))});
+function createPageContainer(rect: IFakeRect) {
+    return cast<HTMLElement>({getBoundingClientRect: vi.fn(() => toDomRect(rect))});
 }
 
 function expectMarkerRectClose(

@@ -25,11 +25,11 @@ interface IDjvuWriteCapabilityEntry {
 
 const allowedDjvuWritePaths = new Map<string, IDjvuWriteCapabilityEntry>();
 
-function normalizePath(filePath: string): string {
+function normalizePath(filePath: string) {
     return resolve(filePath.trim());
 }
 
-function normalizeOwnerWebContentsId(ownerWebContentsId: number | undefined): number | null {
+function normalizeOwnerWebContentsId(ownerWebContentsId: number | undefined) {
     if (typeof ownerWebContentsId !== 'number' || !Number.isInteger(ownerWebContentsId) || ownerWebContentsId < 1) {
         return null;
     }
@@ -40,7 +40,7 @@ function toCapabilityKey(normalizedPath: string, ownerWebContentsId: number | nu
     return `${ownerWebContentsId ?? 'any'}:${normalizedPath}`;
 }
 
-function normalizeDjvuOutputPdfPath(filePath: string): string {
+function normalizeDjvuOutputPdfPath(filePath: string) {
     const normalizedPath = normalizePath(filePath);
     if (extname(normalizedPath).toLowerCase() !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
@@ -102,7 +102,7 @@ function consumeCapabilityByKey(capabilityKey: string, now: number) {
     return capability;
 }
 
-export function consumeAllowedDjvuWritePath(filePath: string, ownerWebContentsId?: number): string | null {
+export function consumeAllowedDjvuWritePath(filePath: string, ownerWebContentsId?: number) {
     const normalizedPath = normalizeDjvuOutputPdfPath(filePath);
     const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(ownerWebContentsId);
     const now = Date.now();

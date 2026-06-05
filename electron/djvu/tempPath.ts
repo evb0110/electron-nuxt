@@ -10,7 +10,7 @@ import {
  * Validates that a DjVu temporary PDF path stays inside the OS temp directory
  * and matches the expected generated filename pattern.
  */
-export function isAllowedDjvuTempPdfPath(tempPdfPath: string, tempDirPath: string): boolean {
+export function isAllowedDjvuTempPdfPath(tempPdfPath: string, tempDirPath: string) {
     if (!tempPdfPath || tempPdfPath.trim() === '') {
         return false;
     }

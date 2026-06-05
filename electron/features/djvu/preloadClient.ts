@@ -1,9 +1,6 @@
 import type {IpcRenderer} from 'electron';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
-import type {
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
+import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import {
     DJVU_CHANNELS,
     DJVU_EVENT_CHANNELS,
@@ -20,11 +17,11 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
     const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
 
     return {
-        openForViewing: (djvuPath: string) =>
+        openForViewing: (djvuPath) =>
             invoke(DJVU_CHANNELS.openForViewing, djvuPath),
-        releaseViewingPath: (djvuPath: string) =>
+        releaseViewingPath: (djvuPath) =>
             invoke(DJVU_CHANNELS.releaseViewingPath, djvuPath),
-        convertToPdf: (djvuPath: string, outputPath: string, options: {
+        convertToPdf: (djvuPath, outputPath, options: {
             subsample?: number;
             preserveBookmarks?: boolean;
         }) => invoke(
@@ -33,10 +30,10 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             outputPath,
             options,
         ),
-        cancel: (jobId: string) => invoke(DJVU_CHANNELS.cancel, jobId),
-        getInfo: (djvuPath: string) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
-        estimateSizes: (djvuPath: string) => invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
-        cleanupTemp: (tempPdfPath: string) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
+        cancel: (jobId) => invoke(DJVU_CHANNELS.cancel, jobId),
+        getInfo: (djvuPath) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
+        estimateSizes: (djvuPath) => invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
+        cleanupTemp: (tempPdfPath) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: {
             jobId: string;
             phase: 'converting' | 'bookmarks' | 'loading';
@@ -53,7 +50,7 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
             error: string;
             jobId?: string;
         }) => void): (() => void) => eventSubscriber.onPayload(DJVU_EVENT_CHANNELS.viewingError, callback),
-        onMenuConvertToPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
+        onMenuConvertToPdf: (callback): IMenuEventUnsubscribe =>
             eventSubscriber.onNoArg(DJVU_EVENT_CHANNELS.menuConvertToPdf, callback),
     };
 }

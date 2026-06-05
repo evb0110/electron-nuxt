@@ -52,7 +52,7 @@ const estimateCache = new Map<string, IDjvuEstimateCacheEntry>();
 async function estimatePdfSizeBytes(
     imagePath: string,
     dpi: number,
-): Promise<number> {
+) {
     return measureElectronPerfAsync('djvu:estimate-pdf-size', async () => {
         try {
             const task = createDjvuPdfEstimateTask(imagePath, dpi);

@@ -24,7 +24,7 @@ interface IPdfTextDocumentLike {
     getPage: (pageNumber: number) => Promise<IPdfTextPageLike>;
 }
 
-export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string | null> {
+export async function loadOcrText(workingCopyPath: TDocumentRef) {
     try {
         const manifest = await readOptionalOcrArtifactJson<IOcrManifestIndex>(workingCopyPath, 'manifest.json');
         if (manifest) {
@@ -75,7 +75,7 @@ export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string
     }
 }
 
-export async function extractPdfText(pdfDocument: IPdfTextDocumentLike): Promise<string | null> {
+export async function extractPdfText(pdfDocument: IPdfTextDocumentLike) {
     try {
         const pageCount = pdfDocument.numPages ?? 0;
         if (pageCount === 0) {

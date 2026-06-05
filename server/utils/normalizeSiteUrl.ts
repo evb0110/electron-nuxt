@@ -11,7 +11,7 @@ export function normalizeSiteUrl(siteUrl: string) {
     return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
 }
 
-export function resolveSiteUrl(event: H3Event): string {
+export function resolveSiteUrl(event: H3Event) {
     const requestUrl = getRequestURL(event);
     const env = getRuntimeEnv();
     const configuredSiteUrl = (env.NUXT_PUBLIC_SITE_URL

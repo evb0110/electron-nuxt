@@ -260,7 +260,7 @@ function createValidatedIpcMainRegistrar(
             ...args: TArgs
         ) => TResult | Promise<TResult>,
     ) => {
-        registrar.handle(channel, async (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => {
+        registrar.handle(channel, async (event, ...args: TArgs) => {
             if (!isTrustedIpcInvokeSender(event, channel)) {
                 throw new Error('IPC sender is not trusted');
             }

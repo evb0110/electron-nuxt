@@ -119,7 +119,7 @@ function normalizeDefaultViewMode(value: unknown): ISettingsData['defaultViewMod
         : DEFAULT_SETTINGS.defaultViewMode;
 }
 
-function normalizeDefaultAnnotationColor(value: unknown): string {
+function normalizeDefaultAnnotationColor(value: unknown) {
     if (!isString(value)) {
         return DEFAULT_SETTINGS.defaultAnnotationColor;
     }

@@ -42,8 +42,7 @@ export const useSettings = () => {
     const initialSettings = parseBrowserSettingsPayload(settingsCookie.value, fallbackSettings);
 
     function syncSettingsCookies(nextSettings: ISettingsData) {
-        const serializedSettings = serializeBrowserSettingsPayload(nextSettings);
-        settingsCookie.value = serializedSettings;
+        settingsCookie.value = serializeBrowserSettingsPayload(nextSettings);
         localeCookie.value = nextSettings.locale;
         themeCookie.value = nextSettings.theme;
         hasSettingsCookieSnapshot.value = true;

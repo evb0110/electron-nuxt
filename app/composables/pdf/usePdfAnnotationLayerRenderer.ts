@@ -540,7 +540,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         }
 
         if (getEditableAnnotation) {
-            mutableAnnotationLayer.getEditableAnnotation = (annotationId: string) => (
+            mutableAnnotationLayer.getEditableAnnotation = (annotationId) => (
                 isHiddenEditableAnnotationId(annotationId)
                     ? null
                     : getEditableAnnotation.call(annotationLayerInstance, annotationId)
@@ -736,15 +736,15 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 isInPresentationMode: false,
                 externalLinkEnabled: true,
                 goToDestination: async () => {},
-                goToPage: (page: number | string) => {
+                goToPage: (page) => {
                     if (typeof page === 'number') {
                         deps.scrollToPage?.(page);
                     }
                 },
                 goToXY: () => {},
                 addLinkAttributes: (
-                    link: HTMLAnchorElement,
-                    url: string,
+                    link,
+                    url,
                     _newWindow?: boolean,
                 ) => {
                     const openLink = () => {

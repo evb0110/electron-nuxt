@@ -33,7 +33,7 @@ const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set([
     '.djv',
 ]);
 
-export function normalizeNonEmptyPath(filePath: unknown): string {
+export function normalizeNonEmptyPath(filePath: unknown) {
     if (typeof filePath !== 'string') {
         throw new Error('Invalid file path: path must be a non-empty string');
     }
@@ -49,7 +49,7 @@ function resolveDirectSourceReadPath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
-): string | null {
+) {
     if (!ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS.has(extension)) {
         return null;
     }
@@ -81,7 +81,7 @@ export async function resolveReadablePath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
-): Promise<string | null> {
+) {
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath) {
         return directResolvedPath;
@@ -154,7 +154,7 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
     return resolvedPath;
 }
 
-export function resolveReadablePathSync(normalizedPath: string, senderId?: number): string | null {
+export function resolveReadablePathSync(normalizedPath: string, senderId?: number) {
     if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
         return normalizedPath;
     }

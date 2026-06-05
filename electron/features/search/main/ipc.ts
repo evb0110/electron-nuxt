@@ -151,7 +151,7 @@ function parseWarmIndexPayload(raw: unknown): {
     return parsed;
 }
 
-export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
+export function resolveSearchWorkerPath(workerBaseDir = __dirname) {
     const defaultPath = join(workerBaseDir, WORKER_BUNDLES_BY_ID.search.fileName);
     if (!app?.isPackaged) {
         return defaultPath;
@@ -159,7 +159,7 @@ export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
     return resolveUnpackedWorkerPath(workerBaseDir, WORKER_BUNDLES_BY_ID.search.fileName);
 }
 
-export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number): Promise<string | null> {
+export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number) {
     if (isWorkingCopyPathCandidate(pdfPath)) {
         const directResolvedPath = await resolveAllowedReadPath(pdfPath);
         if (directResolvedPath) {
@@ -243,7 +243,7 @@ async function handlePdfSearch(
 async function handlePdfSearchWarmIndex(
     event: IpcMainInvokeEvent,
     request: unknown,
-): Promise<boolean> {
+) {
     const parsedRequest = parseWarmIndexPayload(request);
     const normalizedPdfPath = parsedRequest.pdfPath.trim();
     if (!normalizedPdfPath) {

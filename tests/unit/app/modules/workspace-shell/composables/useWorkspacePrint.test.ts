@@ -116,7 +116,7 @@ function createFakeFrame() {
         removeEventListener: vi.fn(),
         focus: vi.fn(),
         print: vi.fn(),
-        requestAnimationFrame: (callback: FrameRequestCallback) => {
+        requestAnimationFrame: (callback) => {
             callback(0);
             return 1;
         },
@@ -135,7 +135,7 @@ function createFakeFrame() {
             listeners.delete(eventName);
         }),
         contentWindow: frameWindow,
-        trigger: (eventName: string) => {
+        trigger: (eventName) => {
             listeners.get(eventName)?.(new Event(eventName));
         },
     };

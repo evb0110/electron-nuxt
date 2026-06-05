@@ -31,7 +31,7 @@ const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
 function buildPreview(
     comment: IAnnotationCommentSummary,
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
-): string {
+) {
     const text = comment.text?.trim();
     if (!text) {
         return comment.kindLabel ?? comment.subtype ?? labels.note;
@@ -43,7 +43,7 @@ function buildAriaLabel(
     comment: IAnnotationCommentSummary,
     clusterSize: number,
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
-): string {
+) {
     const prefix = comment.kindLabel ?? comment.subtype ?? labels.annotation;
     const preview = comment.text?.trim().slice(0, 40) ?? '';
     const label = preview ? `${prefix}: ${preview}` : prefix;
@@ -109,7 +109,7 @@ function computeMarkersByPage(
         pageComments,
     ] of Object.entries(byPage)) {
         const pageNumber = Number(pageNumberKey);
-        const typedPageComments: IAnnotationCommentSummary[] = pageComments;
+        const typedPageComments = pageComments;
         const clusters = clusterDetachedComments(typedPageComments);
         const occupied: IDetachedMarkerOccupied[] = [];
         const markers: IMarkerViewModel[] = [];

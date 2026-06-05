@@ -4,14 +4,6 @@ import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { safeGetLocalStorageItem } from '@app/utils/localStorage';
 
-export interface IWordBoxOverlay {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    isCurrent: boolean;
-}
-
 interface IOcrIndexV2Page {
     pageNumber: number;
     rotation: 0 | 90 | 180 | 270;
@@ -28,7 +20,7 @@ interface IOcrIndexV2Page {
 
 export type { IOcrIndexV2Page };
 
-export function isOcrDebugEnabled(): boolean {
+export function isOcrDebugEnabled() {
     return safeGetLocalStorageItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
 }
 
@@ -38,7 +30,7 @@ export function transformWordBox(
     imageDimensionHeight: number | undefined,
     renderedPageWidth: number,
     renderedPageHeight: number,
-): IWordBoxOverlay {
+) {
     if (!imageDimensionWidth || !imageDimensionHeight) {
         BrowserLogger.warn('word-box', 'Missing dimensions', {
             imageDimensionWidth,

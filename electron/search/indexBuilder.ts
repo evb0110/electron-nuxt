@@ -430,7 +430,7 @@ async function persistIndex(
     pdfPath: string,
     index: IPdfSearchIndex,
     signal?: AbortSignal,
-): Promise<void> {
+) {
     throwIfAborted(signal);
     const indexPath = getIndexPath(pdfPath);
     const tempPath = makeSiblingTempPath(indexPath);
@@ -449,7 +449,7 @@ async function persistIndexBestEffort(
     pdfPath: string,
     index: IPdfSearchIndex,
     signal?: AbortSignal,
-): Promise<void> {
+) {
     try {
         await persistIndex(pdfPath, index, signal);
     } catch (err) {
@@ -508,7 +508,7 @@ function shouldExtractPdfText(
     pagesByNumber: Map<number, IPageIndex>,
     existing: IPdfSearchIndex | null,
     expectedCount: number | undefined,
-): boolean {
+) {
     if (!existing) {
         return true;
     }

@@ -153,7 +153,7 @@ function scalePageDimensions(metrics: IPdfPageMetric[], scale: number) {
 }
 
 function buildPageHeightPrefixSums(pageHeights: number[]) {
-    const pageHeightPrefixSums: number[] = Array.from({ length: pageHeights.length }, () => 0);
+    const pageHeightPrefixSums = Array.from({ length: pageHeights.length }, () => 0);
     let maxPageHeight = 0;
 
     for (let index = 0; index < pageHeights.length; index += 1) {
@@ -177,7 +177,7 @@ function buildLayoutRows(options: {
     paddingBottom: number;
 }) {
     const pageTops: number[] = [];
-    const pageRowIndices: number[] = Array.from({ length: options.totalPages }, () => 0);
+    const pageRowIndices = Array.from({ length: options.totalPages }, () => 0);
     const rowStartPages: number[] = [];
     const rowEndPages: number[] = [];
     const rowHeights: number[] = [];
@@ -301,7 +301,7 @@ export function normalizePageMetrics(options: {
 export function resolveDocumentBaseMetric(
     pageMetrics: IPdfPageMetric[],
     dimension: 'width' | 'height',
-): number | null {
+) {
     let maxValue = 0;
 
     for (const metric of pageMetrics) {
@@ -319,7 +319,7 @@ export function resolveSpreadBaseWidth(
     pageMetrics: IPdfPageMetric[],
     viewMode: TPdfViewMode,
     totalPages: number,
-): number | null {
+) {
     if (totalPages <= 0) {
         return null;
     }
@@ -350,7 +350,7 @@ export function resolveCurrentSpreadBaseWidth(
     viewMode: TPdfViewMode,
     totalPages: number,
     currentPage: number,
-): number | null {
+) {
     if (totalPages <= 0) {
         return null;
     }

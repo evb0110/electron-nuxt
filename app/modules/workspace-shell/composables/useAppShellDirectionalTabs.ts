@@ -448,7 +448,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const handlers = {
             split: splitEditor,
             'split-empty': splitEditorEmpty,
-            focus: (direction: TPaneDirection) => {
+            focus: (direction) => {
                 focusEditorPane(direction);
                 return Promise.resolve();
             },

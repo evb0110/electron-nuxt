@@ -72,7 +72,7 @@ export function findDirectionalPaneId({
     direction,
     paneMru,
     wrap = true,
-}: IFindDirectionalPaneIdParams): string | null {
+}: IFindDirectionalPaneIdParams) {
     const rects = getPaneRects(layout);
     const sourceRect = rects.find(rect => rect.paneId === sourcePaneId);
     if (!sourceRect) {

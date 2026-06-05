@@ -72,7 +72,7 @@ function toPositiveInteger(value: unknown) {
     return null;
 }
 
-function resolveTiffDimensionValue(value: unknown): number | null {
+function resolveTiffDimensionValue(value: unknown) {
     const direct = toPositiveInteger(value);
     if (direct) {
         return direct;
@@ -178,7 +178,7 @@ function decodeSinglePageTiffRgba(
     throw new Error('Failed to decode TIFF page data');
 }
 
-function alignOffset(offset: number, alignment: number): number {
+function alignOffset(offset: number, alignment: number) {
     if (alignment <= 1) {
         return offset;
     }

@@ -126,7 +126,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         return isSupportedExternalOpenPath(filePath);
     }
 
-    function normalizeCommandLineArg(arg: string): string | null {
+    function normalizeCommandLineArg(arg: string) {
         let normalized = arg.trim();
         if (!normalized || normalized.startsWith('-')) {
             return null;

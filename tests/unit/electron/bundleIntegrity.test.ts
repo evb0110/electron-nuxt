@@ -88,7 +88,7 @@ async function collectSourceFiles(dirPath: string): Promise<string[]> {
     return files;
 }
 
-async function getLatestSourceMtimeMs(): Promise<number> {
+async function getLatestSourceMtimeMs() {
     const sourceFiles = (await Promise.all(SOURCE_ROOTS.map(collectSourceFiles))).flat();
     const freshnessReferenceFiles = [
         ...sourceFiles,

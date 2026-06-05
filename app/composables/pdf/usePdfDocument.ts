@@ -565,7 +565,7 @@ export const usePdfDocument = () => {
     ) {
         // PDF.js will call this to request additional chunks.
         transport.requestDataRange = (
-            begin: number,
+            begin,
             end: number,
         ) => {
             void (async () => {
@@ -766,7 +766,7 @@ export const usePdfDocument = () => {
         pdfPageCache.clear();
     }
 
-    async function saveDocument(): Promise<Uint8Array | null> {
+    async function saveDocument() {
         const document = pdfDocument.value;
         const version = renderVersion;
         if (!document || !isPdfDocumentUsable(document)) {

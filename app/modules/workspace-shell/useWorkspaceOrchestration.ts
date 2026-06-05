@@ -385,7 +385,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
-        persistAllAnnotationNotes: (force: boolean) => persistAllAnnotationNotes(force),
+        persistAllAnnotationNotes: (force) => persistAllAnnotationNotes(force),
         consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
         restorePendingEmbeddedTextUpdates: updates => restorePendingEmbeddedTextUpdates(updates),
         consumePendingEmbeddedAnnotationDeletes: () => consumePendingEmbeddedAnnotationDeletes(),
@@ -394,10 +394,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
-        clearOcrCache: (path: string) => clearOcrCache(path),
+        clearOcrCache: (path) => clearOcrCache(path),
         reloadWorkingCopyIntoHistory,
         currentPage,
-        waitForPdfReload: (page: number) => waitForPdfReload(page),
+        waitForPdfReload: (page) => waitForPdfReload(page),
         resetSearchCache,
     });
     const {
@@ -507,7 +507,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         nextRedoSource: workspaceUndoTimeline.nextRedoSource,
         workingCopyPath,
         resetSearchCache,
-        clearOcrCache: (path: string) => clearOcrCache(path),
+        clearOcrCache: (path) => clearOcrCache(path),
         undoHistory: workspaceUndoTimeline.undoTimeline,
         redoHistory: workspaceUndoTimeline.redoTimeline,
     });
@@ -545,10 +545,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadPdfFromData,
         waitForPdfReload,
         invalidateThumbnailPages: requestThumbnailInvalidation,
-        removeAnnotationFromCache: (stableKey: string) => {
+        removeAnnotationFromCache: (stableKey) => {
             annotationComments.value = annotationComments.value.filter(comment => comment.stableKey !== stableKey);
         },
-        restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => {
+        restoreAnnotationToCache: (comment) => {
             annotationComments.value = [
                 ...annotationComments.value.filter(candidate => candidate.stableKey !== comment.stableKey),
                 comment,
@@ -608,7 +608,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,
-        clearOcrCache: (path: string) => clearOcrCache(path),
+        clearOcrCache: (path) => clearOcrCache(path),
         resetSearchCache,
         ensureWorkingCopyFreshForRead,
         isExportingDocx,
@@ -626,7 +626,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openFileDirectBatchWithDjvuCleanup,
         closeFileWithDjvuCleanup,
         closeAllDropdowns,
-        emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => emit('open-in-new-tab', pathOrResult),
+        emitOpenInNewTab: (pathOrResult) => emit('open-in-new-tab', pathOrResult),
         removeRecentFile,
         notifyMissingRecentFile,
     });

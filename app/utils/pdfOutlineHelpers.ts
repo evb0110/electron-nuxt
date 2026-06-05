@@ -86,7 +86,7 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
         .filter((item): item is IOutlineItemRaw => item !== null);
 }
 
-export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {
+export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined) {
     if (!color || typeof color.length !== 'number' || color.length < 3) {
         return null;
     }
@@ -154,7 +154,7 @@ export async function resolvePageIndex(
     dest: IOutlineItemRaw['dest'],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
-): Promise<number | null> {
+) {
     if (!dest) {
         return null;
     }
@@ -233,7 +233,7 @@ export async function buildResolvedOutline(
 export async function resolveBookmarkDestinationPage(
     pdfDocument: PDFDocumentProxy,
     dest: string | unknown[] | null,
-): Promise<number | null> {
+) {
     if (!dest) {
         return null;
     }
@@ -351,7 +351,7 @@ export function resolveActiveBookmarkForPage(
     return active;
 }
 
-export function normalizeBookmarkColor(color: string | null | undefined): string | null {
+export function normalizeBookmarkColor(color: string | null | undefined) {
     if (typeof color !== 'string') {
         return null;
     }

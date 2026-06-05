@@ -875,7 +875,7 @@ export async function shouldPrintSourcePdfDirectly(
 export function shouldPrintPageMetricsDirectly(
     pageMetrics: IPdfPageMetric[],
     options: Pick<IBuildPrintablePdfDataOptions, 'pageNumbers' | 'viewMode' | 'orientation'>,
-): boolean | null {
+) {
     if (!canPrintSourcePdfDirectly(options)) {
         return false;
     }

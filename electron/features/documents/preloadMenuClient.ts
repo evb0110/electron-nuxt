@@ -102,13 +102,9 @@ export function createDocumentsPreloadMenuClient(
     );
 
     return {
-        setMenuDocumentState: (state: boolean | {
-            hasDocument: boolean;
-            canSave: boolean;
-            canRepairSave?: boolean;
-        }) =>
+        setMenuDocumentState: (state) =>
             invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, state),
-        setMenuTabCount: (tabCount: number) =>
+        setMenuTabCount: (tabCount) =>
             invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
         ...noArgMenuSubscriptions,
         onMenuOpenRecentFile: (callback: (filePath: string) => void): IMenuEventUnsubscribe =>

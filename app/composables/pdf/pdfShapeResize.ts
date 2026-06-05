@@ -69,17 +69,10 @@ export function toShapeRect(bounds: IShapeBounds, minSize = 0.01): IShapeBounds 
     };
 }
 
-export interface IShapeRect {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
 export function getShapeRect(
     shape: IShapeAnnotation,
     options: { rectFallbackMinSize?: number } = {},
-): IShapeRect {
+) {
     const { rectFallbackMinSize = 0 } = options;
 
     if (shape.type === 'polyline' || shape.type === 'polygon') {

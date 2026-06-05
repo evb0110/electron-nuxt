@@ -26,11 +26,6 @@ interface ICreateTabOptions {
     activate?: boolean;
 }
 
-interface ICloseTabResult {
-    tab: ITab | null;
-    removedPaneId: string | null;
-}
-
 export const useEditorPanesManager = () => {
     const panes = useState<IEditorPaneState[]>(
         'editorPanes:panes',
@@ -378,7 +373,7 @@ export const useEditorPanesManager = () => {
         return true;
     }
 
-    function closeTab(paneId: string, tabId: string): ICloseTabResult {
+    function closeTab(paneId: string, tabId: string) {
         const pane = getPaneById(paneId);
         if (!pane) {
             return {

@@ -75,7 +75,7 @@ type TOcrWorkerManagerMessage = Exclude<
     { type: 'resource-acquire' } | { type: 'resource-release' }
 >;
 
-function assertNever(value: never): never {
+function assertNever(value: never) {
     throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
 }
 

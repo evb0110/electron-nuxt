@@ -28,7 +28,7 @@ async function waitForCommittedEditorsToSettle() {
 
 export async function savePdfDocumentWithCommittedEditors(
     options: ISavePdfDocumentWithCommittedEditorsOptions,
-): Promise<Uint8Array | null> {
+) {
     const pdfDocument = options.pdfDocument;
     if (!pdfDocument || !isSaveTargetCurrent(options, pdfDocument)) {
         return null;

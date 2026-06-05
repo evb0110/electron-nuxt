@@ -46,11 +46,6 @@ export interface IPdfPageSnapshot {
     textSnippet: string;
 }
 
-export interface IDjvuFixtureResolution {
-    path: string | null;
-    reason: string;
-}
-
 function getFixtureDir(sessionName = getCurrentSessionName()) {
     const safeSessionName = sessionName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
     return join(FIXTURE_ROOT_DIR, safeSessionName);
@@ -323,7 +318,7 @@ export function isDjvuFixtureRequired() {
     return process.env[DJVU_REQUIRE_ENV_VAR] === '1';
 }
 
-export function resolveDjvuFixturePath(): IDjvuFixtureResolution {
+export function resolveDjvuFixturePath() {
     const overridePath = process.env[DJVU_FIXTURE_ENV_VAR]?.trim();
     if (overridePath) {
         const absoluteOverridePath = resolve(overridePath);

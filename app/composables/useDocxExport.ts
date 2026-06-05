@@ -19,7 +19,7 @@ export const useDocxExport = () => {
         workingCopyPath: TDocumentRef | null;
         pdfDocument: PDFDocumentProxy | null;
         selectedLanguages?: string[];
-    }): Promise<boolean> {
+    }) {
         if (isExportingDocx.value) {
             return false;
         }

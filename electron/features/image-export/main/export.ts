@@ -85,7 +85,7 @@ const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     return Math.min(parsed, 128) * 1024 * 1024;
 })();
 
-function resolveFormatExtension(format: TImageExportFormat): string {
+function resolveFormatExtension(format: TImageExportFormat) {
     if (format === 'jpeg') {
         return '.jpg';
     }
@@ -130,7 +130,7 @@ export function normalizeImageExportPath(filePath: string, fallbackFormat: TImag
     };
 }
 
-function toPdftoppmFormatArg(format: TImageExportFormat): string {
+function toPdftoppmFormatArg(format: TImageExportFormat) {
     if (format === 'jpeg') {
         return '-jpeg';
     }
@@ -140,7 +140,7 @@ function toPdftoppmFormatArg(format: TImageExportFormat): string {
     return '-png';
 }
 
-function parsePageNumber(fileName: string): number {
+function parsePageNumber(fileName: string) {
     const match = fileName.match(/-(\d+)\.[^.]+$/);
     if (!match) {
         return Number.POSITIVE_INFINITY;
@@ -148,7 +148,7 @@ function parsePageNumber(fileName: string): number {
     return Number.parseInt(match[1] ?? '', 10);
 }
 
-function isExpectedPageFile(fileName: string, format: TImageExportFormat): boolean {
+function isExpectedPageFile(fileName: string, format: TImageExportFormat) {
     const extension = extname(fileName).toLowerCase();
 
     if (format === 'jpeg') {
@@ -234,7 +234,7 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-async function getPdfPageCount(pdfPath: string): Promise<number> {
+async function getPdfPageCount(pdfPath: string) {
     const result = await runNativeToolCommand(getNativeToolPaths().qpdf, [
         '--show-npages',
         pdfPath,
@@ -346,7 +346,7 @@ function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | nul
     return unique;
 }
 
-function formatPageList(pageNumbers: number[]): string {
+function formatPageList(pageNumbers: number[]) {
     const ranges: string[] = [];
     let rangeStart: number | null = null;
     let previous: number | null = null;
@@ -655,7 +655,7 @@ export async function exportPdfAsMultiPageTiff(
     pdfPath: string,
     outputPath: string,
     options: IExportPdfOptions = {},
-): Promise<string> {
+) {
     const targetPath = outputPath.toLowerCase().endsWith('.tif') || outputPath.toLowerCase().endsWith('.tiff')
         ? outputPath
         : `${outputPath}.tiff`;

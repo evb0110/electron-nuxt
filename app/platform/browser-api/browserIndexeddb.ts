@@ -59,7 +59,7 @@ export function writeStoreValue(
     value: unknown,
     errorMessage: string,
     key?: IDBValidKey,
-): Promise<void> {
+) {
     const request = typeof key === 'undefined'
         ? store.put(value)
         : store.put(value, key);
@@ -72,7 +72,7 @@ export function deleteStoreValue(
     store: IDBObjectStore,
     key: IDBValidKey,
     errorMessage: string,
-): Promise<void> {
+) {
     return idbRequestToPromise(store.delete(key), errorMessage)
         .then(() => undefined);
 }
@@ -80,7 +80,7 @@ export function deleteStoreValue(
 export function clearStore(
     store: IDBObjectStore,
     errorMessage: string,
-): Promise<void> {
+) {
     return idbRequestToPromise(store.clear(), errorMessage)
         .then(() => undefined);
 }

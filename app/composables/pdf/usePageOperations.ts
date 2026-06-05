@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
-import type { IPageOpsExtractResult } from '@contracts/electronApiPageOps';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -183,7 +182,7 @@ export const usePageOperations = (deps: {
             run: (path) => getPageOpsCapability().extract(path, [...pages]),
             ...(ensureWorkingCopyFreshForRead ? { beforeRun: ensureWorkingCopyFreshForRead } : {}),
             isSuccessful: result => result.success && !result.canceled,
-            onSuccess: async (result: IPageOpsExtractResult) => {
+            onSuccess: async (result) => {
                 if (result.destPath) {
                     await onExtractedDocument?.(result.destPath);
                 }

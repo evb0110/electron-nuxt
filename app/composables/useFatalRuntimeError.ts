@@ -7,21 +7,21 @@ export interface IFatalRuntimeError {
     occurredAt: number;
 }
 
-function stringifyErrorObject(error: Error): string {
+function stringifyErrorObject(error: Error) {
     if (error.message.trim().length > 0) {
         return `${error.name}: ${error.message}`;
     }
     return error.name || 'Error';
 }
 
-function normalizeRuntimeErrorString(value: string): string | null {
+function normalizeRuntimeErrorString(value: string) {
     const normalized = value.trim();
     return normalized.length > 0
         ? normalized
         : null;
 }
 
-function stringifyRuntimeErrorValue(value: unknown): string {
+function stringifyRuntimeErrorValue(value: unknown) {
     try {
         return JSON.stringify(value);
     } catch {
@@ -48,7 +48,7 @@ const RUNTIME_ERROR_STRINGIFIERS = [
     },
 ];
 
-function stringifyRuntimeError(value: unknown): string | null {
+function stringifyRuntimeError(value: unknown) {
     const stringifier = RUNTIME_ERROR_STRINGIFIERS.find(candidate => candidate.matches(value));
     return stringifier
         ? stringifier.stringify(value)

@@ -533,7 +533,7 @@ function createPageLabelIssues(
     labels: string[],
     totalPages: number,
 ) {
-    const issues: IAgentMetadataIssue[] = createDuplicateLabelIssues(labels);
+    const issues = createDuplicateLabelIssues(labels);
     const segments = createPageLabelSegments(ranges, labels, totalPages);
     for (const segment of segments) {
         if (segment.style === null && segment.pageCount > 1) {

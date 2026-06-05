@@ -1,4 +1,3 @@
-import type { IpcRendererEvent } from 'electron';
 import {
     contextBridge,
     ipcRenderer,
@@ -442,7 +441,7 @@ tracePreload('preload installation started');
 
 if (preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] !== true) {
     preloadState[PRELOAD_DEBUG_LOG_LISTENER_FLAG] = true;
-    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.debugLog, (_event: IpcRendererEvent, data: IDebugLogEntry) => {
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.debugLog, (_event, data: IDebugLogEntry) => {
         pushDebugLogMessage(data);
         console.log(`[${data.timestamp}] [${data.source}] ${data.message}`);
     });

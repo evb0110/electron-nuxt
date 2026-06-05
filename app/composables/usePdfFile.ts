@@ -332,7 +332,7 @@ export const usePdfFile = () => {
         }
     }
 
-    function classifyOpenError(e: unknown, path: TDocumentRef | null): string {
+    function classifyOpenError(e: unknown, path: TDocumentRef | null) {
         const rawMessage = e instanceof Error ? e.message : '';
         if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
             const name = (path && getDocumentRefBaseName(path)) || (path ? String(path) : '');

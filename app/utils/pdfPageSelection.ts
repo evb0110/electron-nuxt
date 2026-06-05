@@ -8,7 +8,7 @@ export interface IPageThumbnailClickModifiers {
     ctrlKey?: boolean;
 }
 
-export function shouldSelectPageFromThumbnailClick(modifiers: IPageThumbnailClickModifiers): boolean {
+export function shouldSelectPageFromThumbnailClick(modifiers: IPageThumbnailClickModifiers) {
     return Boolean(modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey);
 }
 

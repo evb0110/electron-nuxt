@@ -22,11 +22,11 @@ const allowedDocxWritePaths = new Map<string, {
     senderWebContentsId: number;
 }>();
 
-function normalizePath(filePath: string): string {
+function normalizePath(filePath: string) {
     return resolve(filePath.trim());
 }
 
-export function normalizeDocxPath(filePath: string): string {
+export function normalizeDocxPath(filePath: string) {
     const normalizedPath = normalizePath(filePath);
     if (extname(normalizedPath).toLowerCase() !== '.docx') {
         throw new Error('Invalid file type: only DOCX files are allowed');
@@ -72,7 +72,7 @@ export function allowDocxWritePath(filePath: string, senderWebContentsId: number
     pruneAllowedDocxWritePaths(now);
 }
 
-export function consumeAllowedDocxWritePath(filePath: string, senderWebContentsId: number): boolean {
+export function consumeAllowedDocxWritePath(filePath: string, senderWebContentsId: number) {
     const normalizedPath = normalizeDocxPath(filePath);
     const now = Date.now();
     pruneAllowedDocxWritePaths(now);

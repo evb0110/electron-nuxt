@@ -110,7 +110,7 @@ function isPathSameAsAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isSamePath(baseDir, candidatePath));
 }
 
-function safeRealpathSync(path: string): string {
+function safeRealpathSync(path: string) {
     try {
         return realpathSync(path);
     } catch {
@@ -157,7 +157,7 @@ function resolveExistingTempPath(absolutePath: string, tempBaseDirs: string[]): 
     }
 }
 
-export function isAllowedWritePath(filePath: string): boolean {
+export function isAllowedWritePath(filePath: string) {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return false;
@@ -175,7 +175,7 @@ export function isAllowedWritePath(filePath: string): boolean {
     }
 }
 
-export function isAllowedReadPath(filePath: string): boolean {
+export function isAllowedReadPath(filePath: string) {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return false;
@@ -197,7 +197,7 @@ export function isAllowedReadPath(filePath: string): boolean {
     }
 }
 
-function resolveAllowedReadPathSync(filePath: string): string | null {
+function resolveAllowedReadPathSync(filePath: string) {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return null;
@@ -212,11 +212,11 @@ function resolveAllowedReadPathSync(filePath: string): string | null {
     return resolvedPath || null;
 }
 
-export function resolveAllowedReadPath(filePath: string): Promise<string | null> {
+export function resolveAllowedReadPath(filePath: string) {
     return Promise.resolve(resolveAllowedReadPathSync(filePath));
 }
 
-function resolveAllowedWritePathSync(filePath: string): string | null {
+function resolveAllowedWritePathSync(filePath: string) {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return null;
@@ -250,6 +250,6 @@ function resolveAllowedWritePathSync(filePath: string): string | null {
     return absolutePath;
 }
 
-export function resolveAllowedWritePath(filePath: string): Promise<string | null> {
+export function resolveAllowedWritePath(filePath: string) {
     return Promise.resolve(resolveAllowedWritePathSync(filePath));
 }

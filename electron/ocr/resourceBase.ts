@@ -1,14 +1,14 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 
-function hasExpectedOcrResources(resourcesBase: string): boolean {
+function hasExpectedOcrResources(resourcesBase: string) {
     return existsSync(join(resourcesBase, 'tesseract'));
 }
 
 export function resolveOcrResourcesBase(
     moduleDir: string,
     isPackaged: boolean,
-): string {
+) {
     if (isPackaged) {
         return process.resourcesPath;
     }

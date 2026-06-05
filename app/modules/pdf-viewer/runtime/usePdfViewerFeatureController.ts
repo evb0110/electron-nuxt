@@ -315,7 +315,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         annotationL10n,
         scrollToPage: (pageNumber, options) => singlePageScroll.scrollToPage(pageNumber, options),
         suppressSnap: () => singlePageScroll.suppressSnapFor(220),
-        beginSearchNavigation: (pageNumber: number) => singlePageScroll.beginSearchNavigation(pageNumber),
+        beginSearchNavigation: (pageNumber) => singlePageScroll.beginSearchNavigation(pageNumber),
         endSearchNavigation: (settleMs?: number) => singlePageScroll.endSearchNavigation(settleMs),
         searchPageMatches,
         currentSearchMatch,

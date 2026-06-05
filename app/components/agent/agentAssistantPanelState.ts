@@ -1,17 +1,9 @@
 import type { IAgentAssistantStatus } from '@contracts/agent';
 
-export type TAgentAssistantPanelView =
-    | 'checking'
-    | 'unsupported'
-    | 'install'
-    | 'update'
-    | 'sign-in'
-    | 'ready';
-
 export function getAgentAssistantPanelView(
     status: IAgentAssistantStatus,
     hasLoadedState: boolean,
-): TAgentAssistantPanelView {
+) {
     if (!hasLoadedState) {
         return 'checking';
     }

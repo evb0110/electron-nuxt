@@ -80,7 +80,7 @@ async function writeOpfsLanguageData(code: string, data: Uint8Array) {
     return true;
 }
 
-async function readOpfsLanguageData(code: string): Promise<Uint8Array | null> {
+async function readOpfsLanguageData(code: string) {
     const directory = await getOpfsLanguageDirectory(false);
     if (!directory) {
         return null;
@@ -95,7 +95,7 @@ async function readOpfsLanguageData(code: string): Promise<Uint8Array | null> {
     }
 }
 
-async function deleteOpfsLanguageData(code: string): Promise<boolean> {
+async function deleteOpfsLanguageData(code: string) {
     const directory = await getOpfsLanguageDirectory(false);
     if (!directory) {
         return false;
@@ -109,7 +109,7 @@ async function deleteOpfsLanguageData(code: string): Promise<boolean> {
     }
 }
 
-async function clearOpfsLanguageDirectory(): Promise<boolean> {
+async function clearOpfsLanguageDirectory() {
     const getDirectory = getOpfsRoot();
     if (!getDirectory) {
         return false;
@@ -140,7 +140,7 @@ async function openTesseractCacheDb() {
     });
 }
 
-async function hasIndexedDbLanguageData(code: string): Promise<boolean> {
+async function hasIndexedDbLanguageData(code: string) {
     const db = await openTesseractCacheDb();
     if (!db) {
         return false;
@@ -216,7 +216,7 @@ function resolveBrowserOcrClearTarget(codes?: string[]): TBrowserOcrClearTarget 
     };
 }
 
-async function clearBrowserOcrOpfsData(target: TBrowserOcrClearTarget): Promise<void> {
+async function clearBrowserOcrOpfsData(target: TBrowserOcrClearTarget) {
     if (target.kind === 'all') {
         await clearOpfsLanguageDirectory().catch(() => false);
         return;
@@ -225,7 +225,7 @@ async function clearBrowserOcrOpfsData(target: TBrowserOcrClearTarget): Promise<
     await Promise.all(target.codes.map(code => deleteOpfsLanguageData(code).catch(() => false)));
 }
 
-async function clearBrowserOcrTesseractCache(target: TBrowserOcrClearTarget): Promise<void> {
+async function clearBrowserOcrTesseractCache(target: TBrowserOcrClearTarget) {
     const tesseractDb = await openTesseractCacheDb();
     if (!tesseractDb) {
         return;
@@ -259,7 +259,7 @@ async function clearBrowserOcrTesseractCache(target: TBrowserOcrClearTarget): Pr
     }
 }
 
-async function clearBrowserOcrLanguageRecords(target: TBrowserOcrClearTarget): Promise<void> {
+async function clearBrowserOcrLanguageRecords(target: TBrowserOcrClearTarget) {
     const languageDb = await openBrowserOcrLanguageDb();
     if (!languageDb) {
         return;
@@ -282,7 +282,7 @@ async function clearBrowserOcrLanguageRecords(target: TBrowserOcrClearTarget): P
     }
 }
 
-export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<void> {
+export async function clearBrowserOcrLanguageCache(codes?: string[]) {
     const target = resolveBrowserOcrClearTarget(codes);
 
     await clearBrowserOcrOpfsData(target);
@@ -297,7 +297,7 @@ export async function listInstalledBrowserOcrLanguages(): Promise<Set<string>> {
         .filter((code): code is string => typeof code === 'string' && code.length > 0));
 }
 
-export async function hasCachedBrowserOcrLanguage(code: string): Promise<boolean> {
+export async function hasCachedBrowserOcrLanguage(code: string) {
     const normalizedCode = code.trim();
     if (!normalizedCode) {
         return false;
@@ -317,7 +317,7 @@ export async function markBrowserOcrLanguageInstalled(
         sizeBytes?: number | null;
         sourceUrl?: string | null;
     },
-): Promise<void> {
+) {
     const normalizedCode = code.trim();
     if (!normalizedCode) {
         return;
@@ -345,7 +345,7 @@ export async function markBrowserOcrLanguageInstalled(
 export async function cacheBrowserOcrLanguageData(
     code: string,
     data: Uint8Array,
-): Promise<void> {
+) {
     const normalizedCode = code.trim();
     if (!normalizedCode || data.byteLength === 0) {
         return;
@@ -367,7 +367,7 @@ export async function cacheBrowserOcrLanguageData(
     }
 }
 
-export async function hydrateBrowserOcrLanguageCache(code: string): Promise<boolean> {
+export async function hydrateBrowserOcrLanguageCache(code: string) {
     const normalizedCode = code.trim();
     if (!normalizedCode) {
         return false;

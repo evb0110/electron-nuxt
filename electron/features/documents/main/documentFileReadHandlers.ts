@@ -23,7 +23,7 @@ const ALLOWED_READ_EXTENSIONS = new Set([
     '.tsv',
 ]);
 
-export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePath: unknown): Promise<Uint8Array> {
+export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePath: unknown) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
     const senderId = event.sender?.id;
@@ -60,7 +60,7 @@ export async function handleFileReadRange(
     filePath: unknown,
     offset: unknown,
     length: unknown,
-): Promise<Uint8Array> {
+) {
     const resolvedPath = await resolveExistingReadableBinaryPath(event, filePath);
     const off = Number(offset);
     const len = Number(length);
@@ -88,7 +88,7 @@ export async function handleFileReadRange(
 export async function handleFileReadText(
     event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
-): Promise<string> {
+) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
 
@@ -113,7 +113,7 @@ export async function handleFileReadText(
 export function handleFileExists(
     event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
-): boolean {
+) {
     if (typeof filePath !== 'string') {
         return false;
     }

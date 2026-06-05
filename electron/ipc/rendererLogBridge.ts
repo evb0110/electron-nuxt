@@ -340,7 +340,7 @@ const RENDERER_LOG_LEVELS = [
     'error',
 ] as const satisfies readonly TRendererLogLevel[];
 
-function readRendererLogField(payload: unknown, key: string): unknown {
+function readRendererLogField(payload: unknown, key: string) {
     if (!isRecord(payload)) {
         return undefined;
     }

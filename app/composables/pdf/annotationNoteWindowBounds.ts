@@ -10,21 +10,11 @@ export interface IAnnotationNoteWindowBounds {
     height: number;
 }
 
-export interface IAnnotationNoteWindowSize {
-    width: number;
-    height: number;
-}
-
-export interface IAnnotationNoteWindowPoint {
-    x: number;
-    y: number;
-}
-
 export function clampAnnotationNoteWindowSize(
     nextWidth: number,
     nextHeight: number,
     bounds: IAnnotationNoteWindowBounds | null,
-): IAnnotationNoteWindowSize {
+) {
     if (!bounds) {
         return {
             width: Math.max(NOTE_WINDOW.MIN_WIDTH, Math.round(nextWidth)),
@@ -47,7 +37,7 @@ export function clampAnnotationNoteWindowPosition(
     nextWidth: number,
     nextHeight: number,
     bounds: IAnnotationNoteWindowBounds | null,
-): IAnnotationNoteWindowPoint {
+) {
     if (!bounds) {
         return {
             x,
@@ -65,4 +55,3 @@ export function clampAnnotationNoteWindowPosition(
         y: Math.round(clamp(y, minY, maxY)),
     };
 }
-

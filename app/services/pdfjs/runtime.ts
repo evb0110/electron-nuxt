@@ -5,7 +5,7 @@ export { isRecord };
 export function getOptionalString(
     value: unknown,
     key: PropertyKey,
-): string | null {
+) {
     if (!isRecord(value)) {
         return null;
     }
@@ -19,7 +19,7 @@ export function getOptionalString(
 export function getOptionalNumber(
     value: unknown,
     key: PropertyKey,
-): number | null {
+) {
     if (!isRecord(value)) {
         return null;
     }

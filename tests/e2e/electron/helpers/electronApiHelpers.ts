@@ -1,17 +1,6 @@
 import type { Page } from 'puppeteer-core';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
-export interface IOcrJobOutcome {
-    requestId: string;
-    started: boolean;
-    progressEventCount: number;
-    success: boolean;
-    pdfPath: string | null;
-    errors: string[];
-    startError: string | null;
-    requiresCleanupAck: boolean;
-}
-
 export async function createWorkingCopyFromPath(page: Page, sourcePath: string, originalPath?: string) {
     return evaluateInPage(page, async ({
         source,
@@ -50,7 +39,7 @@ export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
     });
 }
 
-export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, requestId: string): Promise<IOcrJobOutcome> {
+export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, requestId: string) {
     return evaluateInPage(page, async ({
         sourcePath,
         id,

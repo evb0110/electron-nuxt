@@ -164,7 +164,7 @@ export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName(
     }
 }
 
-export async function isSessionRunning(name = getCurrentSessionName()): Promise<boolean> {
+export async function isSessionRunning(name = getCurrentSessionName()) {
     const info = getSessionInfo(name);
     if (!info) {
         return false;

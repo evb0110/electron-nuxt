@@ -183,10 +183,10 @@ function createAnnotationElement(annotationId: string): IFakeAnnotationElement {
     const element: IFakeAnnotationElement = {
         dataset: { annotationId },
         style: {},
-        setAttribute: (name: string, value: string) => {
+        setAttribute: (name, value) => {
             attributes.set(name, value);
         },
-        getAttribute: (name: string) => attributes.get(name) ?? null,
+        getAttribute: (name) => attributes.get(name) ?? null,
     };
     return element;
 }
@@ -200,7 +200,7 @@ function createAnnotationLayerDiv(): HTMLDivElement {
         style: {},
         setAttribute: vi.fn(),
         addEventListener: vi.fn(),
-        append: (element: IFakeAnnotationElement) => {
+        append: (element) => {
             appended.push(element);
         },
         querySelectorAll: (selector: string) => {
@@ -217,7 +217,7 @@ function createAnnotationLayerDiv(): HTMLDivElement {
     return cast<HTMLDivElement>(fakeDiv);
 }
 
-function createContainer(pageCanvas: HTMLDivElement): HTMLElement {
+function createContainer(pageCanvas: HTMLDivElement) {
     const querySelector = vi.fn((selector: string) => {
         if (selector === '.page_canvas') {
             return pageCanvas;

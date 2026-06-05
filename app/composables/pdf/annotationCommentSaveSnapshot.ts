@@ -10,8 +10,6 @@ import {
 } from '@app/composables/pdf/pdfSerializationRefs';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
-type TAnnotationCommentSaveEntry = IAnnotationCommentSummary & {markerRect: ReturnType<typeof normalizeMarkerRect>;};
-
 function commentsShareSaveIdentity(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -50,7 +48,7 @@ function isLocalEditorNoteForSave(comment: IAnnotationCommentSummary) {
 function mergeCommentForSave(
     existing: IAnnotationCommentSummary,
     candidate: IAnnotationCommentSummary,
-): TAnnotationCommentSaveEntry {
+) {
     const preferred = selectPreferredAnnotationComment(existing, candidate);
     const fallback = preferred === existing ? candidate : existing;
     const markerRect = normalizeMarkerRect(preferred.markerRect)

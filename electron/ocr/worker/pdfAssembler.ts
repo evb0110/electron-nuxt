@@ -35,7 +35,7 @@ export async function getPageCount(
     pdfPath: string,
     fallback: number,
     signal?: AbortSignal,
-): Promise<number> {
+) {
     try {
         const commandOptions: TOcrRunCommandOptions = {
             timeoutMs: QPDF_TIMEOUT_MS,
@@ -117,7 +117,7 @@ export async function assembleSearchablePdf(
     log: TWorkerLog,
     trackTempFile: (path: string) => string,
     signal?: AbortSignal,
-): Promise<string> {
+) {
     throwIfAborted(signal);
     log('debug', `Replacing ${ocrPdfMap.size} page(s) with qpdf page splicing (${pageImageMap.size} rendered image(s) produced)`);
     await assertNonEmptyFile(originalPdfPath, 'Original PDF');

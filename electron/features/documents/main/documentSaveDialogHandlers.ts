@@ -19,7 +19,7 @@ import { te } from '@electron/i18n';
 export async function handleSavePdfAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
-): Promise<string | null> {
+) {
     return savePdfAs(event, workingPath, showSaveDialogWithExtension);
 }
 
@@ -68,13 +68,13 @@ export async function handleBeginSavePdfDataAs(
 export async function handleSavePdfDialog(
     event: Electron.IpcMainInvokeEvent,
     suggestedName: string,
-): Promise<string | null> {
+) {
     return savePdfDialog(event, suggestedName, showSaveDialogWithExtension);
 }
 
 export async function handleSaveDocxAs(
     event: Electron.IpcMainInvokeEvent,
     workingPath: string,
-): Promise<string | null> {
+) {
     return saveDocxAs(event, workingPath, showSaveDialogWithExtension);
 }

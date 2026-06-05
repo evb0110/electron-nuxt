@@ -72,7 +72,7 @@ class FakeWorker {
         });
     }
 
-    public dispatchEvent(_event: Event): boolean {
+    public dispatchEvent(_event: Event) {
         return false;
     }
 
@@ -186,7 +186,7 @@ describe('pdfSerializationWorkerClient', () => {
         const originalPostMessage = FakeWorker.prototype.postMessage;
         FakeWorker.prototype.postMessage = function silentPostMessage(
             message: unknown,
-            transfer: Transferable[],
+            transfer,
         ) {
             this.postMessageCalls.push({
                 message,

@@ -20,7 +20,7 @@ export async function exportTextAsDocx(params: {
     setError: (message: string) => void;
     localizeError: (error: unknown) => string;
     onSuccess?: () => void;
-}): Promise<boolean> {
+}) {
     try {
         const documents = getDocumentsCapability();
         const workingPath = params.workingCopyPath ?? '';

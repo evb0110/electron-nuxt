@@ -1,45 +1,14 @@
-import type { ComputedRef } from 'vue';
 import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
     IPdfPageMatches,
-    IPdfSearchMatch,
     TFitMode,
-    TPdfSource,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-
-export interface IPdfViewerPropModel {
-    src: ComputedRef<TPdfSource | null>;
-    sourcePdfData: ComputedRef<Uint8Array | null>;
-    suppressLoadingOverlay: ComputedRef<boolean>;
-    bufferPages: ComputedRef<number>;
-    isAnySaving: ComputedRef<boolean>;
-    zoom: ComputedRef<number>;
-    dragMode: ComputedRef<boolean>;
-    fitMode: ComputedRef<TFitMode>;
-    zoomMode: ComputedRef<TZoomMode>;
-    viewMode: ComputedRef<TPdfViewMode>;
-    isResizing: ComputedRef<boolean>;
-    invertColors: ComputedRef<boolean>;
-    showAnnotations: ComputedRef<boolean>;
-    annotationTool: ComputedRef<TAnnotationTool>;
-    annotationCursorMode: ComputedRef<boolean>;
-    annotationKeepActive: ComputedRef<boolean>;
-    annotationSettings: ComputedRef<IAnnotationSettings | null>;
-    searchPageMatches: ComputedRef<Map<number, IPdfPageMatches>>;
-    currentSearchMatch: ComputedRef<IPdfSearchMatch | null>;
-    currentSearchMatchNavigationId: ComputedRef<number>;
-    requestedCurrentPage: ComputedRef<number | undefined>;
-    workingCopyPath: ComputedRef<string | null>;
-    continuousScroll: ComputedRef<boolean>;
-    isActive: ComputedRef<boolean>;
-    authorName: ComputedRef<string | null | undefined>;
-}
 
 const emptyAnnotationMatches = new Map<number, IPdfPageMatches>();
 
@@ -51,7 +20,7 @@ function isPropProvided(...names: string[]) {
     return names.some(name => Object.prototype.hasOwnProperty.call(vnodeProps, name));
 }
 
-export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>): IPdfViewerPropModel {
+export function usePdfViewerPropModel(props: Readonly<IPdfViewerProps>) {
     const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
     const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
 

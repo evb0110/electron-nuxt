@@ -9,7 +9,7 @@ import * as schema from '@server/db/schema';
 
 let dbInstance: NeonHttpDatabase<typeof schema> | null = null;
 
-function resolveDatabaseUrl(event?: H3Event): string {
+function resolveDatabaseUrl(event?: H3Event) {
     void event;
     const env = getRuntimeEnv();
 

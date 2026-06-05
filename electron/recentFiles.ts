@@ -49,7 +49,7 @@ interface IFilteredRecentFiles {
     unreadableCount: number;
 }
 
-function getStoragePath(): string {
+function getStoragePath() {
     return join(app.getPath('userData'), 'recentFiles.json');
 }
 
@@ -196,7 +196,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
     }
 }
 
-async function saveRecentFilesData(data: IRecentFilesData): Promise<void> {
+async function saveRecentFilesData(data: IRecentFilesData) {
     const storagePath = getStoragePath();
     const tempPath = `${storagePath}.tmp-${process.pid}-${Date.now()}`;
     try {
@@ -220,7 +220,7 @@ function enqueueMutation(task: () => Promise<void>) {
 }
 
 /** Persists a recent-file entry; callers must validate or mint path capabilities before calling. */
-export async function addRecentFile(originalPath: string): Promise<void> {
+export async function addRecentFile(originalPath: string) {
     await enqueueMutation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
@@ -296,7 +296,7 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
     return validFiles;
 }
 
-export async function removeRecentFile(originalPath: string): Promise<void> {
+export async function removeRecentFile(originalPath: string) {
     await enqueueMutation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
@@ -311,7 +311,7 @@ export async function removeRecentFile(originalPath: string): Promise<void> {
     });
 }
 
-export async function clearRecentFiles(): Promise<void> {
+export async function clearRecentFiles() {
     await enqueueMutation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
@@ -337,7 +337,7 @@ export function getRecentFilesSync(): string[] {
  * Initialize the recent files cache
  * Call this during app startup before menu is built
  */
-export async function initRecentFilesCache(): Promise<void> {
+export async function initRecentFilesCache() {
     await mutationQueue;
     const files = await getRecentFiles();
     recentFilesCache = files;

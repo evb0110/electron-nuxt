@@ -99,7 +99,7 @@ export async function detectSourceDpi(
     log: TWorkerLog,
     commandEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
-): Promise<number | null> {
+) {
     return (await detectSourceDpiDetails(
         pdfPath,
         pdfimagesBinary,
