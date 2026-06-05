@@ -3,6 +3,7 @@ import {
     resolveInitialDesktopRuntime,
     shouldPreferDesktopPlatform,
 } from '@app/utils/platform';
+import { logicNot } from '@vueuse/math';
 
 export const useRuntimeEnvironment = () => {
     const route = useRoute();
@@ -30,7 +31,7 @@ export const useRuntimeEnvironment = () => {
     }
 
     return {
-        isDesktopRuntime: computed(() => isDesktopRuntime.value),
-        isBrowserRuntime: computed(() => !isDesktopRuntime.value),
+        isDesktopRuntime: readonly(isDesktopRuntime),
+        isBrowserRuntime: logicNot(isDesktopRuntime),
     };
 };
