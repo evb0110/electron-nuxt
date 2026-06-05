@@ -110,7 +110,7 @@ docs/       Project-specific implementation and release notes
 
 ## Tech Stack
 
-- Electron 39
+- Electron 42
 - Nuxt 4 + Vue 3 + TypeScript 5
 - Nuxt UI 4 + Tailwind CSS 4
 - PDF.js 5 for rendering
@@ -173,6 +173,8 @@ Its runtime release API uses:
 - `NUXT_GITHUB_REPO`
 - `NUXT_GITHUB_API_BASE`
 - `NUXT_GITHUB_TOKEN` (optional)
+
+Copy `.env.example` files when you need local environment overrides. Do not commit filled-in `.env` files.
 
 ## Testing And Verification
 
@@ -252,6 +254,11 @@ Architecture boundaries are enforced in CI and local validation:
 - [Vercel deploy notes](docs/vercel-deploy.md)
 - [Release process](docs/releasing.md)
 - [Landing site README](landing/README.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## License
 

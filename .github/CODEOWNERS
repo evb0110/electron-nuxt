@@ -1,4 +1,4 @@
 # Architecture and boundary-owned surfaces
-/packages/contracts/ @evb
-/app/modules/* @evb
-/electron/features/* @evb
+/packages/contracts/ @evb0110
+/app/modules/* @evb0110
+/electron/features/* @evb0110

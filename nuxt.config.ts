@@ -25,9 +25,7 @@ function isLegacyElectronShimImport(entry: unknown) {
     const from = Reflect.get(entry, 'from');
     return typeof from === 'string'
         && (
-            from === '<repo-root>/app/utils/electron'
-            || from === '<repo-root>/app/utils/electron.ts'
-            || from.endsWith('/app/utils/electron')
+            from.endsWith('/app/utils/electron')
             || from.endsWith('/app/utils/electron.ts')
         );
 }

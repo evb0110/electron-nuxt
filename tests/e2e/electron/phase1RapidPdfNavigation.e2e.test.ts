@@ -21,7 +21,8 @@ import {
 } from '@tests/e2e/electron/helpers/sessionHarness';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 
-const PAGE_JUMP_PDF_PATH = '.devkit/manual-pdf-fixtures/History of Ancient Rome_2005.pdf';
+const PAGE_JUMP_PDF_PATH = process.env.EVB_E2E_PAGE_JUMP_PDF_PATH
+    || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
 const TARGET_PAGE = 100;
 const TRACE_OUTPUT_PATH = resolve(
     process.cwd(),

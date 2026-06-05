@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible EVB Viewer problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal sample document when it can be shared publicly.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "v0.1.312 or commit SHA"
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Desktop app
+        - Browser workspace
+        - Landing site
+        - Build or packaging
+        - Not sure
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "macOS arm64, Windows x64, Linux arm64, browser name/version"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Do not attach private documents or credentials.

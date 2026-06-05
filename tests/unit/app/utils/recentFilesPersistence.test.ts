@@ -44,7 +44,7 @@ describe('recentFilesPersistence', () => {
 
     it('marks cookie snapshots as truncated when not every recent file fits', () => {
         const recentFiles = Array.from({ length: 30 }, (_, index) => ({
-            originalPath: `.devkit/manual-fixtures/really-long-folder-name-${index}/really-long-folder-name-${index}/document-${index}.pdf`,
+            originalPath: `/Users/example/Desktop/really-long-folder-name-${index}/really-long-folder-name-${index}/document-${index}.pdf`,
             fileName: `really-long-document-name-${index}.pdf`,
             timestamp: index + 1,
             fileSize: 2048,
