@@ -4,14 +4,11 @@ import {
     it,
     vi,
 } from 'vitest';
-
 import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotationSubtype';
-import {
-    detectEditorSubtype,
-    getCommentText,
-    getEditorSelectionPreviewText,
-    hasEditorCommentPayload,
-} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
+import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
+import { getEditorSelectionPreviewText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getEditorSelectionPreviewText';
+import { hasEditorCommentPayload } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/hasEditorCommentPayload';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));

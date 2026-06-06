@@ -1,80 +1,9 @@
-import type {
-    TTabMemoryPolicy,
-    TFitMode,
-    TPdfViewMode,
-    TZoomMode,
-} from '@contracts/shared';
+import type { TTabMemoryPolicy } from '@contracts/shared';
 import type { Ref } from 'vue';
 import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-
-export type TTabTemperature = 'hot' | 'warm' | 'cold';
-
-export interface ITabViewSessionState {
-    zoom: number;
-    effectiveZoom: number;
-    zoomMode: TZoomMode;
-    fitMode: TFitMode;
-    viewMode: TPdfViewMode;
-    showSidebar: boolean;
-    continuousScroll: boolean;
-}
-
-export interface ITabLifecycleState {
-    tabId: string;
-    temperature: TTabTemperature;
-    shouldMountHost: boolean;
-}
-
-const TAB_POLICY_WARM_COUNTS: Record<TTabMemoryPolicy, number> = {
-    conservative: 2,
-    aggressive: 0,
-};
-
-export function createTabViewSessionState(snapshot: IWorkspaceToolbarSnapshot): ITabViewSessionState {
-    return {
-        zoom: snapshot.zoom,
-        effectiveZoom: snapshot.effectiveZoom,
-        zoomMode: snapshot.zoomMode,
-        fitMode: snapshot.fitMode,
-        viewMode: snapshot.viewMode,
-        showSidebar: snapshot.showSidebar,
-        continuousScroll: snapshot.continuousScroll,
-    };
-}
-
-export function resolveTabLifecycleStates(options: {
-    tabs: ITab[];
-    panes: IEditorPaneState[];
-    activeTabId: string | null;
-    activationOrder: string[];
-    policy: TTabMemoryPolicy;
-}): ITabLifecycleState[] {
-    const warmCount = TAB_POLICY_WARM_COUNTS[options.policy];
-    const tabIds = new Set(options.tabs.map(tab => tab.id));
-    const visibleTabIds = new Set(
-        options.panes
-            .map(pane => pane.activeTabId)
-            .filter((tabId): tabId is string => Boolean(tabId)),
-    );
-    const recentWarmTabIds = options.activationOrder
-        .filter(tabId => tabIds.has(tabId) && !visibleTabIds.has(tabId))
-        .slice(0, warmCount);
-    const warmTabIds = new Set([...recentWarmTabIds]);
-
-    return options.tabs.map((tab) => {
-        const isHot = visibleTabIds.has(tab.id);
-        const isWarm = !isHot && warmTabIds.has(tab.id);
-        const temperature: TTabTemperature = isHot ? 'hot' : isWarm ? 'warm' : 'cold';
-
-        return {
-            tabId: tab.id,
-            temperature,
-            shouldMountHost: temperature !== 'cold',
-        };
-    });
-}
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 
 export function useTabSessionStore(options: {
     tabs: Ref<ITab[]>;

@@ -13,10 +13,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    WORKER_BUNDLES,
-    type TWorkerBundleId,
-} from '@electron-worker-bundles/electronWorkerBundles.js';
+import { WORKER_BUNDLES } from '@electron-worker-bundles/electronWorkerBundles.js';
+import type { TWorkerBundleId } from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const execFileAsync = promisify(execFile);
 

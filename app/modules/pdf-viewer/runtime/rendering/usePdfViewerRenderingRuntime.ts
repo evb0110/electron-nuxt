@@ -6,10 +6,10 @@ import type {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
-import {
-    usePdfPageRenderer,
-    type IPageRenderStallPayload,
-    type IUsePdfPageRendererOptions,
+import { usePdfPageRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
+import type {
+    IPageRenderStallPayload,
+    IUsePdfPageRendererOptions,
 } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type {
     IPdfPageMatches,

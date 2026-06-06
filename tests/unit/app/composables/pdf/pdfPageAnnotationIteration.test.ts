@@ -9,12 +9,10 @@ import {
     PDFName,
     degrees,
 } from 'pdf-lib';
-import {
-    computePointsMinMax,
-    iterateAnnotationRefDicts,
-    lookupAnnotationRefDict,
-    resolvePageAnnotationContext,
-} from '@app/composables/pdf/pdfPageAnnotationIteration';
+import { computePointsMinMax } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/computePointsMinMax';
+import { iterateAnnotationRefDicts } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
+import { lookupAnnotationRefDict } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/lookupAnnotationRefDict';
+import { resolvePageAnnotationContext } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/resolvePageAnnotationContext';
 
 describe('pdfPageAnnotationIteration', () => {
     it('looks up annotation dictionaries only from PDF refs', async () => {

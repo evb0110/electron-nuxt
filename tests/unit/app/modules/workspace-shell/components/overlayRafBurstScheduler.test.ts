@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
+import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/createRafBurstScheduler';
 
 describe('createRafBurstScheduler', () => {
     it('runs only the requested burst and then stops without rescheduling itself', () => {

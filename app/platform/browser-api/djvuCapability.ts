@@ -22,10 +22,8 @@ import type {
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvuWorker';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 import { decodeBrowserImageBlob } from '@app/platform/browser-api/browserImageDecode';
-import {
-    type IStreamingPdfSink,
-    StreamingImagePdfWriter,
-} from '@app/platform/browser-api/streamingImagePdf';
+import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdf';
+import type { IStreamingPdfSink } from '@app/platform/browser-api/streamingImagePdf';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

@@ -3,11 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    createTextMarkupDrawLayerVisualPlan,
-    createTextMarkupLiveVisualPlan,
-    PDF_TEXT_MARKUP_NATIVE_APPEARANCE,
-} from '@app/composables/pdf/textMarkupVisualModel';
+import { createTextMarkupDrawLayerVisualPlan } from '@app/utils/pdf-viewer/text-markup-visual-model/createTextMarkupDrawLayerVisualPlan';
+import { createTextMarkupLiveVisualPlan } from '@app/utils/pdf-viewer/text-markup-visual-model/createTextMarkupLiveVisualPlan';
+import { pdfTextMarkupNativeAppearance } from '@app/utils/pdf-viewer/text-markup-visual-model/pdfTextMarkupNativeAppearance';
 
 describe('textMarkupVisualModel', () => {
     it('derives live underline and strikeout geometry from the native PDF.js contract', () => {
@@ -43,11 +41,11 @@ describe('textMarkupVisualModel', () => {
 
         expect(underline?.paths).toEqual([{
             d: 'M 0 0.098375 L 0.4 0.098375',
-            strokeWidthPdfUnits: PDF_TEXT_MARKUP_NATIVE_APPEARANCE.underlineStrokeWidth,
+            strokeWidthPdfUnits: pdfTextMarkupNativeAppearance.underlineStrokeWidth,
         }]);
         expect(strikeout?.paths).toEqual([{
             d: 'M 0 0.05 L 0.4 0.05',
-            strokeWidthPdfUnits: PDF_TEXT_MARKUP_NATIVE_APPEARANCE.strikeOutStrokeWidth,
+            strokeWidthPdfUnits: pdfTextMarkupNativeAppearance.strikeOutStrokeWidth,
         }]);
     });
 
@@ -85,11 +83,11 @@ describe('textMarkupVisualModel', () => {
         expect(underline?.viewBox).toBe('0 0 1 1');
         expect(underline?.paths).toEqual([{
             d: 'M 0.02381 0.903125 L 0.97619 0.903125',
-            strokeWidthPdfUnits: PDF_TEXT_MARKUP_NATIVE_APPEARANCE.underlineStrokeWidth,
+            strokeWidthPdfUnits: pdfTextMarkupNativeAppearance.underlineStrokeWidth,
         }]);
         expect(strikeout?.paths).toEqual([{
             d: 'M 0.02381 0.5 L 0.97619 0.5',
-            strokeWidthPdfUnits: PDF_TEXT_MARKUP_NATIVE_APPEARANCE.strikeOutStrokeWidth,
+            strokeWidthPdfUnits: pdfTextMarkupNativeAppearance.strikeOutStrokeWidth,
         }]);
     });
 });

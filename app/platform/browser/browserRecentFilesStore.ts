@@ -5,9 +5,9 @@ import {
 } from '@app/utils/localStorage';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 import {
-    parseRecentFilesPayload,
     RECENT_FILES_COOKIE_KEY,
     RECENT_FILES_COOKIE_MAX_AGE_SECONDS,
+    parseRecentFilesPayload,
     serializeRecentFilesCookiePayload,
     serializeRecentFilesPayload,
 } from '@app/utils/recentFilesPersistence';

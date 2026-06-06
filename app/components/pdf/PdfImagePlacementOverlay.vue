@@ -78,17 +78,17 @@ import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
-import {
-    getImagePlacementResizeCursorStyle,
-    getImagePlacementResizeHandleViewportPosition,
-    getImagePlacementRotateHandleViewportPosition,
-    moveImagePlacementRect,
-    rotateImagePlacementRect,
-    resizeImagePlacementRect,
-    type IImagePlacementContainerRect,
-    type IImagePlacementRectPx,
-    type TImagePlacementResizeHandle,
-} from '@app/composables/pdf/pdfImagePlacementSizing';
+import { getImagePlacementResizeCursorStyle } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
+import { getImagePlacementResizeHandleViewportPosition } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementResizeHandleViewportPosition';
+import { getImagePlacementRotateHandleViewportPosition } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/getImagePlacementRotateHandleViewportPosition';
+import { moveImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/moveImagePlacementRect';
+import type {
+    IImagePlacementContainerRect,
+    IImagePlacementRectPx,
+    TImagePlacementResizeHandle,
+} from '@app/utils/pdf-viewer/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import { resizeImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/resizeImagePlacementRect';
+import { rotateImagePlacementRect } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/rotateImagePlacementRect';
 
 const {
     placement,

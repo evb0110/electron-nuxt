@@ -6,8 +6,8 @@ import {
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
     getAnnotationCommentPreviewText,
-    splitByQueryMatches,
     matchesCommentQuery,
+    splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

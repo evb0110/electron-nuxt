@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createOcrTextContentCache } from '@app/composables/pdf/ocrTextContentCache';
+import { createOcrTextContentCache } from '@app/utils/pdf-viewer/ocr-text-content-cache/createOcrTextContentCache';
 
 function makeManifest(id: string) {
     return {

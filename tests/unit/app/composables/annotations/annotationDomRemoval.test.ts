@@ -6,18 +6,16 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import {
-    applyAnnotationCommentTextMarkupColor,
-    applyAnnotationCommentTextMarkupVisualOverlay,
-    drawAnnotationCommentTextMarkupCanvasVisual,
-    removeAnnotationCommentDom,
-    resolveAnnotationCommentTextMarkupColor,
-    resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics,
-    resolveCommentWithRenderedTextMarkupColorAtPoint,
-} from '@app/composables/pdf/annotations/annotationDomRemoval';
-import { refreshHighlightCompositeOverlay } from '@app/composables/pdf/pdfHighlightCompositeOverlay';
+import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
+import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay';
+import { drawAnnotationCommentTextMarkupCanvasVisual } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/drawAnnotationCommentTextMarkupCanvasVisual';
+import { removeAnnotationCommentDom } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/removeAnnotationCommentDom';
+import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
+import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
+import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
+import { refreshHighlightCompositeOverlay } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 
-vi.mock('@app/composables/pdf/pdfHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
+vi.mock('@app/utils/pdf-viewer/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
 
 interface IFakeRect {
     left: number;

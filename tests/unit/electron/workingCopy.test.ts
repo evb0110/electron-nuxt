@@ -9,8 +9,8 @@ import {
 import {
     existsSync,
     mkdtempSync,
-    realpathSync,
     readFileSync,
+    realpathSync,
     rmSync,
     writeFileSync,
 } from 'fs';

@@ -9,11 +9,9 @@ import {
     shallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import {
-    createSerializeCurrentPdfForEmbeddedFallback,
-    hasAnnotationChanges,
-    hasViewerShapeChanges,
-} from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
+import { createSerializeCurrentPdfForEmbeddedFallback } from '@app/modules/workspace-shell/annotations/createSerializeCurrentPdfForEmbeddedFallback';
+import { hasAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
+import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 
 describe('hasViewerShapeChanges', () => {
     it('unwraps ref-backed viewer shape state', () => {

@@ -8,10 +8,8 @@ import {
 } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { traceRendererStartup } from '@app/utils/startupTrace';
-import {
-    type ITabsMenuBindingDeps,
-    registerTabsMenuBindings,
-} from '@app/modules/workspace-shell/composables/tabsMenuBindings';
+import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/platformShortcuts';
 

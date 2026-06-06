@@ -1,9 +1,7 @@
 import type { Ref } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import {
-    captureScrollSnapshot,
-    restoreScrollFromSnapshot,
-} from '@app/composables/pdf/pdfPageRenderPipeline';
+import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
+import { restoreScrollFromSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 
 export function usePdfViewerScrollSnapshot(options: {
     viewerContainer: Ref<HTMLElement | null>;

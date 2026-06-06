@@ -14,10 +14,10 @@ import type {
     TAnnotationTool,
     TDrawableShapeType,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
+import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
 import type { TAgentTextMarkupKind } from '@app/composables/pdf/annotations/useAnnotationHighlight';
-import { markerRectFromPoint } from '@app/composables/pdf/annotations/pdfPagePointResolver';
-import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
+import { markerRectFromPoint } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/markerRectFromPoint';
+import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
@@ -29,18 +29,16 @@ import {
     createAgentPageLabelPlan,
     createAgentPageLabelSnapshot as createAgentPageLabelPlanSnapshot,
 } from '@app/utils/agentMetadataPlans';
-import { capturePdfRegionAsPngBlob } from '@app/composables/pdf/pdfRegionCapture';
-import {
-    getRectHeight,
-    getRectWidth,
-    toClientRect,
-    type IClientRect,
-} from '@app/composables/pdf/pdfRegionGeometry';
+import { capturePdfRegionAsPngBlob } from '@app/utils/pdf-viewer/pdf-region-capture/capturePdfRegionAsPngBlob';
+import { getRectHeight } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectHeight';
+import { getRectWidth } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectWidth';
+import type { IClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
+import { toClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/toClientRect';
 import {
     findPdfPageContainer,
-    PDF_VIEWER_DOM_SELECTORS,
+    pdfViewerDomSelectors,
 } from '@app/modules/pdf-viewer/public';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 type TWorkspaceAgentSidebarTab = 'annotations' | 'bookmarks' | 'thumbnails' | 'search';
 type TWorkspaceAgentFitMode = 'width' | 'height';
@@ -501,7 +499,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
 
     function findAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: number) {
         const pageElement = findPdfPageContainer(viewerContainer, pageNumber);
-        const canvas = pageElement?.querySelector<HTMLCanvasElement>(PDF_VIEWER_DOM_SELECTORS.pageCanvasElement) ?? null;
+        const canvas = pageElement?.querySelector<HTMLCanvasElement>(pdfViewerDomSelectors.pageCanvasElement) ?? null;
         if (!pageElement || !canvas || canvas.width <= 0 || canvas.height <= 0) {
             return null;
         }
@@ -1747,7 +1745,6 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 throw new Error(`Unsupported EVB agent action: ${actionId}`);
         }
     }
-
 
     return {
         runAgentAction,

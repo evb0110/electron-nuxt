@@ -1,14 +1,14 @@
 import {
-    AnnotationLayer,
     AnnotationEditorLayer,
-    AnnotationEditorUIManager as RuntimeAnnotationEditorUIManager,
     AnnotationEditorType,
+    AnnotationEditorUIManager as RuntimeAnnotationEditorUIManager,
+    AnnotationLayer,
     DrawLayer,
 } from '@app/services/pdfjs/runtimeLib';
 import type {
-    PDFPageProxy,
     AnnotationEditorUIManager,
     PDFDocumentProxy,
+    PDFPageProxy,
 } from 'pdfjs-dist';
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
 import type { AnnotationEditorLayer as TAnnotationEditorLayer } from 'pdfjs-dist/types/src/display/editor/annotation_editor_layer';
@@ -23,25 +23,19 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { defaultDocument } from '@vueuse/core';
-import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
-import {
-    disconnectHighlightCompositeOverlay,
-    observeHighlightCompositeOverlay,
-    refreshHighlightCompositeOverlay,
-} from '@app/composables/pdf/pdfHighlightCompositeOverlay';
-import {
-    combinePdfLayerVisualSnapshotReleases,
-    hasPdfPageAnnotationVisualContentForSnapshotRelease,
-    hasPdfPageDrawLayerVisualContent,
-    preservePdfLayerVisualSnapshot,
-    preservePdfPageAnnotationVisualSnapshot,
-    schedulePdfLayerVisualSnapshotRelease,
-} from '@app/composables/pdf/pdfLayerVisualSnapshot';
-import {
-    tracePdfAnnotationSaveDom,
-    tracePdfAnnotationSaveEvent,
-} from '@app/composables/pdf/pdfAnnotationSaveTrace';
-import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import { disconnectHighlightCompositeOverlay } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/disconnectHighlightCompositeOverlay';
+import { observeHighlightCompositeOverlay } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/observeHighlightCompositeOverlay';
+import { refreshHighlightCompositeOverlay } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
+import { combinePdfLayerVisualSnapshotReleases } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/combinePdfLayerVisualSnapshotReleases';
+import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
+import { hasPdfPageDrawLayerVisualContent } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/hasPdfPageDrawLayerVisualContent';
+import { preservePdfLayerVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfLayerVisualSnapshot';
+import { preservePdfPageAnnotationVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
+import { schedulePdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
+import { tracePdfAnnotationSaveDom } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
+import { tracePdfAnnotationSaveEvent } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
+import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/platformShell';

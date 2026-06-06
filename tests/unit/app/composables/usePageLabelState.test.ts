@@ -4,15 +4,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    ref,
-    type Ref,
-} from 'vue';
+import { ref } from 'vue';
+import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import {
-    resolveVisiblePageLabelsDuringMetadataRefresh,
-    usePageLabelState,
-} from '@app/composables/pdf/usePageLabelState';
+import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
+import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/utils/pdf-viewer/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';
 

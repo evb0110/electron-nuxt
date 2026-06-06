@@ -7,7 +7,7 @@ import { usePageShortcuts } from '@app/modules/workspace-shell/composables/usePa
 import { useWorkspaceCrop } from '@app/modules/workspace-shell/composables/useWorkspaceCrop';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type {
     TDocumentRef,
     TOpenFileResult,

@@ -2,7 +2,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdfNavigationSkeletonEligibility';
+import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdf-navigation-skeleton-eligibility/shouldShowPdfNavigationSkeleton';
 import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime/rendering/usePdfMountedPageRenderRecovery';
 import { usePdfViewerRenderingRuntime } from '@app/modules/pdf-viewer/runtime/rendering/usePdfViewerRenderingRuntime';
 import { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
@@ -29,24 +29,23 @@ import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts
 import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
 import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
-import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
-import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
-import {
-    applyAnnotationCommentTextMarkupColor,
-    syncAnnotationCommentTextMarkupVisualOverlays,
-} from '@app/composables/pdf/annotations/annotationDomRemoval';
-import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
+import { summarizeViewerMetrics } from '@app/utils/pdf-viewer/pdf-viewer-metrics/summarizeViewerMetrics';
+import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
+import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
+import { toOpaqueHighlightDisplayColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/editedTextMarkupCanvasSuppression';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import type {
-    IAnnotationEditorState,
     IAnnotationCommentSummary,
+    IAnnotationEditorState,
     IAnnotationModifiedPayload,
 } from '@app/types/annotations';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+
 export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdfViewerEmit) {
     const {
         src,

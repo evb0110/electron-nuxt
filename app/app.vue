@@ -165,7 +165,7 @@ import {
     BROWSER_THEME_COOKIE_KEY,
 } from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/composables/workspaceHostMounting';
+import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
 
 const {
     load: loadSettings,

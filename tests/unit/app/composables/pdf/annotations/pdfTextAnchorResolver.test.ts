@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { buildRangeFromPageText } from '@app/composables/pdf/annotations/pdfTextAnchorResolver';
+import { buildRangeFromPageText } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 
 class FakeTextNode {
     readonly nodeType = 3;

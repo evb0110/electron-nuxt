@@ -7,8 +7,8 @@ import {
 } from 'vitest';
 import {
     mkdtemp,
-    rm,
     readFile,
+    rm,
     stat,
     writeFile,
 } from 'fs/promises';

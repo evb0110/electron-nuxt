@@ -3,14 +3,12 @@ import type { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppA
 import type { usePdfViewerRuntime } from '@app/modules/pdf-viewer/runtime/usePdfViewerRuntime';
 import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime';
 import type { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
-import {
-    createPdfViewerPublicApi,
-    type TPdfViewerPublicApiSource,
-} from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
+import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
+import type { TPdfViewerPublicApiSource } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { toShapeAnnotationCommentSummary } from '@app/composables/pdf/annotations/shapeAnnotationComments';
+import { toShapeAnnotationCommentSummary } from '@app/utils/pdf-viewer/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;

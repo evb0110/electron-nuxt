@@ -11,8 +11,8 @@ import {
     nextTick,
     ref,
     watch,
-    type Component,
 } from 'vue';
+import type { Component } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
 
 const mocks = vi.hoisted(() => ({
@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
     loggerWarn: vi.fn(),
 }));
 
-vi.mock('@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup', () => ({cleanupSplitPayloadSnapshot: mocks.cleanupSplitPayloadSnapshot}));
+vi.mock('@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot', () => ({cleanupSplitPayloadSnapshot: mocks.cleanupSplitPayloadSnapshot}));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     debug: mocks.loggerDebug,

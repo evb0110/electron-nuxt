@@ -9,10 +9,8 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import {
-    useMenuSync,
-    workspaceHasPdf,
-} from '@app/modules/workspace-shell/composables/useMenuSync';
+import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),

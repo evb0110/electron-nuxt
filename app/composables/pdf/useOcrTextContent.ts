@@ -7,11 +7,11 @@ import {
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    sharedOcrTextContentCache,
-    type IOcrManifest,
-    type IOcrPageData,
-} from '@app/composables/pdf/ocrTextContentCache';
+import type {
+    IOcrManifest,
+    IOcrPageData,
+} from '@app/utils/pdf-viewer/ocr-text-content-cache/ocrTextContentCacheTypes';
+import { sharedOcrTextContentCache } from '@app/utils/pdf-viewer/ocr-text-content-cache/sharedOcrTextContentCache';
 import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 
 const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([

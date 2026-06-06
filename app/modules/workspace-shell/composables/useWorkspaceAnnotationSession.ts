@@ -8,11 +8,9 @@ import { useAnnotationContextMenu } from '@app/composables/pdf/useAnnotationCont
 import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNoteWindows';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
-import {
-    hasAnnotationChanges as detectAnnotationChanges,
-    hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges,
-} from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
+import { hasLivePdfJsAnnotationChanges as detectLivePdfJsAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasLivePdfJsAnnotationChanges';
 import { collectLivePdfJsAnnotationChangeFingerprint } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 

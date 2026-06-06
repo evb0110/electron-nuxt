@@ -7,7 +7,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
-import { resolvePdfPageView } from '@app/composables/pdf/pdfPageBoxes';
+import { resolvePdfPageView } from '@app/utils/pdf-viewer/pdf-page-boxes/resolvePdfPageView';
 
 describe('pdfPageBoxes', () => {
     it('resolves page view as CropBox intersected with MediaBox', async () => {
@@ -46,7 +46,6 @@ describe('pdfPageBoxes', () => {
             480,
         ]);
     });
-
 
     it('falls back to MediaBox when CropBox does not overlap it', async () => {
         const pdfDocument = await PDFDocument.create();

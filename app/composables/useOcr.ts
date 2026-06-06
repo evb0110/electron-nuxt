@@ -1,4 +1,3 @@
-
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
@@ -11,14 +10,14 @@ import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import {
-    parsePageRange,
-    type IOcrSettings,
-    type IOcrProgress,
-    type IOcrResults,
-} from '@app/utils/ocr/languages';
-import { hasRtlOcrLanguage } from '@app/utils/ocr/textDirection';
-import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
+import type {
+    IOcrProgress,
+    IOcrResults,
+    IOcrSettings,
+} from '@app/utils/ocr/ocrTypes';
+import { parsePageRange } from '@app/utils/ocr/parsePageRange';
+import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
+import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { getOcrCapability } from '@app/utils/platformOcr';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {

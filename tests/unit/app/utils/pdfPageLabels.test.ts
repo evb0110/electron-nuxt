@@ -9,8 +9,8 @@ import {
     findPageByPageLabelInput,
     formatPageIndicator,
     formatPageIndicatorWithOptions,
-    getPageIndicatorLayoutMetrics,
     getMaxPageIndicatorLength,
+    getPageIndicatorLayoutMetrics,
 } from '@app/utils/pdfPageLabels';
 
 describe('pdfPageLabels', () => {

@@ -6,20 +6,18 @@ import type {
 } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import {
-    areTextMarkupCommentsLikelySame,
-    commentMergePriority,
-    commentsAreSameLogicalAnnotation,
-    commentsMatchForEditorLookup,
-    compareAnnotationComments,
-    computeSummaryStableKey,
-    dedupeAnnotationCommentSummaries,
-    getSummaryMemoryKeys,
-    mergeCommentSummaries,
-    mergeDuplicateCommentSummary,
-    normalizeSummaryStableKey,
-    toCanonicalStableKey,
-} from '@app/composables/pdf/annotations/annotationIdentityMatching';
+import { areTextMarkupCommentsLikelySame } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame';
+import { commentMergePriority } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentMergePriority';
+import { commentsAreSameLogicalAnnotation } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentsAreSameLogicalAnnotation';
+import { commentsMatchForEditorLookup } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentsMatchForEditorLookup';
+import { compareAnnotationComments } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/compareAnnotationComments';
+import { computeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/computeSummaryStableKey';
+import { dedupeAnnotationCommentSummaries } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/dedupeAnnotationCommentSummaries';
+import { getSummaryMemoryKeys } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/getSummaryMemoryKeys';
+import { mergeCommentSummaries } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeCommentSummaries';
+import { mergeDuplicateCommentSummary } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeDuplicateCommentSummary';
+import { normalizeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/normalizeSummaryStableKey';
+import { toCanonicalStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/toCanonicalStableKey';
 
 interface ISummaryMemoryEntry {
     text: string;

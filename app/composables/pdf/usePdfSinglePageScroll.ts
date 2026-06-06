@@ -14,18 +14,21 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { stepBySpread } from '@app/utils/pdfViewMode';
 import { logPdfNav } from '@app/utils/pdfNavLog';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import {
-    getPageContainerByNumber,
-    getPageScrollBounds as getPageScrollBoundsForContainer,
-} from '@app/composables/pdf/pdfScrollVisibility';
-import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import { getPageContainerByNumber } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageContainerByNumber';
+import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageScrollBounds';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type {
+    IWheelPageAccumulatorState,
+    TPageSnapAnchor,
+    TWheelDirection,
+} from '@app/utils/pdf-viewer/single-page-wheel/singlePageWheelTypes';
+import { createWheelPageAccumulatorState } from '@app/utils/pdf-viewer/single-page-wheel/createWheelPageAccumulatorState';
+import { normalizePageWheelDelta } from '@app/utils/pdf-viewer/single-page-wheel/normalizePageWheelDelta';
+import { resolveSnapAnchorForWheelDirection } from '@app/utils/pdf-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';
+import { accumulateWheelForPageFlips } from '@app/utils/pdf-viewer/single-page-wheel/accumulateWheelForPageFlips';
+import { resolveWheelPageFlipStepDelta } from '@app/utils/pdf-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 
-const WHEEL_LINE_DELTA_PX = 16;
-const PAGE_FLIP_STEP_DELTA_PX = 120;
-const MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX = 40;
-const WHEEL_IDLE_RESET_MS = 140;
-const MAX_PAGE_FLIPS_PER_EVENT = 3;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 const WHEEL_DELTA_EPSILON = 0.01;
@@ -43,9 +46,6 @@ const CONTINUOUS_NAVIGATION_TARGET_MAX_HOLD_MS = 6_000;
 // flips on the next wheel tick).
 const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 
-export type TPageSnapAnchor = 'center' | 'top' | 'bottom';
-export type TWheelDirection = -1 | 1;
-
 interface IPageScrollBounds {
     min: number;
     max: number;
@@ -54,108 +54,6 @@ interface IPageScrollBounds {
 interface IPageRowGeometry {
     top: number;
     height: number;
-}
-
-export interface IWheelPageAccumulatorState {
-    delta: number;
-    direction: TWheelDirection | 0;
-    lastEventTimeMs: number;
-}
-
-export function createWheelPageAccumulatorState(): IWheelPageAccumulatorState {
-    return {
-        delta: 0,
-        direction: 0,
-        lastEventTimeMs: 0,
-    };
-}
-
-export function normalizePageWheelDelta(
-    delta: number,
-    mode: number,
-    container: HTMLElement,
-) {
-    if (mode === 1) {
-        return delta * WHEEL_LINE_DELTA_PX;
-    }
-    if (mode === 2) {
-        return delta * container.clientHeight;
-    }
-    return delta;
-}
-
-interface IAccumulateWheelForPageFlipsInput {
-    state: IWheelPageAccumulatorState;
-    delta: number;
-    direction: TWheelDirection;
-    eventTimeMs: number;
-    stepDelta: number;
-    maxSteps?: number;
-}
-
-export function resolveSnapAnchorForWheelDirection(
-    direction: TWheelDirection,
-): TPageSnapAnchor {
-    return direction > 0 ? 'top' : 'bottom';
-}
-
-export function accumulateWheelForPageFlips(
-    input: IAccumulateWheelForPageFlipsInput,
-) {
-    const {
-        delta,
-        direction,
-        eventTimeMs,
-        stepDelta,
-    } = input;
-
-    let accumulatedDelta = input.state.delta;
-    const isDirectionChanged =
-        input.state.direction !== 0 && input.state.direction !== direction;
-    const isStale =
-        input.state.lastEventTimeMs > 0 &&
-        eventTimeMs - input.state.lastEventTimeMs > WHEEL_IDLE_RESET_MS;
-
-    if (isDirectionChanged || isStale) {
-        accumulatedDelta = 0;
-    }
-
-    accumulatedDelta += delta;
-
-    const safeStepDelta = Math.max(stepDelta, WHEEL_DELTA_EPSILON);
-    const rawSteps = Math.floor(Math.abs(accumulatedDelta) / safeStepDelta);
-    const stepsToFlip = Math.min(rawSteps, input.maxSteps ?? MAX_PAGE_FLIPS_PER_EVENT);
-    const consumedDelta = direction * stepsToFlip * safeStepDelta;
-
-    return {
-        stepsToFlip,
-        state: {
-            delta: accumulatedDelta - consumedDelta,
-            direction,
-            lastEventTimeMs: eventTimeMs,
-        },
-    };
-}
-
-export function resolveWheelPageFlipStepDelta(
-    event: Pick<WheelEvent, 'deltaMode'>,
-    normalizedDelta: number,
-) {
-    const magnitude = Math.abs(normalizedDelta);
-    if (magnitude < WHEEL_DELTA_EPSILON) {
-        return PAGE_FLIP_STEP_DELTA_PX;
-    }
-
-    if (event.deltaMode === 1 || event.deltaMode === 2) {
-        // Line/page deltas are already wheel-step-oriented; treat each event
-        // as one meaningful edge-flip step.
-        return magnitude;
-    }
-
-    return Math.max(
-        MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX,
-        Math.min(PAGE_FLIP_STEP_DELTA_PX, magnitude),
-    );
 }
 
 function shouldHandleSinglePageWheel(

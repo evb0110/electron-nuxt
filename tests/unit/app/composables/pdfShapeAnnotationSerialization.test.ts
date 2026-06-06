@@ -11,8 +11,8 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import { serializeShapeAnnotationsToDoc } from '@app/composables/pdf/pdfShapeAnnotationSerialization';
+import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { serializeShapeAnnotationsToDoc } from '@app/utils/pdf-viewer/pdf-shape-annotation-serialization/serializeShapeAnnotationsToDoc';
 
 async function createPdfDataWithSinglePage() {
     const doc = await PDFDocument.create();

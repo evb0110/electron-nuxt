@@ -3,12 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    hasRenderedPageInRange,
-    isAnchoredCurrentPageSyncSource,
-    isResizeRerenderSource,
-    shouldPreserveExistingRerenderContent,
-} from '@app/modules/pdf-viewer/runtime/rerenderStrategy';
+import { hasRenderedPageInRange } from '@app/modules/pdf-viewer/runtime/rerender-strategy/hasRenderedPageInRange';
+import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
+import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isResizeRerenderSource';
+import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 
 describe('rerenderStrategy', () => {
     it('detects resize-driven rerender sources', () => {

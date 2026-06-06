@@ -7,7 +7,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
-import { collectAnnotationRefsToDelete } from '@app/composables/pdf/pdfSerializationComments';
+import { collectAnnotationRefsToDelete } from '@app/utils/pdf-viewer/pdf-serialization-comments/collectAnnotationRefsToDelete';
 
 describe('collectAnnotationRefsToDelete Parent guard', () => {
     it('queues the FreeText parent when deleting a Popup whose parent is a FreeText', async () => {

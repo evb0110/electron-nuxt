@@ -2,20 +2,16 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import {
-    clamp,
-    range,
-} from 'es-toolkit/math';
+import { range } from 'es-toolkit/math';
 import type { IPdfPageMetric } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
-import {
-    buildPageLayoutMetrics,
-    getLeadingSpacerHeightForPage,
-    getPageRowBounds,
-    getPageRowBoundsForViewMode,
-    getTrailingSpacerHeightForPage,
-    normalizePageMetrics,
-} from '@app/composables/pdf/pdfPageLayout';
+import { buildPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/buildPageLayoutMetrics';
+import { getLeadingSpacerHeightForPage } from '@app/utils/pdf-viewer/pdf-page-layout/getLeadingSpacerHeightForPage';
+import { getPageRowBounds } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBounds';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
+import { getTrailingSpacerHeightForPage } from '@app/utils/pdf-viewer/pdf-page-layout/getTrailingSpacerHeightForPage';
+import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
+import { expandVirtualWindowForAnchor } from '@app/modules/pdf-viewer/runtime/viewport/expandVirtualWindowForAnchor';
 
 export interface IZoomVirtualizationFreeze {
     sessionId: number | null;
@@ -51,33 +47,6 @@ const VIRTUAL_MOUNT_BUFFER_MIN = 6;
 const NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN = 18;
 const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
 const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
-
-export function expandVirtualWindowForAnchor(options: {
-    baseStart: number;
-    baseEnd: number;
-    anchorPage: number | null;
-    totalPages: number;
-    buffer: number;
-}) {
-    const baseStart = Math.max(1, Math.trunc(options.baseStart));
-    const baseEnd = Math.max(baseStart, Math.trunc(options.baseEnd));
-    const totalPages = Math.max(baseEnd, Math.trunc(options.totalPages));
-    const anchorPage = typeof options.anchorPage === 'number' && Number.isFinite(options.anchorPage)
-        ? clamp(Math.trunc(options.anchorPage), 1, totalPages)
-        : null;
-    if (anchorPage === null) {
-        return {
-            start: baseStart,
-            end: Math.min(totalPages, baseEnd),
-        };
-    }
-
-    const buffer = Math.max(0, Math.trunc(options.buffer));
-    return {
-        start: clamp(anchorPage - buffer, 1, baseStart),
-        end: clamp(anchorPage + buffer, baseEnd, totalPages),
-    };
-}
 
 export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationOptions) => {
     const {

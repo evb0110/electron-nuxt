@@ -3,10 +3,8 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platformApi';
-import {
-    didOpenDocument,
-    type TDocumentOpenOutcome,
-} from '@app/types/documentOpenOutcome';
+import { didOpenDocument } from '@app/types/documentOpenOutcome';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 interface IWorkspaceFileSwitchDeps {
     workingCopyPath: Ref<TDocumentRef | null>;

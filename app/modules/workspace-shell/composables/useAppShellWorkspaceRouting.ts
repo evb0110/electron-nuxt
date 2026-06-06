@@ -4,11 +4,9 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    buildPendingTabDocumentHint,
-    tabHasDocumentHint,
-} from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
+import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';

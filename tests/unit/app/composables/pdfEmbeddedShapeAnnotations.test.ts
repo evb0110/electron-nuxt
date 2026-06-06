@@ -9,11 +9,9 @@ import {
     PDFName,
     PDFString,
 } from 'pdf-lib';
-import {
-    collectEmbeddedShapeAnnotationIds,
-    importEmbeddedShapeAnnotations,
-} from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import { formatPdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
+import { collectEmbeddedShapeAnnotationIds } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/collectEmbeddedShapeAnnotationIds';
+import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 async function createPdfWithEmbeddedShapes(options: { managedInk?: boolean } = {}) {

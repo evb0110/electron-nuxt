@@ -121,32 +121,25 @@ import {
 } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPlatformAPI } from '@app/utils/platform';
-import {
-    getAsyncChunkLoadErrorMessage,
-    shouldRetryAsyncChunkLoad,
-} from '@app/modules/workspace-shell/composables/workspaceHostAsyncLoad';
-import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspaceExposeContract';
+import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
+import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/shouldRetryAsyncChunkLoad';
+import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import {
-    resolveWorkspaceRequestedState,
-    shouldShowWorkspaceHostLoader,
-    shouldShowWorkspacePlaceholder,
-    shouldPreloadWorkspaceOnHostMount,
-} from '@app/modules/workspace-shell/composables/workspaceHostMounting';
-import {
-    buildPendingTabDocumentHint,
-    hasDocumentHintUpdate,
-    isEmptyTabDocumentUpdate,
-} from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
+import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
+import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
+import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
+import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
+import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
+import { hasDocumentHintUpdate } from '@app/modules/workspace-shell/tabs/hasDocumentHintUpdate';
+import { isEmptyTabDocumentUpdate } from '@app/modules/workspace-shell/tabs/isEmptyTabDocumentUpdate';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import type { TStartSection } from '@app/types/startPage';
-import {
-    createTabViewSessionState,
-    type ITabViewSessionState,
-} from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IContentInsets } from '@app/types/pdf';
 
 const {
@@ -579,11 +572,6 @@ function handleRetryWorkspaceMount() {
     workspaceLoadPromise = null;
     workspaceRequested.value = true;
     void preloadWorkspaceComponent('manual-retry');
-}
-
-function workspaceHasPdf(workspace: IWorkspaceExpose) {
-    const value = workspace.hasPdf;
-    return typeof value === 'boolean' ? value : value.value;
 }
 
 function workspaceHasDocumentOrOpenError() {

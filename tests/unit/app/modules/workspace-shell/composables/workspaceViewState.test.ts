@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { ref } from 'vue';
-import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspaceViewState';
+import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 
 function createState(options?: { dragMode?: boolean; }) {
     return useWorkspaceViewState({

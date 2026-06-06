@@ -7,12 +7,10 @@ import type { TPdfViewMode } from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { ZOOM } from '@app/constants/pdfLayout';
-import {
-    normalizePageMetrics,
-    getPageRowBoundsForViewMode,
-    resolveCurrentSpreadBaseWidth,
-    resolveDocumentBaseMetric,
-} from '@app/composables/pdf/pdfPageLayout';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
+import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
+import { resolveCurrentSpreadBaseWidth } from '@app/utils/pdf-viewer/pdf-page-layout/resolveCurrentSpreadBaseWidth';
+import { resolveDocumentBaseMetric } from '@app/utils/pdf-viewer/pdf-page-layout/resolveDocumentBaseMetric';
 
 const BASE_MARGIN = 20;
 

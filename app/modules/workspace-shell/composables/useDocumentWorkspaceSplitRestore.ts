@@ -4,7 +4,7 @@ import type {
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 
 interface IWorkspaceSplitCacheLike {
     has(tabId: string): boolean;

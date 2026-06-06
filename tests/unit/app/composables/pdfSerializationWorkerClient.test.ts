@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IPdfSerializationSavePayload } from '@app/composables/pdf/pdfSerializationOperations';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
@@ -92,7 +92,7 @@ describe('pdfSerializationWorkerClient', () => {
     });
 
     it('posts a cloned buffer to the worker so the caller data stays attached', async () => {
-        const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+        const { serializePdfEditsOffThread } = await import('@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread');
 
         const data = new Uint8Array([
             1,
@@ -142,7 +142,7 @@ describe('pdfSerializationWorkerClient', () => {
     it('terminates the idle worker after the TTL elapses', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
-        const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+        const { serializePdfEditsOffThread } = await import('@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread');
 
         const data = new Uint8Array([
             1,
@@ -195,7 +195,7 @@ describe('pdfSerializationWorkerClient', () => {
         };
 
         try {
-            const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+            const { serializePdfEditsOffThread } = await import('@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread');
 
             const data = new Uint8Array([
                 1,
@@ -245,7 +245,7 @@ describe('pdfSerializationWorkerClient', () => {
         vi.unstubAllGlobals();
         vi.stubGlobal('window', {});
 
-        const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+        const { serializePdfEditsOffThread } = await import('@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread');
 
         const payload: IPdfSerializationSavePayload = {
             markupSubtypeOverrides: [],

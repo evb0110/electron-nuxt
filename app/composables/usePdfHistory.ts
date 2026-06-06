@@ -3,10 +3,8 @@ import type { TDocumentRef } from '@contracts/platformApi';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/public';
-import {
-    capturePdfReloadSnapshot,
-    createPdfReloadWaiter,
-} from '@app/composables/pdf/pdfReloadWaiter';
+import { capturePdfReloadSnapshot } from '@app/utils/pdf-viewer/pdf-reload-waiter/capturePdfReloadSnapshot';
+import { createPdfReloadWaiter } from '@app/utils/pdf-viewer/pdf-reload-waiter/createPdfReloadWaiter';
 
 interface IWaitForPdfReloadOptions {captureScrollSnapshot?: boolean;}
 

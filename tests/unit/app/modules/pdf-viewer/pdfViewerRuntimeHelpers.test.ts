@@ -3,8 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resizeAnchor';
-import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reloadZoom';
+import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resize-anchor/resolveResizeAnchorPage';
+import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 
 describe('resolveResizeAnchorPage', () => {
     it('prefers the current page over nearby resize anchor candidates by default', () => {

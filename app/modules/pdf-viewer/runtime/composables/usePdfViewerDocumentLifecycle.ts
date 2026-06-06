@@ -16,17 +16,13 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
-import {
-    tracePdfAnnotationSaveDom,
-    tracePdfAnnotationSaveEvent,
-} from '@app/composables/pdf/pdfAnnotationSaveTrace';
-import {
-    hasPdfPageAnnotationVisualContentForSnapshotRelease,
-    preservePdfPageAnnotationVisualSnapshot,
-    schedulePdfLayerVisualSnapshotRelease,
-    type TPdfLayerVisualSnapshotRelease,
-} from '@app/composables/pdf/pdfLayerVisualSnapshot';
-import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reloadZoom';
+import { tracePdfAnnotationSaveDom } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
+import { tracePdfAnnotationSaveEvent } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
+import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
+import type { TPdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotTypes';
+import { preservePdfPageAnnotationVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
+import { schedulePdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
+import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 
 interface IPageRange {
     start: number;

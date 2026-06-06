@@ -169,14 +169,14 @@ import type {
     TPaneOrientation,
 } from '@app/types/editorPanes';
 import type { TOpenFileResult } from '@contracts/platformApi';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
 import type { TStartSection } from '@app/types/startPage';
 import type {
     ITabLifecycleState,
     ITabViewSessionState,
-} from '@app/modules/workspace-shell/composables/useTabSessionStore';
+} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 defineOptions({name: 'EditorPanesGrid'});
 

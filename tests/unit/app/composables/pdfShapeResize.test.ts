@@ -4,13 +4,11 @@ import {
     it,
 } from 'vitest';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import {
-    getPointMinMaxBounds,
-    getResizedBoundsForHandle,
-    getShapeBounds,
-    resizeShapeToBounds,
-    toShapeRect,
-} from '@app/composables/pdf/pdfShapeResize';
+import { getPointMinMaxBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/getPointMinMaxBounds';
+import { getResizedBoundsForHandle } from '@app/utils/pdf-viewer/pdf-shape-resize/getResizedBoundsForHandle';
+import { getShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/getShapeBounds';
+import { resizeShapeToBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/resizeShapeToBounds';
+import { toShapeRect } from '@app/utils/pdf-viewer/pdf-shape-resize/toShapeRect';
 
 describe('pdfShapeResize', () => {
     it('expands rectangle bounds from the south-east handle', () => {

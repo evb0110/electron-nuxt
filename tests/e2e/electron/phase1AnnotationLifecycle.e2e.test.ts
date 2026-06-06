@@ -6,16 +6,14 @@ import {
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
-import type {Page} from 'puppeteer-core';
+import type { Page } from 'puppeteer-core';
 import {
     copyProjectFixture,
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    type IElectronE2ESession,
-    startElectronE2ESession,
-} from '@tests/e2e/electron/helpers/sessionHarness';
+import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
 import {
     createFreeTextAnnotation,
     getFreeTextEditorCount,

@@ -1,28 +1,10 @@
-import type {
-    MaybeRefOrGetter,
-    InjectionKey,
-    ComputedRef,
-} from 'vue';
+import type { MaybeRefOrGetter } from 'vue';
 import type {
     IContentInsets,
     PDFPageProxy,
 } from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
-
-interface IPdfSkeletonContext {
-    scaledSkeletonPadding: ComputedRef<IContentInsets | null>;
-    scaledPageHeight: ComputedRef<number | null>;
-}
-
-const PDF_SKELETON_CONTEXT_KEY: InjectionKey<IPdfSkeletonContext> = Symbol('PdfSkeletonContext');
-
-export const usePdfSkeletonContext = () => {
-    const context = inject<IPdfSkeletonContext>(PDF_SKELETON_CONTEXT_KEY);
-    if (!context) {
-        throw new Error('usePdfSkeletonContext must be used within a component that calls usePdfSkeletonInsets');
-    }
-    return context;
-};
+import { pdfSkeletonContextKey } from '@app/utils/pdf-viewer/pdfSkeletonContextKey';
 
 export const usePdfSkeletonInsets = (
     basePageWidth: MaybeRefOrGetter<number | null>,
@@ -57,7 +39,7 @@ export const usePdfSkeletonInsets = (
         return Math.floor(height * toValue(effectiveScale));
     });
 
-    provide(PDF_SKELETON_CONTEXT_KEY, {
+    provide(pdfSkeletonContextKey, {
         scaledSkeletonPadding,
         scaledPageHeight,
     });

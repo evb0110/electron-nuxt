@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdfNavigationSkeletonEligibility';
+import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdf-navigation-skeleton-eligibility/shouldShowPdfNavigationSkeleton';
 
 describe('shouldShowPdfNavigationSkeleton', () => {
     it('keeps the ordinary visible-range skeleton decision authoritative', () => {

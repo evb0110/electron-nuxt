@@ -1,31 +1,24 @@
-
 import type {
-    Ref,
     ComputedRef,
+    Ref,
 } from 'vue';
 import { groupBy } from 'es-toolkit/array';
 import type {
+    IAnnotationSettings,
     IShapeAnnotation,
     IShapePoint,
     TDrawableShapeType,
-    IAnnotationSettings,
     TShapeResizeHandle,
 } from '@app/types/annotations';
-import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
-import {
-    generateManagedShapeStableKey,
-    normalizeManagedShapeStableKey,
-    normalizePdfJsAnnotationId,
-} from '@app/composables/pdf/pdfSerializationRefs';
-import {
-    getPointMinMaxBounds,
-    toShapeRect,
-} from '@app/composables/pdf/pdfShapeResize';
-import {
-    cloneShapePoints,
-    cloneShapeStrokes,
-    getAllShapePoints,
-} from '@app/composables/pdf/pdfShapeStrokes';
+import { isShapeTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isShapeTool';
+import { generateManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/generateManagedShapeStableKey';
+import { normalizeManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/normalizeManagedShapeStableKey';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import { getPointMinMaxBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/getPointMinMaxBounds';
+import { toShapeRect } from '@app/utils/pdf-viewer/pdf-shape-resize/toShapeRect';
+import { cloneShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/cloneShapePoints';
+import { cloneShapeStrokes } from '@app/utils/pdf-viewer/pdf-shape-strokes/cloneShapeStrokes';
+import { getAllShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/getAllShapePoints';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 function generateShapeId() {

@@ -11,7 +11,6 @@ import { getErrorMessage } from '@app/utils/error';
 
 const canceledRequestIds = new Set<number>();
 
-
 async function handleExtractDocumentTextRequest(
     request: IBrowserSearchWorkerRequest<'extractDocumentText'>,
 ) {

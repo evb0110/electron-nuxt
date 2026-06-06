@@ -2,10 +2,8 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { TTranslateFn } from '@i18n-app';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import {
-    loadOcrText,
-    extractPdfText,
-} from '@app/utils/ocr/processing';
+import { extractPdfText } from '@app/utils/ocr/extractPdfText';
+import { loadOcrText } from '@app/utils/ocr/loadOcrText';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 type TDocxBuilder = (text: string, hasRtl: boolean) => Uint8Array | Promise<Uint8Array>;

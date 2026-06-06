@@ -1,16 +1,14 @@
 import type {
+    IBrowserPageOpsWorkerRequest,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
-    IBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { toTransferableUint8Array } from '@app/platform/browser-api/browserWorkerTransfer';
-import {
-    settleBrowserWorkerResult,
-    type IPendingBrowserWorkerRequest,
-} from '@app/platform/browser-api/browserWorkerRequests';
+import { settleBrowserWorkerResult } from '@app/platform/browser-api/browserWorkerRequests';
+import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/browserWorkerRequests';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,

@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { IPageGeometry } from '@contracts/shared';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { ICropSelectionResult } from '@app/types/crop';
 
 const mocks = vi.hoisted(() => ({

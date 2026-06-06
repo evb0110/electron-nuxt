@@ -3,15 +3,13 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    resolveWorkspaceRequestedState,
-    shouldAutoRequestWorkspace,
-    shouldPreloadWorkspaceDuringStartup,
-    shouldPreloadWorkspaceOnHostMount,
-    shouldShowWorkspaceHostLoader,
-    shouldShowWorkspacePlaceholder,
-} from '@app/modules/workspace-shell/composables/workspaceHostMounting';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
+import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
+import { shouldAutoRequestWorkspace } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
+import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
+import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
+import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
+import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 
 describe('tabHasDocumentHint', () => {
     it('returns false for placeholder tabs', () => {

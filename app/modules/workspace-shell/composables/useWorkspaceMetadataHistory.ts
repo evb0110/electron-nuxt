@@ -7,13 +7,12 @@ import {
     buildPageLabelsFromRanges,
     isImplicitDefaultPageLabels,
 } from '@app/utils/pdfPageLabels';
+import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
 
 interface IWorkspaceMetadataSnapshot {
     bookmarkItems: IPdfBookmarkEntry[];
     pageLabelRanges: IPdfPageLabelRange[];
 }
-
-export const MAX_WORKSPACE_METADATA_HISTORY_ENTRIES = 50;
 
 export const useWorkspaceMetadataHistory = (deps: {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
@@ -109,10 +108,10 @@ export const useWorkspaceMetadataHistory = (deps: {
             ...history.value.slice(0, historyIndex.value + 1),
             snapshot,
         ];
-        if (nextHistory.length > MAX_WORKSPACE_METADATA_HISTORY_ENTRIES) {
+        if (nextHistory.length > maxWorkspaceMetadataHistoryEntries) {
             const baseline = nextHistory[0];
             const trailing = nextHistory.slice(
-                -(MAX_WORKSPACE_METADATA_HISTORY_ENTRIES - 1),
+                -(maxWorkspaceMetadataHistoryEntries - 1),
             );
             history.value = baseline
                 ? [

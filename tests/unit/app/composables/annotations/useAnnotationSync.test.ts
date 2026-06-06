@@ -14,13 +14,13 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';
-import type { IPdfPageAnnotationBundle } from '@app/composables/pdf/annotations/annotationSyncHelpers';
+import type { IPdfPageAnnotationBundle } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
 const { loadPdfPageAnnotations } = vi.hoisted(() => ({loadPdfPageAnnotations: vi.fn<(_doc: unknown, _pageNumber: number) => Promise<IPdfPageAnnotationBundle | null>>()}));
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
 
-vi.mock('@app/composables/pdf/annotations/annotationSyncHelpers', async (importOriginal) => {
+vi.mock('@app/utils/pdf-viewer/annotations/annotation-sync-helpers/loadPdfPageAnnotations', async (importOriginal) => {
     const actual = await importOriginal<object>();
     return {
         ...actual,

@@ -118,13 +118,11 @@ import {
     isStandaloneSpreadPage,
     stepBySpread,
 } from '@app/utils/pdfViewMode';
-import {
-    accumulateWheelForPageFlips,
-    createWheelPageAccumulatorState,
-    type IWheelPageAccumulatorState,
-    normalizePageWheelDelta,
-    resolveWheelPageFlipStepDelta,
-} from '@app/composables/pdf/usePdfSinglePageScroll';
+import { accumulateWheelForPageFlips } from '@app/utils/pdf-viewer/single-page-wheel/accumulateWheelForPageFlips';
+import { createWheelPageAccumulatorState } from '@app/utils/pdf-viewer/single-page-wheel/createWheelPageAccumulatorState';
+import type { IWheelPageAccumulatorState } from '@app/utils/pdf-viewer/single-page-wheel/singlePageWheelTypes';
+import { normalizePageWheelDelta } from '@app/utils/pdf-viewer/single-page-wheel/normalizePageWheelDelta';
+import { resolveWheelPageFlipStepDelta } from '@app/utils/pdf-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 
 interface IProps {
     src: TDocumentRef | null;

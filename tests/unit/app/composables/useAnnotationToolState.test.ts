@@ -10,8 +10,8 @@ import {
     computed,
     ref,
     shallowRef,
-    type ShallowRef,
 } from 'vue';
+import type { ShallowRef } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
@@ -690,7 +690,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('clips overlapping multi-line markup boxes into non-overlapping fragment bands', async () => {
-        const { normalizeMarkupSubtypeFragmentBoxes } = await import('@app/composables/pdf/annotations/annotationEditorPresentation');
+        const { normalizeMarkupSubtypeFragmentBoxes } = await import('@app/utils/pdf-viewer/annotations/annotation-editor-presentation/normalizeMarkupSubtypeFragmentBoxes');
         const boxes = [
             {
                 x: 0.10,

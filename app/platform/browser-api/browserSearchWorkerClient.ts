@@ -1,7 +1,7 @@
 import type {
+    IBrowserSearchWorkerRequest,
     IBrowserSearchWorkerRequestMap,
     IBrowserSearchWorkerResultMap,
-    IBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browserSearchWorker.types';

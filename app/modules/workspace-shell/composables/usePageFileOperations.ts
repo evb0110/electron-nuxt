@@ -2,7 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
+import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -14,10 +14,8 @@ import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import {
-    didOpenDocument,
-    type TDocumentOpenOutcome,
-} from '@app/types/documentOpenOutcome';
+import { didOpenDocument } from '@app/types/documentOpenOutcome';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 

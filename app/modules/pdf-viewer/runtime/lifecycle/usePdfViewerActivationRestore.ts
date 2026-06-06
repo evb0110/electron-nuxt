@@ -8,7 +8,7 @@ import type {
     PDFDocumentProxy,
     TPdfViewMode,
 } from '@app/types/pdf';
-import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
 
 interface IPageRange {
     start: number;

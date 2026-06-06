@@ -5,9 +5,9 @@ import {
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 import {
+    RECENT_FILES_COOKIE_KEY,
     parseRecentFilesCookieSnapshot,
     readBrowserRecentFilesSnapshot,
-    RECENT_FILES_COOKIE_KEY,
 } from '@app/utils/recentFilesPersistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import { getDocumentsCapability as getPlatformDocumentsCapability } from '@app/utils/platformDocuments';

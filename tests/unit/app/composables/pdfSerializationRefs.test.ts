@@ -15,15 +15,13 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import {
-    formatPdfJsAnnotationRef,
-    resolveCommentPdfRefInDocument,
-} from '@app/composables/pdf/pdfSerializationRefs';
+import { resolveCommentPdfRefInDocument } from '@app/utils/pdf-viewer/pdf-serialization-refs/resolveCommentPdfRefInDocument';
+import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 interface ILiteralObject { [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray; }
 type TLiteralArray = Array<PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray>;
 
-vi.mock('@app/composables/pdf/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
+vi.mock('@app/utils/pdf-viewer/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
 
 function createEditorComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {

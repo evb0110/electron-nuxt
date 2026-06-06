@@ -1,13 +1,11 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platformApi';
 import type { IOcrWord } from '@app/types/pdf';
-import {
-    isOcrDebugEnabled,
-    transformWordBox,
-    transformOcrWordToViewport,
-    createWordBoxOverlays,
-    type IOcrIndexV2Page,
-} from '@app/composables/pdfWordBoxGeometry';
+import { createWordBoxOverlays } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/createWordBoxOverlays';
+import { isOcrDebugEnabled } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/isOcrDebugEnabled';
+import { transformOcrWordToViewport } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
+import { transformWordBox } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/transformWordBox';
+import type { IOcrIndexV2Page } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/pdfWordBoxGeometryTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readOptionalOcrArtifactJson } from '@app/utils/platformOcrArtifacts';
 

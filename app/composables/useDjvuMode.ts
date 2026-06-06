@@ -1,4 +1,3 @@
-
 import type { TDocumentRef } from '@contracts/platformApi';
 
 type TDjvuDisabledFeature =

@@ -7,10 +7,9 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import {
-    type IBrowserPrintDocument,
     buildBrowserPrintFrameMarkup,
-    buildPrintablePdfData,
     buildPrintSpreadGroups,
+    buildPrintablePdfData,
     canPrintSourcePdfDirectly,
     parsePrintPageRangeInput,
     renderPdfDocumentPagesForBrowserPrint,
@@ -18,6 +17,7 @@ import {
     shouldPrintPageMetricsDirectly,
     shouldPrintSourcePdfDirectly,
 } from '@app/utils/pdfPrint';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 const pdfjsModule = vi.hoisted((): {
     GlobalWorkerOptions: { workerSrc?: string; };

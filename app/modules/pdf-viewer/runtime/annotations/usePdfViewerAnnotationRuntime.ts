@@ -6,8 +6,8 @@ import type {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
-import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
-import { isImportedEmbeddedShapeSubtype } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import { isImportedEmbeddedShapeSubtype } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
 import type { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import {

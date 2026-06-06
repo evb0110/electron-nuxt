@@ -21,9 +21,9 @@ import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
-} from '@app/composables/pdf/pdfSerializationRefs';
-import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
-import { mergeAnnotationCommentSaveSnapshot } from '@app/composables/pdf/annotationCommentSaveSnapshot';
+} from '@app/utils/pdfAnnotationRefs';
+import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
 import { getErrorMessage } from '@app/utils/error';
 import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/pdfAnnotationSavePlanner';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';

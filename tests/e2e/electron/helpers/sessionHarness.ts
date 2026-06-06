@@ -1,7 +1,8 @@
 import { rmSync } from 'node:fs';
-import puppeteer, {
-    type Browser,
-    type Page,
+import puppeteer from 'puppeteer-core';
+import type {
+    Browser,
+    Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from '@scripts/electron-run/client';

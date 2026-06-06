@@ -2,9 +2,9 @@ import type { ITab } from '@app/types/tabs';
 import { keyBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type {
-    IEditorPaneState,
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
+    IEditorPaneState,
     TEditorLayoutNode,
     TPaneDirection,
 } from '@app/types/editorPanes';
@@ -12,13 +12,13 @@ import {
     removeLeafNode,
     replaceLeafWithSplit,
     updateLayoutSplitRatio,
-} from '@app/modules/workspace-shell/composables/editor-panes/layoutTree';
-import { findDirectionalPaneId } from '@app/modules/workspace-shell/composables/editor-panes/navigation';
+} from '@app/modules/workspace-shell/editor-panes/layoutTree';
+import { findDirectionalPaneId } from '@app/modules/workspace-shell/editor-panes/findDirectionalPaneId';
 import {
     arraysEqual,
     isEditorPanesStateNormalized,
     normalizeEditorPanesState,
-} from '@app/modules/workspace-shell/composables/editor-panes/normalization';
+} from '@app/modules/workspace-shell/editor-panes/normalization';
 
 interface ICreateTabOptions {
     paneId?: string | null;

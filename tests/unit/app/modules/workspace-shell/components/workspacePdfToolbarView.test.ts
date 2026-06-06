@@ -9,7 +9,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { WORKSPACE_PDF_TOOLBAR_COMMANDS } from '@app/modules/workspace-shell/composables/workspacePdfToolbarCommands';
+import { workspacePdfToolbarCommands } from '@app/modules/workspace-shell/toolbar/workspacePdfToolbarCommands';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
 
@@ -34,7 +34,7 @@ describe('workspace PDF toolbar wiring', () => {
         const documentWorkspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
         const shellToolbar = readWorkspaceFile('app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue');
 
-        for (const command of WORKSPACE_PDF_TOOLBAR_COMMANDS) {
+        for (const command of workspacePdfToolbarCommands) {
             expect(documentWorkspace, `DocumentWorkspace missing @${command}`).toContain(`@${command}=`);
             expect(shellToolbar, `ShellWorkspaceToolbar missing @${command}`).toContain(`@${command}=`);
         }

@@ -291,7 +291,7 @@ import { getSettingsCapability } from '@app/utils/platformSettings';
 import type {
     IOcrSearchablePdfResult,
     TOcrPageRange,
-} from '@app/utils/ocr/languages';
+} from '@app/utils/ocr/ocrTypes';
 
 const { t } = useTypedI18n();
 const { copy: copyClipboardText } = useClipboard();

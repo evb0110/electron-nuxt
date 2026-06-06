@@ -85,10 +85,8 @@ import type {
 } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotationDefaults';
-import {
-    isAuthoringAnnotationTool,
-    isShapeTool,
-} from '@app/composables/pdf/annotations/annotationRules';
+import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
+import { isShapeTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isShapeTool';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 

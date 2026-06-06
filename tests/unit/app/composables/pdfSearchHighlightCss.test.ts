@@ -18,7 +18,7 @@ const {
     getHighlightMode,
     isHighlightDebugEnabled,
     isHighlightDebugVerboseEnabled,
-} = await import('@app/composables/pdfSearchHighlightCss');
+} = await import('@app/utils/pdf-viewer/search/pdfSearchHighlightCss');
 
 beforeEach(() => {
     vi.unstubAllGlobals();

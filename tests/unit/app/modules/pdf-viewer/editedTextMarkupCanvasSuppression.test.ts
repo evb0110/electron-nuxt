@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/editedTextMarkupCanvasSuppression';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {

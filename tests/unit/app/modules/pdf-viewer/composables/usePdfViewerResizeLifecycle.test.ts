@@ -21,7 +21,7 @@ vi.mock('@vueuse/core', async () => {
     };
 });
 
-vi.mock('@app/composables/pdf/pdfPageRenderPipeline', () => ({
+vi.mock('@app/utils/pdf-viewer/pdfPageRenderPipeline', () => ({
     captureScrollSnapshot: captureScrollSnapshotMock,
     restoreScrollFromSnapshot: vi.fn(),
 }));

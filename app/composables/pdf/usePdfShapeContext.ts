@@ -10,21 +10,15 @@ import type {
     IShapeContextProvide,
     TUseAnnotationShapesReturn,
 } from '@app/composables/pdf/useAnnotationShapes';
-import {
-    isAuthoringAnnotationTool,
-    isSelectionInteractionTool,
-    isShapeTool,
-} from '@app/composables/pdf/annotations/annotationRules';
+import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
+import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
+import { isShapeTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isShapeTool';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import {
-    getResizedBoundsForHandle,
-    getShapeBounds,
-    resizeShapeToBounds,
-} from '@app/composables/pdf/pdfShapeResize';
-import {
-    cloneShapePoints,
-    cloneShapeStrokes,
-} from '@app/composables/pdf/pdfShapeStrokes';
+import { getResizedBoundsForHandle } from '@app/utils/pdf-viewer/pdf-shape-resize/getResizedBoundsForHandle';
+import { getShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/getShapeBounds';
+import { resizeShapeToBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/resizeShapeToBounds';
+import { cloneShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/cloneShapePoints';
+import { cloneShapeStrokes } from '@app/utils/pdf-viewer/pdf-shape-strokes/cloneShapeStrokes';
 
 interface IShapeContextMenuPayload {
     shapeId: string;

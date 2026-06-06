@@ -3,13 +3,11 @@ import type {
     Ref,
 } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IPageRange } from '@app/composables/pdf/pdfPageBufferManager';
-import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
-import {collectPreservedRenderPageNumbers} from '@app/composables/pdf/pdfPageRenderPreservation';
-import {
-    createPdfRerenderRestorationLogger,
-    type IRerenderRestorationContext,
-} from '@app/composables/pdf/pdfRerenderRestoration';
+import type { IPageRange } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/pdfPageBufferManagerTypes';
+import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
+import { collectPreservedRenderPageNumbers } from '@app/utils/pdf-viewer/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
+import { createPdfRerenderRestorationLogger } from '@app/utils/pdf-viewer/pdf-rerender-restoration/createPdfRerenderRestorationLogger';
+import type { IRerenderRestorationContext } from '@app/utils/pdf-viewer/pdf-rerender-restoration/pdfRerenderRestorationTypes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IRerenderAllVisiblePagesOptions {

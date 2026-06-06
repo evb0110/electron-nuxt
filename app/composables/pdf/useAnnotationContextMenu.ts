@@ -1,4 +1,3 @@
-
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { usePositionedMenu } from '@app/composables/usePositionedMenu';
 

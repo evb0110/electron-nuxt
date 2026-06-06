@@ -1,14 +1,10 @@
 import type { Ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
-import {
-    type IPageOpsHandlersDeps,
-    usePageOpsHandlers,
-} from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import {
-    type IPageFileOperationsDeps,
-    usePageFileOperations,
-} from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import type { IPageOpsHandlersDeps } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
+import type { IPageFileOperationsDeps } from '@app/modules/workspace-shell/composables/usePageFileOperations';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type {
     TDocumentRef,
     TOpenFileResult,

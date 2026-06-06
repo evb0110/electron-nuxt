@@ -14,34 +14,30 @@ import type {
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import {
-    getCommentText,
-    getEditorSelectionPreviewText,
-    hasEditorCommentPayload,
-    detectEditorSubtype,
-} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
+import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
+import { getEditorSelectionPreviewText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getEditorSelectionPreviewText';
+import { hasEditorCommentPayload } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/hasEditorCommentPayload';
 import { parsePdfDateTimestamp } from '@app/services/pdf/annotationMetadata';
 import {
     annotationKindLabelFromSubtype,
     isTextMarkupSubtype,
 } from '@app/services/pdf/annotationSubtype';
-import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
+import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
-import {
-    collectPagePdfSnapshotEntries,
-    loadPdfPageAnnotations,
-    resolveEditorMarkerRect,
-    resolveMarkupSubtypeOverrideRegistration,
-    safeReadEditorData,
-} from '@app/composables/pdf/annotations/annotationSyncHelpers';
-import { tracePdfAnnotationSaveEvent } from '@app/composables/pdf/pdfAnnotationSaveTrace';
+import { collectPagePdfSnapshotEntries } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
+import { loadPdfPageAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
+import { resolveEditorMarkerRect } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
+import { resolveMarkupSubtypeOverrideRegistration } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
+import { safeReadEditorData } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/safeReadEditorData';
+import { tracePdfAnnotationSaveEvent } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import type {
     IPdfCommentSummaryDeps,
     TComputeSummaryStableKey,
-} from '@app/composables/pdf/annotations/annotationSyncHelpers';
+} from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
 interface ISyncIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;

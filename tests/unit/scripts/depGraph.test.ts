@@ -4,8 +4,8 @@ import {
     it,
 } from 'vitest';
 import {
-    mkdtemp,
     mkdir,
+    mkdtemp,
     writeFile,
 } from 'node:fs/promises';
 import {

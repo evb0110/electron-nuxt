@@ -11,7 +11,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { shouldIgnoreEditorEvent } from '@app/composables/pdf/annotations/annotationEditorEventGuards';
+import { shouldIgnoreEditorEvent } from '@app/utils/pdf-viewer/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
 import { updateEditorDefaultParams } from '@app/services/pdfjs/annotationEditorAdapter';
 import type {
     IAnnotationCommentSummary,
@@ -181,7 +181,7 @@ function createAnnotationSettings(): IAnnotationSettings {
 }
 
 interface IMarkupSubtypeHarness {
-    TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
+    toolToMarkupSubtype: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
     shouldForceTextMarkup: (tool: TAnnotationTool) => boolean;
     applyHighlightParamsForTool: (mgr: AnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
     resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
@@ -284,7 +284,7 @@ async function createBridgeHarness(
 
 function createMarkupSubtypeHarness(overrides?: Partial<IMarkupSubtypeHarness>) {
     return {
-        TOOL_TO_MARKUP_SUBTYPE: {},
+        toolToMarkupSubtype: {},
         shouldForceTextMarkup: vi.fn<IMarkupSubtypeHarness['shouldForceTextMarkup']>(() => false),
         applyHighlightParamsForTool: vi.fn<IMarkupSubtypeHarness['applyHighlightParamsForTool']>(),
         resolveEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['resolveEditorMarkupSubtypeOverride']>(() => null),
@@ -416,7 +416,7 @@ describe('useAnnotationEditorBridge', () => {
         const {
             markupSubtype,
             uiManager,
-        } = await createBridgeHarness('underline', { markupSubtype: { TOOL_TO_MARKUP_SUBTYPE: { underline: 'Underline' } } });
+        } = await createBridgeHarness('underline', { markupSubtype: { toolToMarkupSubtype: { underline: 'Underline' } } });
         const editor = {
             id: 'highlight-1',
             div: document.createElement('div'),
@@ -438,7 +438,7 @@ describe('useAnnotationEditorBridge', () => {
             markupSubtype,
             recordPdfjsHistoryCommand,
             uiManager,
-        } = await createBridgeHarness('underline', { markupSubtype: { TOOL_TO_MARKUP_SUBTYPE: { underline: 'Underline' } } });
+        } = await createBridgeHarness('underline', { markupSubtype: { toolToMarkupSubtype: { underline: 'Underline' } } });
         const remove = vi.fn();
         const rebuild = vi.fn();
         const parentAddCommands = vi.fn();

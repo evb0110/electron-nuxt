@@ -1,8 +1,8 @@
 import { PDFDocument } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
 import {
-    getExtension,
     ensurePdfExtension,
+    getExtension,
     isDjvuFileName,
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';

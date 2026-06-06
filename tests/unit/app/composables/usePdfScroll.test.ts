@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
-import { buildPageLayoutMetrics } from '@app/composables/pdf/pdfPageLayout';
+import { buildPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/buildPageLayoutMetrics';
 import { cast } from '@tests/helpers/cast';
 
 function createContainerStub() {

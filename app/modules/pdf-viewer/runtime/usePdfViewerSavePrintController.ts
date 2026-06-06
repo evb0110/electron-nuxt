@@ -2,11 +2,9 @@ import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
 } from 'pdfjs-dist';
-import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
-import {
-    renderPdfDocumentPagesForBrowserPrint,
-    type IBrowserPrintDocument,
-} from '@app/utils/pdfPrint';
+import { savePdfDocumentWithCommittedEditors } from '@app/utils/pdf-viewer/pdf-save-document/savePdfDocumentWithCommittedEditors';
+import { renderPdfDocumentPagesForBrowserPrint } from '@app/utils/pdfPrint';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 interface IUsePdfViewerSavePrintControllerOptions {
     getPdfDocument: () => PDFDocumentProxy | null;

@@ -3,11 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    compareAnnotations,
-    isNoteEligible,
-    isSelectionInteractionTool,
-} from '@app/composables/pdf/annotations/annotationRules';
+import { compareAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-rules/compareAnnotations';
+import { isNoteEligible } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligible';
+import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

@@ -5,13 +5,13 @@ import {
 } from 'es-toolkit/array';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
-import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
+import { getVisiblePageDebugSnapshot } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getVisiblePageDebugSnapshot';
+import { summarizeViewerMetrics } from '@app/utils/pdf-viewer/pdf-viewer-metrics/summarizeViewerMetrics';
 import type {
-    PDFDocumentProxy,
     IScrollSnapshot,
+    PDFDocumentProxy,
 } from '@app/types/pdf';
-import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerenderStrategy';
+import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
 
 const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
 export { summarizeViewerMetrics };

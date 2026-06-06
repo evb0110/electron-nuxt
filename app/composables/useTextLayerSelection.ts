@@ -1,9 +1,4 @@
-/**
- * Text layer selection handling based on Mozilla PDF.js TextLayerBuilder
- * Fixes selection "wandering" by dynamically repositioning an endOfContent sentinel div
- */
-
-import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
+import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { useEventListener } from '@vueuse/core';
 
 interface ITextLayerEntry {

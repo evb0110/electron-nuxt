@@ -2,14 +2,8 @@ import type { Ref } from 'vue';
 import type {
     IAgentCommandRequest,
     IAgentCommandResponse,
-    IAgentDocumentReference,
-    IAgentDocumentReadiness,
-    IAgentRecentFileSnapshot,
-    IAgentTabSnapshot,
-    IAgentWorkspaceSnapshot,
     IAgentWorkspaceSnapshotRequest,
     IAgentWorkspaceSnapshotResponse,
-    TAgentDocumentKind,
 } from '@contracts/agent';
 import type {
     IEditorPaneState,
@@ -17,16 +11,13 @@ import type {
 } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import {
     getPlatformAPI,
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 
 interface IUseAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -41,246 +32,6 @@ interface IUseAgentWorkspaceSnapshotOptions {
     getPaneByTabId(tabId: string): IEditorPaneState | null;
     activateTab(paneId: string, tabId: string): void;
     waitForWorkspace(tabId: string): Promise<IWorkspaceExpose | null>;
-}
-
-const IMAGE_EXTENSION_PATTERN = /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/i;
-
-function cloneEditorLayoutNode(node: TEditorLayoutNode | null): TEditorLayoutNode | null {
-    if (!node) {
-        return null;
-    }
-
-    if (node.type === 'leaf') {
-        return {
-            type: 'leaf',
-            paneId: node.paneId,
-        };
-    }
-
-    return {
-        type: 'split',
-        id: node.id,
-        orientation: node.orientation,
-        ratio: node.ratio,
-        first: cloneEditorLayoutNode(node.first) ?? node.first,
-        second: cloneEditorLayoutNode(node.second) ?? node.second,
-    };
-}
-
-function getTabPath(tab: ITab) {
-    return typeof tab.originalPath === 'string'
-        ? tab.originalPath
-        : null;
-}
-
-function inferDocumentKindFromName(name: string): TAgentDocumentKind {
-    if (/\.djvu?$/i.test(name)) {
-        return 'djvu';
-    }
-
-    if (/\.pdf$/i.test(name)) {
-        return 'pdf';
-    }
-
-    if (IMAGE_EXTENSION_PATTERN.test(name)) {
-        return 'image';
-    }
-
-    return name ? 'unknown' : 'empty';
-}
-
-function inferDocumentKind(
-    tab: ITab,
-    toolbarSnapshot: IWorkspaceToolbarSnapshot | null,
-): TAgentDocumentKind {
-    const path = getTabPath(tab);
-    const name = tab.fileName ?? path ?? '';
-
-    if (!name && !toolbarSnapshot?.hasPdf && !toolbarSnapshot?.isDjvuMode) {
-        return 'empty';
-    }
-
-    if (tab.isDjvu || toolbarSnapshot?.isDjvuMode) {
-        return 'djvu';
-    }
-
-    if (toolbarSnapshot?.hasPdf) {
-        return 'pdf';
-    }
-
-    return inferDocumentKindFromName(name);
-}
-
-function buildDocumentReadiness(
-    kind: TAgentDocumentKind,
-    toolbarSnapshot: IWorkspaceToolbarSnapshot | null,
-): IAgentDocumentReadiness {
-    if (kind === 'empty') {
-        return {
-            status: 'empty',
-            reasons: ['No document is open in this tab.'],
-            recommendations: [],
-        };
-    }
-
-    if (kind === 'djvu' || kind === 'image') {
-        return {
-            status: 'needs-preparation',
-            reasons: ['Agents work best against a PDF document model with stable pages and text extraction.'],
-            recommendations: [{
-                id: 'convert_to_pdf',
-                title: 'Convert to PDF',
-                reason: kind === 'djvu'
-                    ? 'DjVu documents should be converted to PDF before deeper agent analysis.'
-                    : 'Image documents should be converted to PDF before deeper agent analysis.',
-                toolName: 'page_ops.convert_to_pdf',
-            }],
-        };
-    }
-
-    if (kind === 'pdf') {
-        const pageCount = Math.max(0, Math.floor(toolbarSnapshot?.totalPages ?? 0));
-        return {
-            status: 'unknown',
-            reasons: ['Page-level OCR coverage is not exposed to agents yet.'],
-            ocr: {
-                status: 'unknown',
-                pageCount,
-            },
-            recommendations: [{
-                id: 'ocr_all_pages',
-                title: 'OCR all pages',
-                reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
-                toolName: 'ocr.start',
-            }],
-        };
-    }
-
-    return {
-        status: 'unknown',
-        reasons: ['The document type is not known to the agent bridge.'],
-        recommendations: [],
-    };
-}
-
-function getToolbarSnapshot(workspace: IWorkspaceExpose | null) {
-    if (!workspace) {
-        return null;
-    }
-
-    try {
-        return workspace.getToolbarSnapshot();
-    } catch (error) {
-        BrowserLogger.warn('agent', 'Failed to read workspace toolbar snapshot', { error: error instanceof Error ? error.message : String(error) });
-        return null;
-    }
-}
-
-function buildAgentTabSnapshot(
-    tab: ITab,
-    pane: IEditorPaneState | null,
-    workspace: IWorkspaceExpose | null,
-): IAgentTabSnapshot {
-    const toolbarSnapshot = getToolbarSnapshot(workspace);
-    const kind = inferDocumentKind(tab, toolbarSnapshot);
-    return {
-        tabId: tab.id,
-        paneId: pane?.paneId ?? null,
-        fileName: tab.fileName,
-        originalPath: getTabPath(tab),
-        isDirty: tab.isDirty,
-        kind,
-        workspaceAttached: Boolean(workspace),
-        hasPdf: toolbarSnapshot?.hasPdf === true,
-        isDjvu: tab.isDjvu || toolbarSnapshot?.isDjvuMode === true,
-        isOpeningDocument: toolbarSnapshot?.isOpeningDocument === true,
-        hasOpenError: toolbarSnapshot?.hasOpenError === true,
-        currentPage: toolbarSnapshot ? toolbarSnapshot.currentPage : null,
-        totalPages: toolbarSnapshot ? toolbarSnapshot.totalPages : null,
-        readiness: buildDocumentReadiness(kind, toolbarSnapshot),
-    };
-}
-
-function isAgentDocumentTab(tab: IAgentTabSnapshot) {
-    return tab.kind !== 'empty' && Boolean(
-        tab.fileName
-        || tab.originalPath
-        || tab.hasPdf
-        || tab.isDjvu,
-    );
-}
-
-function createDocumentReference(tab: IAgentTabSnapshot): IAgentDocumentReference {
-    return {
-        tabId: tab.tabId,
-        paneId: tab.paneId,
-        fileName: tab.fileName,
-        originalPath: tab.originalPath,
-        kind: tab.kind,
-    };
-}
-
-function createRecentFileSnapshot(file: IRecentFile): IAgentRecentFileSnapshot {
-    const name = file.fileName || file.originalPath;
-    const openedAt = Number.isFinite(file.timestamp)
-        ? new Date(file.timestamp).toISOString()
-        : '';
-    return {
-        fileName: file.fileName,
-        originalPath: file.originalPath,
-        kind: inferDocumentKindFromName(name),
-        openedAt,
-        ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
-    };
-}
-
-export function buildAgentWorkspaceSnapshot(
-    options: Pick<
-        IUseAgentWorkspaceSnapshotOptions,
-        | 'panes'
-        | 'tabs'
-        | 'layout'
-        | 'activePaneId'
-        | 'activeTabId'
-        | 'recentFiles'
-        | 'recentFilesResolved'
-        | 'workspaceRefs'
-        | 'getPaneByTabId'
-    >,
-): IAgentWorkspaceSnapshot {
-    const tabSnapshots = options.tabs.value.map(tab => buildAgentTabSnapshot(
-        tab,
-        options.getPaneByTabId(tab.id),
-        options.workspaceRefs.value.get(tab.id) ?? null,
-    ));
-    const documentTabs = tabSnapshots.filter(isAgentDocumentTab);
-    const activeDocumentTab = documentTabs.find(tab => tab.tabId === options.activeTabId.value) ?? null;
-    const recentFiles = (options.recentFiles?.value ?? []).map(createRecentFileSnapshot);
-
-    return {
-        capturedAt: new Date().toISOString(),
-        activePaneId: options.activePaneId.value,
-        activeTabId: options.activeTabId.value,
-        summary: {
-            mode: activeDocumentTab
-                ? 'open-document'
-                : documentTabs.length > 0
-                    ? 'documents-open-no-active-document'
-                    : 'empty-workspace',
-            activeDocument: activeDocumentTab ? createDocumentReference(activeDocumentTab) : null,
-            documentCount: documentTabs.length,
-            recentFileCount: recentFiles.length,
-            recentFilesResolved: options.recentFilesResolved?.value === true,
-        },
-        panes: options.panes.value.map(pane => ({
-            paneId: pane.paneId,
-            tabIds: [...pane.tabIds],
-            activeTabId: pane.activeTabId,
-        })),
-        tabs: tabSnapshots,
-        recentFiles,
-        layout: cloneEditorLayoutNode(options.layout.value),
-    };
 }
 
 export function useAgentWorkspaceSnapshot(options: IUseAgentWorkspaceSnapshotOptions) {

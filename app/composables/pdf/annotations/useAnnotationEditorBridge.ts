@@ -27,15 +27,11 @@ import type {
     IPdfjsEditorConstructorLike,
 } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import {
-    getCommentText,
-    detectEditorSubtype,
-} from '@app/composables/pdf/pdfAnnotationEditorUtils';
-import {
-    toCssColor,
-    errorToLogText,
-} from '@app/composables/pdf/annotationCssUtils';
-import { shouldIgnoreEditorEvent } from '@app/composables/pdf/annotations/annotationEditorEventGuards';
+import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
+import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
+import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
+import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
+import { shouldIgnoreEditorEvent } from '@app/utils/pdf-viewer/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
 import {
     addUndoableEditorToLayer,
     asPdfjsEditor,
@@ -97,7 +93,7 @@ interface IEditorBridgeDeps {
         enforceHighlightDefaultsForNewEditor: (editor: IPdfjsEditor | null | undefined) => void;
     };
     getMarkupSubtype: () => {
-        TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
+        toolToMarkupSubtype: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
         shouldForceTextMarkup: (tool: TAnnotationTool) => boolean;
         applyHighlightParamsForTool: (mgr: TAnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
         resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
@@ -553,7 +549,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                     if (!knownSubtype) {
                         knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
                     }
-                    const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
+                    const toolSubtype = markupSubtype.toolToMarkupSubtype[annotationTool.value] ?? null;
                     if (!knownSubtype && toolSubtype && shouldInferMarkupSubtypeFromActiveTool(normalizedEditor, resolvedEditorSubtype, toolSubtype)) {
                         // The active tool is authoritative for underline/strike/squiggly creation;
                         // do not preserve PDF.js' generic highlight-yellow default here.

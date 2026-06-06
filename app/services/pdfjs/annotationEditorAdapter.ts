@@ -28,7 +28,6 @@ interface IUiManagerWithSetActiveEditor {setActiveEditor: (editor: unknown | nul
 
 interface IUiManagerWithDefaultParamUpdater {__evbUpdateDefaultParams?: (type: number, value: unknown) => boolean;}
 
-
 function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
     if (!isRecord(value)) {
         return false;
@@ -360,7 +359,6 @@ function isAnnotationEditorLayer(value: unknown): value is IPdfjsAnnotationEdito
     return value.div instanceof HTMLElement
         && getOptionalFunction(value, 'createAndAddNewEditor') !== null;
 }
-
 
 export function getAnnotationEditorLayer(
     uiManager: AnnotationEditorUIManager,

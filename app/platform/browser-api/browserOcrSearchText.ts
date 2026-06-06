@@ -1,8 +1,6 @@
 import { isRecord } from '@contracts/runtimeGuards';
-import {
-    isOcrWord,
-    type IOcrWord,
-} from '@contracts/shared';
+import { isOcrWord } from '@contracts/shared';
+import type { IOcrWord } from '@contracts/shared';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
     OCR_TEXT_LAYER_INDEX_VERSION,

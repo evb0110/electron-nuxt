@@ -1,20 +1,9 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
-import {
-    cloneShapePoints,
-    cloneShapeStrokes,
-} from '@app/composables/pdf/pdfShapeStrokes';
+import { cloneShape } from '@app/utils/pdf-viewer/shapes/cloneShape';
 
 export interface IPdfAppAnnotationHistoryCommand {
     cmd: () => void;
     undo: () => void;
-}
-
-export function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
-    return {
-        ...shape,
-        points: cloneShapePoints(shape.points),
-        strokes: cloneShapeStrokes(shape.strokes),
-    };
 }
 
 function cloneShapeForHistoryComparison(shape: IShapeAnnotation) {

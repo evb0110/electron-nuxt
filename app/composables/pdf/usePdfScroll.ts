@@ -2,17 +2,13 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/pdfNavLog';
-import {
-    getPageContainerByNumber,
-    getViewportVisibilityFromDom,
-    type IViewportVisibilityResult,
-} from '@app/composables/pdf/pdfScrollVisibility';
-import type { IPdfPageLayoutMetrics } from '@app/composables/pdf/pdfPageLayout';
-import {
-    getPageHeight,
-    getPageTop,
-} from '@app/composables/pdf/pdfPageLayout';
-import { resolvePageBoundedHorizontalScroll } from '@app/composables/pdf/pdfHorizontalScrollClamp';
+import { getPageContainerByNumber } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageContainerByNumber';
+import { getViewportVisibilityFromDom } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getViewportVisibilityFromDom';
+import type { IViewportVisibilityResult } from '@app/utils/pdf-viewer/pdf-scroll-visibility/pdfScrollVisibilityTypes';
+import type { IPdfPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/pdfPageLayoutTypes';
+import { getPageHeight } from '@app/utils/pdf-viewer/pdf-page-layout/getPageHeight';
+import { getPageTop } from '@app/utils/pdf-viewer/pdf-page-layout/getPageTop';
+import { resolvePageBoundedHorizontalScroll } from '@app/utils/pdf-viewer/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 

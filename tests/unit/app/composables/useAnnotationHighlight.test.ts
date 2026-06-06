@@ -87,7 +87,7 @@ function createHighlightHarness(viewerContainer: IFakeViewerContainer) {
             getEditorPendingKey: () => 'pending-editor-id',
         }),
         getMarkupSubtype: () => ({
-            TOOL_TO_MARKUP_SUBTYPE: {},
+            toolToMarkupSubtype: {},
             isSelectionMarkupTool: () => false,
             setEditorMarkupSubtypeOverride: () => {},
             resolveEditorMarkupSubtypeOverride: () => null,
@@ -345,7 +345,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 getEditorPendingKey: editor => `pending:${String(editor.id)}`,
             }),
             getMarkupSubtype: () => ({
-                TOOL_TO_MARKUP_SUBTYPE: {},
+                toolToMarkupSubtype: {},
                 isSelectionMarkupTool: () => false,
                 setEditorMarkupSubtypeOverride: () => {},
                 resolveEditorMarkupSubtypeOverride: () => null,
@@ -472,7 +472,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                     getEditorPendingKey: editor => `pending:${String(editor.id)}`,
                 }),
                 getMarkupSubtype: () => ({
-                    TOOL_TO_MARKUP_SUBTYPE: {},
+                    toolToMarkupSubtype: {},
                     isSelectionMarkupTool: () => false,
                     setEditorMarkupSubtypeOverride: () => {},
                     resolveEditorMarkupSubtypeOverride: () => null,

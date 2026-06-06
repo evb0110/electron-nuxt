@@ -152,8 +152,8 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
-import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
-import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
+import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
+import type { IAnnotationNotePosition } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
@@ -161,8 +161,8 @@ import {
     useEventListener,
     useMutationObserver,
 } from '@vueuse/core';
-import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
-import { escapeCssAttr } from '@app/composables/pdf/annotationCssUtils';
+import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/createRafBurstScheduler';
+import { escapeCssAttr } from '@app/utils/pdf-viewer/annotation-css-utils/escapeCssAttr';
 
 const INLINE_NOTE_SUBTYPES = new Set([
     'text',

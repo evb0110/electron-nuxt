@@ -20,11 +20,11 @@ import type {
     IShapeAnnotation,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 
-vi.mock('@app/composables/pdf/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
+vi.mock('@app/utils/pdf-viewer/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
 
 const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=',

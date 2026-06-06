@@ -1,11 +1,12 @@
 import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    type IWorkspaceExpose,
-    type IWorkspaceToolbarSnapshot,
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { shellToolbarHandoffWarningDelayMs } from '@app/modules/workspace-shell/toolbar/shellToolbarHandoffWarningDelayMs';
+import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type {
     TFitMode,
@@ -13,8 +14,6 @@ import type {
     TZoomMode,
 } from '@contracts/shared';
 import type { IWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-
-export const SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS = 2_000;
 
 interface IUseShellWorkspaceToolbarOptions {
     activePaneId: Ref<string | null>;
@@ -229,7 +228,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
                 isTabTransitionBusy: options.isTabTransitionBusy.value,
                 hasTeleportedToolbarContent: options.hasTeleportedToolbarContent.value,
             });
-        }, SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS);
+        }, shellToolbarHandoffWarningDelayMs);
     }
 
     applyShellToolbarSnapshot(createDefaultWorkspaceToolbarSnapshot());

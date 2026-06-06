@@ -3,11 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    getAsyncChunkLoadErrorMessage,
-    isRecoverableAsyncChunkLoadError,
-    shouldRetryAsyncChunkLoad,
-} from '@app/modules/workspace-shell/composables/workspaceHostAsyncLoad';
+import { getAsyncChunkLoadErrorMessage } from '@app/modules/workspace-shell/host/getAsyncChunkLoadErrorMessage';
+import { isRecoverableAsyncChunkLoadError } from '@app/modules/workspace-shell/host/isRecoverableAsyncChunkLoadError';
+import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/shouldRetryAsyncChunkLoad';
 
 describe('workspace async chunk load helpers', () => {
     it('extracts error messages from unknown values', () => {

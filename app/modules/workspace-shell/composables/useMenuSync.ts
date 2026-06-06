@@ -4,14 +4,10 @@ import type {
     IUseWorkspaceShellStateOptions,
     IWorkspaceShellState,
 } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import {
-    useWorkspaceShellState,
-    workspaceHasPdf,
-} from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 
 interface IUseMenuSyncDeps extends IUseWorkspaceShellStateOptions {shellState?: IWorkspaceShellState;}
-
-export { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 
 export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     const autoShellState = useWorkspaceShellState(deps);

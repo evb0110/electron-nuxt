@@ -11,8 +11,10 @@ import {
 import {
     ref,
     shallowRef,
-    type Ref,
-    type ShallowRef,
+} from 'vue';
+import type {
+    Ref,
+    ShallowRef,
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {

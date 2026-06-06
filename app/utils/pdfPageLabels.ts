@@ -1,8 +1,8 @@
-import {
-    PAGE_LABEL_STYLE_VALUES,
-    type IPdfPageLabelRange,
-    type IPdfPageRange,
-    type TPageLabelStyle,
+import { PAGE_LABEL_STYLE_VALUES } from '@app/types/pdf';
+import type {
+    IPdfPageLabelRange,
+    IPdfPageRange,
+    TPageLabelStyle,
 } from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
 

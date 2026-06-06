@@ -8,10 +8,8 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import {
-    capturePdfReloadSnapshot,
-    createPdfReloadWaiter,
-} from '@app/composables/pdf/pdfReloadWaiter';
+import { capturePdfReloadSnapshot } from '@app/utils/pdf-viewer/pdf-reload-waiter/capturePdfReloadSnapshot';
+import { createPdfReloadWaiter } from '@app/utils/pdf-viewer/pdf-reload-waiter/createPdfReloadWaiter';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 
