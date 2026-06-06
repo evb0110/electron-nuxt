@@ -157,7 +157,7 @@ vi.mock('electron', () => ({nativeImage: {createFromPath: vi.fn(() => ({
     toPNG: () => new Uint8Array(),
 }))}}));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
     error: vi.fn(),
     debug: vi.fn(),

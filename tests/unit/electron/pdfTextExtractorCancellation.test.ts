@@ -11,9 +11,9 @@ const mocks = vi.hoisted(() => ({
     getOcrToolPaths: vi.fn(),
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({debug: vi.fn()})}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
-vi.mock('@electron/utils/exec', () => ({runElectronCommand: mocks.runCommand}));
+vi.mock('@electron/utils/runElectronCommand', () => ({runElectronCommand: mocks.runCommand}));
 
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 
@@ -30,7 +30,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('returns AbortError immediately when signal is already aborted', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/pdfTextExtractor');
+        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         const controller = new AbortController();
         controller.abort();
 
@@ -41,7 +41,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('forwards signal to runCommand and preserves paging behavior', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/pdfTextExtractor');
+        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         const controller = new AbortController();
 
         mocks.runCommand.mockResolvedValue({
@@ -82,7 +82,7 @@ describe('extractTextFromPdf cancellation', () => {
     });
 
     it('rethrows AbortError from runCommand without wrapping', async () => {
-        const { extractTextFromPdf } = await import('@electron/search/pdfTextExtractor');
+        const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         const abortError = createAbortError();
         mocks.runCommand.mockRejectedValue(abortError);
 

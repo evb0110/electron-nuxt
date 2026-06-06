@@ -8,7 +8,7 @@ import type {
     TextContent,
     TextItem,
 } from 'pdfjs-dist/types/src/display/api';
-import { extractBrowserSearchPageText } from '@app/platform/browser-api/browserSearchText';
+import { extractBrowserSearchPageText } from '@app/platform/browser-api/extractBrowserSearchPageText';
 
 describe('extractBrowserSearchPageText', () => {
     it('keeps PDF.js text item offsets compatible with rendered text layers', async () => {

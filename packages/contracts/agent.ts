@@ -1,5 +1,5 @@
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
-import type { TDocumentRef } from '@contracts/document';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';

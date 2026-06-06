@@ -1,4 +1,4 @@
-import { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
+import { loadPdfStructure } from '@pdf-core/loadPdfStructure';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,

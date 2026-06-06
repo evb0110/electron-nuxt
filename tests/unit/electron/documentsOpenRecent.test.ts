@@ -28,15 +28,15 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('electron', () => ({ dialog: { showOpenDialog: vi.fn() } }));
-vi.mock('@electron/i18n', () => ({ te: (key: string) => key }));
+vi.mock('@electron/te', () => ({ te: (key: string) => key }));
 vi.mock('@electron/utils/error', () => ({ getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error) }));
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => mocks.logger }));
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
 vi.mock('@electron/image/pdfConversion', () => ({
     isSupportedOpenPath: () => true,
     SUPPORTED_IMAGE_EXTENSIONS: ['.png'],
 }));
 vi.mock('@electron/recentFiles', () => ({ getRecentFiles: mocks.getRecentFiles }));
-vi.mock('@electron/features/documents/main/documentOpen.service', () => ({ openInputPaths: mocks.openInputPaths }));
+vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({ openInputPaths: mocks.openInputPaths }));
 vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({
     errorWithDetails: (fallbackMessage: string, details: unknown) => (
         details instanceof Error

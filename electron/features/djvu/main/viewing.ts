@@ -10,8 +10,8 @@ import {
     resolve,
 } from 'path';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
-import { isAllowedDjvuTempPdfPath } from '@electron/djvu/tempPath';
-import { createLogger } from '@electron/utils/logger';
+import { isAllowedDjvuTempPdfPath } from '@electron/djvu/isAllowedDjvuTempPdfPath';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';

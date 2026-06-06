@@ -35,14 +35,14 @@ vi.mock('electron', () => ({
         mocks.handlers.set(channel, handler);
     } },
 }));
-vi.mock('@electron/ocr/tesseract', () => ({runOcr: mocks.runOcr}));
+vi.mock('@electron/ocr/runOcr', () => ({runOcr: mocks.runOcr}));
 
 vi.mock('@electron/ocr/paths', () => ({
     validateOcrTools: mocks.validateOcrTools,
     getOcrToolPaths: mocks.getOcrToolPaths,
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
@@ -70,7 +70,7 @@ vi.mock('@electron/ocr/preprocessingHandlers', () => ({
     handlePreprocessPage: mocks.handlePreprocessPage,
 }));
 
-const { registerOcrHandlers } = await import('@electron/features/ocr/main/ipc');
+const { registerOcrHandlers } = await import('@electron/features/ocr/main/registerOcrHandlers');
 
 function createMockSender(id: number) {
     return {

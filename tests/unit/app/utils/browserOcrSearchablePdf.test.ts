@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createBrowserSearchablePdf } from '@app/utils/browserOcrSearchablePdf';
+import { createBrowserSearchablePdf } from '@app/utils/createBrowserSearchablePdf';
 
 describe('createBrowserSearchablePdf', () => {
     it('creates a PDF whose text layer includes OCR words', async () => {

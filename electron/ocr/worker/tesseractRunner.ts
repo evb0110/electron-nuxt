@@ -6,12 +6,12 @@ import {
 } from 'fs/promises';
 import type { IOcrWord } from '@contracts/shared';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
-import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseractLanguageConfig';
+import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
-import { parseIntegerEnv } from '@electron/utils/env';
-import { buildTesseractEnv } from '@electron/ocr/tesseractEnv';
-import { createTesseractFinalize } from '@electron/ocr/tesseractFinalize';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { buildTesseractEnv } from '@electron/ocr/buildTesseractEnv';
+import { createTesseractFinalize } from '@electron/ocr/createTesseractFinalize';
 import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,

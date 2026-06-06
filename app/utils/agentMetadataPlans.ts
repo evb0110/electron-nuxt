@@ -1,5 +1,5 @@
 import { isEqual } from 'es-toolkit/predicate';
-import type { IPdfBookmarkEntry } from '@contracts/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IPdfPageLabelRange,
     TPageLabelStyle,

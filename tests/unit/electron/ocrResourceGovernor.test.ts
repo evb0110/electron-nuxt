@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({logger: {
     error: vi.fn(),
 }}));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('ocr resource governor cancellation', () => {
     beforeEach(() => {
@@ -25,12 +25,12 @@ describe('ocr resource governor cancellation', () => {
 
     afterEach(async () => {
         vi.unstubAllEnvs();
-        const { ocrResourceGovernor } = await import('@electron/ocr/resourceGovernor');
+        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
         ocrResourceGovernor.reset();
     });
 
     it('rejects queued acquire promises removed by releaseJob', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/resourceGovernor');
+        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
 
         const activeLease = await ocrResourceGovernor.acquire({
             jobId: 'job-a',
@@ -51,7 +51,7 @@ describe('ocr resource governor cancellation', () => {
     });
 
     it('rejects queued acquire promises removed by reset', async () => {
-        const { ocrResourceGovernor } = await import('@electron/ocr/resourceGovernor');
+        const { ocrResourceGovernor } = await import('@electron/ocr/ocrResourceGovernor');
 
         const activeLease = await ocrResourceGovernor.acquire({
             jobId: 'job-a',

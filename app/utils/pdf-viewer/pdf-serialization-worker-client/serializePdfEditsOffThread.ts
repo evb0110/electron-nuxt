@@ -1,4 +1,4 @@
-import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 import type {
     ISerializationWorkerRequest,
     ISerializationWorkerRequestMap,
@@ -9,11 +9,11 @@ import { deleteEmbeddedAnnotation } from '@app/utils/pdf-viewer/pdf-serializatio
 import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits';
 import { updateEmbeddedAnnotationText } from '@app/utils/pdf-viewer/pdf-serialization-operations/updateEmbeddedAnnotationText';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
-import { settleBrowserWorkerResult } from '@app/platform/browser-api/browserWorkerRequests';
+import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type {
     IPendingBrowserWorkerRequest,
     TBrowserWorkerResult,
-} from '@app/platform/browser-api/browserWorkerRequests';
+} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,

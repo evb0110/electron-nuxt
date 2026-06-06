@@ -40,7 +40,7 @@ vi.mock('electron', () => ({ipcMain: {handle: (channel: string, handler: TRegist
     mocks.handlers.set(channel, handler);
 }}}));
 
-vi.mock('@electron/djvu/estimate', () => ({estimateSizes: mocks.estimateSizes}));
+vi.mock('@electron/djvu/estimateSizes', () => ({estimateSizes: mocks.estimateSizes}));
 vi.mock('@electron/djvu/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
@@ -48,7 +48,7 @@ vi.mock('@electron/djvu/metadata', () => ({
     getDjvuHasText: mocks.getDjvuHasText,
     getDjvuMetadata: mocks.getDjvuMetadata,
 }));
-vi.mock('@electron/djvu/bookmarks', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
+vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
 vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,
@@ -59,14 +59,14 @@ vi.mock('@electron/features/djvu/main/viewing', () => ({
     cleanupDjvuTempPdfPath: mocks.cleanupDjvuTempPdfPath,
     sweepStaleDjvuTempPdfs: mocks.sweepStaleDjvuTempPdfs,
 }));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
 })}));
 
-const { registerDjvuHandlers } = await import('@electron/features/djvu/main/ipc');
+const { registerDjvuHandlers } = await import('@electron/features/djvu/main/registerDjvuHandlers');
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);

@@ -8,7 +8,7 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 import {
     runOcrCommand,
     type TOcrRunCommandOptions,
-} from '@electron/ocr/worker/runCommand';
+} from '@electron/ocr/worker/runOcrCommand';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;

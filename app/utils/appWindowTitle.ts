@@ -1,4 +1,4 @@
-import { formatBrowserPageTitle } from '@app/utils/browserPageTitle';
+import { formatBrowserPageTitle } from '@app/utils/formatBrowserPageTitle';
 
 interface IResolveAppWindowTitleOptions {
     appTitle: string;

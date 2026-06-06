@@ -12,7 +12,7 @@ import {
     sep,
 } from 'path';
 import { writeFile } from 'fs/promises';
-import { decryptPdfFileIfNeeded } from '@electron/utils/pdfDecrypt';
+import { decryptPdfFileIfNeeded } from '@electron/utils/decryptPdfFileIfNeeded';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
 import {
     copyFileCopyOnWrite,
@@ -25,9 +25,9 @@ import {
     getWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
 } from '@electron/ipc/workingCopyStore';
-import { isAllowedOriginalSavePath } from '@electron/ipc/workingCopyValidation';
+import { isAllowedOriginalSavePath } from '@electron/ipc/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/ipc/workingCopyMissingError';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('working-copy');

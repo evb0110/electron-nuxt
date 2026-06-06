@@ -3,7 +3,7 @@ import { clamp } from 'es-toolkit/math';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
 import { isRecord } from '@contracts/runtimeGuards';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/ipc/coreContract';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 
 interface IRendererLogRateState {
     tokens: number;

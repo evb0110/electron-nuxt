@@ -10,7 +10,7 @@ import {
     preprocessPageForOcr,
     validatePreprocessingSetup,
 } from '@electron/ocr/preprocessing';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 

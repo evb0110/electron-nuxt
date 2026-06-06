@@ -40,10 +40,10 @@ vi.mock('node:crypto', async (importOriginal) => {
         randomUUID: () => randomUuidMock(),
     };
 });
-vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
-vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
+vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
 vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
@@ -95,7 +95,7 @@ describe('page-ops insert service', () => {
                 };
             });
 
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insert.service');
+            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
             await insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1);
 
@@ -134,7 +134,7 @@ describe('page-ops insert service', () => {
                 };
             });
 
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insert.service');
+            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
             await expect(insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1))
                 .rejects.toThrow('Inserting pages failed: qpdf produced an empty PDF');
@@ -163,7 +163,7 @@ describe('page-ops insert service', () => {
                 stderr: '',
             });
 
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insert.service');
+            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
             await expect(insertPagesFromSourcePaths(workingCopyPath, 2, [sourcePath as TOpenPath], 1))
                 .rejects.toThrow('Renderer page count is stale');

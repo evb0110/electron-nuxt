@@ -178,7 +178,7 @@ import {
     BROWSER_INSTALL_HINT_STORAGE_KEY,
 } from '@app/utils/browserRuntimePersistence';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
-import { traceRendererStartup } from '@app/utils/startupTrace';
+import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
 import AgentAssistantPanel from '@app/components/agent/AgentAssistantPanel.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
@@ -216,7 +216,7 @@ import type {
     TTabMemoryPolicy,
 } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
-import type { TStartSection } from '@app/types/startPage';
+import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IHostZenModeState } from '@contracts/electronApiHost';
 import type { TOpenFileResult } from '@contracts/platformApi';

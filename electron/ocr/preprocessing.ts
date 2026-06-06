@@ -6,10 +6,10 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-import { appendTextChunkWithByteCap } from '@electron/native-tools/outputBuffer';
-import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/appendTextChunkWithByteCap';
+import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
 import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,

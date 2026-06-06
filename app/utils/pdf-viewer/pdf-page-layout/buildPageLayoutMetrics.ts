@@ -4,7 +4,7 @@ import type {
 } from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
 import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
-import type { IPdfPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/pdfPageLayoutTypes';
+import type { IPdfPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/pdfPageLayoutMetrics';
 
 function clampPageNumber(pageNumber: number, totalPages: number) {
     return clamp(Math.floor(pageNumber), 1, totalPages);

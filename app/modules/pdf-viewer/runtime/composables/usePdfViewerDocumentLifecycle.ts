@@ -19,7 +19,7 @@ import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { tracePdfAnnotationSaveDom } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
 import { tracePdfAnnotationSaveEvent } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
-import type { TPdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotTypes';
+import type { TPdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 import { preservePdfPageAnnotationVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';

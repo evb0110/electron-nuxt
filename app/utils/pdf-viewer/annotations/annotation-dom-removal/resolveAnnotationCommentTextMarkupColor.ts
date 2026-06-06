@@ -9,7 +9,7 @@ import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { parseCssRgbColor } from '@app/utils/pdf-viewer/text-markup-color/parseCssRgbColor';
 import { rgbToHex } from '@app/utils/pdf-viewer/text-markup-color/rgbToHex';
-import type { ITextMarkupColorResolutionDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/annotationDomRemovalTypes';
+import type { ITextMarkupColorResolutionDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/textMarkupColorResolutionDiagnostics';
 
 const MIN_HIGHLIGHT_VISUAL_IOU = 0.2;
 

@@ -85,7 +85,7 @@ export type {
     TReaderCommandPlacement,
 } from '@contracts/readerCommands';
 
-export type { TDocumentRef } from '@contracts/document';
+export type { TDocumentRef } from '@contracts/documentRef';
 
 export type {
     IEditorPaneRect,
@@ -113,7 +113,7 @@ export {
     sanitizeAllowedExternalUrl,
 } from '@contracts/externalUrl';
 
-export type {IPdfBookmarkEntry} from '@contracts/pdf';
+export type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
 export type {
     IPdfSearchExcerpt,
@@ -150,7 +150,7 @@ export {
     isRecord,
 } from '@contracts/runtimeGuards';
 
-export { isTimeoutError } from '@contracts/timeoutError';
+export { isTimeoutError } from '@contracts/isTimeoutError';
 
 export { normalizeAnalyticsScalar } from '@contracts/analytics';
 export type {
@@ -158,7 +158,7 @@ export type {
     TAnalyticsScalarResult,
 } from '@contracts/analytics';
 
-export { getErrorMessage } from '@contracts/error';
+export { getErrorMessage } from '@contracts/getErrorMessage';
 
 export type {
     IRecentFile,

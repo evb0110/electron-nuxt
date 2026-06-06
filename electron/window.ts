@@ -9,20 +9,20 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '@electron/config';
-import { te } from '@electron/i18n';
-import { createLogger } from '@electron/utils/logger';
-import { createWindowRuntime } from '@electron/window/runtime';
-import { createWindowSecurity } from '@electron/window/security';
+import { te } from '@electron/te';
+import { createLogger } from '@electron/utils/createLogger';
+import { createWindowRuntime } from '@electron/window/createWindowRuntime';
+import { createWindowSecurity } from '@electron/window/createWindowSecurity';
 import { getErrorMessage } from '@electron/utils/error';
 import { waitForInitialRendererReady } from '@electron/window/rendererReady';
-import { loadStartupPlaceholder } from '@electron/window/startupPlaceholder';
+import { loadStartupPlaceholder } from '@electron/window/loadStartupPlaceholder';
 import {
     getAllRegisteredAppWindows,
     getRegisteredMainWindow,
     getWindowByIdFromRegistry,
     registerAppWindow,
 } from '@electron/window/registry';
-import { attachShowLifecycle } from '@electron/window/showLifecycle';
+import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

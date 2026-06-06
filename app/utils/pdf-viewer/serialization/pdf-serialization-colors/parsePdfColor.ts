@@ -1,5 +1,5 @@
 import { clamp } from 'es-toolkit/math';
-import { parseHexColor } from '@app/utils/color';
+import { parseHexColor } from '@app/utils/parseHexColor';
 
 export function parsePdfColor(color: string | undefined): [number, number, number] | null {
     if (!color || color === 'transparent' || color === 'none') {

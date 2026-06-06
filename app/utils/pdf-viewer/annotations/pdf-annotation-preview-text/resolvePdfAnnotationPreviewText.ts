@@ -1,7 +1,7 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
 import { toMarkerRectFromPdfRect } from '@app/utils/pdf-viewer/annotation-geometry/toMarkerRectFromPdfRect';
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import type {
     IPdfTextPreviewItem,

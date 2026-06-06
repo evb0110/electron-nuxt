@@ -7,7 +7,7 @@ import type { IMarkerViewModel } from '@app/utils/pdf-viewer/annotations/types';
 import { usePdfViewerDelayedSkeleton } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDelayedSkeleton';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import { PDF_VIEWER_PAGE_SKELETON_DELAY_MS } from '@app/constants/timeouts';
-import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type {
     IContentInsets,

@@ -11,7 +11,7 @@ import { getRectHeight } from '@app/utils/pdf-viewer/pdf-region-geometry/getRect
 import { getRectWidth } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectWidth';
 import { toClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/toClientRect';
 import { toLocalRect } from '@app/utils/pdf-viewer/pdf-region-geometry/toLocalRect';
-import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/pdfRegionDragTypes';
+import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/snipPointerPayload';
 import { createSelectionPointerDragHandlers } from '@app/utils/pdf-viewer/pdf-region-drag/createSelectionPointerDragHandlers';
 import { createSelectionRectFromPointerDrag } from '@app/utils/pdf-viewer/pdf-region-drag/createSelectionRectFromPointerDrag';
 

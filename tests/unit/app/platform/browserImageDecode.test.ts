@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { decodeBrowserImageBlob } from '@app/platform/browser-api/browserImageDecode';
+import { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
 
 describe('decodeBrowserImageBlob', () => {
     afterEach(() => {

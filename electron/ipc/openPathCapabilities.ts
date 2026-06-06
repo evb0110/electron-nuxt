@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron';
 import { sep } from 'path';
-import { createLogger } from '@electron/utils/logger';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
+import { createLogger } from '@electron/utils/createLogger';
+import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 
 declare const __openPathBrand: unique symbol;
 export type TOpenPath = string & { readonly [__openPathBrand]: true };

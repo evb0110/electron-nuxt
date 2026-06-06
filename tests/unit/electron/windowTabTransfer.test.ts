@@ -16,7 +16,7 @@ vi.mock('@electron/window', () => ({
     getWindowById: vi.fn(),
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),

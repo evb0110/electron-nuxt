@@ -2,7 +2,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 interface IUsePdfViewerPortalAnnotationHandlersOptions {

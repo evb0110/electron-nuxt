@@ -52,8 +52,8 @@ import {
 } from '@electron/features/agent/mcpServer';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
 import { loadSettings } from '@electron/settings';
-import { te } from '@electron/i18n';
-import { createLogger } from '@electron/utils/logger';
+import { te } from '@electron/te';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-codex-assistant');

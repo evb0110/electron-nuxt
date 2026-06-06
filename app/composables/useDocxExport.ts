@@ -4,7 +4,7 @@ import { createDocxFromTextAsync } from '@app/utils/docx';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
-import { exportTextAsDocx } from '@app/utils/docxExport';
+import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
 
 export const useDocxExport = () => {
     const analytics = useAnalytics();

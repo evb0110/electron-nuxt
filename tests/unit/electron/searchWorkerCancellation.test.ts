@@ -42,7 +42,7 @@ vi.mock('@electron/config/constants', () => ({
     SEARCH_RESULT_LIMIT: 100,
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({debug: vi.fn()})}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
 function createAbortError() {
     const error = new Error('The operation was aborted');

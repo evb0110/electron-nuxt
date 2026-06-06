@@ -25,15 +25,15 @@ import {
 } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { getNativeToolPaths } from '@electron/native-tools/paths';
+import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
 import {
     detectSourceDpi,
     clampDpi,
 } from '@electron/ocr/worker/dpiDetection';
-import { runNativeToolCommand } from '@electron/native-tools/exec';
-import { createLogger } from '@electron/utils/logger';
-import { measureElectronPerfAsync } from '@electron/utils/devPerf';
-import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiffCombineLocal';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { createLogger } from '@electron/utils/createLogger';
+import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
+import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -43,7 +43,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-import { parseIntegerEnv } from '@electron/utils/env';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 

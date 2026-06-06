@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { withTimeout } from 'es-toolkit/promise';
-import { isTimeoutError } from '@contracts/timeoutError';
+import { isTimeoutError } from '@contracts/isTimeoutError';
 
 describe('isTimeoutError', () => {
     it('recognizes the current es-toolkit timeout error shape', async () => {

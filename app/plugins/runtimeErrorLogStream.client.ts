@@ -1,5 +1,5 @@
 import type { IDebugLogEntry } from '@contracts/platformApi';
-import { getSettingsCapability } from '@app/utils/platformSettings';
+import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import {
     DEFAULT_LOCALE,
     LOCALE_MESSAGES,

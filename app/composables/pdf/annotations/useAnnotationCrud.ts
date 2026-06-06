@@ -25,7 +25,7 @@ import type { PDFDocumentProxy } from '@app/types/pdf';
 import { detectEditorSubtype } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/detectEditorSubtype';
 import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
 import { hasEditorCommentPayload } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/hasEditorCommentPayload';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
 import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
 import { escapeCssAttr } from '@app/utils/pdf-viewer/annotation-css-utils/escapeCssAttr';
 import { removeAnnotationCommentDom } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/removeAnnotationCommentDom';
@@ -34,7 +34,7 @@ import { findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelpe
 import { findEditorForComment as findEditorForCommentHelper } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findEditorForComment';
 import { findEditorFromTarget as findEditorFromTargetHelper } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findEditorFromTarget';
 import { findPdfAnnotationSummaryFromTarget } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findPdfAnnotationSummaryFromTarget';
-import type { IEditorTargetMatch } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/annotationCommentCrudHelpersTypes';
+import type { IEditorTargetMatch } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/editorTargetMatch';
 import { getCommentCandidateIds } from '@app/utils/pdf-viewer/annotation-comment-identity/getCommentCandidateIds';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {

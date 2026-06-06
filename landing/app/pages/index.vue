@@ -202,8 +202,8 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
 import { partition } from 'es-toolkit/array';
-import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
-import { selectInstallersForPlatform } from '~~/shared/releaseAssets';
+import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
+import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
 import {
     formatFileSize,
     formatPlatform,

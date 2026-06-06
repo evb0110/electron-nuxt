@@ -6,8 +6,8 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@contracts/shared';
-import { createLogger } from '@electron/utils/logger';
-import { measureElectronPerfAsync } from '@electron/utils/devPerf';
+import { createLogger } from '@electron/utils/createLogger';
+import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
     cropPagesLocal,
     getPageGeometryLocal,

@@ -9,9 +9,9 @@ import { difference } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { runNativeToolCommand } from '@electron/native-tools/exec';
-import { getNativeToolPaths } from '@electron/native-tools/paths';
-import { createLogger } from '@electron/utils/logger';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {

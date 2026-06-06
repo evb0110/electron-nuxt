@@ -19,7 +19,7 @@ import {
     bucketQueryLength,
 } from '@app/utils/analytics';
 import { groupBy } from 'es-toolkit/array';
-import { getSearchCapability } from '@app/utils/platformSearch';
+import { getSearchCapability } from '@app/utils/getSearchCapability';
 
 export type {
     IPdfPageMatches,

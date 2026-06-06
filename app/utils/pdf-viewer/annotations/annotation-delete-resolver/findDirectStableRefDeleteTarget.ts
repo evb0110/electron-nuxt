@@ -2,7 +2,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
 import { markerRectIoU } from '@app/utils/pdf-viewer/annotation-geometry/markerRectIoU';
 import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
-import type { IAnnotationDeleteResolverIdentity } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/annotationDeleteResolverTypes';
+import type { IAnnotationDeleteResolverIdentity } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/annotationDeleteResolverIdentity';
 
 const DELETE_FALLBACK_MIN_IOU = 0.01;
 

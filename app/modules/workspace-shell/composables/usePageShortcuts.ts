@@ -6,7 +6,7 @@ import {
 } from '@vueuse/core';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
-import { shouldHandleRendererMenuAccelerators } from '@app/utils/platformShortcuts';
+import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 
 interface IPdfViewerForShortcuts {
     cancelCommentPlacement: () => void;

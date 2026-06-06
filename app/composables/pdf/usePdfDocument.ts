@@ -16,7 +16,7 @@ import {
     getPdfjsAssetDir,
     getPdfjsWorkerUrl,
 } from '@app/utils/viewerAssets';
-import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
+import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { maxCachedPdfPages } from '@app/utils/pdf-viewer/maxCachedPdfPages';
 

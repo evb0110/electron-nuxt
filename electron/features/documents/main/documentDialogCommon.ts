@@ -3,7 +3,7 @@ import {
     dialog,
 } from 'electron';
 import { extname } from 'path';
-import { te } from '@electron/i18n';
+import { te } from '@electron/te';
 
 interface IOpenDocumentDialogOptions {
     title: string;

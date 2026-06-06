@@ -12,7 +12,7 @@ import type {
     TSearchWorkerOutboundMessage,
 } from '@electron/features/search/protocol';
 import { getErrorMessage } from '@electron/utils/error';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,

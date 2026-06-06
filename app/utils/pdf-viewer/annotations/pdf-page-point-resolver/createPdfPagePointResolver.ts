@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import type { IPagePointTarget } from '@app/utils/pdf-viewer/annotations/types';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { buildPagePointTargetFromContainer } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/buildPagePointTargetFromContainer';
-import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
+import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
 import { scanPageGeometryCandidates } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/scanPageGeometryCandidates';
 import { selectPagePointResolution } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/selectPagePointResolution';
 

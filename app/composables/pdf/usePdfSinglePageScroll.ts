@@ -12,7 +12,7 @@ import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { stepBySpread } from '@app/utils/pdfViewMode';
-import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getPageContainerByNumber } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageContainerByNumber';
 import { getPageScrollBounds as getPageScrollBoundsForContainer } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageScrollBounds';

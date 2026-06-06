@@ -37,7 +37,7 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import { createPdfHighlightEditorClassPatch } from '@app/services/pdfjs/pdfHighlightEditorClassPatch';
+import { createPdfHighlightEditorClassPatch } from '@app/services/pdfjs/createPdfHighlightEditorClassPatch';
 import { createAnnotationMarkupSubtypeDrawLayer } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 import { findClosestHighlightDrawLayerSvg } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
 import { resolveEditorHighlightClipPathId } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';

@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { sumBy } from 'es-toolkit/math';
-import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdf';
+import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdfWriter';
 
 class MemorySink {
     public readonly chunks: Uint8Array[] = [];

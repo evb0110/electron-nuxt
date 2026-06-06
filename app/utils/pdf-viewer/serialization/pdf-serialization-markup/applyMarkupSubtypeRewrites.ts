@@ -38,7 +38,7 @@ import { iterateAnnotationRefDicts } from '@app/utils/pdf-viewer/pdf-page-annota
 import { resolvePageAnnotationContext } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/resolvePageAnnotationContext';
 import { clampRgbChannel } from '@app/utils/pdf-viewer/text-markup-color/clampRgbChannel';
 import { parseCssRgbColor } from '@app/utils/pdf-viewer/text-markup-color/parseCssRgbColor';
-import type { IRgbColor } from '@app/utils/pdf-viewer/text-markup-color/textMarkupColorTypes';
+import type { IRgbColor } from '@app/utils/pdf-viewer/text-markup-color/rgbColor';
 import { toOpaqueHighlightDisplayRgbColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayRgbColor';
 
 const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {

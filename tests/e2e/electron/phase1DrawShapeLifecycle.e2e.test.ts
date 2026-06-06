@@ -15,8 +15,8 @@ import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
+import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickAnnotationTool,
     clickToolbarButtonWhenEnabled,

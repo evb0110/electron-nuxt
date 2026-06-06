@@ -1,4 +1,4 @@
-import { describeProcessExitCode } from '@electron/utils/processExit';
+import { describeProcessExitCode } from '@electron/utils/describeProcessExitCode';
 export { createAbortError } from '@electron/utils/abort';
 
 export interface IProcessResult {

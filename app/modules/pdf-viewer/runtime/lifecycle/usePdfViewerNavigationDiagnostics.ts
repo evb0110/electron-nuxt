@@ -4,7 +4,7 @@ import type {
 } from 'vue';
 import type { TPdfViewMode } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfNav } from '@app/utils/logPdfNav';
 
 interface IPageRange {
     start: number;

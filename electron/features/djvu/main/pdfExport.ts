@@ -17,7 +17,7 @@ import {
     dirname,
     join,
 } from 'path';
-import type { IPdfBookmarkEntry } from '@contracts/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     cancelConversion,
     convertDjvuToPdfFile,
@@ -26,11 +26,11 @@ import {
     getDjvuOutline,
     getDjvuPageCount,
 } from '@electron/djvu/metadata';
-import { parseDjvuOutline } from '@electron/djvu/bookmarks';
-import { createLogger } from '@electron/utils/logger';
-import { measureElectronPerfAsync } from '@electron/utils/devPerf';
-import { safeSendToWindow } from '@electron/djvu/ipcShared';
-import { embedBookmarksIntoPdfFile } from '@electron/djvu/pdfBookmarks';
+import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
+import { createLogger } from '@electron/utils/createLogger';
+import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
+import { safeSendToWindow } from '@electron/djvu/safeSendToWindow';
+import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/exportPaths';
 import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';

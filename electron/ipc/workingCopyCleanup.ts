@@ -12,7 +12,7 @@ import {
     resolve,
     sep,
 } from 'path';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     clearRetiredWorkingCopyOriginals,

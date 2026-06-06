@@ -4,7 +4,7 @@ import {
     webUtils,
 } from 'electron';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
-import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/devRecovery';
+import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/installViteOutdatedOptimizeDepRecovery';
 import { createElectronApi } from '@electron/preload/createElectronApi';
 import { pushDebugLogMessage } from '@electron/preload/debugLogBuffer';
 import {

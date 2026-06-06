@@ -46,16 +46,16 @@ vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
 }));
 
 vi.mock('@electron/djvu/metadata', () => ({getDjvuResolution: mocks.getDjvuResolution}));
-vi.mock('@electron/djvu/pdfBuilder', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
-vi.mock('@electron/i18n', () => ({te: mocks.te}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/djvu/buildOptimizedPdf', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
+vi.mock('@electron/te', () => ({te: mocks.te}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
     debug: mocks.loggerDebug,
     info: vi.fn(),
     error: vi.fn(),
 })}));
 
-const { estimateSizes } = await import('@electron/djvu/estimate');
+const { estimateSizes } = await import('@electron/djvu/estimateSizes');
 
 describe('estimateSizes', () => {
     beforeEach(() => {

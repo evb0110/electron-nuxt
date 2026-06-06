@@ -1,7 +1,7 @@
 import { withTimeout } from 'es-toolkit/promise';
-import { isTimeoutError } from '@contracts/timeoutError';
+import { isTimeoutError } from '@contracts/isTimeoutError';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/env';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const SHUTDOWN_TOTAL_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
 const SHUTDOWN_STEP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_TOTAL_TIMEOUT_MS);

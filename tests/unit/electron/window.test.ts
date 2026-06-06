@@ -172,11 +172,11 @@ vi.mock('electron', () => ({
 vi.mock('@electron/config', () => ({config: mocks.config}));
 
 vi.mock('@electron/config/constants', () => ({WINDOW_RENDERER_READY_TIMEOUT_MS: 30_000}));
-vi.mock('@electron/i18n', () => ({te: mocks.te}));
+vi.mock('@electron/te', () => ({te: mocks.te}));
 
 vi.mock('@electron/security/csp', () => ({setupContentSecurityPolicy: mocks.setupContentSecurityPolicy}));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('window runtime readiness', () => {
     beforeEach(() => {

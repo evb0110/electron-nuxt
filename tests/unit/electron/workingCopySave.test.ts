@@ -40,7 +40,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
 vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/ipc/workingCopyStore', () => ({getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args)}));
-vi.mock('@electron/ipc/workingCopyValidation', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
+vi.mock('@electron/ipc/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 
 describe('workingCopySave', () => {
     let tempRoot = '';

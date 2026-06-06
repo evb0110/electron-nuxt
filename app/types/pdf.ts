@@ -21,7 +21,7 @@ export type {
     TPdfSaveMode,
 } from '@contracts/platformApi';
 
-export type {IPdfBookmarkEntry} from '@contracts/pdf';
+export type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
 export interface IContentInsets {
     top: number;

@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IPageRange } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/pdfPageBufferManagerTypes';
+import type { IPageRange } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/pageRange';
 import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
 import { collectPreservedRenderPageNumbers } from '@app/utils/pdf-viewer/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
 import { createPdfRerenderRestorationLogger } from '@app/utils/pdf-viewer/pdf-rerender-restoration/createPdfRerenderRestorationLogger';

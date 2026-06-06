@@ -7,7 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { createDocumentsPreloadFileClient } from '@electron/features/documents/preloadFileClient';
+import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 
 class FakeMessagePort {
     readonly close = vi.fn();

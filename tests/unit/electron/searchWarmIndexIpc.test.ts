@@ -104,7 +104,7 @@ vi.mock('electron', () => ({
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/ipc/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 function createInvokeEvent(senderId: number) {
     return { sender: {

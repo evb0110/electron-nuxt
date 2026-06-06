@@ -38,7 +38,7 @@ import { tracePdfAnnotationSaveEvent } from '@app/utils/pdf-viewer/pdf-annotatio
 import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getShellCapability } from '@app/utils/platformShell';
+import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 
 interface IAnnotationEditorLayerProto {

@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { IPdfOutlineTreeContext } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeContextTypes';
+import type { IPdfOutlineTreeContext } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeContext';
 import { pdfOutlineTreeKey } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeKey';
 
 function requirePdfOutlineTreeContext(): IPdfOutlineTreeContext {

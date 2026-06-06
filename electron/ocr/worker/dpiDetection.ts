@@ -2,7 +2,7 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 import {
     runOcrCommand,
     type TOcrRunCommandOptions,
-} from '@electron/ocr/worker/runCommand';
+} from '@electron/ocr/worker/runOcrCommand';
 import { compact } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';

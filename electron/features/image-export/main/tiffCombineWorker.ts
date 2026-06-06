@@ -2,7 +2,7 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiffCombineLocal';
+import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface ITiffCombineWorkerData {

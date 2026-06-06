@@ -1,6 +1,6 @@
 import type { PageViewport } from 'pdfjs-dist';
 import type { IOcrWord } from '@app/types/pdf';
-import type { IOcrIndexV2Page } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/pdfWordBoxGeometryTypes';
+import type { IOcrIndexV2Page } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/ocrIndexV2Page';
 
 export function transformOcrWordToViewport(
     word: IOcrWord,

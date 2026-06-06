@@ -1,5 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 import type {
     IPdfTextPreviewItem,
     IPdfTextPreviewViewport,

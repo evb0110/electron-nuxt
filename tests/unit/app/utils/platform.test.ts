@@ -24,7 +24,7 @@ describe('platform runtime detection', () => {
     it('does not load the browser platform fallback while an electron api is present', async () => {
         vi.resetModules();
         let browserPlatformImportCount = 0;
-        vi.doMock('@app/platform/browserApi', () => {
+        vi.doMock('@app/platform/browserPlatformApi', () => {
             browserPlatformImportCount += 1;
             return { browserPlatformApi: { shell: { openExternal: vi.fn().mockResolvedValue(undefined) } } };
         });
@@ -38,14 +38,14 @@ describe('platform runtime detection', () => {
         expect(browserPlatformImportCount).toBe(0);
 
         vi.unstubAllGlobals();
-        vi.doUnmock('@app/platform/browserApi');
+        vi.doUnmock('@app/platform/browserPlatformApi');
     });
 
     it('loads the browser platform fallback lazily when a browser capability is used', async () => {
         vi.resetModules();
         let browserPlatformImportCount = 0;
         const openExternal = vi.fn().mockResolvedValue(undefined);
-        vi.doMock('@app/platform/browserApi', () => {
+        vi.doMock('@app/platform/browserPlatformApi', () => {
             browserPlatformImportCount += 1;
             return { browserPlatformApi: { shell: { openExternal } } };
         });
@@ -59,7 +59,7 @@ describe('platform runtime detection', () => {
         expect(openExternal).toHaveBeenCalledWith('https://example.com');
 
         vi.unstubAllGlobals();
-        vi.doUnmock('@app/platform/browserApi');
+        vi.doUnmock('@app/platform/browserPlatformApi');
     });
 
     it('does not treat lazy browser capabilities as thenables', async () => {

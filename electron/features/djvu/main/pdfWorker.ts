@@ -2,8 +2,8 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import { buildOptimizedPdf } from '@electron/djvu/pdfBuilder';
-import { embedBookmarksIntoPdfFile } from '@electron/djvu/pdfBookmarks';
+import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
+import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
 import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,

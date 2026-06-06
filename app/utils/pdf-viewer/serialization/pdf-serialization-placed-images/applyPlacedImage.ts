@@ -10,7 +10,7 @@ import { normalizePageRotation } from '@app/utils/pdf-viewer/annotation-geometry
 import { toPdfRectFromMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/toPdfRectFromMarkerRect';
 import { resolvePdfPageView } from '@app/utils/pdf-viewer/pdf-page-boxes/resolvePdfPageView';
 import { appendAnnotationRefToPage } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/appendAnnotationRefToPage';
-import type { IPdfSerializedPlacedImagePayload } from '@app/utils/pdf-viewer/serialization/pdf-serialization-placed-images/pdfSerializationPlacedImagesTypes';
+import type { IPdfSerializedPlacedImagePayload } from '@app/utils/pdf-viewer/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
 
 export async function applyPlacedImage(
     doc: PDFDocument,

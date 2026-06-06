@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/document';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IOcrLanguage } from '@contracts/shared';
 
 export type TOcrErrorCode =

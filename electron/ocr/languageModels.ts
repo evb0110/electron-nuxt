@@ -30,13 +30,13 @@ import {
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { forEachConcurrent } from '@electron/utils/concurrency';
-import { measureElectronPerfAsync } from '@electron/utils/devPerf';
+import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/env';
-import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
 
 const log = createLogger('ocr-languageModels');
 const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/main';

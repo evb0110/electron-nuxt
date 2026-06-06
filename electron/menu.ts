@@ -14,9 +14,9 @@ import {
 import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import { config } from '@electron/config';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getRecentFilesSync } from '@electron/recentFiles';
-import { te } from '@electron/i18n';
+import { te } from '@electron/te';
 import {
     getAllAppWindows,
     getWindowById,

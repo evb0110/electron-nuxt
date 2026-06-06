@@ -2,7 +2,7 @@ import {
     isAbsolute,
     join,
 } from 'node:path';
-import { projectRoot } from '@scripts/electron-run/electronRunProjectPaths';
+import { projectRoot } from '@scripts/electron-run/projectRoot';
 
 let currentSessionName = 'default';
 

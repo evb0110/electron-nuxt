@@ -7,7 +7,7 @@ import it from '../locales/it';
 import nl from '../locales/nl';
 import pt from '../locales/pt';
 import ru from '../locales/ru';
-import type { EN_MESSAGE_SCHEMA } from './messageSchema';
+import type { EN_MESSAGE_SCHEMA } from './enMessageSchema';
 import {
     DEFAULT_LOCALE,
     LOCALE_CODES,

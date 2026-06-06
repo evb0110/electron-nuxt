@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createWindowSecurity } from '@electron/window/security';
+import { createWindowSecurity } from '@electron/window/createWindowSecurity';
 
 const mocks = vi.hoisted(() => ({openExternal: vi.fn(async () => {})}));
 

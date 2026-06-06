@@ -5,13 +5,13 @@ import {
     PDFDocument,
     type PDFImage,
 } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
+import { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 import {
     pixelsToPdfPoints,
     readImageDpi,
     readTiffFrameDpi,
 } from '@electron/image/imageDpi';
-import { parseIntegerEnv } from '@electron/utils/env';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;

@@ -79,7 +79,7 @@ vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.r
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
 
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),

@@ -10,16 +10,16 @@ import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdf';
-import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
-import type { IPdfSerializedPlacedImagePayload } from '@app/utils/pdf-viewer/serialization/pdf-serialization-placed-images/pdfSerializationPlacedImagesTypes';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
+import type { IPdfSerializedPlacedImagePayload } from '@app/utils/pdf-viewer/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
 import { collectMarkupSubtypeHints } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import { deleteEmbeddedAnnotationOffThread } from '@app/utils/pdf-viewer/pdf-serialization-worker-client/deleteEmbeddedAnnotationOffThread';
 import { serializePdfEditsOffThread } from '@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread';
 import { updateEmbeddedAnnotationTextOffThread } from '@app/utils/pdf-viewer/pdf-serialization-worker-client/updateEmbeddedAnnotationTextOffThread';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { toTransferableUint8Array } from '@app/platform/browser-api/browserWorkerTransfer';
-import { decodeBrowserImageBlob } from '@app/platform/browser-api/browserImageDecode';
+import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
+import { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { measureDevPerfAsync } from '@app/utils/devPerf';
 import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';

@@ -137,7 +137,7 @@ import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/b
 import { hasDocumentHintUpdate } from '@app/modules/workspace-shell/tabs/hasDocumentHintUpdate';
 import { isEmptyTabDocumentUpdate } from '@app/modules/workspace-shell/tabs/isEmptyTabDocumentUpdate';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
-import type { TStartSection } from '@app/types/startPage';
+import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IContentInsets } from '@app/types/pdf';

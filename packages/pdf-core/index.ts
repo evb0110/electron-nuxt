@@ -4,7 +4,7 @@ export {
     detectPdfaLevelFromPdfText,
     hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core/pdfConformanceHelpers';
-export { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
+export { loadPdfStructure } from '@pdf-core/loadPdfStructure';
 export {
     arePdfPageBoxesEqual,
     fromPdfRect,
@@ -15,8 +15,8 @@ export {
     resolvePdfLibPageView,
     toPdfRect,
 } from '@pdf-core/pdfPageBoxes';
-export { writePdfBookmarkOutlines } from '@pdf-core/pdfBookmarks';
-export { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
+export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
+export { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 export {
     buildTiffImageIfd,
     encodeTiffIfds,

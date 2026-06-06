@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { vitestResolveAlias } from './scripts/vitestSharedConfig';
+import { vitestResolveAlias } from './scripts/vitestResolveAlias';
 
 export default defineConfig({
     resolve: {alias: vitestResolveAlias},

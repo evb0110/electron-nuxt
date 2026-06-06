@@ -1,6 +1,6 @@
 import type { ILinkAnnotation } from '@app/types/annotations';
 import { toMarkerRectFromPdfRect } from '@app/utils/pdf-viewer/annotation-geometry/toMarkerRectFromPdfRect';
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 import { getOptionalString } from '@app/services/pdfjs/runtime';
 import type { IPdfAnnotationRecord } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 

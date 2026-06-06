@@ -3,7 +3,7 @@ import type {
     PDFDocument,
 } from 'pdf-lib';
 import { lookupAnnotationRefDict } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/lookupAnnotationRefDict';
-import type { IPdfAnnotationRefDict } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/pdfPageAnnotationIterationTypes';
+import type { IPdfAnnotationRefDict } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/pdfAnnotationRefDict';
 
 export function iterateAnnotationRefDicts(
     doc: PDFDocument,

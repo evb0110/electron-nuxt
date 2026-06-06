@@ -37,7 +37,7 @@ vi.mock('fs/promises', () => ({
     stat: vi.fn(),
     writeFile: vi.fn(),
 }));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('ensureRuntimeTessdataSeeded', () => {
     beforeEach(() => {

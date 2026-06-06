@@ -27,7 +27,7 @@ describe('createBrowserDocumentsFileCapability validation', () => {
         pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy})});
 
         const loadSpy = vi.spyOn(PDFDocument, 'load');
-        const { createBrowserDocumentsFileCapability } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createBrowserDocumentsFileCapability } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const capability = createBrowserDocumentsFileCapability({ clearSearchCaches: () => {} });
 
         await expect(
@@ -54,7 +54,7 @@ describe('createBrowserDocumentsFileCapability validation', () => {
         const destroy = vi.fn(async () => {});
         pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy})});
 
-        const { createBrowserDocumentsFileCapability } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createBrowserDocumentsFileCapability } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const capability = createBrowserDocumentsFileCapability({ clearSearchCaches: () => {} });
         const input = new Uint8Array([
             7,

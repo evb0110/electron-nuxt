@@ -1,6 +1,6 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
+import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 
 interface ISavePdfDocumentWithCommittedEditorsOptions {
     pdfDocument: PDFDocumentProxy | null;

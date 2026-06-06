@@ -1,4 +1,4 @@
-import type { IAgentCapability } from '@contracts/electronApiAgent';
+import type { IAgentCapability } from '@contracts/agentCapability';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
@@ -7,9 +7,9 @@ import type {
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
 import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
-import type { ISearchCapability } from '@contracts/electronApiSearch';
-import type { ISettingsCapability } from '@contracts/electronApiSettings';
-import type { IShellCapability } from '@contracts/electronApiShell';
+import type { ISearchCapability } from '@contracts/searchCapability';
+import type { ISettingsCapability } from '@contracts/settingsCapability';
+import type { IShellCapability } from '@contracts/shellCapability';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 
@@ -28,7 +28,7 @@ export interface IPlatformApi {
     agent: IAgentCapability;
 }
 
-export type { TDocumentRef } from '@contracts/document';
+export type { TDocumentRef } from '@contracts/documentRef';
 export type {
     IDesktopMenuCapability,
     IDesktopWindowCapability,

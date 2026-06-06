@@ -12,7 +12,7 @@ import type {
     ILinkAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { groupBy } from 'es-toolkit/array';

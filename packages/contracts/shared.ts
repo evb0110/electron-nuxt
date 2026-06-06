@@ -1,5 +1,5 @@
 import type { TLocale } from '@i18n-core';
-import type { TDocumentRef } from '@contracts/document';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[] {

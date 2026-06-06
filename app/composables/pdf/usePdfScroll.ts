@@ -1,11 +1,11 @@
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
-import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfNav } from '@app/utils/logPdfNav';
 import { getPageContainerByNumber } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getPageContainerByNumber';
 import { getViewportVisibilityFromDom } from '@app/utils/pdf-viewer/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/utils/pdf-viewer/pdf-scroll-visibility/pdfScrollVisibilityTypes';
-import type { IPdfPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/pdfPageLayoutTypes';
+import type { IPdfPageLayoutMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/pdfPageLayoutMetrics';
 import { getPageHeight } from '@app/utils/pdf-viewer/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/utils/pdf-viewer/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/utils/pdf-viewer/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';

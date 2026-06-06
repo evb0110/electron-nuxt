@@ -83,12 +83,12 @@ import type {
     PDFPageProxy,
     RenderTask,
 } from 'pdfjs-dist';
-import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
+import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { formatPageIndicator } from '@app/utils/pdfPageLabels';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
-import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderQueue';
+import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createHiddenAnnotationOperationsFilter } from '@app/utils/pdf-viewer/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';

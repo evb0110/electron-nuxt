@@ -64,7 +64,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
         const clearSearchCaches = vi.fn();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches,
             openInputAccept: 'application/pdf',
@@ -91,7 +91,7 @@ describe('createBrowserPageOpsCapability', () => {
     it('rejects large browser page-ops jobs before reading the full PDF', async () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -119,7 +119,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -147,7 +147,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -174,7 +174,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -213,7 +213,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserPageOpsWorkerMock.run.mockResolvedValue(workerResult);
 
         const clearSearchCaches = vi.fn();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches,
             openInputAccept: 'application/pdf',
@@ -269,7 +269,7 @@ describe('createBrowserPageOpsCapability', () => {
             });
 
         const clearSearchCaches = vi.fn();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches,
             openInputAccept: 'application/pdf',
@@ -334,7 +334,7 @@ describe('createBrowserPageOpsCapability', () => {
                 pageCount: 1,
             });
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -383,7 +383,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserPageOpsWorkerMock.canUse.mockReturnValue(true);
         browserPageOpsWorkerMock.run.mockResolvedValue(geometry);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -415,7 +415,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -456,7 +456,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -508,7 +508,7 @@ describe('createBrowserPageOpsCapability', () => {
             async (_handle: FileSystemFileHandle, _data: Uint8Array) => {},
         );
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -621,7 +621,7 @@ describe('createBrowserPageOpsCapability', () => {
         }));
         const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -677,7 +677,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.read.mockResolvedValue(destinationBytes);
 
         const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -712,7 +712,7 @@ describe('createBrowserPageOpsCapability', () => {
         });
 
         const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([1]));
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
@@ -765,7 +765,7 @@ describe('createBrowserPageOpsCapability', () => {
         ));
 
         const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([9]));
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/documentsPageOpsCapability');
+        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',

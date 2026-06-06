@@ -11,7 +11,7 @@ import { createPdfSearchMatchScroller } from '@app/utils/pdf-viewer/pdf-search-m
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfNav } from '@app/utils/logPdfNav';
 
 interface IUsePdfRendererSearchControllerOptions {
     container: Ref<HTMLElement | null>;

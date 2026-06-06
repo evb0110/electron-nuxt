@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
-import { traceRendererStartup } from '@app/utils/startupTrace';
+import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 
 interface IUseAppShellLifecycleOptions {

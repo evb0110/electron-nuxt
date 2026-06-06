@@ -120,7 +120,7 @@ vi.mock('child_process', () => ({spawn: mocks.spawn}));
 
 vi.mock('@electron/settings', () => ({loadSettings: mocks.loadSettings}));
 
-vi.mock('@electron/i18n', () => ({te: (key: string) => key === 'dialogs.agentAssistant.disabledMessage' ? mocks.assistantDisabledMessage : key}));
+vi.mock('@electron/te', () => ({te: (key: string) => key === 'dialogs.agentAssistant.disabledMessage' ? mocks.assistantDisabledMessage : key}));
 
 vi.mock('@electron/config', () => ({config: {automation: {noFocus: true}}}));
 
@@ -138,7 +138,7 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
     startEmbeddedMcpServer: mocks.startEmbeddedMcpServer,
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('agent assistant opt-in gating', () => {
     beforeEach(() => {

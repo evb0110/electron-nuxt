@@ -61,15 +61,15 @@ vi.mock('fs/promises', async () => {
     };
 });
 
-vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({
+vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
     qpdf: '/mock/qpdf',
 })}));
 
-vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: mocks.runCommand}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
 vi.mock('pdf-lib', () => ({PDFDocument: {load: vi.fn(async () => ({ getPageCount: () => mocks.pdfPageCount }))}}));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
@@ -85,7 +85,7 @@ const {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
 } = await import('@electron/features/image-export/main/export');
-const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/tiffCombineLocal');
+const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
 const UTIF = utifModule as IUtifModule;
 

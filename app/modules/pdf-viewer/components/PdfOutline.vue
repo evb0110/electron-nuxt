@@ -99,7 +99,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
-import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
+import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
     buildResolvedOutline,
     flattenBookmarks,

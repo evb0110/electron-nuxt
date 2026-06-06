@@ -16,7 +16,7 @@ import {
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { PDFDocument } from 'pdf-lib';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     createCombinedPdf,
     isImagePath,

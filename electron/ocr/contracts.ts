@@ -1,6 +1,6 @@
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
-import { parseIntegerEnv } from '@electron/utils/env';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'

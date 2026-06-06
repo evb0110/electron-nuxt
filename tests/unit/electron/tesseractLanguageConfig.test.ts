@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseractLanguageConfig';
+import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
 
 describe('resolveTesseractLanguageConfig', () => {
     it('keeps non-rtl language order and applies spacing config', () => {

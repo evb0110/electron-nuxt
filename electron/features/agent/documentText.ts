@@ -4,7 +4,7 @@ import type {
 } from 'electron';
 import type { IPdfSearchResponse } from '@contracts/search';
 import type { IAgentTabSnapshot } from '@contracts/agent';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     resolveSearchablePdfPath,
     resolveSearchWorkerPath,

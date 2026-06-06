@@ -158,7 +158,7 @@ describe('createBrowserImageExportCapability', () => {
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
 
         const { createBrowserImageExportCapability } = await import(
-            '@app/platform/browser-api/documentsImageExportCapability'
+            '@app/platform/browser-api/createBrowserImageExportCapability'
         );
         const capability = createBrowserImageExportCapability();
 
@@ -216,7 +216,7 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         const { createBrowserImageExportCapability } = await import(
-            '@app/platform/browser-api/documentsImageExportCapability'
+            '@app/platform/browser-api/createBrowserImageExportCapability'
         );
         const capability = createBrowserImageExportCapability();
 
@@ -255,7 +255,7 @@ describe('createBrowserImageExportCapability', () => {
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
 
         const { createBrowserImageExportCapability } = await import(
-            '@app/platform/browser-api/documentsImageExportCapability'
+            '@app/platform/browser-api/createBrowserImageExportCapability'
         );
         const capability = createBrowserImageExportCapability();
 

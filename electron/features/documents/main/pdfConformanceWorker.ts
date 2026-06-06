@@ -2,7 +2,7 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import { analyzePdfConformanceFileDirect } from '@electron/features/documents/main/pdfConformanceCore';
+import { analyzePdfConformanceFileDirect } from '@electron/features/documents/main/analyzePdfConformanceFileDirect';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface IPdfConformanceWorkerData { filePath?: unknown; }

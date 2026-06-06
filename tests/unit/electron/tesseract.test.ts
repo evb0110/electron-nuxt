@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('@electron/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/ocr/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
-vi.mock('@electron/ocr/tesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
+vi.mock('@electron/ocr/resolveTesseractLanguageConfig', () => ({resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig}));
 
 describe('runOcr setup failure cleanup', () => {
     beforeEach(() => {
@@ -55,7 +55,7 @@ describe('runOcr setup failure cleanup', () => {
         child.stdin = undefined;
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcr } = await import('@electron/ocr/tesseract');
+        const { runOcr } = await import('@electron/ocr/runOcr');
         const result = await runOcr(Buffer.from('image'), ['eng']);
 
         expect(result).toEqual({
@@ -72,7 +72,7 @@ describe('runOcr setup failure cleanup', () => {
         child.stdin = stdin;
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcr } = await import('@electron/ocr/tesseract');
+        const { runOcr } = await import('@electron/ocr/runOcr');
         const resultPromise = runOcr(Buffer.from('image'), ['eng']);
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);
@@ -95,7 +95,7 @@ describe('runOcr setup failure cleanup', () => {
         mocks.spawn.mockReturnValue(child);
         const controller = new AbortController();
 
-        const { runOcr } = await import('@electron/ocr/tesseract');
+        const { runOcr } = await import('@electron/ocr/runOcr');
         const resultPromise = runOcr(Buffer.from('image'), ['eng'], {signal: controller.signal});
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalledTimes(1);

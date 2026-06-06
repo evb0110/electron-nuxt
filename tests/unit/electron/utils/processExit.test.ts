@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { describeProcessExitCode } from '@electron/utils/processExit';
+import { describeProcessExitCode } from '@electron/utils/describeProcessExitCode';
 
 describe('describeProcessExitCode', () => {
     it('annotates known Windows NTSTATUS crash codes', () => {

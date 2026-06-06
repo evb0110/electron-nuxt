@@ -1,4 +1,4 @@
-import { parseIntegerEnv } from '@electron/utils/env';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 export const OCR_WORKER_POOL_SIZE = parseIntegerEnv('EVB_OCR_WORKER_POOL_SIZE', 2, 1);
 export const OCR_QUEUE_MAX_SIZE = parseIntegerEnv('EVB_OCR_QUEUE_MAX_SIZE', 8, 1);
