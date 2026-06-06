@@ -96,7 +96,7 @@ const serializationWorkerClient = new BrowserWorkerClient<
 >({
     idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
     createWorker: () => new Worker(
-        new URL('./pdfSerialization.worker.ts', import.meta.url),
+        new URL('../pdfSerialization.worker.ts', import.meta.url),
         { type: 'module' },
     ),
     createError: event => (event.error instanceof Error ? event.error : new Error(event.message)),
