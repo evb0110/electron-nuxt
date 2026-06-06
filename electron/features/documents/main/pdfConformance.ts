@@ -16,11 +16,11 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import { createDefaultPdfConformanceProfile } from '@pdf-core/pdfConformanceHelpers';
-import { loadPdfStructure } from '@pdf-core/pdfConformanceLoad';
-import { runNativeToolCommand } from '@electron/native-tools/exec';
+import { loadPdfStructure } from '@pdf-core/loadPdfStructure';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getAppTempDir } from '@electron/utils/appTempDir';
-import { getNativeToolPaths } from '@electron/native-tools/paths';
-import { createLogger } from '@electron/utils/logger';
+import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     resolveUnpackedWorkerPath,

@@ -12,7 +12,7 @@ import {
     exportPdfPagesAsImages,
     normalizeImageExportPath,
 } from '@electron/features/image-export/main/export';
-import { te } from '@electron/i18n';
+import { te } from '@electron/te';
 
 async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number) {
     if (!path || typeof path !== 'string' || path.trim() === '') {

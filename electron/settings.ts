@@ -16,7 +16,7 @@ import {
     sanitizeSettings,
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('settings');

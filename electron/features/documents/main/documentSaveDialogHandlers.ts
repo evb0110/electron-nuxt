@@ -14,7 +14,7 @@ import { beginSerializedPdfSaveAs } from '@electron/features/documents/main/seri
 import type { IBeginSerializedPdfSaveAsResult } from '@electron/features/documents/serializedPdfPersistenceContract';
 import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
-import { te } from '@electron/i18n';
+import { te } from '@electron/te';
 
 export async function handleSavePdfAs(
     event: Electron.IpcMainInvokeEvent,

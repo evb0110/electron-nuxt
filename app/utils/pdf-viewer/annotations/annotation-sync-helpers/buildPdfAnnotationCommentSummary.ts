@@ -6,7 +6,7 @@ import { getAnnotationAuthor } from '@app/services/pdf/annotationMetadata';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
 import { toMarkerRectFromPdfRect } from '@app/utils/pdf-viewer/annotation-geometry/toMarkerRectFromPdfRect';
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
 import type {
     IPdfTextPreviewItem,

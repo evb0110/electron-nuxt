@@ -1,4 +1,4 @@
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 import { normalizePageRotation } from '@app/utils/pdf-viewer/annotation-geometry/normalizePageRotation';
 
 interface IPageRectBounds {

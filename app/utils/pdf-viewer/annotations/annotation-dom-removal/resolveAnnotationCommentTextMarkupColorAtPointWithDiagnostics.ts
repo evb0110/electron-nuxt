@@ -11,7 +11,7 @@ import { parseCssRgbColor } from '@app/utils/pdf-viewer/text-markup-color/parseC
 import { rgbToHex } from '@app/utils/pdf-viewer/text-markup-color/rgbToHex';
 import { sampleCanvasTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-text-markup-canvas-pixels/sampleCanvasTextMarkupColorAtPoint';
 import { sampleCanvasTextMarkupColorInRect } from '@app/utils/pdf-viewer/annotations/annotation-text-markup-canvas-pixels/sampleCanvasTextMarkupColorInRect';
-import type { ITextMarkupColorResolutionDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/annotationDomRemovalTypes';
+import type { ITextMarkupColorResolutionDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/textMarkupColorResolutionDiagnostics';
 
 const MIN_HIGHLIGHT_VISUAL_IOU = 0.2;
 

@@ -11,7 +11,7 @@ import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
 } from '@pdf-core/pdfPageBoxes';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     cleanupTempOutput,
     makeTempPdfOutputPath,

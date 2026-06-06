@@ -37,12 +37,12 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
-vi.mock('@electron/features/documents/ipcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/djvu/ipcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/image-export/ipcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/ocr/ipcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/page-ops/ipcAdapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/search/ipcAdapter', () => ({registerSearchIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/djvu/registerDjvuIpcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/image-export/registerImageExportIpcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/ocr/registerOcrIpcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/page-ops/registerPageOpsIpcAdapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/search/registerSearchIpcAdapter', () => ({registerSearchIpcAdapter: vi.fn()}));
 vi.mock('@electron/menu', () => ({
     showTabContextMenu: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
@@ -67,8 +67,8 @@ vi.mock('@electron/updates', () => ({
     skipUpdateVersion: vi.fn(),
     triggerManualUpdateCheck: vi.fn(),
 }));
-vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://trusted.example/electron'}}}));
 
 function createSender(id: number) {
@@ -95,7 +95,7 @@ describe('renderer log registry', () => {
     it('clears sender rate-limit state when the sender is destroyed', async () => {
         vi.useFakeTimers();
         try {
-            const { registerIpcHandlers } = await import('@electron/ipc/registry');
+            const { registerIpcHandlers } = await import('@electron/ipc/registerIpcHandlers');
             registerIpcHandlers();
 
             const handler = mocks.handlers.get('renderer:log');
@@ -140,7 +140,7 @@ describe('renderer log registry', () => {
     });
 
     it('removes the counterpart cleanup listener when a sender lifecycle event fires', async () => {
-        const { registerIpcHandlers } = await import('@electron/ipc/registry');
+        const { registerIpcHandlers } = await import('@electron/ipc/registerIpcHandlers');
         registerIpcHandlers();
 
         const handler = mocks.handlers.get('renderer:log');
@@ -169,7 +169,7 @@ describe('renderer log registry', () => {
     });
 
     it('summarizes nested payloads without walking deeply nested objects', async () => {
-        const { registerIpcHandlers } = await import('@electron/ipc/registry');
+        const { registerIpcHandlers } = await import('@electron/ipc/registerIpcHandlers');
         registerIpcHandlers();
 
         const handler = mocks.handlers.get('renderer:log');
@@ -198,7 +198,7 @@ describe('renderer log registry', () => {
 
 describe('normalizeRendererLogEntry', () => {
     it('falls back to info level when level is an unknown string', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'critical',
             section: 'search',
@@ -209,7 +209,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('falls back to info level when level is missing or non-string', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         expect(normalizeRendererLogEntry({message: 'm'}).level).toBe('info');
         expect(normalizeRendererLogEntry({
             level: 5,
@@ -222,7 +222,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('preserves all four known log levels', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         for (const level of [
             'debug',
             'info',
@@ -237,7 +237,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses <empty> message default when message is missing or null', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         expect(normalizeRendererLogEntry({level: 'info'}).message).toBe('<empty>');
         expect(normalizeRendererLogEntry({
             level: 'info',
@@ -250,7 +250,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses unknown section default when section is missing or non-string', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         expect(normalizeRendererLogEntry({
             level: 'info',
             message: 'm',
@@ -268,7 +268,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('drops extra metadata fields not in the canonical entry shape', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'info',
             section: 'search',
@@ -294,7 +294,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for null payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry(null);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -304,7 +304,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for undefined payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry(undefined);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -313,7 +313,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for string payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry('not-a-record');
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -322,7 +322,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for number payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry(42);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -331,7 +331,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for array payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry([
             'debug',
             'msg',
@@ -343,7 +343,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('serializes data into serializedData with leading data= marker', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'info',
             section: 'search',

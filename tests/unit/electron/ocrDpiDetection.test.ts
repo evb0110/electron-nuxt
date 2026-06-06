@@ -11,7 +11,7 @@ import {
 
 const mocks = vi.hoisted(() => ({runOcrCommand: vi.fn()}));
 
-vi.mock('@electron/ocr/worker/runCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
+vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
 
 describe('ocr dpi detection', () => {
     it('keeps per-page source dpi while preserving document fallback dpi', async () => {

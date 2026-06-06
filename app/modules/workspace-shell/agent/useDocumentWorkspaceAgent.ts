@@ -14,11 +14,11 @@ import type {
     IAgentOcrRunOptions,
     IUseDocumentWorkspaceAgentOptions,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
-import { createDocumentAgentAnnotations } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentAnnotations';
-import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentBookmarks';
-import { createDocumentAgentPageImageCapture } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPageImage';
-import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPageLabels';
-import { createDocumentAgentResources } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentResources';
+import { createDocumentAgentAnnotations } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotations';
+import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
+import { createDocumentAgentPageImageCapture } from '@app/modules/workspace-shell/agent/createDocumentAgentPageImageCapture';
+import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
+import { createDocumentAgentResources } from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
 
 export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 

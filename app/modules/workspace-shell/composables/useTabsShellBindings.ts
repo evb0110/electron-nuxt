@@ -7,11 +7,11 @@ import {
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { traceRendererStartup } from '@app/utils/startupTrace';
+import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
-import { shouldHandleRendererMenuAccelerators } from '@app/utils/platformShortcuts';
+import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';

@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/document';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,

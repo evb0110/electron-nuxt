@@ -1,4 +1,4 @@
-import type { IPdfBookmarkEntry } from '@contracts/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 
 export interface IDjvuPdfBuildTask {
     type: 'buildPdf';

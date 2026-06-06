@@ -12,7 +12,7 @@ import {
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
@@ -22,8 +22,8 @@ import {
     buildExcerpt,
     findPageMatches,
 } from '@electron/search/worker/searchMatch';
-import type { ICachedIndex } from '@electron/search/worker/searchIndexCache';
-import { ensureSearchIndex } from '@electron/search/worker/searchIndexCache';
+import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
+import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
 
 interface ISearchRequestContext {
     requestId: string;

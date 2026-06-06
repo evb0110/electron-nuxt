@@ -12,7 +12,7 @@ import {
     ensureRuntimeTessdataSeeded,
     getRuntimeTessdataDir,
 } from '@electron/ocr/languageModels';
-import { resolveOcrResourcesBase } from '@electron/ocr/resourceBase';
+import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
 

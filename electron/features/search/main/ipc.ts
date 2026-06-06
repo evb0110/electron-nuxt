@@ -12,7 +12,7 @@ import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
 import { isRecord } from '@contracts/runtimeGuards';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
     getSearchWorkerServiceConfig,
@@ -20,7 +20,7 @@ import {
 } from '@electron/features/search/main/searchWorkerService';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
-import type { TSearchIpcMainRegistrar } from '@electron/features/search/ports';
+import type { TSearchIpcMainRegistrar } from '@electron/features/search/searchService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

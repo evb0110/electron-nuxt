@@ -2,7 +2,7 @@ import type { TDocumentRef } from '@contracts/platformApi';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import { getDjvuCapability } from '@app/utils/platformDjvu';
+import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 interface IDjvuConversionState {

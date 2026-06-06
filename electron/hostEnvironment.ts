@@ -14,7 +14,7 @@ import type {
     THostPlatform,
 } from '@contracts/electronApiHost';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('host-env');

@@ -1,1 +1,1 @@
-export { getErrorMessage } from '@contracts/error';
+export { getErrorMessage } from '@contracts/getErrorMessage';

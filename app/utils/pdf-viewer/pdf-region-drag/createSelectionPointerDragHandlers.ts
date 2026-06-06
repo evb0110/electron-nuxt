@@ -1,6 +1,6 @@
 import type { IClientPoint } from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
 import { hasActiveSelectionDrag } from '@app/utils/pdf-viewer/pdf-region-drag/hasActiveSelectionDrag';
-import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/pdfRegionDragTypes';
+import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/snipPointerPayload';
 import { toClientPoint } from '@app/utils/pdf-viewer/pdf-region-drag/toClientPoint';
 
 interface ISelectionPointerDragHandlersOptions {

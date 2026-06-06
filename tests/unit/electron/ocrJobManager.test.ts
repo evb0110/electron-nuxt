@@ -88,8 +88,8 @@ vi.mock('fs/promises', () => ({
 }));
 vi.mock('@electron/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/utils/ipcWindow', () => ({sendToLiveWindow: mocks.sendToLiveWindow}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/sendToLiveWindow', () => ({sendToLiveWindow: mocks.sendToLiveWindow}));
 
 function createEvent(senderId: number) {
     return {sender: {

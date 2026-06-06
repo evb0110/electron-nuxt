@@ -44,12 +44,12 @@ vi.mock('electron', () => ({
 
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'http://127.0.0.1:41001/electron'}}}));
-vi.mock('@electron/features/documents/ipcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/djvu/ipcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/image-export/ipcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/ocr/ipcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/page-ops/ipcAdapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/search/ipcAdapter', () => ({registerSearchIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/djvu/registerDjvuIpcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/image-export/registerImageExportIpcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/ocr/registerOcrIpcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/page-ops/registerPageOpsIpcAdapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/search/registerSearchIpcAdapter', () => ({registerSearchIpcAdapter: vi.fn()}));
 vi.mock('@electron/menu', () => ({
     showTabContextMenu: vi.fn(),
     updateRecentFilesMenu: vi.fn(),
@@ -70,8 +70,8 @@ vi.mock('@electron/updates', () => ({
     skipUpdateVersion: vi.fn(),
     triggerManualUpdateCheck: vi.fn(),
 }));
-vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/ipc/rendererLogBridge', () => ({
     normalizeRendererLogEntry: vi.fn(),
     registerRendererLogBridge: vi.fn(),
@@ -90,7 +90,7 @@ function createEvent(url: string): IRegisteredEvent {
 }
 
 async function getSettingsHandler() {
-    const { registerIpcHandlers } = await import('@electron/ipc/registry');
+    const { registerIpcHandlers } = await import('@electron/ipc/registerIpcHandlers');
     registerIpcHandlers();
 
     const handler = mocks.handlers.get('settings:get');

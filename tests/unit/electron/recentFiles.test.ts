@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('electron', () => ({ app: mocks.app }));
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => mocks.logger }));
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
 
 async function loadRecentFilesModule() {
     vi.resetModules();

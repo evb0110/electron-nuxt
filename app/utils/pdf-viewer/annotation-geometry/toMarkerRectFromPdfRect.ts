@@ -3,7 +3,7 @@ import {
     normalizeMarkerRectBounds,
     orderPdfRectBounds,
 } from '@app/utils/pdfMarkerRect';
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 import { normalizePageRotation } from '@app/utils/pdf-viewer/annotation-geometry/normalizePageRotation';
 
 const MIN_POINT_MARKER_SIZE = 0.0016;

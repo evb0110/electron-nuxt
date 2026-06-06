@@ -2,7 +2,7 @@ import type {
     IShapeAnnotation,
     IShapePoint,
 } from '@app/types/annotations';
-import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/pdfShapeResizeTypes';
+import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/shapeBounds';
 
 function scalePointToBounds(point: IShapePoint, baselineBounds: IShapeBounds, nextBounds: IShapeBounds) {
     const baselineWidth = Math.max(0.01, baselineBounds.maxX - baselineBounds.minX);

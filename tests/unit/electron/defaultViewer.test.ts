@@ -34,15 +34,15 @@ vi.mock('@electron/settings', () => ({
     saveSettings: mocks.saveSettings,
 }));
 
-vi.mock('@electron/i18n', () => ({te: mocks.te}));
+vi.mock('@electron/te', () => ({te: mocks.te}));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 const originalPlatform = process.platform;
 
 async function loadDefaultViewerModule() {
     vi.resetModules();
-    return import('@electron/defaultViewer');
+    return import('@electron/promptSetDefaultViewer');
 }
 
 describe('default viewer prompt', () => {

@@ -13,7 +13,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
+import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 
 let tempRoot = '';
 

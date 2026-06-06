@@ -1,6 +1,6 @@
 import type { TOpenFileResult } from '@contracts/platformApi';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { createCombinedPdfFromPaths } from '@app/platform/browser-api/browserCombineService';
+import { createCombinedPdfFromPaths } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import { hasElectronAPI } from '@app/utils/platform';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 

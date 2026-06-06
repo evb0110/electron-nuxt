@@ -5,7 +5,7 @@ import type {
 import { clampClientPointToRect } from '@app/utils/pdf-viewer/pdf-region-geometry/clampClientPointToRect';
 import { normalizeClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/normalizeClientRect';
 import { toLocalRect } from '@app/utils/pdf-viewer/pdf-region-geometry/toLocalRect';
-import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/pdfRegionDragTypes';
+import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/snipPointerPayload';
 
 export function createSelectionRectFromPointerDrag(
     payload: ISnipPointerPayload,

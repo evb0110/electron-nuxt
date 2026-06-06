@@ -15,7 +15,7 @@ import {
     BROWSER_MAX_RECENT_FILES,
     BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
 } from '@app/platform/browser/browserDocumentConstants';
-import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/browserDocumentRecentFiles';
+import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
 
 export function readRecentFilesFromStorage() {

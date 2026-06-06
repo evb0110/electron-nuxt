@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import { buildNuxtDevServerEnv } from '@scripts/electron-run/electronRunLaunchConfig';
-import { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
+import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
     DEFAULT_NUXT_PORT,
     getNuxtPort,
@@ -22,7 +22,7 @@ import {
     killPids,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
-import { projectRoot } from '@scripts/electron-run/electronRunProjectPaths';
+import { projectRoot } from '@scripts/electron-run/projectRoot';
 import {
     getSessionInfo,
     listAllSessionNames,

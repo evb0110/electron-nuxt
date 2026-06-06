@@ -10,7 +10,7 @@ import {
     normalizeReadRange,
     toUint8Array,
 } from '@app/platform/browser/browserDocumentBytes';
-import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/browserDocumentRecentFiles';
+import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import {
     collectChunkIndicesByRef,
     countNonWorkingDependents,

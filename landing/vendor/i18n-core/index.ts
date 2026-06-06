@@ -32,6 +32,6 @@ export type {
 export type {
     ILocaleComposerMethods,
     TTypedI18nComposer,
-} from './typedComposer';
+} from './createTypedI18nComposer';
 
-export { createTypedI18nComposer } from './typedComposer';
+export { createTypedI18nComposer } from './createTypedI18nComposer';

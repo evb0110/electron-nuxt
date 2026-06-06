@@ -1,6 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import type { IAnnotationDeleteResolverIdentity } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/annotationDeleteResolverTypes';
+import type { IAnnotationDeleteResolverIdentity } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/annotationDeleteResolverIdentity';
 import { findDirectStableRefDeleteTarget } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/findDirectStableRefDeleteTarget';
 import { findStrictDeleteTarget } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/findStrictDeleteTarget';
 import { pickScoredDeleteTarget } from '@app/utils/pdf-viewer/annotations/annotation-delete-resolver/pickScoredDeleteTarget';

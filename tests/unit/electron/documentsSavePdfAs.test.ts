@@ -83,8 +83,8 @@ vi.mock('@electron/ipc/openPathCapabilities', () => ({
     requireOpenPath: vi.fn((path: string) => path),
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: vi.fn(async () => null)}));
-vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
+vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),

@@ -24,7 +24,7 @@ let tempRoot = '';
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
-vi.mock('@electron/utils/pdfDecrypt', () => ({ decryptPdfFileIfNeeded: vi.fn(async () => undefined) }));
+vi.mock('@electron/utils/decryptPdfFileIfNeeded', () => ({ decryptPdfFileIfNeeded: vi.fn(async () => undefined) }));
 
 describe('workingCopy', () => {
     beforeEach(() => {

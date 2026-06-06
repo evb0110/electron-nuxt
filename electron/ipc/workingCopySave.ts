@@ -11,7 +11,7 @@ import {
 import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
 import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
-import { isAllowedOriginalSavePath } from '@electron/ipc/workingCopyValidation';
+import { isAllowedOriginalSavePath } from '@electron/ipc/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/ipc/workingCopyMissingError';
 import {
     normalizeIpcWritePayload,

@@ -25,9 +25,9 @@ import {
     readAgentDocumentPages,
     searchAgentDocument,
 } from '@electron/features/agent/documentText';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { createHttpHandler } from '@electron/features/agent/mcp/mcpHttpHandler';
+import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
 
 export { processMcpRequest } from '@electron/features/agent/mcp/mcpServerCore';
 

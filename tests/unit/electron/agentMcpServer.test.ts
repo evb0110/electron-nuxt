@@ -40,7 +40,7 @@ vi.mock('@electron/features/agent/workspaceBridge', () => ({
     requestAgentWorkspaceSnapshot: vi.fn(),
 }));
 
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),

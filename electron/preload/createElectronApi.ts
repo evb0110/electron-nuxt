@@ -6,16 +6,16 @@ import { compact } from 'es-toolkit/array';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
-import {createDocumentsPreloadClient} from '@electron/features/documents/preloadClient';
-import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/preloadPageOpsClient';
-import { createImageExportPreloadClient } from '@electron/features/image-export/preloadClient';
+import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
+import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
+import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {createOcrPreloadClient} from '@electron/features/ocr/preloadClient';
-import {createSearchPreloadClient} from '@electron/features/search/preloadClient';
-import {createDjvuPreloadClient} from '@electron/features/djvu/preloadClient';
+import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadClient';
+import {createSearchPreloadClient} from '@electron/features/search/createSearchPreloadClient';
+import {createDjvuPreloadClient} from '@electron/features/djvu/createDjvuPreloadClient';
 import {
     createTypedIpcEventSubscriber,
     createTypedIpcInvoker,

@@ -3,7 +3,7 @@ import {
     unlink,
 } from 'fs/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('workingCopyMutationQueue');

@@ -19,7 +19,7 @@ import type {
 import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
 import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
 import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
-import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
 import { clamp01 } from '@app/utils/pdf-viewer/annotation-geometry/clamp01';
 import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
 import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
@@ -35,10 +35,10 @@ import {
     getEditorsOnPage,
     isPdfjsEditorWithEditComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
-import { replaceOverlappingSelectionMarkup } from '@app/services/pdfjs/highlightMarkupRewriter';
+import { replaceOverlappingSelectionMarkup } from '@app/services/pdfjs/replaceOverlappingSelectionMarkup';
 import { createPdfPagePointResolver } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
 import { markerRectFromPoint } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/markerRectFromPoint';
-import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
+import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
 import { buildRangeFromPagePoint } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
 import { buildRangeFromPageText } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';

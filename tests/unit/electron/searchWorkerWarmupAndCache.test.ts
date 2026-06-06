@@ -38,7 +38,7 @@ vi.mock('@electron/config/constants', () => ({
     EXCERPT_CONTEXT_CHARS: 32,
     SEARCH_RESULT_LIMIT: 100,
 }));
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
 }) }));

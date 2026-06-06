@@ -24,16 +24,16 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 
-vi.mock('@electron/search/pdfTextExtractor', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
+vi.mock('@electron/search/extractTextFromPdf', () => ({extractTextFromPdf: mocks.extractTextFromPdf}));
 
-vi.mock('@electron/search/pdfjsTextExtractor', () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs}));
+vi.mock('@electron/search/extractTextWithPdfjs', () => ({extractTextWithPdfjs: mocks.extractTextWithPdfjs}));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
     makeSiblingTempPath: (targetPath: string) => `${targetPath}.tmp`,
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     warn: vi.fn(),
 })}));

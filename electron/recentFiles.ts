@@ -20,7 +20,7 @@ import {
     CACHE_TTL_MS,
     MAX_RECENT_FILES,
 } from '@electron/config/constants';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('recentFiles');

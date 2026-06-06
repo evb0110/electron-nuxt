@@ -335,7 +335,7 @@ import AppSpinner from '@app/components/AppSpinner.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
-import type { TStartSection } from '@app/types/startPage';
+import type { TStartSection } from '@app/types/startSection';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 
 interface IRecentFile {

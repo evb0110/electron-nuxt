@@ -46,7 +46,7 @@ vi.mock('@electron/menu', () => ({
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
-vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),

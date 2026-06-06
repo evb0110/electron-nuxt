@@ -81,7 +81,7 @@ vi.mock('@electron/settings', () => ({
     updateSettings: mocks.updateSettings,
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 const originalPlatform = process.platform;
 const originalArch = process.arch;

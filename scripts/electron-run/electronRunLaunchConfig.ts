@@ -8,7 +8,7 @@ import {
     basename,
     join,
 } from 'node:path';
-import { projectRoot } from '@scripts/electron-run/electronRunProjectPaths';
+import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
 
 const TRUTHY_ENV_VALUES = new Set([

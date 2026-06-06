@@ -1,5 +1,5 @@
 import type { TPaneDirection } from '@contracts/editorPanes';
-import type { TDocumentRef } from '@contracts/document';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,

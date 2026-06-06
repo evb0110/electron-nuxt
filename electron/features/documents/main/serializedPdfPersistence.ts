@@ -25,7 +25,7 @@ import {
     getWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
 } from '@electron/ipc/workingCopyStore';
-import { isAllowedOriginalSavePath } from '@electron/ipc/workingCopyValidation';
+import { isAllowedOriginalSavePath } from '@electron/ipc/isAllowedOriginalSavePath';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';

@@ -17,13 +17,13 @@ import {
     updateSettings,
 } from '@electron/settings';
 import { isAbortError } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     compareVersions,
     normalizeVersion,
 } from '@electron/updates/versionCompare';
-import { checkMacCodeSignature } from '@electron/updates/macCodesignProbe';
+import { checkMacCodeSignature } from '@electron/updates/checkMacCodeSignature';
 
 const { autoUpdater } = electronUpdater;
 

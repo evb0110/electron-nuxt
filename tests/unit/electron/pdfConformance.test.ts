@@ -145,9 +145,9 @@ vi.mock('pdf-lib', () => {
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/tmp') } }));
 
-vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
-vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({qpdf: '/mock/qpdf'})}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
     error: vi.fn(),
     debug: vi.fn(),
@@ -158,7 +158,7 @@ const {
     analyzePdfConformanceFile,
     validatePdfFile,
 } = await import('@electron/features/documents/main/pdfConformance');
-const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/pdfConformanceCore');
+const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/analyzePdfConformanceFileDirect');
 
 describe('analyzePdfConformanceFile', () => {
     beforeEach(() => {

@@ -14,10 +14,10 @@ const documentsClientMock = vi.hoisted(() => ({
     recentFiles: { get: vi.fn(async () => []) },
 }));
 
-vi.mock('@electron/features/documents/preloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
-vi.mock('@electron/features/ocr/preloadClient', () => ({ createOcrPreloadClient: () => ({}) }));
-vi.mock('@electron/features/search/preloadClient', () => ({ createSearchPreloadClient: () => ({}) }));
-vi.mock('@electron/features/djvu/preloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
+vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
+vi.mock('@electron/features/ocr/createOcrPreloadClient', () => ({ createOcrPreloadClient: () => ({}) }));
+vi.mock('@electron/features/search/createSearchPreloadClient', () => ({ createSearchPreloadClient: () => ({}) }));
+vi.mock('@electron/features/djvu/createDjvuPreloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
 
 describe('createElectronApi', () => {

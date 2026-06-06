@@ -1,6 +1,6 @@
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import { clamp } from 'es-toolkit/math';
-import type { IAnnotationNoteWindowBounds } from '@app/utils/pdf-viewer/annotation-note-window-bounds/annotationNoteWindowBoundsTypes';
+import type { IAnnotationNoteWindowBounds } from '@app/utils/pdf-viewer/annotation-note-window-bounds/annotationNoteWindowBounds';
 
 export function clampAnnotationNoteWindowPosition(
     x: number,

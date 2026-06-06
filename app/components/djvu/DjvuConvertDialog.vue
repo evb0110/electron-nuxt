@@ -110,7 +110,7 @@ import type { TDocumentRef } from '@contracts/platformApi';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import { getDjvuCapability } from '@app/utils/platformDjvu';
+import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 
 const { t } = useTypedI18n();
 

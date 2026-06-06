@@ -21,7 +21,7 @@ import {
     OCR_WORKER_POOL_SIZE,
     OCR_WORKER_TERMINATE_TIMEOUT_MS,
 } from '@electron/ocr/jobManager.config';
-import { prepareLanguageModelsForJob } from '@electron/ocr/jobManager.modelPrep';
+import { prepareLanguageModelsForJob } from '@electron/ocr/prepareLanguageModelsForJob.modelPrep';
 import {
     createAbortError,
     isAbortError,
@@ -29,12 +29,12 @@ import {
     parseWorkerMessage,
     toScopedOcrJobId,
 } from '@electron/ocr/jobManagerProtocol';
-import { createPendingResultFileStore } from '@electron/ocr/jobManagerResultFiles';
-import { createOcrWorker } from '@electron/ocr/jobManager.worker';
+import { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
+import { createOcrWorker } from '@electron/ocr/createOcrWorker.worker';
 import {
     ocrResourceGovernor,
     type IOcrResourceRequest,
-} from '@electron/ocr/resourceGovernor';
+} from '@electron/ocr/ocrResourceGovernor';
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
@@ -49,10 +49,10 @@ import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
-import { sendToLiveWindow } from '@electron/utils/ipcWindow';
+import { sendToLiveWindow } from '@electron/utils/sendToLiveWindow';
 
 const log = createLogger('ocr-ipc');
 const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {

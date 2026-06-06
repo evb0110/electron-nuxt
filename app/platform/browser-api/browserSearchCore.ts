@@ -4,7 +4,7 @@ import {
 } from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { extractBrowserSearchPageText } from '@app/platform/browser-api/browserSearchText';
+import { extractBrowserSearchPageText } from '@app/platform/browser-api/extractBrowserSearchPageText';
 
 interface ILoadedBrowserSearchDocument {
     pdfDocument: {

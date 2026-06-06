@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
     requireManagedWorkingCopyPath: vi.fn((..._args: unknown[]) => undefined),
 }));
 
-vi.mock('@electron/features/documents/service', () => ({createDocumentsService: mocks.createDocumentsService}));
+vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
 vi.mock('@electron/ipc/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
@@ -44,7 +44,7 @@ describe('documents ipc adapter', () => {
         const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
             handlers.set(channel, handler);
         })};
-        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/ipcAdapter');
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
             registerDocumentsIpcAdapter(registrar as never);

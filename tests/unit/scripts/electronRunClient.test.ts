@@ -32,7 +32,7 @@ describe('electron run client', () => {
         }) }));
         vi.stubGlobal('fetch', fetch);
 
-        const { sendCommand } = await import('@scripts/electron-run/client');
+        const { sendCommand } = await import('@scripts/electron-run/sendCommand');
 
         await expect(sendCommand('ping')).rejects.toThrow('Command exploded');
         expect(fetch).toHaveBeenCalledTimes(1);

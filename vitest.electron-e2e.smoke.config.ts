@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { vitestResolveAlias } from './scripts/vitestSharedConfig';
+import { vitestResolveAlias } from './scripts/vitestResolveAlias';
 
 const includeExtendedDrawShapeLifecycle = process.env.EVB_E2E_DRAW_SHAPES_EXTENDED === '1';
 const includeLargePdfAnnotationSave = process.env.EVB_E2E_LARGE_PDF === '1';

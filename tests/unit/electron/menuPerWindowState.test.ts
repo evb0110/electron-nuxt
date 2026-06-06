@@ -135,7 +135,7 @@ vi.mock('@electron/window', () => ({
 
 vi.mock('@electron/recentFiles', () => ({getRecentFilesSync: () => []}));
 
-vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
+vi.mock('@electron/te', () => ({te: (key: string) => key}));
 
 vi.mock('@electron/config', () => ({config: {isMac: false}}));
 

@@ -1,6 +1,6 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
-import type { IEditorTargetMatch } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/annotationCommentCrudHelpersTypes';
+import type { IEditorTargetMatch } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/editorTargetMatch';
 
 export function findEditorFromTarget(
     uiManager: AnnotationEditorUIManager | null,

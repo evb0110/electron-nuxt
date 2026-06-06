@@ -172,7 +172,7 @@ import type { TOpenFileResult } from '@contracts/platformApi';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
-import type { TStartSection } from '@app/types/startPage';
+import type { TStartSection } from '@app/types/startSection';
 import type {
     ITabLifecycleState,
     ITabViewSessionState,

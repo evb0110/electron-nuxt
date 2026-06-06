@@ -12,7 +12,7 @@ import {
     type IDiagnosticFrameCaptureResult,
     startDiagnosticFrameCapture,
 } from '@scripts/diagnostics/diagnosticFrameCapture';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
+import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH
     || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');

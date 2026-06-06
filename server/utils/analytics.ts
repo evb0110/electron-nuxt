@@ -5,7 +5,7 @@ import {
     getRequestURL,
 } from 'h3';
 import { compact } from 'es-toolkit/array';
-import { getRuntimeEnv } from '@server/utils/runtimeEnv';
+import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
 
 interface IGeoData {
     country: string | null;

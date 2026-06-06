@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import AutoImport from 'unplugin-auto-import/vite';
-import { vitestResolveAlias } from './scripts/vitestSharedConfig';
+import { vitestResolveAlias } from './scripts/vitestResolveAlias';
 
 const explicitImportOnlyFiles = [
     'app/composables/pdf/annotationNoteWindowHelpers.ts',

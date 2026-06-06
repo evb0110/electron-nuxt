@@ -7,7 +7,7 @@ import {
 } from '@electron/ipc/workingCopyCreation';
 import { isKnownWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
 import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 
 const logger = createLogger('documents-dialogs');
 

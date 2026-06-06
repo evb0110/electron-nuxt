@@ -18,7 +18,7 @@ import type {
 import { parsePageRange } from '@app/utils/ocr/parsePageRange';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
-import { getOcrCapability } from '@app/utils/platformOcr';
+import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import {
     getDefaultBrowserOcrSettings,
@@ -26,7 +26,7 @@ import {
     saveBrowserOcrPreferences,
 } from '@app/platform/browser-api/browserOcrPreferences';
 import { getErrorMessage } from '@app/utils/error';
-import { exportTextAsDocx } from '@app/utils/docxExport';
+import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
 import { configureBrowserOcrLanguageBaseUrl } from '@app/utils/browserOcrConfig';
 
 class OcrCanceledError extends Error {

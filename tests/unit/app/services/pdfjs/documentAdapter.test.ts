@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { isPdfDocumentOperational } from '@app/services/pdfjs/documentAdapter';
+import { isPdfDocumentOperational } from '@app/services/pdfjs/isPdfDocumentOperational';
 
 function asPdfDocument(value: Record<string, unknown>): PDFDocumentProxy {
     return Object.assign({} as PDFDocumentProxy, value);

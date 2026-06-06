@@ -2,7 +2,7 @@ import type {
     TLocale,
     TTranslateFn,
 } from '~/i18n/locales';
-import type { TI18nComposer } from '~/types/i18n';
+import type { TI18nComposer } from '~/types/i18nComposer';
 import { useI18n } from 'vue-i18n';
 import {
     DEFAULT_LOCALE,

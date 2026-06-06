@@ -21,13 +21,13 @@ import {
     OCR_TEXT_LAYER_INDEX_VERSION,
     buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
-import { extractTextFromPdf } from '@electron/search/pdfTextExtractor';
-import { extractTextWithPdfjs } from '@electron/search/pdfjsTextExtractor';
+import { extractTextFromPdf } from '@electron/search/extractTextFromPdf';
+import { extractTextWithPdfjs } from '@electron/search/extractTextWithPdfjs';
 import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     atomicReplace,

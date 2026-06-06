@@ -1,6 +1,6 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits';
-import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const SHAPE_SERIALIZATION_LOG_SECTION = 'pdf-shapes';

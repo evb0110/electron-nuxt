@@ -109,7 +109,7 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
-import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvuWorker';
+import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import {

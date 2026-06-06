@@ -37,7 +37,7 @@ vi.mock('@electron/features/image-export/main/export', () => ({
     normalizeImageExportPath: mocks.normalizeImageExportPath,
 }));
 
-vi.mock('@electron/i18n', () => ({ te: (key: string) => key }));
+vi.mock('@electron/te', () => ({ te: (key: string) => key }));
 
 const {
     handlePdfExportImages,

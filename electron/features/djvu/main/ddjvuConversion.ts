@@ -25,9 +25,9 @@ import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
-import { getNativeToolPaths } from '@electron/native-tools/paths';
-import { createLogger } from '@electron/utils/logger';
-import { describeProcessExitCode } from '@electron/utils/processExit';
+import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
+import { createLogger } from '@electron/utils/createLogger';
+import { describeProcessExitCode } from '@electron/utils/describeProcessExitCode';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     createDetachedChildProcessSpawnOptions,

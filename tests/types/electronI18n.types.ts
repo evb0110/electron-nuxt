@@ -1,4 +1,4 @@
-import { te } from '@electron/i18n';
+import { te } from '@electron/te';
 
 te('export.scopeCurrent', { page: 1 });
 te('pageNumbering.pageWord', 2);

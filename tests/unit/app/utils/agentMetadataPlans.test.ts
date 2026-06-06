@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { IPdfBookmarkEntry } from '@contracts/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     createAgentBookmarkPlan,
     createAgentBookmarkSnapshot,

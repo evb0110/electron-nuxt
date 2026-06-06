@@ -20,7 +20,7 @@ import {
 import { clearTextLayerIndexCache } from '@app/utils/pdf-viewer/search/pdfSearchHighlightDom';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { measureDevPerf } from '@app/utils/devPerf';
-import { logPdfNav } from '@app/utils/pdfNavLog';
+import { logPdfNav } from '@app/utils/logPdfNav';
 import { guardAsync } from '@app/utils/asyncGuard';
 
 interface IHighlightDebugInfo {

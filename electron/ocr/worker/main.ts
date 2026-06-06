@@ -65,7 +65,7 @@ import {
 import {
     runOcrCommand,
     type TOcrRunCommandOptions,
-} from '@electron/ocr/worker/runCommand';
+} from '@electron/ocr/worker/runOcrCommand';
 import { isRecord } from '@contracts/runtimeGuards';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';

@@ -19,7 +19,7 @@ import {
     setWorkingCopyOriginalPath,
 } from '@electron/ipc/workingCopyStore';
 import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
-import { te } from '@electron/i18n';
+import { te } from '@electron/te';
 import {
     atomicReplace,
     makeSiblingTempPath,

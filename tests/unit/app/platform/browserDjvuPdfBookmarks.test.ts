@@ -7,8 +7,8 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
-import type { IPdfBookmarkEntry } from '@contracts/pdf';
-import { applyBookmarksToPdfDocument } from '@app/platform/browser-api/djvuPdfBookmarks';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { applyBookmarksToPdfDocument } from '@app/platform/browser-api/applyBookmarksToPdfDocument';
 
 function createBookmark(title: string, pageIndex: number): IPdfBookmarkEntry {
     return {

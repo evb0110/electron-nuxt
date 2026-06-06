@@ -19,8 +19,8 @@ import type {
     Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
+import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH

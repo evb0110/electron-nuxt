@@ -15,7 +15,7 @@ import {
 } from '@contracts/analytics';
 import { isRecord } from '@contracts/runtimeGuards';
 import { getAnalyticsDb } from '@server/db';
-import { viewerAnalyticsEvent } from '@server/db/schema';
+import { viewerAnalyticsEvent } from '@server/db/viewerAnalyticsEvent';
 import {
     extractGeo,
     getAnalyticsRequestHost,

@@ -1,7 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { createPdfjsDocumentInitFromBrowserDocument } from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { extractBrowserSearchPageText } from '@app/platform/browser-api/browserSearchText';
+import { extractBrowserSearchPageText } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type {
     IBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequest,

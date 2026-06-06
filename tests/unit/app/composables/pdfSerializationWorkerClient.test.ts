@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 

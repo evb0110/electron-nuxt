@@ -26,8 +26,8 @@ import {
     resolveCodexCliPath,
     runCodexCli,
 } from '@electron/features/agent/codexCli';
-import { te } from '@electron/i18n';
-import { createLogger } from '@electron/utils/logger';
+import { te } from '@electron/te';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-codex-mcp');

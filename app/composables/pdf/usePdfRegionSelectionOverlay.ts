@@ -1,5 +1,5 @@
 import type { ILocalRect } from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
-import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/pdfRegionDragTypes';
+import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/snipPointerPayload';
 
 interface IRegionSelectionOverlayOptions {
     isActive: () => boolean;

@@ -1,4 +1,4 @@
-import type { THighlightCompositeSource } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/pdfHighlightCompositeOverlayTypes';
+import type { THighlightCompositeSource } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/highlightCompositeSource';
 
 /**
  * Per-page compositing overlay for **true text highlights** (PDF `Highlight`

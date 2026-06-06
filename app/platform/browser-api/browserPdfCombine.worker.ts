@@ -1,17 +1,17 @@
 import { PDFDocument } from 'pdf-lib';
-import { iterateDecodedTiffFrames } from '@pdf-core/tiffDecode';
+import { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
 import type {
     IBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import { appendPdfImagePage } from '@app/platform/browser-api/pdfImagePages';
+import { appendPdfImagePage } from '@app/platform/browser-api/appendPdfImagePage';
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
     getBrowserFileExtension,
     toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
-import { toTransferableUint8Array } from '@app/platform/browser-api/browserWorkerTransfer';
+import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { getErrorMessage } from '@app/utils/error';
 
 async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array) {

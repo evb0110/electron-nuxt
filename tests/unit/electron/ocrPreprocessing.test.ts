@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({app: {isPackaged: false}}));
 vi.mock('child_process', () => ({spawn: (...args: unknown[]) => mocks.spawn(...args)}));
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 describe('validatePreprocessingSetup', () => {
     beforeEach(() => {

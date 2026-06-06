@@ -19,10 +19,10 @@ import {
 import { randomUUID } from 'crypto';
 import { pathToFileURL } from 'url';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import { createLogger } from '@electron/utils/logger';
+import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { extractPages } from '@electron/features/page-ops/public';
-import { parseIntegerEnv } from '@electron/utils/env';
+import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('documents-print');

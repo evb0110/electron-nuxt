@@ -3,7 +3,7 @@ import {
     getRequestURL,
 } from 'h3';
 import { compact } from 'es-toolkit/array';
-import { getRuntimeEnv } from '@server/utils/runtimeEnv';
+import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
 
 const DEFAULT_PRODUCTION_SITE_URL = 'https://evb-viewer-web.vercel.app';
 

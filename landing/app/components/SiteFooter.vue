@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import { GITHUB_REPOSITORY_URL } from '~/constants/projectLinks';
+import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 
 const { t } = useTypedI18n();
 </script>

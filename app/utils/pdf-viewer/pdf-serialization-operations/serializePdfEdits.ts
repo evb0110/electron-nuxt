@@ -8,7 +8,7 @@ import { applyBookmarks } from '@app/utils/pdf-viewer/serialization/pdf-serializ
 import { applyPageLabels } from '@app/utils/pdf-viewer/serialization/pdf-serialization-outline/applyPageLabels';
 import { applyPlacedImage } from '@app/utils/pdf-viewer/serialization/pdf-serialization-placed-images/applyPlacedImage';
 import { applyShapeAnnotations } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shape-annotations/applyShapeAnnotations';
-import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 
 function hasSaveWork(payload: IPdfSerializationSavePayload) {
     return Boolean(payload.forceRewrite)

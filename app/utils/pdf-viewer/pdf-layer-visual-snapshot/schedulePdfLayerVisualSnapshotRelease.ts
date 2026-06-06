@@ -1,4 +1,4 @@
-import type { TPdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotTypes';
+import type { TPdfLayerVisualSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 
 interface IPdfLayerVisualSnapshotReleaseOptions {
     maxDelayMs?: number;

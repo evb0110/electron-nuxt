@@ -33,7 +33,7 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
     },
 }));
 
-vi.mock('@app/utils/platformShell', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
+vi.mock('@app/utils/getShellCapability', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
 
 describe('usePdfAnnotationLayerRenderer', () => {
     beforeEach(() => {

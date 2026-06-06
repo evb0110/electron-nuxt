@@ -107,7 +107,7 @@ vi.mock('electron', () => {
 });
 
 vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn(() => [])}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({warn: vi.fn()})}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({warn: vi.fn()})}));
 vi.mock('@electron/utils/error', () => ({getErrorMessage: (error: unknown) => String(error)}));
 
 describe('host environment zen Escape handling', () => {

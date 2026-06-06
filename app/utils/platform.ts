@@ -1,6 +1,6 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import { delay } from 'es-toolkit/promise';
-import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserApi';
+import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
 
 interface IWindowWithPlatformApi extends Window {electronAPI?: IPlatformApi;}
 

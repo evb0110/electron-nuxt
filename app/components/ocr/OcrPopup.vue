@@ -287,7 +287,7 @@ import type {
 import type { TTranslationKey } from '@i18n-app';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getSettingsCapability } from '@app/utils/platformSettings';
+import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import type {
     IOcrSearchablePdfResult,
     TOcrPageRange,

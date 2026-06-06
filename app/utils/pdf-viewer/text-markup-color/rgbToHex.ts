@@ -1,5 +1,5 @@
 import { clampRgbChannel } from '@app/utils/pdf-viewer/text-markup-color/clampRgbChannel';
-import type { IRgbColor } from '@app/utils/pdf-viewer/text-markup-color/textMarkupColorTypes';
+import type { IRgbColor } from '@app/utils/pdf-viewer/text-markup-color/rgbColor';
 
 export function rgbToHex(color: IRgbColor) {
     return `#${

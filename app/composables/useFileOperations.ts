@@ -5,7 +5,7 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platformApi';
-import { isTimeoutError } from '@contracts/timeoutError';
+import { isTimeoutError } from '@contracts/isTimeoutError';
 import type {
     Ref,
     ShallowRef,
@@ -25,7 +25,7 @@ import {
 import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
 import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
 import { getErrorMessage } from '@app/utils/error';
-import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/pdfAnnotationSavePlanner';
+import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/buildPdfAnnotationSavePlan';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;

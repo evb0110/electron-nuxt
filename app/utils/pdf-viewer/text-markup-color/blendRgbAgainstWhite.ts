@@ -1,6 +1,6 @@
 import { clamp } from 'es-toolkit/math';
 import { clampRgbChannel } from '@app/utils/pdf-viewer/text-markup-color/clampRgbChannel';
-import type { IRgbColor } from '@app/utils/pdf-viewer/text-markup-color/textMarkupColorTypes';
+import type { IRgbColor } from '@app/utils/pdf-viewer/text-markup-color/rgbColor';
 
 export function blendRgbAgainstWhite(color: IRgbColor, opacity: number): IRgbColor {
     const normalizedOpacity = clamp(opacity, 0, 1);

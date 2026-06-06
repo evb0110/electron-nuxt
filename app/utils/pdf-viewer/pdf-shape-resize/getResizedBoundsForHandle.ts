@@ -1,6 +1,6 @@
 import { clamp } from 'es-toolkit/math';
 import type { TShapeResizeHandle } from '@app/types/annotations';
-import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/pdfShapeResizeTypes';
+import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/shapeBounds';
 
 export function getResizedBoundsForHandle(
     baselineBounds: IShapeBounds,

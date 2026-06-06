@@ -25,7 +25,7 @@ vi.mock('fs/promises', () => ({
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),

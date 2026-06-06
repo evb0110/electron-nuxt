@@ -1,6 +1,6 @@
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import type { IPdfBookmarkEntry } from '@contracts/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IDjvuPdfWorkerProgressMessage,
     TDjvuPdfWorkerTask,

@@ -12,7 +12,7 @@ import {
     createExternalOpenManager,
     createMacOpenFileRouter,
 } from '@electron/bootstrap/externalOpen';
-import { runInitSequence } from '@electron/bootstrap/initSequence';
+import { runInitSequence } from '@electron/bootstrap/runInitSequence';
 import {
     resolveExternalOpenDispatchWindow,
     shouldResetRendererReadyOnNavigation,
@@ -21,7 +21,7 @@ import {
     createShutdownCoordinator,
     runShutdownSteps,
 } from '@electron/bootstrap/shutdown';
-import { createStartupTrace } from '@electron/bootstrap/startupTrace';
+import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import {
     registerIpcHandlers,
@@ -57,8 +57,8 @@ import {
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
 } from '@electron/windowTabTransfer';
-import { promptSetDefaultViewer } from '@electron/defaultViewer';
-import { createLogger } from '@electron/utils/logger';
+import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
+import { createLogger } from '@electron/utils/createLogger';
 import { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/public';
 import {
     initializeUpdates,

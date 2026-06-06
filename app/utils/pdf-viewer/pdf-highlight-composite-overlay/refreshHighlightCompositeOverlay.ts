@@ -1,7 +1,7 @@
 import { composeHighlightFragments } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/composeHighlightFragments';
 import { extractRectsFromHighlightPath } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/extractRectsFromHighlightPath';
 import { isRectangularHighlightPathData } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/isRectangularHighlightPathData';
-import type { THighlightCompositeSource } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/pdfHighlightCompositeOverlayTypes';
+import type { THighlightCompositeSource } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/highlightCompositeSource';
 import { shouldCompositeHighlightClassList } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/shouldCompositeHighlightClassList';
 import { shouldCompositeHighlightSources } from '@app/utils/pdf-viewer/pdf-highlight-composite-overlay/shouldCompositeHighlightSources';
 

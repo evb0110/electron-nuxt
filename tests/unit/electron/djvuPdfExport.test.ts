@@ -67,11 +67,11 @@ vi.mock('@electron/djvu/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
 }));
 
-vi.mock('@electron/djvu/bookmarks', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
-vi.mock('@electron/djvu/pdfBookmarks', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
+vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
+vi.mock('@electron/djvu/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
 vi.mock('@electron/djvu/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
-vi.mock('@electron/djvu/ipcShared', () => ({safeSendToWindow: mocks.safeSendToWindow}));
-vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
+vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
     error: mocks.loggerError,

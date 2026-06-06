@@ -418,7 +418,7 @@ import type {
     TOpenFileResult,
 } from '@contracts/platformApi';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TStartSection } from '@app/types/startPage';
+import type { TStartSection } from '@app/types/startSection';
 import type { IPdfPageMatches } from '@app/types/pdf';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {

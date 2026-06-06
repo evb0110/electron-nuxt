@@ -40,7 +40,7 @@ vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
         browserPdfCombineWorkerMock.run(type, payload),
 }));
-vi.mock('@app/platform/browser-api/djvuCapability', () => ({browserDjvuCapability: {convertToPdf: browserDjvuCapabilityMock.convertToPdf}}));
+vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({browserDjvuCapability: {convertToPdf: browserDjvuCapabilityMock.convertToPdf}}));
 vi.mock('utif', () => {
     const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
     const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);
@@ -152,7 +152,7 @@ async function loadBrowserDocumentsFileCapability(options?: ILoadBrowserDocument
             browserDocumentStore,
         },
     ] = await Promise.all([
-        import('@app/platform/browser-api/documentsFileCapability'),
+        import('@app/platform/browser-api/createBrowserDocumentsFileCapability'),
         import('@app/platform/browserDocumentStore'),
     ]);
 
@@ -266,7 +266,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('rejects oversized browser combine rewrites before reading the input PDFs', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const firstRef = await browserDocumentStore.createStoredDocument(
             'first.pdf',
             new Uint8Array([1]),
@@ -302,7 +302,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('offloads all-PDF combine jobs to the browser worker when available', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const firstRef = await browserDocumentStore.createStoredDocument(
             'first.pdf',
             new Uint8Array([
@@ -373,7 +373,7 @@ describe('createBrowserDocumentsFileCapability', () => {
             { createCombinedPdfFromPaths },
             { browserDocumentsMenuCapability },
         ] = await Promise.all([
-            import('@app/platform/browser-api/documentsFileCapability'),
+            import('@app/platform/browser-api/createBrowserDocumentsFileCapability'),
             import('@app/platform/browser-api/documentsMenuCapability'),
         ]);
         const firstRef = await browserDocumentStore.createStoredDocument(
@@ -450,7 +450,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('offloads supported mixed PDF and raster-image combine jobs to the browser worker', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const pdfRef = await browserDocumentStore.createStoredDocument(
             'first.pdf',
             new Uint8Array([
@@ -516,7 +516,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('converts DjVu files before combining mixed browser batches', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const pdfBytes = await createPdfBytes();
         const pdfRef = await browserDocumentStore.createStoredDocument(
             'first.pdf',
@@ -571,7 +571,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('offloads TIFF combine jobs to the browser worker when available', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const tiffRef = await browserDocumentStore.createStoredDocument(
             'scan.tiff',
             new Uint8Array([
@@ -611,7 +611,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('keeps unsupported image combine formats on the direct fallback path', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const svgRef = await browserDocumentStore.createStoredDocument(
             'vector.svg',
             new Uint8Array([
@@ -655,7 +655,7 @@ describe('createBrowserDocumentsFileCapability', () => {
 
     it('creates one PDF page per TIFF frame on the direct browser fallback path', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documentsFileCapability');
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
         const tinyPngBytes = new Uint8Array([
             137,
             80,

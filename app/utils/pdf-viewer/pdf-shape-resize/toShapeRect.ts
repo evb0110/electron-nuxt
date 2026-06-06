@@ -1,4 +1,4 @@
-import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/pdfShapeResizeTypes';
+import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/shapeBounds';
 
 export function toShapeRect(bounds: IShapeBounds, minSize = 0.01): IShapeBounds {
     return {

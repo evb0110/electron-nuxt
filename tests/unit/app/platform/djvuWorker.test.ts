@@ -47,7 +47,7 @@ describe('createDjvuWorkerFromPath', () => {
 
     it('reads DjVu bytes through the active platform document capability', async () => {
         const { createDjvuWorkerFromPath } =
-            await import('@app/platform/browser-api/djvuWorker');
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
         await createDjvuWorkerFromPath('/Users/test/book.djvu');
 
@@ -66,7 +66,7 @@ describe('createDjvuWorkerFromPath', () => {
 
     it('still unloads transient browser document refs after creating the worker', async () => {
         const { createDjvuWorkerFromPath } =
-            await import('@app/platform/browser-api/djvuWorker');
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
         const ref = 'browser://documents/source/book.djvu';
 
         await createDjvuWorkerFromPath(ref);
@@ -78,7 +78,7 @@ describe('createDjvuWorkerFromPath', () => {
 
     it('terminates the worker and unloads browser document refs if document creation fails', async () => {
         const { createDjvuWorkerFromPath } =
-            await import('@app/platform/browser-api/djvuWorker');
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
         const ref = 'browser://documents/source/broken.djvu';
         mocks.createDocument.mockRejectedValue(new Error('decode failed'));
 
@@ -90,7 +90,7 @@ describe('createDjvuWorkerFromPath', () => {
 
     it('aborts browser DjVu reads before creating the worker document', async () => {
         const { createDjvuWorkerFromPath } =
-            await import('@app/platform/browser-api/djvuWorker');
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
         const ref = 'browser://documents/source/large.djvu';
         const controller = new AbortController();
         mocks.stat.mockResolvedValue({size: (4 * 1024 * 1024) + 1});

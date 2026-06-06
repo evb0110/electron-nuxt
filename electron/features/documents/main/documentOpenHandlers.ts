@@ -17,15 +17,15 @@ import {
     type TOpenPath,
 } from '@electron/ipc/openPathCapabilities';
 import { getRecentFiles } from '@electron/recentFiles';
-import { te } from '@electron/i18n';
-import { createLogger } from '@electron/utils/logger';
+import { te } from '@electron/te';
+import { createLogger } from '@electron/utils/createLogger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     DOCUMENTS_EVENT_CHANNELS,
     type TOpenFileResult,
 } from '@electron/features/documents/contract';
-import { openInputPaths } from '@electron/features/documents/main/documentOpen.service';
+import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
 import {
     errorWithDetails,
     getDialogParentWindow,

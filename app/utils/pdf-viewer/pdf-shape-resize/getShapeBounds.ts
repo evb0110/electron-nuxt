@@ -1,6 +1,6 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { getAllShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/getAllShapePoints';
-import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/pdfShapeResizeTypes';
+import type { IShapeBounds } from '@app/utils/pdf-viewer/pdf-shape-resize/shapeBounds';
 
 export function getShapeBounds(shape: IShapeAnnotation): IShapeBounds {
     if (shape.type === 'polyline' || shape.type === 'polygon') {

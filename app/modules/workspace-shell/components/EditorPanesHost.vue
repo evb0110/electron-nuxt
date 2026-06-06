@@ -52,7 +52,7 @@ import type {
     ITab,
     TTabUpdate,
 } from '@app/types/tabs';
-import type { TStartSection } from '@app/types/startPage';
+import type { TStartSection } from '@app/types/startSection';
 import type {
     ITabLifecycleState,
     ITabViewSessionState,

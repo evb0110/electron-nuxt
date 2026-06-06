@@ -24,7 +24,7 @@ vi.mock('@vueuse/core', () => ({
     tryOnScopeDispose: mocks.tryOnScopeDispose,
     whenever: mocks.whenever,
 }));
-vi.mock('@app/utils/platformShortcuts', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
+vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
 
 function createDeps() {
     return {

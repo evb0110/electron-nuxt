@@ -297,7 +297,7 @@ describe('createBrowserSearchCapability', () => {
         ]));
         pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const firstCapability = createBrowserSearchCapability().capability;
         const firstRun = await firstCapability.run('/tmp/test.pdf', 'foo');
         const secondCapability = createBrowserSearchCapability().capability;
@@ -361,7 +361,7 @@ describe('createBrowserSearchCapability', () => {
 
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const firstCapability = createBrowserSearchCapability().capability;
         const firstRun = await firstCapability.run(pdfPath, 'needle', { pageCount: 2 });
 
@@ -425,7 +425,7 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
         const result = await capability.run(pdfPath, 'fallback');
 
@@ -465,7 +465,7 @@ describe('createBrowserSearchCapability', () => {
             .mockReturnValueOnce({promise: Promise.resolve(firstDocument)})
             .mockReturnValueOnce({promise: Promise.resolve(secondDocument)});
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
         await expect(capability.run('/tmp/test.pdf', 'foo')).resolves.toEqual({
@@ -529,7 +529,7 @@ describe('createBrowserSearchCapability', () => {
             .mockReturnValueOnce({promise: Promise.resolve(firstDocument)})
             .mockReturnValueOnce({promise: Promise.resolve(secondDocument)});
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const firstCapability = createBrowserSearchCapability().capability;
         await firstCapability.run('/tmp/test.pdf', 'foo', { pageCount: 1 });
 
@@ -571,7 +571,7 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const firstCapability = createBrowserSearchCapability().capability;
         await firstCapability.run('/tmp/test.pdf', 'foo');
         await firstCapability.resetCache();
@@ -603,7 +603,7 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
         for (let index = 1; index <= 17; index += 1) {
@@ -620,7 +620,7 @@ describe('createBrowserSearchCapability', () => {
     it('rejects browser search for oversized documents before loading PDF.js', async () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
         await expect(capability.run('/tmp/huge.pdf', 'foo')).rejects.toThrow('ERR_BROWSER_SEARCH_TOO_LARGE');
@@ -629,7 +629,7 @@ describe('createBrowserSearchCapability', () => {
     });
 
     it('returns no browser search results for empty queries before loading PDF.js', async () => {
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
         await expect(capability.run('/tmp/test.pdf', '   ')).resolves.toEqual({
@@ -663,7 +663,7 @@ describe('createBrowserSearchCapability', () => {
             destroy: vi.fn(async () => {}),
         }) });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
         const progressUpdates: Array<{
             processed: number;
@@ -721,7 +721,7 @@ describe('createBrowserSearchCapability', () => {
             destroy: vi.fn(async () => {}),
         }) });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const firstCapability = createBrowserSearchCapability().capability;
         const firstRun = await firstCapability.run('/tmp/test.pdf', 'foo');
         const secondCapability = createBrowserSearchCapability().capability;
@@ -757,7 +757,7 @@ describe('createBrowserSearchCapability', () => {
             destroy: vi.fn(async () => {}),
         }) });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
         const result = await capability.run('/tmp/test.pdf', 'foo');
 
@@ -791,7 +791,7 @@ describe('createBrowserSearchCapability', () => {
             destroy: vi.fn(async () => {}),
         }) });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
         await expect(capability.warmIndex('/tmp/test.pdf')).resolves.toBe(true);
@@ -809,7 +809,7 @@ describe('createBrowserSearchCapability', () => {
         }));
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
         await expect(capability.warmIndex('/tmp/test.pdf')).rejects.toThrow('worker crashed after request start');
@@ -846,7 +846,7 @@ describe('createBrowserSearchCapability', () => {
             destroy: vi.fn(async () => {}),
         }) });
 
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/searchCapability');
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
         const runPromise = capability.run('/tmp/test.pdf', 'foo', { requestId: 'cancel-me' });
 

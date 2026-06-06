@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderQueue';
+import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
 
 describe('buildThumbnailRenderQueue', () => {
     it('prioritizes the current page and mounted visible pages on a cold start', () => {

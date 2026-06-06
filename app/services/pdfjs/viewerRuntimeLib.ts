@@ -1,4 +1,4 @@
-import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ssrPolyfills';
+import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
 import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 
 ensurePdfjsSsrGlobals();

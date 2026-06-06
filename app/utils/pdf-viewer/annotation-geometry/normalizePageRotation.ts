@@ -1,4 +1,4 @@
-import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/annotationGeometryTypes';
+import type { TPageRotation } from '@app/utils/pdf-viewer/annotation-geometry/pageRotation';
 
 export function normalizePageRotation(value: number): TPageRotation {
     if (!Number.isFinite(value)) {

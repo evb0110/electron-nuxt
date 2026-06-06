@@ -20,7 +20,7 @@ import puppeteer, {
 } from 'puppeteer-core';
 import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
-import { createCommandHandler } from '@scripts/electron-run/commands';
+import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import {
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
@@ -48,7 +48,7 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
-import { projectRoot } from '@scripts/electron-run/electronRunProjectPaths';
+import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { parseElectronRunCommandRequest } from '@scripts/electron-run/electronRunProtocol';
 import {
     cleanupStaleSessionArtifacts,
@@ -87,7 +87,7 @@ export type {
     INuxtSessionShareMetadata,
     IProjectNuxtRootProcessMetadata,
 } from '@scripts/electron-run/electronRunNuxtServer';
-export { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
+export { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 
 let sessionState: ISessionState | null = null;
 
