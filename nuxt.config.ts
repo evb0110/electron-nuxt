@@ -412,6 +412,11 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); font-
             pathPrefix: false,
         },
         {
+            path: '~/modules/pdf-viewer/components',
+            pathPrefix: false,
+            extensions: ['vue'],
+        },
+        {
             path: '~/modules/workspace-shell/components',
             pathPrefix: false,
             extensions: ['vue'],

@@ -126,8 +126,8 @@ import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/sho
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
-import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
-import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
+import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
+import PdfPageSkeleton from '@app/modules/pdf-viewer/components/PdfPageSkeleton.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';

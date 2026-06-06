@@ -140,11 +140,11 @@
 
 <script setup lang="ts">
 
-import PdfAnnotationProperties from '@app/components/pdf/PdfAnnotationProperties.vue';
-import PdfTextMarkupAnnotationProperties from '@app/components/pdf/PdfTextMarkupAnnotationProperties.vue';
-import PdfAnnotationContextMenu from '@app/components/pdf/annotations/PdfAnnotationContextMenu.vue';
-import PdfAnnotationNoteWindow from '@app/components/pdf/annotations/PdfAnnotationNoteWindow.vue';
-import PdfPageContextMenu from '@app/components/pdf/PdfPageContextMenu.vue';
+import PdfAnnotationProperties from '@app/modules/pdf-viewer/components/PdfAnnotationProperties.vue';
+import PdfTextMarkupAnnotationProperties from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotationProperties.vue';
+import PdfAnnotationContextMenu from '@app/modules/pdf-viewer/components/annotations/PdfAnnotationContextMenu.vue';
+import PdfAnnotationNoteWindow from '@app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue';
+import PdfPageContextMenu from '@app/modules/pdf-viewer/components/PdfPageContextMenu.vue';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -161,7 +161,7 @@ import {
     useEventListener,
     useMutationObserver,
 } from '@vueuse/core';
-import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/createRafBurstScheduler';
+import { createRafBurstScheduler } from '@app/modules/workspace-shell/scheduling/createRafBurstScheduler';
 import { escapeCssAttr } from '@app/utils/pdf-viewer/annotation-css-utils/escapeCssAttr';
 
 const INLINE_NOTE_SUBTYPES = new Set([

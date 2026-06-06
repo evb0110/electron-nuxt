@@ -21,11 +21,11 @@ import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
-import {DOCUMENTS_EVENT_CHANNELS} from '@electron/features/documents/contract';
 import {
-    openInputPaths,
+    DOCUMENTS_EVENT_CHANNELS,
     type TOpenFileResult,
-} from '@electron/features/documents/main/documentOpen.service';
+} from '@electron/features/documents/contract';
+import { openInputPaths } from '@electron/features/documents/main/documentOpen.service';
 import {
     errorWithDetails,
     getDialogParentWindow,

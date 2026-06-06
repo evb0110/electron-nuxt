@@ -417,7 +417,7 @@ import type {
     TAgentAssistantLoginMode,
     TAgentAssistantMessageRole,
 } from '@contracts/agent';
-import { getAgentAssistantPanelView } from '@app/components/agent/agentAssistantPanelState';
+import { getAgentAssistantPanelView } from '@app/modules/workspace-shell/agent/getAgentAssistantPanelView';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getPlatformAPI } from '@app/utils/platform';
 import {
