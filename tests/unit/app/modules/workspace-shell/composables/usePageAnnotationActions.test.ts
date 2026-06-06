@@ -21,21 +21,8 @@ import type {
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 
-const {
-    deleteEmbeddedAnnotationOffThread,
-    resolveAnnotationCommentTextMarkupColor,
-} = vi.hoisted(() => ({
-    deleteEmbeddedAnnotationOffThread: vi.fn(async (
-        _data: Uint8Array,
-        _comment: IAnnotationCommentSummary,
-    ) => new Uint8Array([
-        8,
-        8,
-    ])),
-    resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null),
-}));
+const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
 
-vi.mock('@app/utils/pdf-viewer/pdfSerializationWorkerClient', () => ({deleteEmbeddedAnnotationOffThread}));
 vi.mock('@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
 
 function createComment(stableKey: string): IAnnotationCommentSummary {
@@ -205,7 +192,6 @@ function createHarness() {
 }
 
 beforeEach(() => {
-    deleteEmbeddedAnnotationOffThread.mockClear();
     resolveAnnotationCommentTextMarkupColor.mockReset();
     resolveAnnotationCommentTextMarkupColor.mockReturnValue(null);
     vi.stubGlobal('useTypedI18n', () => ({
@@ -1234,7 +1220,6 @@ describe('usePageAnnotationActions', () => {
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(deleteEmbeddedAnnotationOffThread).not.toHaveBeenCalled();
         expect(viewer.saveDocument).not.toHaveBeenCalled();
         expect(deps.loadPdfFromData).not.toHaveBeenCalled();
         expect(deps.waitForPdfReload).not.toHaveBeenCalled();
@@ -1266,7 +1251,6 @@ describe('usePageAnnotationActions', () => {
 
         expect(viewer.saveDocument).not.toHaveBeenCalled();
         expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
-        expect(deleteEmbeddedAnnotationOffThread).not.toHaveBeenCalled();
         expect(deps.loadPdfFromData).not.toHaveBeenCalled();
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
     });

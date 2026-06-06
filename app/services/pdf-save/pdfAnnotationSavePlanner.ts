@@ -1,14 +1,5 @@
 import type { IPdfLiveAnnotationChangeSummary } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 
-export type TPdfAnnotationSaveRoute =
-    | 'source-clean'
-    | 'source-replay'
-    | 'pdfjs-materialize';
-
-export type TPdfAnnotationSaveExpectedCost =
-    | 'small'
-    | 'full-document';
-
 export interface IPdfAnnotationSavePlanInput {
     hasPendingReplayableEmbeddedChanges: boolean;
     hasEditorOnlyAnnotationsPendingMaterialization: boolean;

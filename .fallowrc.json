@@ -77,6 +77,10 @@
         "unhead",
         "vue-bundle-renderer"
     ],
+    "ignoreUnresolvedImports": [
+        "@app/assets/css/settings-panel-shared",
+        "@app/assets/css/toolbar-menu-shared"
+    ],
     "workspaces": {
         "patterns": [
             "packages/*"
