@@ -16,7 +16,13 @@
         <header class="agent-assistant-header">
             <span class="agent-assistant-title">
                 <UIcon :name="headerIcon" class="agent-assistant-title-icon" />
-                <span class="agent-assistant-title-text">{{ headerTitle }}</span>
+                <AppTooltip
+                    :text="headerTitle"
+                    :delay-duration="300"
+                    usefulness="overflow"
+                >
+                    <span class="agent-assistant-title-text">{{ headerTitle }}</span>
+                </AppTooltip>
             </span>
             <div class="agent-assistant-header-actions">
                 <AppTooltip :text="t('assistant.newChat')" :delay-duration="300">
@@ -376,12 +382,16 @@
                     :alt="expandedImageItem?.name ?? ''"
                     draggable="false"
                 >
-                <figcaption
+                <AppTooltip
                     v-if="expandedImageItem"
-                    class="agent-assistant-image-preview-caption"
+                    :text="expandedImageCaption"
+                    :delay-duration="300"
+                    usefulness="overflow"
                 >
-                    {{ expandedImageCaption }}
-                </figcaption>
+                    <figcaption class="agent-assistant-image-preview-caption">
+                        {{ expandedImageCaption }}
+                    </figcaption>
+                </AppTooltip>
             </figure>
             <UButton
                 v-if="expandedImage.images.length > 1"
