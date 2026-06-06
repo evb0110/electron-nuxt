@@ -384,7 +384,6 @@ import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
 import { useMutationObserver } from '@vueuse/core';
-import { delay } from 'es-toolkit/promise';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import PdfSidebar from '@app/components/pdf/PdfSidebar.vue';
 import PdfStatusBar from '@app/components/pdf/PdfStatusBar.vue';
@@ -404,6 +403,7 @@ import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
+import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     useDocumentWorkspaceAgent,
     type IOcrPopupAgentExpose,
@@ -1135,64 +1135,25 @@ const {
     currentPageTransitionHistory,
 });
 
-const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 4_000;
-const initialDocumentVisualReady = ref(false);
-let documentOpenVisualSettlePromise: Promise<void> | null = null;
-let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
-
-function ensureDocumentOpenVisualSettlePromise() {
-    if (!documentOpenVisualSettlePromise) {
-        documentOpenVisualSettlePromise = new Promise<void>((resolve) => {
-            resolveDocumentOpenVisualSettlePromise = resolve;
-        });
-    }
-
-    return documentOpenVisualSettlePromise;
-}
-
-function resolveDocumentOpenVisualSettle() {
-    resolveDocumentOpenVisualSettlePromise?.();
-    documentOpenVisualSettlePromise = null;
-    resolveDocumentOpenVisualSettlePromise = null;
-}
-
-function resetDocumentOpenVisualSettleWaiter() {
-    initialDocumentVisualReady.value = false;
-}
-
-function hasSettledDocumentOpenVisualState() {
-    if (pdfError.value || djvuError.value) {
-        return true;
-    }
-
-    if (showNativeDjvuViewer.value) {
-        return true;
-    }
-
-    return Boolean(
-        pdfSrc.value
-        && pdfDocument.value
-        && totalPages.value > 0
-        && !isLoading.value
-        && initialDocumentVisualReady.value,
-    );
-}
-
-function resolveDocumentOpenVisualSettleIfReady() {
-    if (hasSettledDocumentOpenVisualState()) {
-        resolveDocumentOpenVisualSettle();
-    }
-}
-
-function handlePdfInitialVisualReady() {
-    initialDocumentVisualReady.value = true;
-    resolveDocumentOpenVisualSettleIfReady();
-}
-
-function handlePdfInitialVisualPending() {
-    markAnnotationCommentsLoading();
-    resetDocumentOpenVisualSettleWaiter();
-}
+const {
+    handlePdfInitialVisualPending,
+    handlePdfInitialVisualReady,
+    resetDocumentOpenVisualSettleWaiter,
+    resolveDocumentOpenVisualSettleIfReady,
+    waitForDocumentOpenSettled,
+} = useDocumentOpenVisualSettle({
+    tabId,
+    hasPdf,
+    pdfSrc,
+    pdfDocument,
+    totalPages,
+    pageLabelsResolved,
+    isLoading,
+    pdfError,
+    djvuError,
+    showNativeDjvuViewer,
+    markAnnotationCommentsLoading,
+});
 
 function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
     if (
@@ -1205,53 +1166,6 @@ function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
     }
     applyAnnotationComments(comments);
 }
-
-function waitForDocumentOpenVisualSettleTimeout() {
-    return delay(DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS).then(() => 'timeout' as const);
-}
-
-async function waitForDocumentOpenSettled() {
-    await nextTick();
-    resolveDocumentOpenVisualSettleIfReady();
-    if (hasSettledDocumentOpenVisualState()) {
-        return;
-    }
-
-    await Promise.race([
-        ensureDocumentOpenVisualSettlePromise(),
-        waitForDocumentOpenVisualSettleTimeout(),
-    ]);
-    await nextTick();
-
-    if (hasSettledDocumentOpenVisualState()) {
-        return;
-    }
-
-    BrowserLogger.warn('recent-open', 'Document open visual settle timed out', {
-        tabId: tabId,
-        hasPdf: hasPdf.value,
-        hasPdfSrc: Boolean(pdfSrc.value),
-        hasPdfDocument: Boolean(pdfDocument.value),
-        totalPages: totalPages.value,
-        pageLabelsResolved: pageLabelsResolved.value,
-        isLoading: isLoading.value,
-        showNativeDjvuViewer: showNativeDjvuViewer.value,
-        hasPdfError: Boolean(pdfError.value),
-        hasDjvuError: Boolean(djvuError.value),
-    });
-    resolveDocumentOpenVisualSettle();
-}
-
-watch([
-    pdfDocument,
-    totalPages,
-    pageLabelsResolved,
-    isLoading,
-    showNativeDjvuViewer,
-    initialDocumentVisualReady,
-], () => {
-    resolveDocumentOpenVisualSettleIfReady();
-});
 
 const {
     runAgentAction,
