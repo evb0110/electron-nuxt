@@ -1,6 +1,6 @@
 import {
-    degrees,
     PDFDocument,
+    degrees,
 } from 'pdf-lib';
 import type { PDFPage } from 'pdf-lib';
 import type {

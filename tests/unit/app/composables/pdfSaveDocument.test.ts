@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
+import { savePdfDocumentWithCommittedEditors } from '@app/utils/pdf-viewer/pdf-save-document/savePdfDocumentWithCommittedEditors';
 import { cast } from '@tests/helpers/cast';
 
 describe('savePdfDocumentWithCommittedEditors', () => {

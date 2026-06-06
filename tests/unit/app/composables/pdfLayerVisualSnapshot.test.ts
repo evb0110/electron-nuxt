@@ -6,16 +6,14 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    hasPdfPageAnnotationVisualContent,
-    hasPdfPageAnnotationVisualContentForSnapshotRelease,
-    PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS,
-    PDF_LAYER_VISUAL_SNAPSHOT_CLASS,
-    PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS,
-    preservePdfDrawLayerVisualSnapshot,
-    preservePdfLayerVisualSnapshot,
-    preservePdfPageAnnotationVisualSnapshot,
-} from '@app/composables/pdf/pdfLayerVisualSnapshot';
+import { hasPdfPageAnnotationVisualContent } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContent';
+import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
+import { pdfLayerVisualSnapshotActiveClass } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotActiveClass';
+import { pdfLayerVisualSnapshotClass } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotClass';
+import { pdfLayerVisualSnapshotSourceClass } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotSourceClass';
+import { preservePdfDrawLayerVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfDrawLayerVisualSnapshot';
+import { preservePdfLayerVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfLayerVisualSnapshot';
+import { preservePdfPageAnnotationVisualSnapshot } from '@app/utils/pdf-viewer/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
 
 class FakeClassList {
     readonly names = new Set<string>();
@@ -286,19 +284,19 @@ describe('pdfLayerVisualSnapshot', () => {
 
         expect(release).toBeTypeOf('function');
         expect(snapshot).not.toBe(layer);
-        expect(snapshot?.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_CLASS)).toBe(true);
+        expect(snapshot?.classList.contains(pdfLayerVisualSnapshotClass)).toBe(true);
         expect(snapshot?.getAttribute('aria-hidden')).toBe('true');
         expect(snapshot?.querySelector('button')?.tabIndex).toBe(-1);
-        expect(layer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(true);
-        expect(button.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
+        expect(layer.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(true);
+        expect(button.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
         expect(button.style.visibility).toBe('hidden');
-        expect(snapshot?.querySelector('button')?.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
+        expect(snapshot?.querySelector('button')?.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
 
         release?.();
 
         expect(page.children).toHaveLength(1);
-        expect(layer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
-        expect(button.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
+        expect(layer.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(false);
+        expect(button.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
         expect(button.style.visibility).toBe('');
     });
 
@@ -317,11 +315,11 @@ describe('pdfLayerVisualSnapshot', () => {
         );
 
         const release = preservePdfDrawLayerVisualSnapshot(asElement(canvasHost));
-        const snapshots = canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`);
+        const snapshots = canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`);
 
         expect(release).toBeTypeOf('function');
         expect(snapshots).toHaveLength(3);
-        expect(canvasHost.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(true);
+        expect(canvasHost.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(true);
         expect(snapshots.map(node => node.tagName.toLowerCase())).toEqual([
             'svg',
             'svg',
@@ -330,9 +328,9 @@ describe('pdfLayerVisualSnapshot', () => {
         expect(highlight.style.visibility).toBe('hidden');
         expect(outline.style.visibility).toBe('hidden');
         expect(composite.style.visibility).toBe('hidden');
-        expect(highlight.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
-        expect(outline.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
-        expect(composite.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
+        expect(highlight.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
+        expect(outline.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
+        expect(composite.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
         expect(snapshots.every(snapshot => snapshot.style.visibility === '')).toBe(true);
 
         release?.();
@@ -340,11 +338,11 @@ describe('pdfLayerVisualSnapshot', () => {
         expect(highlight.style.visibility).toBe('');
         expect(outline.style.visibility).toBe('');
         expect(composite.style.visibility).toBe('');
-        expect(canvasHost.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
-        expect(highlight.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
-        expect(outline.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
-        expect(composite.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
-        expect(canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
+        expect(canvasHost.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(false);
+        expect(highlight.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
+        expect(outline.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
+        expect(composite.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
+        expect(canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(0);
     });
 
     it('allows snapshot releases to be called more than once', () => {
@@ -361,9 +359,9 @@ describe('pdfLayerVisualSnapshot', () => {
         release?.();
 
         expect(highlight.style.visibility).toBe('');
-        expect(highlight.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
-        expect(canvasHost.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
-        expect(canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
+        expect(highlight.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
+        expect(canvasHost.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(false);
+        expect(canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(0);
     });
 
     it('does not clone hidden composite source highlights', () => {
@@ -375,7 +373,7 @@ describe('pdfLayerVisualSnapshot', () => {
         canvasHost.append(hiddenCompositeSource, visibleComposite);
 
         const release = preservePdfDrawLayerVisualSnapshot(asElement(canvasHost));
-        const snapshots = canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`);
+        const snapshots = canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`);
 
         expect(release).toBeTypeOf('function');
         expect(snapshots).toHaveLength(1);
@@ -420,7 +418,7 @@ describe('pdfLayerVisualSnapshot', () => {
         canvasHost.append(highlight);
 
         const release = preservePdfDrawLayerVisualSnapshot(asElement(canvasHost));
-        const snapshot = canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)[0];
+        const snapshot = canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)[0];
         const snapshotPath = snapshot?.querySelector('path');
         const snapshotMask = snapshot?.querySelector('mask');
         const snapshotUse = snapshot?.querySelector('use');
@@ -437,18 +435,18 @@ describe('pdfLayerVisualSnapshot', () => {
         canvasHost.classList.add('page_canvas', 'canvasWrapper');
         const liveHighlight = createSvg('highlight');
         const oldSnapshot = createSvg('highlight');
-        oldSnapshot.classList.add(PDF_LAYER_VISUAL_SNAPSHOT_CLASS);
+        oldSnapshot.classList.add(pdfLayerVisualSnapshotClass);
         canvasHost.append(liveHighlight, oldSnapshot);
 
         const release = preservePdfDrawLayerVisualSnapshot(asElement(canvasHost));
-        const snapshots = canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`);
+        const snapshots = canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`);
 
         expect(release).toBeTypeOf('function');
         expect(snapshots).toHaveLength(2);
 
         release?.();
 
-        expect(canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(1);
+        expect(canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(1);
     });
 
     it('does not stack page handoff snapshots while one is already active', () => {
@@ -456,7 +454,7 @@ describe('pdfLayerVisualSnapshot', () => {
         const canvasHost = new FakeElement();
         canvasHost.classList.add('page_canvas', 'canvasWrapper');
         const oldSnapshot = createSvg('highlight');
-        oldSnapshot.classList.add(PDF_LAYER_VISUAL_SNAPSHOT_CLASS);
+        oldSnapshot.classList.add(pdfLayerVisualSnapshotClass);
         const liveHighlight = createSvg('highlight');
         canvasHost.append(oldSnapshot, liveHighlight);
         page.append(canvasHost);
@@ -467,7 +465,7 @@ describe('pdfLayerVisualSnapshot', () => {
         );
 
         expect(release).toBeNull();
-        expect(canvasHost.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(1);
+        expect(canvasHost.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(1);
     });
 
     it('preserves annotation, editor, and draw-layer visuals for a page handoff', () => {
@@ -493,11 +491,11 @@ describe('pdfLayerVisualSnapshot', () => {
         );
 
         expect(release).toBeTypeOf('function');
-        expect(page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(3);
+        expect(page.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(3);
 
         release?.();
 
-        expect(page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
+        expect(page.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(0);
     });
 
     it('uses draw-layer snapshots instead of cloning text-markup editor rectangles', () => {
@@ -525,23 +523,23 @@ describe('pdfLayerVisualSnapshot', () => {
             asElement(page),
             asElement(editorLayer),
         );
-        const snapshots = page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`);
+        const snapshots = page.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`);
 
         expect(release).toBeTypeOf('function');
         expect(snapshots).toHaveLength(1);
         expect(snapshots[0]?.tagName).toBe('SVG');
-        expect(annotationLayer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(true);
-        expect(editorLayer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(true);
-        expect(editorReplica.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
-        expect(highlightEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
+        expect(annotationLayer.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(true);
+        expect(editorLayer.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(true);
+        expect(editorReplica.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
+        expect(highlightEditor.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
 
         release?.();
 
-        expect(page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
-        expect(annotationLayer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
-        expect(editorLayer.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_ACTIVE_CLASS)).toBe(false);
-        expect(editorReplica.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
-        expect(highlightEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
+        expect(page.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(0);
+        expect(annotationLayer.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(false);
+        expect(editorLayer.classList.contains(pdfLayerVisualSnapshotActiveClass)).toBe(false);
+        expect(editorReplica.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
+        expect(highlightEditor.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
     });
 
     it('keeps subtype editor presentations in page handoff snapshots', () => {
@@ -563,18 +561,18 @@ describe('pdfLayerVisualSnapshot', () => {
             asElement(page),
             asElement(editorLayer),
         );
-        const snapshots = page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`);
+        const snapshots = page.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`);
         const editorSnapshot = snapshots.find(snapshot => snapshot.tagName !== 'SVG');
 
         expect(release).toBeTypeOf('function');
         expect(snapshots).toHaveLength(2);
         expect(editorSnapshot?.querySelector('.pdf-markup-subtype-underline')).not.toBeNull();
-        expect(underlineEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(true);
+        expect(underlineEditor.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(true);
 
         release?.();
 
-        expect(page.querySelectorAll(`.${PDF_LAYER_VISUAL_SNAPSHOT_CLASS}`)).toHaveLength(0);
-        expect(underlineEditor.classList.contains(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS)).toBe(false);
+        expect(page.querySelectorAll(`.${pdfLayerVisualSnapshotClass}`)).toHaveLength(0);
+        expect(underlineEditor.classList.contains(pdfLayerVisualSnapshotSourceClass)).toBe(false);
     });
 
     it('detects live page annotation visuals but ignores snapshot-only content', () => {
@@ -588,12 +586,12 @@ describe('pdfLayerVisualSnapshot', () => {
 
         expect(hasPdfPageAnnotationVisualContent(asElement(page))).toBe(true);
 
-        highlight.classList.add(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS);
+        highlight.classList.add(pdfLayerVisualSnapshotSourceClass);
 
         expect(hasPdfPageAnnotationVisualContent(asElement(page))).toBe(false);
 
-        highlight.classList.remove(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS);
-        highlight.classList.add(PDF_LAYER_VISUAL_SNAPSHOT_CLASS);
+        highlight.classList.remove(pdfLayerVisualSnapshotSourceClass);
+        highlight.classList.add(pdfLayerVisualSnapshotClass);
 
         expect(hasPdfPageAnnotationVisualContent(asElement(page))).toBe(false);
     });
@@ -603,7 +601,7 @@ describe('pdfLayerVisualSnapshot', () => {
         const annotationLayer = new FakeElement();
         annotationLayer.classList.add('annotation-layer');
         const sourceWrapper = new FakeElement();
-        sourceWrapper.classList.add(PDF_LAYER_VISUAL_SNAPSHOT_SOURCE_CLASS);
+        sourceWrapper.classList.add(pdfLayerVisualSnapshotSourceClass);
         const highlight = new FakeElement();
         highlight.classList.add('highlightAnnotation');
         sourceWrapper.append(highlight);

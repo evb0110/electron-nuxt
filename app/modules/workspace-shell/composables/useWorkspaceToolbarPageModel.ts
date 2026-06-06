@@ -1,12 +1,11 @@
 import type { MaybeRefOrGetter } from 'vue';
+import { workspaceToolbarPageNavigationCommitDelayMs } from '@app/modules/workspace-shell/toolbar/workspaceToolbarPageNavigationCommitDelayMs';
 
 interface IUseWorkspaceToolbarPageModelOptions {
     sourcePage: MaybeRefOrGetter<number>;
     updateCurrentPage: (page: number) => void;
     goToPage: (page: number) => void;
 }
-
-export const WORKSPACE_TOOLBAR_PAGE_NAVIGATION_COMMIT_DELAY_MS = 80;
 
 export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageModelOptions) {
     const optimisticPage = ref(toValue(options.sourcePage));
@@ -47,7 +46,7 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
                 return;
             }
             optimisticPage.value = toValue(options.sourcePage);
-        }, WORKSPACE_TOOLBAR_PAGE_NAVIGATION_COMMIT_DELAY_MS);
+        }, workspaceToolbarPageNavigationCommitDelayMs);
     }
 
     onScopeDispose(() => {

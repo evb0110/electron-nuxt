@@ -15,10 +15,8 @@ import {
     resolve,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
-import {
-    type IElectronE2ESession,
-    startElectronE2ESession,
-} from '@tests/e2e/electron/helpers/sessionHarness';
+import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 
 const TARGET_PDF_PATH = process.env.EVB_E2E_NAVIGATION_PDF_PATH

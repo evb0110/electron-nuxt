@@ -15,7 +15,7 @@ import type {
     ICreateTextMarkupFromTextResult,
 } from '@app/composables/pdf/annotations/useAnnotationHighlight';
 import type { ICropSelectionResult } from '@app/types/crop';
-import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
+import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     IPdfPageMetric,
     IScrollSnapshot,

@@ -24,8 +24,10 @@ import { createBrowserPageOpsCapability } from '@app/platform/browser-api/docume
 import {
     DEFAULT_LOCALE,
     LOCALE_MESSAGES,
-    type TLocale,
-    type TTranslateFn,
+} from '@i18n-app';
+import type {
+    TLocale,
+    TTranslateFn,
 } from '@i18n-app';
 import {
     formatTranslationLeaf,

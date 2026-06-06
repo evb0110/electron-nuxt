@@ -2,7 +2,7 @@ import { uniq } from 'es-toolkit/array';
 import type {
     IOcrSettings,
     TOcrPageRange,
-} from '@app/utils/ocr/languages';
+} from '@app/utils/ocr/ocrTypes';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,

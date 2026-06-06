@@ -21,12 +21,12 @@
 </template>
 
 <script setup lang="ts">
-import {
-    type IRegionSelectionOverlayBaseProps,
-    type IRegionSelectionOverlayEmits,
-    regionRectStyle,
-    useEmittedPdfRegionSelectionOverlay,
+import type {
+    IRegionSelectionOverlayBaseProps,
+    IRegionSelectionOverlayEmits,
 } from '@app/composables/pdf/usePdfRegionSelectionOverlay';
+import { useEmittedPdfRegionSelectionOverlay } from '@app/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { regionRectStyle } from '@app/utils/pdf-viewer/region-selection/regionRectStyle';
 
 const props = defineProps<IRegionSelectionOverlayBaseProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();

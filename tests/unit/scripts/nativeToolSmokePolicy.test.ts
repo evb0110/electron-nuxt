@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
+
 const {
     assertMacPackagedToolSmoke,
     getMacPackagedToolSmokePolicy,

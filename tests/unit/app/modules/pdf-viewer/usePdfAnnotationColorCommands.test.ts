@@ -23,10 +23,8 @@ const {
     getStoredAnnotationEditor: vi.fn(() => null),
 }));
 
-vi.mock('@app/composables/pdf/annotations/annotationDomRemoval', () => ({
-    applyAnnotationCommentTextMarkupColor,
-    applyAnnotationCommentTextMarkupVisualOverlay,
-}));
+vi.mock('@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor', () => ({applyAnnotationCommentTextMarkupColor}));
+vi.mock('@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay', () => ({applyAnnotationCommentTextMarkupVisualOverlay}));
 
 vi.mock('@app/services/pdfjs/annotationEditorMutation', () => ({ getStoredAnnotationEditor }));
 

@@ -8,11 +8,9 @@ import type {
     TEditorLayoutNode,
 } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import {
-    collectLayoutPaneOrder,
-    collectMergeTabOrder,
-    shouldCloseSourceWindowAfterTransfer,
-} from '@app/modules/workspace-shell/composables/windowTabTransferOrchestration';
+import { collectLayoutPaneOrder } from '@app/modules/workspace-shell/window-tabs/collectLayoutPaneOrder';
+import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
+import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
 
 function createTab(id: string): ITab {
     return {

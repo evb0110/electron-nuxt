@@ -1,6 +1,6 @@
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { Ref } from 'vue';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 
 interface IWorkspaceSplitCacheEntry {
     id: string;

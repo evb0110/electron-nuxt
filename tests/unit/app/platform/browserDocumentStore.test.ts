@@ -6,8 +6,8 @@ import {
     vi,
 } from 'vitest';
 import {
-    BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
     BROWSER_MAX_FULL_READ_BYTES,
+    BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
     BrowserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import {

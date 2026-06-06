@@ -1,5 +1,6 @@
 import { useTimeoutFn } from '@vueuse/core';
 import { getErrorMessage } from '@app/utils/error';
+
 interface IUsePlatformHydratedStateOptions<T> {
     key: string;
     initialValue: () => T;

@@ -3,15 +3,9 @@ import type {
     Ref,
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
-
-interface IWorkspaceHasPdfState {
-    hasPdf: boolean | { value: boolean };
-    getToolbarSnapshot?: () => {
-        canSave: boolean;
-        canRepairSave?: boolean;
-    };
-}
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import type { IWorkspaceHasPdfState } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 
 export interface IWorkspaceShellState {
     activeTab: ComputedRef<ITab | null>;
@@ -27,13 +21,6 @@ export interface IUseWorkspaceShellStateOptions {
     activeWorkspace: Readonly<Ref<IWorkspaceHasPdfState | null | undefined>>;
     activeTabId: Ref<string | null>;
     tabs: Ref<ITab[]>;
-}
-
-export function workspaceHasPdf(workspace: IWorkspaceHasPdfState | null | undefined) {
-    if (!workspace) {
-        return false;
-    }
-    return typeof workspace.hasPdf === 'boolean' ? workspace.hasPdf : workspace.hasPdf.value;
 }
 
 export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions): IWorkspaceShellState => {

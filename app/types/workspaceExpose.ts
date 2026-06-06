@@ -6,8 +6,8 @@ import type { TSplitPayload } from '@contracts/windowTabs';
 import type {
     IRecentFile,
     TFitMode,
-    TZoomMode,
     TPdfViewMode,
+    TZoomMode,
 } from '@contracts/shared';
 
 export interface IWorkspaceToolbarSnapshot {

@@ -1,8 +1,8 @@
-import {
-    READER_COMMANDS,
-    type IReaderCommandSurface,
-    type TReaderCommandId,
-    type TReaderCommandMap,
+import { READER_COMMANDS } from '@contracts/readerCommands';
+import type {
+    IReaderCommandSurface,
+    TReaderCommandId,
+    TReaderCommandMap,
 } from '@contracts/readerCommands';
 
 export type {

@@ -11,10 +11,10 @@ import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/compo
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/composables/useWorkspaceInteractionControls';
-import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspaceFileLifecycleController';
-import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspaceSidebarSearchSyncController';
+import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
+import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarSearchSyncController';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/composables/workspaceAnnotationCommentMerge';
+import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/annotations/mergeWorkspaceAnnotationComments';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -24,13 +24,13 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspaceViewState';
+import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
-import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
+import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;

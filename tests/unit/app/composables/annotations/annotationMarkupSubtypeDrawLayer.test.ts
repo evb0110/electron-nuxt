@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createAnnotationMarkupSubtypeDrawLayer } from '@app/composables/pdf/annotations/annotationMarkupSubtypeDrawLayer';
+import { createAnnotationMarkupSubtypeDrawLayer } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 
 interface IFakeRect {
     height: number;

@@ -5,8 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
-
-import { toMarkerRectFromEditor } from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));

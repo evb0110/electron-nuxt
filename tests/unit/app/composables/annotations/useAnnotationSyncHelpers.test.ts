@@ -5,7 +5,16 @@ import {
     vi,
 } from 'vitest';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import * as annotationSyncHelpers from '@app/composables/pdf/annotations/annotationSyncHelpers';
+import { buildPdfAnnotationCommentSummary } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
+import { buildPopupIndex } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/buildPopupIndex';
+import { collectPagePdfSnapshotEntries } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
+import { loadPdfPageAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
+import { pickLatestAnnotationTimestamp } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
+import { resolveCombinedAnnotationText } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
+import { resolveEditorMarkerRect } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
+import { resolveMarkupSubtypeOverrideRegistration } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
+import { safeReadEditorData } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/safeReadEditorData';
+import { tryExtractPdfLinkAnnotation } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/tryExtractPdfLinkAnnotation';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     DISABLE: -1,
@@ -49,7 +58,18 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     error: vi.fn(),
 }}));
 
-const __test__ = annotationSyncHelpers;
+const __test__ = {
+    buildPdfAnnotationCommentSummary,
+    buildPopupIndex,
+    collectPagePdfSnapshotEntries,
+    loadPdfPageAnnotations,
+    pickLatestAnnotationTimestamp,
+    resolveCombinedAnnotationText,
+    resolveEditorMarkerRect,
+    resolveMarkupSubtypeOverrideRegistration,
+    safeReadEditorData,
+    tryExtractPdfLinkAnnotation,
+};
 
 const computeStableKey = vi.fn((params: {
     pageIndex: number;

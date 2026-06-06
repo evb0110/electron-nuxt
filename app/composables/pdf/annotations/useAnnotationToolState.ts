@@ -16,21 +16,17 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
-import {
-    isAuthoringAnnotationTool,
-    isSelectionMarkupTool,
-    shouldForceTextMarkup,
-    TOOL_TO_MARKUP_SUBTYPE,
-} from '@app/composables/pdf/annotations/annotationRules';
+import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
+import { isSelectionMarkupTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionMarkupTool';
+import { shouldForceTextMarkup } from '@app/utils/pdf-viewer/annotations/annotation-rules/shouldForceTextMarkup';
+import { toolToMarkupSubtype } from '@app/utils/pdf-viewer/annotations/annotation-rules/toolToMarkupSubtype';
 import type {
     IPdfjsEditor,
     IPdfjsHighlightBox,
 } from '@app/types/pdfjs';
-import {
-    errorToLogText,
-    toCssColor,
-} from '@app/composables/pdf/annotationCssUtils';
+import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
+import { toCssColor } from '@app/utils/pdf-viewer/annotation-css-utils/toCssColor';
 import {
     clearSelectedEditorState,
     getActiveEditor,
@@ -40,15 +36,13 @@ import {
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
-} from '@app/composables/pdf/pdfSerializationRefs';
+} from '@app/utils/pdfAnnotationRefs';
 import { createPdfHighlightEditorClassPatch } from '@app/services/pdfjs/pdfHighlightEditorClassPatch';
-import {
-    createAnnotationMarkupSubtypeDrawLayer,
-    findClosestHighlightDrawLayerSvg,
-    resolveEditorHighlightClipPathId,
-} from '@app/composables/pdf/annotations/annotationMarkupSubtypeDrawLayer';
-import { createAnnotationEditorPresentation } from '@app/composables/pdf/annotations/annotationEditorPresentation';
-import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
+import { createAnnotationMarkupSubtypeDrawLayer } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
+import { findClosestHighlightDrawLayerSvg } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
+import { resolveEditorHighlightClipPathId } from '@app/utils/pdf-viewer/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
+import { createAnnotationEditorPresentation } from '@app/utils/pdf-viewer/annotations/annotation-editor-presentation/createAnnotationEditorPresentation';
+import { toOpaqueHighlightDisplayColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -971,7 +965,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     return {
         pendingAnnotationTool,
         pendingAnnotationSettings,
-        TOOL_TO_MARKUP_SUBTYPE,
+        toolToMarkupSubtype,
         isSelectionMarkupTool,
         shouldForceTextMarkup,
         getAnnotationMode,

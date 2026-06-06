@@ -12,12 +12,10 @@ import type {
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import {
-    applyAnnotationCommentTextMarkupColor,
-    applyAnnotationCommentTextMarkupVisualOverlay,
-} from '@app/composables/pdf/annotations/annotationDomRemoval';
+import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
+import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay';
 import { getStoredAnnotationEditor } from '@app/services/pdfjs/annotationEditorMutation';
-import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
+import { toOpaqueHighlightDisplayColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayColor';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;

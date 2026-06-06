@@ -8,7 +8,7 @@ import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabsMenuBindings';
+import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { cast } from '@tests/helpers/cast';
 
 async function flushMicrotasks() {

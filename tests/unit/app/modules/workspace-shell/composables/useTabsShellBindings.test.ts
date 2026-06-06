@@ -6,8 +6,8 @@ import {
     vi,
 } from 'vitest';
 import {
-    createSSRApp,
     createRenderer,
+    createSSRApp,
     defineComponent,
     nextTick,
     ref,
@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
 vi.mock('@app/utils/platformShortcuts', () => ({shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators}));
-vi.mock('@app/modules/workspace-shell/composables/tabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
+vi.mock('@app/modules/workspace-shell/menu/registerTabsMenuBindings', () => ({registerTabsMenuBindings: mocks.registerTabsMenuBindings}));
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: mocks.getPlatformAPI,
     shouldPreferDesktopPlatform: mocks.shouldPreferDesktopPlatform,

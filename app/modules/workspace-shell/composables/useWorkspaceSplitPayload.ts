@@ -6,7 +6,7 @@ import type {
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';

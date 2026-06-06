@@ -1,7 +1,3 @@
-/**
- * Browser-safe logging utility
- * Logs to console and can be easily grepped in browser devtools
- */
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import type { IRendererLogEntry } from '@contracts/platformApi';
 

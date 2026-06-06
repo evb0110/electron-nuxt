@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { findAnnotationSummaryFromPoint } from '@app/composables/pdf/annotationCommentCrudHelpers';
+import { findAnnotationSummaryFromPoint } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 interface IFakeRect {

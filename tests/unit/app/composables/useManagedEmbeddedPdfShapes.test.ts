@@ -11,12 +11,11 @@ import {
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
-import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import type * as PdfEmbeddedShapeAnnotationsModule from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
 
-vi.mock('@app/composables/pdf/pdfEmbeddedShapeAnnotations', async (importOriginal) => {
-    const actual = await importOriginal<typeof PdfEmbeddedShapeAnnotationsModule>();
+vi.mock('@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations', async (importOriginal) => {
+    const actual = await importOriginal<{importEmbeddedShapeAnnotations: typeof importEmbeddedShapeAnnotations;}>();
     return {
         ...actual,
         importEmbeddedShapeAnnotations: vi.fn(),

@@ -1,15 +1,11 @@
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
-import {
-    formatRenderError,
-    isRenderingCancelledError,
-} from '@app/composables/pdf/pdfPageRenderPipeline';
-import {
-    isPageRenderTimeoutError,
-    type IPageRenderTimeoutError,
-} from '@app/composables/pdf/pdfPageRenderTimeout';
-import { RENDERED_PAGE_CONTAINER_CLASS } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererPageDom';
+import { getPageContainer } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/getPageContainer';
+import { formatRenderError } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/formatRenderError';
+import { isRenderingCancelledError } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/isRenderingCancelledError';
+import { isPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/isPageRenderTimeoutError';
+import type { IPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { renderedPageContainerClass } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/renderedPageContainerClass';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -191,7 +187,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         releasePageResources(pageNumber, pdfPage);
         renderedPages.add(pageNumber);
         staleRenderedPages.delete(pageNumber);
-        pageContainer.classList.add(RENDERED_PAGE_CONTAINER_CLASS);
+        pageContainer.classList.add(renderedPageContainerClass);
         logPdfRenderTrace('renderer-finalize-page', {
             pageNumber,
             version,

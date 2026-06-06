@@ -16,14 +16,12 @@ import type {
     IPdfjsEditor,
     IPdfjsHighlightBox,
 } from '@app/types/pdfjs';
-import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
-import {
-    getCommentText,
-    toMarkerRectFromEditor,
-} from '@app/composables/pdf/pdfAnnotationEditorUtils';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
-import { clamp01 } from '@app/composables/pdf/annotationGeometry';
-import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
+import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
+import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
+import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
+import { clamp01 } from '@app/utils/pdf-viewer/annotation-geometry/clamp01';
+import { errorToLogText } from '@app/utils/pdf-viewer/annotation-css-utils/errorToLogText';
 import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -38,16 +36,12 @@ import {
     isPdfjsEditorWithEditComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { replaceOverlappingSelectionMarkup } from '@app/services/pdfjs/highlightMarkupRewriter';
-import {
-    createPdfPagePointResolver,
-    markerRectFromPoint,
-} from '@app/composables/pdf/annotations/pdfPagePointResolver';
-import type { INotePlacementDiagnosticsContext } from '@app/composables/pdf/annotations/pdfPagePointResolver';
-import {
-    buildRangeFromPagePoint,
-    buildRangeFromPageText,
-} from '@app/composables/pdf/annotations/pdfTextAnchorResolver';
-import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/composables/pdf/annotations/annotationDomRemoval';
+import { createPdfPagePointResolver } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
+import { markerRectFromPoint } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/markerRectFromPoint';
+import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
+import { buildRangeFromPagePoint } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
+import { buildRangeFromPageText } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
+import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
 
 interface IHighlightIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -55,7 +49,7 @@ interface IHighlightIdentity {
 }
 
 interface IHighlightMarkupSubtype {
-    TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
+    toolToMarkupSubtype: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
     isSelectionMarkupTool: (tool: TAnnotationTool) => boolean;
     setEditorMarkupSubtypeOverride: (
         e: IPdfjsEditor,
@@ -436,7 +430,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         const previousMode = uiManager.getMode();
         const markupSubtypeOverride = selectionOptions.markupSubtype
-            ?? markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value]
+            ?? markupSubtype.toolToMarkupSubtype[annotationTool.value]
             ?? null;
         let createdAnnotation = false;
         let deferredNoteSummary: IAnnotationCommentSummary | null = null;

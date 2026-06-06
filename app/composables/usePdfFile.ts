@@ -26,22 +26,18 @@ import {
     shouldRefreshWorkingCopyAfterSaveAs,
 } from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
-import {
-    appendHistoryEntry,
-    type IByteHistoryEntry,
-    type IPathHistoryEntry,
-    type TPdfHistoryEntry,
-} from '@app/composables/pdfFileHistory';
-import {
-    readPdfConformanceProfile,
-    shouldForcePdfSaveAs,
-} from '@app/composables/pdfFileConformance';
-import {
-    createFailedPdfPersistResult,
-    createPdfPersistResult,
-    savePdfBytesAs,
-    savePdfBytesToWorkingCopy,
-} from '@app/composables/pdfFilePersistence';
+import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
+import type {
+    IByteHistoryEntry,
+    IPathHistoryEntry,
+    TPdfHistoryEntry,
+} from '@app/services/pdf-file/pdfHistoryEntryTypes';
+import { readPdfConformanceProfile } from '@app/services/pdf-file/readPdfConformanceProfile';
+import { shouldForcePdfSaveAs } from '@app/services/pdf-file/shouldForcePdfSaveAs';
+import { createFailedPdfPersistResult } from '@app/services/pdf-file/createFailedPdfPersistResult';
+import { createPdfPersistResult } from '@app/services/pdf-file/createPdfPersistResult';
+import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
+import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
 
 interface IOpenBatchProgressState {
     processed: number;

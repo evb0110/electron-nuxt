@@ -1,5 +1,5 @@
 import UTIF from 'utif';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     range,
     sumBy,
@@ -86,7 +86,6 @@ function mergeUint8Arrays(parts: Uint8Array[]) {
 
     return output;
 }
-
 
 async function withRenderedPdfPageCanvas<T>(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,

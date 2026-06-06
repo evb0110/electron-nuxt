@@ -25,10 +25,8 @@ const electronApiMock = vi.hoisted(() => ({documents: {
 vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => electronApiMock.documents }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
-vi.mock('@app/utils/ocr/processing', () => ({
-    loadOcrText: loadOcrTextMock,
-    extractPdfText: extractPdfTextMock,
-}));
+vi.mock('@app/utils/ocr/loadOcrText', () => ({ loadOcrText: loadOcrTextMock }));
+vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
 vi.mock('@app/utils/docx', () => ({createDocxFromTextAsync: createDocxFromTextAsyncMock}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 

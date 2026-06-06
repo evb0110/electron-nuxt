@@ -5,12 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { buildCanvasCapturePlan } from '@app/composables/pdf/pdfRegionCapture';
-import {
-    intersectClientRects,
-    normalizeClientRect,
-} from '@app/composables/pdf/pdfRegionGeometry';
-import { writePngBlobToClipboard } from '@app/composables/pdf/pdfRegionClipboard';
+import { buildCanvasCapturePlan } from '@app/utils/pdf-viewer/pdf-region-capture/buildCanvasCapturePlan';
+import { intersectClientRects } from '@app/utils/pdf-viewer/pdf-region-geometry/intersectClientRects';
+import { normalizeClientRect } from '@app/utils/pdf-viewer/pdf-region-geometry/normalizeClientRect';
+import { writePngBlobToClipboard } from '@app/utils/pdf-viewer/pdf-region-clipboard/writePngBlobToClipboard';
 
 describe('pdfRegionSnip geometry', () => {
     it('normalizes rectangle regardless of drag direction', () => {

@@ -1,8 +1,8 @@
-import {
-    PDFDocument,
-    type PageBoundingBox,
-    type PDFEmbeddedPage,
-    type PDFPage,
+import { PDFDocument } from 'pdf-lib';
+import type {
+    PDFEmbeddedPage,
+    PDFPage,
+    PageBoundingBox,
 } from 'pdf-lib';
 import {
     compact,

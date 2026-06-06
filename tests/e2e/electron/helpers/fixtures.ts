@@ -1,9 +1,9 @@
 import {
-    existsSync,
     copyFileSync,
+    existsSync,
     mkdirSync,
-    readdirSync,
     readFileSync,
+    readdirSync,
     rmSync,
     statSync,
     writeFileSync,

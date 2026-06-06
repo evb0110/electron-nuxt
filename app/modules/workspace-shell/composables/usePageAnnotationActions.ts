@@ -9,7 +9,7 @@ import { useContextMenuPosition } from '@app/composables/useContextMenuPosition'
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -19,24 +19,20 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
-import { getShapeRect } from '@app/composables/pdf/pdfShapeResize';
+import { getShapeRect } from '@app/utils/pdf-viewer/pdf-shape-resize/getShapeRect';
 import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import {
-    commentsShareDeleteTarget as doCommentsShareDeleteTarget,
-    getAnnotationPageNumber,
-    isFreshEditorNoteCreationForUndo,
-    isUndoableFreshEmptyEditorNote,
-    withOpenedAnnotationNoteCreationTimestamp,
-} from '@app/modules/workspace-shell/composables/pageAnnotationNoteRules';
-import { resolveAnnotationCommentTextMarkupColor } from '@app/composables/pdf/annotations/annotationDomRemoval';
-import {
-    pickPageAnnotationImageFile,
-    readPageAnnotationImageFileFromClipboard,
-} from '@app/modules/workspace-shell/composables/pageAnnotationImageFiles';
-import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/composables/pageAnnotationShapeDefaults';
+import { commentsShareDeleteTarget as doCommentsShareDeleteTarget } from '@app/modules/workspace-shell/annotations/commentsShareDeleteTarget';
+import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotations/getAnnotationPageNumber';
+import { isFreshEditorNoteCreationForUndo } from '@app/modules/workspace-shell/annotations/isFreshEditorNoteCreationForUndo';
+import { isUndoableFreshEmptyEditorNote } from '@app/modules/workspace-shell/annotations/isUndoableFreshEmptyEditorNote';
+import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspace-shell/annotations/withOpenedAnnotationNoteCreationTimestamp';
+import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
+import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
+import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
+import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
 
 type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     'cancelCommentPlacement'

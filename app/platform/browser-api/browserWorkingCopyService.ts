@@ -15,10 +15,8 @@ import {
     isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
-import {
-    createCombinedPdfFromPaths,
-    type IBrowserBatchOpenProgressOptions,
-} from '@app/platform/browser-api/browserCombineService';
+import { createCombinedPdfFromPaths } from '@app/platform/browser-api/browserCombineService';
+import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/browserCombineService';
 import { containsPdfEncryptMarker } from '@app/platform/browser-api/browserPdfValidation';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import { stripPdfEncryption } from '@app/utils/pdfDecrypt';

@@ -4,17 +4,17 @@ import {
     it,
 } from 'vitest';
 import {
+    buildElectronAutomationArgs,
     buildElectronExecutablePath,
+    buildHeadlessAutomationEnv,
     buildMacOSAutomationAppEntryPaths,
     buildMacOSHiddenAppBundlePaths,
-    buildElectronAutomationArgs,
-    buildHeadlessAutomationEnv,
     buildNuxtDevServerEnv,
     resolveAutomationWindowEnv,
     sanitizeElectronLaunchEnv,
     shouldBootstrapInteractiveDevProfile,
-    shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
+    shouldUseMacOSHiddenAppLauncher,
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { isReusableNuxtResponse } from '@scripts/electron-run/electronRunNuxtServerResponse';
 import {

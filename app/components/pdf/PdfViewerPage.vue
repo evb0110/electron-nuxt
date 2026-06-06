@@ -56,8 +56,8 @@
 import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
 import PdfImagePlacementOverlay from '@app/components/pdf/PdfImagePlacementOverlay.vue';
 import PdfShapeOverlay from '@app/components/pdf/PdfShapeOverlay.vue';
-import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
-import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonInsets';
+import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonContext';
 import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
 import type {
     IShapePoint,

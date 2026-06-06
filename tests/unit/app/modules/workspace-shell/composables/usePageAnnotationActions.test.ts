@@ -35,8 +35,8 @@ const {
     resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null),
 }));
 
-vi.mock('@app/composables/pdf/pdfSerializationWorkerClient', () => ({deleteEmbeddedAnnotationOffThread}));
-vi.mock('@app/composables/pdf/annotations/annotationDomRemoval', () => ({resolveAnnotationCommentTextMarkupColor}));
+vi.mock('@app/utils/pdf-viewer/pdfSerializationWorkerClient', () => ({deleteEmbeddedAnnotationOffThread}));
+vi.mock('@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
 
 function createComment(stableKey: string): IAnnotationCommentSummary {
     return {

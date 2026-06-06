@@ -80,7 +80,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { isAuthoringAnnotationTool } from '@app/composables/pdf/annotations/annotationRules';
+import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
 import PdfAnnotationCommentsList from '@app/components/pdf/PdfAnnotationCommentsList.vue';
 import PdfAnnotationStyleEditor from '@app/components/pdf/PdfAnnotationStyleEditor.vue';
 import PdfAnnotationToolbar from '@app/components/pdf/PdfAnnotationToolbar.vue';

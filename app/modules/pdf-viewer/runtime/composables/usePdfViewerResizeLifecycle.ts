@@ -4,16 +4,14 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    captureScrollSnapshot,
-    restoreScrollFromSnapshot,
-} from '@app/composables/pdf/pdfPageRenderPipeline';
+import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
+import { restoreScrollFromSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot';
 import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
     summarizeViewerMetrics,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resizeAnchor';
+import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer/runtime/resize-anchor/resolveResizeAnchorPage';
 
 type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 

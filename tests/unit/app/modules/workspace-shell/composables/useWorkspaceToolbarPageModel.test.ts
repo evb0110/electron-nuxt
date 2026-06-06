@@ -9,10 +9,8 @@ import {
     ref,
 } from 'vue';
 import { stepBySpread } from '@app/utils/pdfViewMode';
-import {
-    useWorkspaceToolbarPageModel,
-    WORKSPACE_TOOLBAR_PAGE_NAVIGATION_COMMIT_DELAY_MS,
-} from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
+import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
+import { workspaceToolbarPageNavigationCommitDelayMs } from '@app/modules/workspace-shell/toolbar/workspaceToolbarPageNavigationCommitDelayMs';
 
 describe('useWorkspaceToolbarPageModel', () => {
     it('advances rapid next-page clicks optimistically while coalescing viewer navigation', () => {
@@ -46,7 +44,7 @@ describe('useWorkspaceToolbarPageModel', () => {
             expect(sourcePage.value).toBe(1);
             expect(model.currentPage.value).toBe(4);
 
-            vi.advanceTimersByTime(WORKSPACE_TOOLBAR_PAGE_NAVIGATION_COMMIT_DELAY_MS - 1);
+            vi.advanceTimersByTime(workspaceToolbarPageNavigationCommitDelayMs - 1);
             expect(goToPage).toHaveBeenCalledTimes(1);
             expect(updateCurrentPage).toHaveBeenCalledTimes(1);
 

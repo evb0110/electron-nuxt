@@ -111,7 +111,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
-import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+import { pdfOutlineTreeKey } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeKey';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/components/pdf/PdfOutlineContextMenu.vue';
 import PdfOutlineItem from '@app/components/pdf/PdfOutlineItem.vue';
@@ -340,7 +340,7 @@ function removeBookmark(id: string) {
     editing.removeBookmark(id);
 }
 
-provide(PDF_OUTLINE_TREE_KEY, {
+provide(pdfOutlineTreeKey, {
     expandedBookmarkIds,
     activeItemId,
     editingItemId: editing.editingItemId,

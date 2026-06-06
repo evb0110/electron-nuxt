@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { toShapeAnnotationCommentSummary } from '@app/composables/pdf/annotations/shapeAnnotationComments';
+import { toShapeAnnotationCommentSummary } from '@app/utils/pdf-viewer/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 
 function expectMarkerRect(
     markerRect: ReturnType<typeof toShapeAnnotationCommentSummary>['markerRect'],

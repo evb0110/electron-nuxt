@@ -6,8 +6,8 @@ import {
     vi,
 } from 'vitest';
 import {
-    degrees,
     PDFDocument,
+    degrees,
 } from 'pdf-lib';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));

@@ -1,11 +1,9 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    WHEEL_DETAIL_LOG_THROTTLE_MS,
-    WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-    WHEEL_ZOOM_GESTURE_GRACE_MS,
-    WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom.constants';
-import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfViewerZoomTypes';
+import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
+import { wheelZoomExpectedScrollWindowMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomExpectedScrollWindowMs';
+import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
+import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
+import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 interface IUsePdfViewerZoomInteractionLockOptions extends IZoomVirtualizationLogOptions {
     getActiveSessionId: () => number | null;
@@ -55,7 +53,7 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         BrowserLogger.warnThrottled(
             'pdf-zoom-debug',
             'virtualization-freeze-capture',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
+            wheelDetailLogThrottleMs,
             `[zoom-virtualization] capture reason=${reason}`,
             {
                 reason,
@@ -78,7 +76,7 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         BrowserLogger.warnThrottled(
             'pdf-zoom-debug',
             'virtualization-freeze-release',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
+            wheelDetailLogThrottleMs,
             `[zoom-virtualization] release reason=${reason}`,
             {
                 reason,
@@ -150,9 +148,9 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
     function setZoomRerenderBusy(busy: boolean) {
         isZoomRerenderBusyFromCore = busy;
         zoomRerenderBusyLockUntilMs = Date.now()
-            + (busy ? WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS : WHEEL_ZOOM_GESTURE_GRACE_MS);
+            + (busy ? wheelZoomSessionLockExtensionMs : wheelZoomGestureGraceMs);
         if (busy) {
-            markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
+            markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
             captureZoomVirtualizationFreeze(
                 getActiveSessionId(),
                 'core-rerender-busy',

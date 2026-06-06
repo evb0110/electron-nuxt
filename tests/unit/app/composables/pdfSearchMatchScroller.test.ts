@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatchScroller';
+import { createPdfSearchMatchScroller } from '@app/utils/pdf-viewer/pdf-search-match-scroller/createPdfSearchMatchScroller';
 import { cast } from '@tests/helpers/cast';
 
 function createContainerWithMountedPage(pageNumber: number) {

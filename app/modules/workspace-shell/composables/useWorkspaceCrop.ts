@@ -6,7 +6,7 @@ import type {
 import type { TDocumentRef } from '@contracts/platformApi';
 import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { getPageOpsCapability } from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
 

@@ -3,10 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    createTabViewSessionState,
-    resolveTabLifecycleStates,
-} from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 

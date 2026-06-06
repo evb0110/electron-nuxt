@@ -1,15 +1,15 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     TFitMode,
-    TZoomMode,
     TPdfViewMode,
+    TZoomMode,
 } from '@contracts/shared';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
-} from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 
 export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);

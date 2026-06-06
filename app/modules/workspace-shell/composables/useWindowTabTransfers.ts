@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type {
-    IWindowTabIncomingTransfer,
     ITransferredTabState,
+    IWindowTabIncomingTransfer,
     TSplitPayload,
     TWindowTabTransferTarget,
 } from '@contracts/windowTabs';
@@ -9,12 +9,10 @@ import type { TEditorLayoutNode } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    collectMergeTabOrder,
-    shouldCloseSourceWindowAfterTransfer,
-} from '@app/modules/workspace-shell/composables/windowTabTransferOrchestration';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
+import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
+import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 

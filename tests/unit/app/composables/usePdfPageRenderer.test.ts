@@ -3,10 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    collectPreservedRenderPageNumbers,
-    shouldRenderPageWithPreservedState,
-} from '@app/composables/pdf/pdfPageRenderPreservation';
+import { collectPreservedRenderPageNumbers } from '@app/utils/pdf-viewer/pdf-page-render-preservation/collectPreservedRenderPageNumbers';
+import { shouldRenderPageWithPreservedState } from '@app/utils/pdf-viewer/pdf-page-render-preservation/shouldRenderPageWithPreservedState';
 
 describe('collectPreservedRenderPageNumbers', () => {
     it('preserves finalized pages and pages with mounted canvases during rerender handoff', () => {

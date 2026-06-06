@@ -10,12 +10,12 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
+    IScrollSnapshot,
     PDFDocumentProxy,
     PDFPageProxy,
     TFitMode,
-    TPdfViewMode,
     TPdfSource,
-    IScrollSnapshot,
+    TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
@@ -23,15 +23,13 @@ import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfViewerDocumentLifecycle } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerDocumentLifecycle';
-import {
-    type ICurrentPageSyncOptions,
-    usePdfViewerCurrentPageSync,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
+import { usePdfViewerCurrentPageSync } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
+import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { usePdfViewerResizeLifecycle } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
 import { usePdfViewerRerenderCoordinator } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator';
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRenderStallRecovery';
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQueue';
-import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntimeBridge';
 

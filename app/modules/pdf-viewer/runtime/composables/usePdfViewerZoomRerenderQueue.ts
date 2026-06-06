@@ -7,7 +7,7 @@ import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerenderStrategy';
+import { isResizeRerenderSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isResizeRerenderSource';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;

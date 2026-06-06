@@ -10,15 +10,13 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import {
-    SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS,
-    useShellWorkspaceToolbar,
-} from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
+import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
+import { shellToolbarHandoffWarningDelayMs } from '@app/modules/workspace-shell/toolbar/shellToolbarHandoffWarningDelayMs';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    type IWorkspaceExpose,
-    type IWorkspaceToolbarSnapshot,
+import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { ITab } from '@app/types/tabs';
@@ -177,7 +175,7 @@ describe('useShellWorkspaceToolbar', () => {
             shellState: createShellState(activeWorkspace),
         }));
 
-        await vi.advanceTimersByTimeAsync(SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS + 1);
+        await vi.advanceTimersByTimeAsync(shellToolbarHandoffWarningDelayMs + 1);
 
         expect(warn).not.toHaveBeenCalled();
     });
@@ -194,7 +192,7 @@ describe('useShellWorkspaceToolbar', () => {
             shellState: createShellState(activeWorkspace),
         }));
 
-        await vi.advanceTimersByTimeAsync(SHELL_TOOLBAR_HANDOFF_WARNING_DELAY_MS - 1);
+        await vi.advanceTimersByTimeAsync(shellToolbarHandoffWarningDelayMs - 1);
         expect(warn).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(1);

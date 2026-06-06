@@ -1,4 +1,4 @@
-import type {PDFDict} from 'pdf-lib';
+import type { PDFDict } from 'pdf-lib';
 import {
     normalizeMarkerRectBounds,
     orderPdfRectBounds,

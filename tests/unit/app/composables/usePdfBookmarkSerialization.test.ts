@@ -4,10 +4,8 @@ import {
     it,
 } from 'vitest';
 import { ref } from 'vue';
-import {
-    normalizeBookmarkEntries,
-    rewriteBookmarks,
-} from '@app/composables/pdf/usePdfBookmarkSerialization';
+import { normalizeBookmarkEntries } from '@app/utils/pdf-viewer/pdf-bookmark-serialization/normalizeBookmarkEntries';
+import { rewriteBookmarks } from '@app/utils/pdf-viewer/pdf-bookmark-serialization/rewriteBookmarks';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 
 function createBookmark(overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmarkEntry {

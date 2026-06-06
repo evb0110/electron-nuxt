@@ -1,7 +1,7 @@
 import type {
+    ComputedRef,
     Ref,
     ShallowRef,
-    ComputedRef,
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
@@ -12,7 +12,7 @@ import type {
     ILinkAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { groupBy } from 'es-toolkit/array';

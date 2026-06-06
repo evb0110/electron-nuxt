@@ -7,13 +7,11 @@ import {
 import {
     nextTick,
     ref,
-    type Ref,
 } from 'vue';
-import {
-    resolveWorkspaceTabUpdate,
-    resolveWorkspaceWindowTitle,
-    useWorkspaceUiSyncWatchers,
-} from '@app/modules/workspace-shell/composables/workspaceUiSync';
+import type { Ref } from 'vue';
+import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
+import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
+import { resolveWorkspaceWindowTitle } from '@app/modules/workspace-shell/state/resolveWorkspaceWindowTitle';
 
 type TWorkspaceUiSyncDeps = Parameters<typeof useWorkspaceUiSyncWatchers>[0];
 

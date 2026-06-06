@@ -10,8 +10,8 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     ref,
     shallowRef,
-    type Ref,
 } from 'vue';
+import type { Ref } from 'vue';
 import { cast } from '@tests/helpers/cast';
 
 const loggerError = vi.fn();

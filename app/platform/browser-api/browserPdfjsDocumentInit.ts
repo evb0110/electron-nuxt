@@ -1,7 +1,7 @@
 import type * as PdfjsLibNamespace from 'pdfjs-dist';
 import {
-    browserDocumentStore,
     BROWSER_DOCUMENT_CHUNK_SIZE,
+    browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import {
     getPdfjsAssetDir,

@@ -12,8 +12,8 @@ import {
     getEditorById,
     getEditorByUidFromLayer,
     selectCommentByUid,
-    setSelectedEditor,
     setEditorDefaultParamUpdater,
+    setSelectedEditor,
     unselectAllEditors,
     updateEditorDefaultParams,
 } from '@app/services/pdfjs/annotationEditorAdapter';

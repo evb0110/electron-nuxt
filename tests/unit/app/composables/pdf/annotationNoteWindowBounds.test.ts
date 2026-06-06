@@ -4,11 +4,9 @@ import {
     it,
 } from 'vitest';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
-import {
-    clampAnnotationNoteWindowPosition,
-    clampAnnotationNoteWindowSize,
-    type IAnnotationNoteWindowBounds,
-} from '@app/composables/pdf/annotationNoteWindowBounds';
+import type { IAnnotationNoteWindowBounds } from '@app/utils/pdf-viewer/annotation-note-window-bounds/annotationNoteWindowBoundsTypes';
+import { clampAnnotationNoteWindowPosition } from '@app/utils/pdf-viewer/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
+import { clampAnnotationNoteWindowSize } from '@app/utils/pdf-viewer/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
 
 const PDF_VIEWER_BOUNDS: IAnnotationNoteWindowBounds = {
     left: 40,

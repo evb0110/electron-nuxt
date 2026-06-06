@@ -8,11 +8,9 @@ import {
     ref,
 } from 'vue';
 import type { TPdfViewMode } from '@contracts/shared';
-import {
-    expandVirtualWindowForAnchor,
-    usePdfViewerVirtualization,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import { expandVirtualWindowForAnchor } from '@app/modules/pdf-viewer/runtime/viewport/expandVirtualWindowForAnchor';
+import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { IPdfPageMetric } from '@app/types/pdf';
 
 describe('expandVirtualWindowForAnchor', () => {

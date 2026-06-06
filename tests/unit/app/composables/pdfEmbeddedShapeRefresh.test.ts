@@ -4,12 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    refreshDeletedEmbeddedShapePage,
-    removeEmbeddedShapeAnnotationDom,
-    rerenderRenderedManagedEmbeddedShapePages,
-    shouldRefreshManagedShapePage,
-} from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
+import { refreshDeletedEmbeddedShapePage } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/refreshDeletedEmbeddedShapePage';
+import { removeEmbeddedShapeAnnotationDom } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/removeEmbeddedShapeAnnotationDom';
+import { rerenderRenderedManagedEmbeddedShapePages } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
+import { shouldRefreshManagedShapePage } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
 
 interface IFakeAnnotationElement {
     dataset: { annotationId?: string; };

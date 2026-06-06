@@ -391,7 +391,7 @@ import PdfStatusBar from '@app/components/pdf/PdfStatusBar.vue';
 import PdfViewer from '@app/components/pdf/PdfViewer.vue';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { bucketPageCount } from '@app/utils/analytics';
-import { createWorkspaceExpose } from '@app/modules/workspace-shell/composables/createWorkspaceExpose';
+import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
 import WorkspaceExportProgressOverlay from '@app/modules/workspace-shell/components/WorkspaceExportProgressOverlay.vue';
@@ -412,7 +412,7 @@ import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/compo
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/composables/pdf/usePageLabelState';
+import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/utils/pdf-viewer/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type {
     TDocumentRef,
     TOpenFileResult,
@@ -430,7 +430,7 @@ import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
 const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));

@@ -19,9 +19,9 @@ import {
 } from '@app/platform/browser-api/browserSearchLimits';
 import {
     BrowserSearchWorkerUnavailableError,
+    canUseBrowserSearchWorker,
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,
-    canUseBrowserSearchWorker,
 } from '@app/platform/browser-api/browserSearchWorkerClient';
 import {
     extractBrowserSearchDocumentText,

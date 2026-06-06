@@ -1,15 +1,13 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import {
-    WHEEL_DETAIL_LOG_THROTTLE_MS,
-    WHEEL_ZOOM_GESTURE_GRACE_MS,
-    WHEEL_ZOOM_SESSION_IDLE_MS,
-    WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-    ZOOM_VIEWPORT_ANCHOR_MAX_AGE_MS,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom.constants';
+import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
+import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
+import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';
+import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
+import { zoomViewportAnchorMaxAgeMs } from '@app/modules/pdf-viewer/runtime/zoom/zoomViewportAnchorMaxAgeMs';
 import { usePdfViewerZoomInteractionLock } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomInteractionLock';
-import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfViewerZoomTypes';
+import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 
 interface IZoomViewportAnchorIntent {
     id: number;
@@ -152,12 +150,12 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
                 return;
             }
             const idleMs = Date.now() - activeWheelZoomSession.lastPacketAtMs;
-            if (idleMs < WHEEL_ZOOM_SESSION_IDLE_MS) {
+            if (idleMs < wheelZoomSessionIdleMs) {
                 scheduleWheelZoomSessionIdleTimeout(sessionId);
                 return;
             }
             endWheelZoomSession('idle-timeout');
-        }, WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS);
+        }, wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs);
     }
 
     function ensureWheelZoomSession(
@@ -169,14 +167,14 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         const current = activeWheelZoomSession;
         const shouldReuseCurrent = Boolean(
             current
-            && nowMs - current.lastPacketAtMs <= WHEEL_ZOOM_GESTURE_GRACE_MS,
+            && nowMs - current.lastPacketAtMs <= wheelZoomGestureGraceMs,
         );
         if (shouldReuseCurrent && current) {
             if (!zoomVirtualizationFreeze.value) {
                 captureZoomVirtualizationFreeze(current.id, 'session-reuse');
             }
             current.lastPacketAtMs = nowMs;
-            current.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
+            current.lockUntilMs = nowMs + wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs;
             current.lastEventId = eventId;
             scheduleWheelZoomSessionIdleTimeout(current.id);
             return {
@@ -195,7 +193,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             lastEmittedZoom: effectiveScale.value,
             startedAtMs: nowMs,
             lastPacketAtMs: nowMs,
-            lockUntilMs: nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
+            lockUntilMs: nowMs + wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs,
             lastEventId: eventId,
             packetCount: 0,
             emittedCount: 0,
@@ -222,7 +220,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             const activeSession = getActiveWheelZoomSession(nowMs);
             const canUseSessionFallback = Boolean(
                 activeSession
-                && nowMs - activeSession.lastPacketAtMs <= WHEEL_ZOOM_GESTURE_GRACE_MS,
+                && nowMs - activeSession.lastPacketAtMs <= wheelZoomGestureGraceMs,
             );
             if (canUseSessionFallback && activeSession) {
                 const fallbackAnchor: IZoomViewportAnchorIntent = {
@@ -235,7 +233,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
                 BrowserLogger.warnThrottled(
                     'pdf-zoom-debug',
                     'anchor-consume-session-fallback',
-                    WHEEL_DETAIL_LOG_THROTTLE_MS,
+                    wheelDetailLogThrottleMs,
                     `[anchor-consume] session-fallback id=${fallbackAnchor.id}`,
                     {
                         id: fallbackAnchor.id,
@@ -249,7 +247,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'anchor-consume-none',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 '[anchor-consume] none',
             );
             return null;
@@ -260,7 +258,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         const activeSession = getActiveWheelZoomSession(nowMs);
         const belongsToActiveSession = activeSession?.id === pendingAnchor.sessionId;
         const staleWithoutZoomContext =
-            ageMs > ZOOM_VIEWPORT_ANCHOR_MAX_AGE_MS
+            ageMs > zoomViewportAnchorMaxAgeMs
             && !zoomLockActive
             && !belongsToActiveSession;
         if (staleWithoutZoomContext) {
@@ -268,7 +266,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'anchor-consume-stale',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 `[anchor-consume] stale id=${pendingAnchor.id}`,
                 {
                     id: pendingAnchor.id,
@@ -285,7 +283,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         BrowserLogger.warnThrottled(
             'pdf-zoom-debug',
             'anchor-consume',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
+            wheelDetailLogThrottleMs,
             `[anchor-consume] id=${pendingAnchor.id}`,
             {
                 id: pendingAnchor.id,

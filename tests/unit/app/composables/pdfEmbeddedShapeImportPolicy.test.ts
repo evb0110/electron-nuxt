@@ -3,10 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    EMBEDDED_SHAPE_IMPORT_INITIAL_RENDER_MAX_BYTES,
-    resolveEmbeddedShapeImportLoadPolicy,
-} from '@app/composables/pdf/pdfEmbeddedShapeImportPolicy';
+import { embeddedShapeImportInitialRenderMaxBytes } from '@app/utils/pdf-viewer/pdf-embedded-shape-import-policy/embeddedShapeImportInitialRenderMaxBytes';
+import { resolveEmbeddedShapeImportLoadPolicy } from '@app/utils/pdf-viewer/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
 
 describe('resolveEmbeddedShapeImportLoadPolicy', () => {
     it('awaits path-backed embedded drawings before the first page render', () => {
@@ -25,7 +23,7 @@ describe('resolveEmbeddedShapeImportLoadPolicy', () => {
 
     it('defers large byte-backed embedded drawing imports until after the first page render', () => {
         expect(resolveEmbeddedShapeImportLoadPolicy(
-            new Uint8Array(EMBEDDED_SHAPE_IMPORT_INITIAL_RENDER_MAX_BYTES + 1),
+            new Uint8Array(embeddedShapeImportInitialRenderMaxBytes + 1),
             '/tmp/large-book.pdf',
         )).toEqual({
             awaitBeforeInitialRender: false,

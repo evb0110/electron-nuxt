@@ -1,4 +1,3 @@
-// PDF.js highlight editor private statics are intentionally patched here; re-audit on every pdfjs-dist upgrade.
 import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { Ref } from 'vue';
 import type {

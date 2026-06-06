@@ -11,13 +11,13 @@ import { usePdfSearchHighlight } from '@app/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
+import { getPageContainer } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/getPageContainer';
 import {
     getHighlightMode,
     isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
     isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
-} from '@app/composables/pdfSearchHighlightCss';
-import { clearTextLayerIndexCache } from '@app/composables/pdfSearchHighlightDom';
+} from '@app/utils/pdf-viewer/search/pdfSearchHighlightCss';
+import { clearTextLayerIndexCache } from '@app/utils/pdf-viewer/search/pdfSearchHighlightDom';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/pdfNavLog';

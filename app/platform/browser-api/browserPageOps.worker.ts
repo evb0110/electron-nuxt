@@ -9,8 +9,8 @@ import {
     rotatePdfBytes,
 } from '@app/platform/browser-api/browserPageOpsCore';
 import type {
-    IBrowserPageOpsWorkerResultMap,
     IBrowserPageOpsWorkerRequest,
+    IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';

@@ -1,17 +1,13 @@
 import type { Ref } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import {
-    collectEmbeddedShapeAnnotationIds,
-    importEmbeddedShapeAnnotations,
-} from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import {
-    refreshDeletedEmbeddedShapePage,
-    rerenderRenderedManagedEmbeddedShapePages,
-    shouldRefreshManagedShapePage,
-} from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
-import { resolveEmbeddedShapeImportLoadPolicy } from '@app/composables/pdf/pdfEmbeddedShapeImportPolicy';
-import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
-import { tracePdfAnnotationSaveEvent } from '@app/composables/pdf/pdfAnnotationSaveTrace';
+import { collectEmbeddedShapeAnnotationIds } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/collectEmbeddedShapeAnnotationIds';
+import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { refreshDeletedEmbeddedShapePage } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/refreshDeletedEmbeddedShapePage';
+import { rerenderRenderedManagedEmbeddedShapePages } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
+import { shouldRefreshManagedShapePage } from '@app/utils/pdf-viewer/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
+import { resolveEmbeddedShapeImportLoadPolicy } from '@app/utils/pdf-viewer/pdf-embedded-shape-import-policy/resolveEmbeddedShapeImportLoadPolicy';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import { tracePdfAnnotationSaveEvent } from '@app/utils/pdf-viewer/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import type { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';

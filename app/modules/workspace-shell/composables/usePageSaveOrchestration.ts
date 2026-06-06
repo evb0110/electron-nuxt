@@ -16,22 +16,18 @@ import type {
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platformApi';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
-import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
-import {
-    useFileOperations,
-    type IFileOperationsDeps,
-} from '@app/composables/useFileOperations';
+import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import { useFileOperations } from '@app/composables/useFileOperations';
+import type { IFileOperationsDeps } from '@app/composables/useFileOperations';
 import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/pdfSaveBaseData';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/platformSearch';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { getOcrCapability } from '@app/utils/platformOcr';
-import {
-    capturePdfReloadSnapshot,
-    createPdfReloadWaiter,
-} from '@app/composables/pdf/pdfReloadWaiter';
-import { hasViewerShapeChanges } from '@app/modules/workspace-shell/composables/workspaceAnnotationUtils';
-import type { IOcrSearchablePdfResult } from '@app/utils/ocr/languages';
+import { capturePdfReloadSnapshot } from '@app/utils/pdf-viewer/pdf-reload-waiter/capturePdfReloadSnapshot';
+import { createPdfReloadWaiter } from '@app/utils/pdf-viewer/pdf-reload-waiter/createPdfReloadWaiter';
+import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
+import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 
 interface IPdfViewerForSave {
     scrollToPage: (pageNumber: number) => void;

@@ -7,7 +7,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
-import { applyPageLabels } from '@app/composables/pdf/serialization/pdfSerializationOutline';
+import { applyPageLabels } from '@app/utils/pdf-viewer/serialization/pdf-serialization-outline/applyPageLabels';
 
 describe('pdfSerializationOutline', () => {
     it('removes existing page label metadata when all pages are reset to default numbering', async () => {

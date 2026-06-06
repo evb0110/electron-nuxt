@@ -4,10 +4,8 @@ import {
     PDF_PAGE_LOAD_TIMEOUT_MS,
     PDF_PAGE_RENDER_TIMEOUT_MS,
 } from '@app/constants/timeouts';
-import {
-    withPageStageTimeout,
-    type IPageRenderStallPayload,
-} from '@app/composables/pdf/pdfPageRenderTimeout';
+import type { IPageRenderStallPayload } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { withPageStageTimeout } from '@app/utils/pdf-viewer/pdf-page-render-timeout/withPageStageTimeout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 

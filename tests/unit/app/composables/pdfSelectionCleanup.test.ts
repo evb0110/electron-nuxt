@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
+import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 
 type TFakeNode = Node & {
     nodeType: number;

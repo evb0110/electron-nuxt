@@ -10,10 +10,8 @@ import {
     effectScope,
     ref,
 } from 'vue';
-import {
-    getInitialImagePlacementRect,
-    usePdfImagePlacement,
-} from '@app/composables/pdf/usePdfImagePlacement';
+import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
+import { getInitialImagePlacementRect } from '@app/utils/pdf-viewer/image-placement/getInitialImagePlacementRect';
 
 function toElement<T extends object>(value: T) {
     return value as HTMLElement;

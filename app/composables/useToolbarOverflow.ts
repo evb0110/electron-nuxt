@@ -1,8 +1,8 @@
 import {
-    useRafFn,
     tryOnMounted,
     useEventListener,
     useMutationObserver,
+    useRafFn,
     useResizeObserver,
 } from '@vueuse/core';
 

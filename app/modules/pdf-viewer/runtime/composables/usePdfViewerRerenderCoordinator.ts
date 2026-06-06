@@ -5,8 +5,8 @@ import type {
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
-    PDFDocumentProxy,
     IScrollSnapshot,
+    PDFDocumentProxy,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
@@ -17,7 +17,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
-import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerenderStrategy';
+import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer/runtime/rerender-strategy/shouldPreserveExistingRerenderContent';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;

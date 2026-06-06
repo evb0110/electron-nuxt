@@ -4,7 +4,7 @@ import type {
     IAnnotationModifiedPayload,
     IAnnotationSettings,
 } from '@app/types/annotations';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
+import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenu';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     PDFDocumentProxy,

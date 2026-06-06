@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolvePdfAnnotationPreviewText } from '@app/composables/pdf/annotations/pdfAnnotationPreviewText';
+import { resolvePdfAnnotationPreviewText } from '@app/utils/pdf-viewer/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
 
 const pageView = [
     0,

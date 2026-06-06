@@ -1,7 +1,7 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { createHiddenAnnotationOperationsFilter } from '@app/composables/pdf/pdfHiddenAnnotationOperations';
+import { createHiddenAnnotationOperationsFilter } from '@app/utils/pdf-viewer/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;

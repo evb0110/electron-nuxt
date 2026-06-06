@@ -3,8 +3,8 @@ import type {
     Ref,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspaceSplitPayloadCleanup';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import type {
     IEditorPaneState,
     TPaneDirection,

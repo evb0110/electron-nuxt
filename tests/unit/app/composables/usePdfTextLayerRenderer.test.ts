@@ -37,7 +37,7 @@ vi.mock('@app/composables/usePdfWordBoxes', () => ({usePdfWordBoxes: () => ({
 
 vi.mock('@app/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({getOcrTextContent: vi.fn()})}));
 
-vi.mock('@app/composables/pdfSearchHighlightCss', () => ({
+vi.mock('@app/utils/pdf-viewer/search/pdfSearchHighlightCss', () => ({
     getHighlightMode: () => 'dom',
     isHighlightDebugEnabled: () => false,
     isHighlightDebugVerboseEnabled: () => false,

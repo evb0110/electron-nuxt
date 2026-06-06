@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import {
     mkdtempSync,
-    readdirSync,
     readFileSync,
+    readdirSync,
     rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';

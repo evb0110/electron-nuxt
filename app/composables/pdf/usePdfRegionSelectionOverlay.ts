@@ -1,6 +1,5 @@
-import type { CSSProperties } from 'vue';
-import type { ILocalRect } from '@app/composables/pdf/pdfRegionGeometry';
-import type { ISnipPointerPayload } from '@app/composables/pdf/pdfRegionDrag';
+import type { ILocalRect } from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
+import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/pdfRegionDragTypes';
 
 interface IRegionSelectionOverlayOptions {
     isActive: () => boolean;
@@ -39,18 +38,6 @@ function buildPointerPayload(event: PointerEvent): ISnipPointerPayload | null {
             width: rect.width,
             height: rect.height,
         },
-    };
-}
-
-export function regionRectStyle(rect: ILocalRect | null): CSSProperties {
-    if (!rect) {
-        return {};
-    }
-    return {
-        left: `${rect.x}px`,
-        top: `${rect.y}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
     };
 }
 
@@ -109,17 +96,4 @@ export const usePdfRegionSelectionOverlay = (options: IRegionSelectionOverlayOpt
         handleContextMenu,
         handleWheel,
     };
-};
-
-export const useEmittedPdfRegionSelectionOverlay = (
-    props: IRegionSelectionOverlayBaseProps,
-    emit: IRegionSelectionOverlayEmits,
-) => {
-    return usePdfRegionSelectionOverlay({
-        isActive: () => props.active,
-        onPointerStart: payload => emit('pointer-start', payload),
-        onPointerMove: payload => emit('pointer-move', payload),
-        onPointerEnd: payload => emit('pointer-end', payload),
-        onCancel: () => emit('cancel'),
-    });
 };

@@ -4,10 +4,8 @@ import {
     it,
 } from 'vitest';
 import { ref } from 'vue';
-import {
-    MAX_WORKSPACE_METADATA_HISTORY_ENTRIES,
-    useWorkspaceMetadataHistory,
-} from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
+import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
+import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -126,7 +124,7 @@ describe('useWorkspaceMetadataHistory', () => {
 
         history.resetToCurrentState();
 
-        for (let index = 0; index < MAX_WORKSPACE_METADATA_HISTORY_ENTRIES + 10; index += 1) {
+        for (let index = 0; index < maxWorkspaceMetadataHistoryEntries + 10; index += 1) {
             bookmarkItems.value = [{
                 title: `Bookmark ${index + 1}`,
                 pageIndex: index,
@@ -144,7 +142,7 @@ describe('useWorkspaceMetadataHistory', () => {
             undoCount += 1;
         }
 
-        expect(undoCount).toBe(MAX_WORKSPACE_METADATA_HISTORY_ENTRIES - 1);
+        expect(undoCount).toBe(maxWorkspaceMetadataHistoryEntries - 1);
         expect(bookmarkItems.value).toEqual([]);
         expect(bookmarksDirty.value).toBe(false);
         expect(history.canUndoMetadata.value).toBe(false);

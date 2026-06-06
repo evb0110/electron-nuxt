@@ -18,6 +18,7 @@ import {
 } from '@app/utils/viewerAssets';
 import { isPdfDocumentUsable } from '@app/utils/pdfDocumentGuard';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { maxCachedPdfPages } from '@app/utils/pdf-viewer/maxCachedPdfPages';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = getPdfjsWorkerUrl();
 
@@ -30,8 +31,6 @@ interface IPdfPreloadedRange {
     begin: number;
     data: Uint8Array;
 }
-
-export const MAX_CACHED_PDF_PAGES = 48;
 
 function destroyPdfDocumentDeferred(
     document: PDFDocumentProxy,
@@ -99,7 +98,7 @@ export const usePdfDocument = () => {
 
     function rememberCachedPage(pageNumber: number, page: PDFPageProxy) {
         touchCachedPage(pageNumber, page);
-        while (pdfPageCache.size > MAX_CACHED_PDF_PAGES) {
+        while (pdfPageCache.size > maxCachedPdfPages) {
             const oldestPageNumber = pdfPageCache.keys().next().value;
             if (typeof oldestPageNumber !== 'number') {
                 break;

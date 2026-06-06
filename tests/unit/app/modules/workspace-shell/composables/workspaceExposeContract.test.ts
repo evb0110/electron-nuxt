@@ -4,15 +4,13 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    isWorkspaceExpose,
-    REQUIRED_WORKSPACE_EXPOSE_METHODS,
-} from '@app/modules/workspace-shell/composables/workspaceExposeContract';
+import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
+import { requiredWorkspaceExposeMethods } from '@app/modules/workspace-shell/expose/requiredWorkspaceExposeMethods';
 
 function createWorkspaceCandidate(overrides: Record<string, unknown> = {}) {
     const candidate: Record<string, unknown> = {hasPdf: false};
 
-    for (const methodName of REQUIRED_WORKSPACE_EXPOSE_METHODS) {
+    for (const methodName of requiredWorkspaceExposeMethods) {
         candidate[methodName] = vi.fn();
     }
 

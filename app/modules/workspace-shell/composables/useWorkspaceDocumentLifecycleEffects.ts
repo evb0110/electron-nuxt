@@ -1,10 +1,8 @@
 import type { Ref } from 'vue';
 import type { TOpenDjvuFile } from '@app/composables/useDjvu';
-import {
-    type IDocumentTransitionDeps,
-    useDocumentTransitions,
-} from '@app/modules/workspace-shell/composables/useDocumentTransitions';
-import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/workspaceUiSync';
+import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
+import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
+import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TDocumentRef } from '@contracts/platformApi';
 

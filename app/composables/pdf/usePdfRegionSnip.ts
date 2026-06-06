@@ -10,19 +10,15 @@ import type {
     IClientRect,
     ILocalRect,
     IOverlayRect,
-} from '@app/composables/pdf/pdfRegionGeometry';
-import {
-    getRectHeight,
-    getRectWidth,
-    toLocalRect,
-} from '@app/composables/pdf/pdfRegionGeometry';
-import type { ISnipPointerPayload } from '@app/composables/pdf/pdfRegionDrag';
-import {
-    createSelectionPointerDragHandlers,
-    createSelectionRectFromPointerDrag,
-} from '@app/composables/pdf/pdfRegionDrag';
-import { capturePdfRegionAsPngBlob } from '@app/composables/pdf/pdfRegionCapture';
-import { writePngBlobToClipboard } from '@app/composables/pdf/pdfRegionClipboard';
+} from '@app/utils/pdf-viewer/pdf-region-geometry/pdfRegionGeometryTypes';
+import { getRectHeight } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectHeight';
+import { getRectWidth } from '@app/utils/pdf-viewer/pdf-region-geometry/getRectWidth';
+import { toLocalRect } from '@app/utils/pdf-viewer/pdf-region-geometry/toLocalRect';
+import type { ISnipPointerPayload } from '@app/utils/pdf-viewer/pdf-region-drag/pdfRegionDragTypes';
+import { createSelectionPointerDragHandlers } from '@app/utils/pdf-viewer/pdf-region-drag/createSelectionPointerDragHandlers';
+import { createSelectionRectFromPointerDrag } from '@app/utils/pdf-viewer/pdf-region-drag/createSelectionRectFromPointerDrag';
+import { capturePdfRegionAsPngBlob } from '@app/utils/pdf-viewer/pdf-region-capture/capturePdfRegionAsPngBlob';
+import { writePngBlobToClipboard } from '@app/utils/pdf-viewer/pdf-region-clipboard/writePngBlobToClipboard';
 
 type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';
 

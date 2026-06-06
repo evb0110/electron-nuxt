@@ -1,15 +1,11 @@
 import type { Ref } from 'vue';
-import {
-    annotationCommentsMatch,
-    selectPreferredAnnotationComment,
-} from '@app/composables/pdf/annotationCommentMatching';
-import {
-    isNoteEligibleComment,
-    markerRectCenterDistance,
-} from '@app/composables/pdf/annotations/annotationRules';
+import { annotationCommentsMatch } from '@app/utils/pdf-viewer/annotation-comment-matching/annotationCommentsMatch';
+import { selectPreferredAnnotationComment } from '@app/utils/pdf-viewer/annotation-comment-matching/selectPreferredAnnotationComment';
+import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
+import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
-import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,

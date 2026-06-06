@@ -185,7 +185,7 @@ import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/composables/workspaceTabDocumentHint';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
@@ -208,10 +208,8 @@ import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import {
-    createTabViewSessionState,
-    useTabSessionStore,
-} from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import { useTabSessionStore } from '@app/modules/workspace-shell/composables/useTabSessionStore';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type {
     TPdfViewMode,

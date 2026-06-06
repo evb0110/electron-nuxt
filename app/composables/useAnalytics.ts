@@ -4,13 +4,13 @@ import {
 } from '@vueuse/core';
 import { isPlainObject as isToolkitPlainObject } from 'es-toolkit/predicate';
 import { isBrowserPlatformActive } from '@app/utils/platform';
-import {
-    type IAnalyticsDocumentContext,
-    type IAnalyticsEventEnvelope,
-    type TAnalyticsEventName,
-    type TAnalyticsPayloadValue,
-    type TAnalyticsScreenCategory,
-    normalizeAnalyticsScalar,
+import { normalizeAnalyticsScalar } from '@contracts/analytics';
+import type {
+    IAnalyticsDocumentContext,
+    IAnalyticsEventEnvelope,
+    TAnalyticsEventName,
+    TAnalyticsPayloadValue,
+    TAnalyticsScreenCategory,
 } from '@contracts/analytics';
 
 const ANALYTICS_SESSION_STORAGE_KEY = 'evb-viewer:analytics-session-id';

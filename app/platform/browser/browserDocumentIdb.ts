@@ -1,8 +1,8 @@
 import {
     DB_NAME,
     DB_VERSION,
-    DOCUMENT_CHUNKS_STORE,
     DOCUMENTS_STORE,
+    DOCUMENT_CHUNKS_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
 

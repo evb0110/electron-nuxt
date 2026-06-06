@@ -18,11 +18,9 @@ import type {
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
-import {
-    applyAnnotationCommentTextMarkupColor,
-    syncAnnotationCommentTextMarkupVisualOverlays,
-} from '@app/composables/pdf/annotations/annotationDomRemoval';
-import { toOpaqueHighlightDisplayColor } from '@app/composables/pdf/textMarkupColor';
+import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
+import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
+import { toOpaqueHighlightDisplayColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

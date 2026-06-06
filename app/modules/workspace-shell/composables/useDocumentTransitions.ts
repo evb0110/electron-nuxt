@@ -6,7 +6,7 @@ import type {
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platformApi';
-import type { TPdfSidebarTab } from '@app/modules/workspace-shell/composables/workspaceOrchestration.types';
+import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 export interface IDocumentTransitionDeps {

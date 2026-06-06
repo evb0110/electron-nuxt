@@ -7,8 +7,6 @@ export type {
     IPdfViewerExpose,
     TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
-export {
-    findPdfPageContainer,
-    PDF_VIEWER_DOM_SELECTORS,
-} from '@app/modules/pdf-viewer/dom/pdfViewerDom';
+export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
+export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 export { usePdfViewerController } from '@app/modules/pdf-viewer/runtime/usePdfViewerController';

@@ -1,12 +1,10 @@
 import type { Ref } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import {
-    PDF_OUTLINE_TREE_KEY,
-    type IPdfOutlineTreeContext,
-} from '@app/composables/pdf/usePdfOutlineKeys';
+import type { IPdfOutlineTreeContext } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeContextTypes';
+import { pdfOutlineTreeKey } from '@app/utils/pdf-viewer/pdf-outline-tree-context/pdfOutlineTreeKey';
 
 function requirePdfOutlineTreeContext(): IPdfOutlineTreeContext {
-    const treeContext = inject(PDF_OUTLINE_TREE_KEY, null);
+    const treeContext = inject(pdfOutlineTreeKey, null);
     if (!treeContext) {
         throw new Error('usePdfOutlineItemState must be used within a PDF outline tree provider');
     }

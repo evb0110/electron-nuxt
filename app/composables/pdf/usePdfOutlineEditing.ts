@@ -4,12 +4,13 @@ import type {
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import {
-    findBookmarkLocation,
-    findBookmarkById,
     collectBookmarkIds,
+    findBookmarkById,
+    findBookmarkLocation,
     flattenBookmarks,
     normalizeBookmarkColor,
 } from '@app/utils/pdfOutlineHelpers';
+
 export const usePdfOutlineEditing = (
     bookmarks: Ref<IBookmarkItem[]>,
     activeItemId: Ref<string | null>,

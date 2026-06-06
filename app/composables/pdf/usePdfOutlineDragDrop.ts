@@ -1,11 +1,11 @@
 import type {
-    IBookmarkItem,
-    IBookmarkDropTarget,
     IBookmarkDropPayload,
+    IBookmarkDropTarget,
+    IBookmarkItem,
 } from '@app/types/pdfOutline';
 import {
-    findBookmarkLocation,
     collectBookmarkIds,
+    findBookmarkLocation,
 } from '@app/utils/pdfOutlineHelpers';
 
 type TBookmarkDropDestination =

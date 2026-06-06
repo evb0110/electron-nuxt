@@ -6,16 +6,14 @@ import {
     it,
 } from 'vitest';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
+import { startElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/sessionHarness';
 import {
-    type IElectronE2ESession,
-    startElectronE2ESession,
-} from '@tests/e2e/electron/helpers/sessionHarness';
-import {
-    openPdfInApp,
-    getToolbarCurrentPage,
     assertInactiveDocumentPressureReleased,
-    setTabMemoryPolicyForE2E,
+    getToolbarCurrentPage,
+    openPdfInApp,
     scrollViewerToPage,
+    setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
     waitForTabCount,
 } from '@tests/e2e/electron/helpers/viewerHelpers';

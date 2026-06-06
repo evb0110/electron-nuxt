@@ -101,7 +101,7 @@ import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRende
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import { createHiddenAnnotationOperationsFilter } from '@app/composables/pdf/pdfHiddenAnnotationOperations';
+import { createHiddenAnnotationOperationsFilter } from '@app/utils/pdf-viewer/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
 import {
     createEditedTextMarkupThumbnailVisualSignature,
     createHiddenAnnotationIdsSignature,

@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
+import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IEditorPaneState } from '@app/types/editorPanes';

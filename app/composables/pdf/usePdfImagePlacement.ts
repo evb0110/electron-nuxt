@@ -1,9 +1,9 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import {
-    computeInitialImagePlacementDimensions,
-    type IImagePlacementDimensions,
-} from '@app/composables/pdf/pdfImagePlacementSizing';
+import { computeInitialImagePlacementDimensions } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
+import type { IImagePlacementDimensions } from '@app/utils/pdf-viewer/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
+import { getInitialImagePlacementRect } from '@app/utils/pdf-viewer/image-placement/getInitialImagePlacementRect';
+import type { IImagePlacementTarget } from '@app/utils/pdf-viewer/image-placement/getInitialImagePlacementRect';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -18,14 +18,6 @@ interface IUsePdfImagePlacementOptions {
     emitFinalize: (payload: IPdfPlacedImageFinalizePayload) => void;
 }
 
-export interface IImagePlacementTarget {
-    pageNumber: number;
-    pageX: number;
-    pageY: number;
-    pageWidthPx: number | null;
-    pageHeightPx: number | null;
-}
-
 function resolveDevicePixelRatio() {
     return typeof window !== 'undefined' && window.devicePixelRatio > 0
         ? window.devicePixelRatio
@@ -34,22 +26,6 @@ function resolveDevicePixelRatio() {
 
 const MIN_PLACED_IMAGE_TARGET_LONG_EDGE_PX = 64;
 const MIN_PLACED_IMAGE_TARGET_SHORT_EDGE_PX = 16;
-
-export function getInitialImagePlacementRect(
-    target: IImagePlacementTarget,
-    dimensions: IImagePlacementDimensions,
-) {
-    const x = clamp(target.pageX - (dimensions.width / 2), 0, Math.max(0, 1 - dimensions.width));
-    const y = clamp(target.pageY - (dimensions.height / 2), 0, Math.max(0, 1 - dimensions.height));
-
-    return {
-        pageNumber: target.pageNumber,
-        x,
-        y,
-        width: dimensions.width,
-        height: dimensions.height,
-    };
-}
 
 function resolvePlacedImageTargetPixels(options: {
     width: number;

@@ -56,10 +56,8 @@ vi.mock('@app/utils/platform', () => ({
     getElectronAPI: () => electronApi,
 }));
 
-const {
-    MAX_CACHED_PDF_PAGES,
-    usePdfDocument,
-} = await import('@app/composables/pdf/usePdfDocument');
+const {usePdfDocument} = await import('@app/composables/pdf/usePdfDocument');
+const {maxCachedPdfPages} = await import('@app/utils/pdf-viewer/maxCachedPdfPages');
 
 describe('usePdfDocument range loading', () => {
     beforeEach(() => {
@@ -652,7 +650,7 @@ describe('usePdfDocument range loading', () => {
         });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
-                numPages: MAX_CACHED_PDF_PAGES + 5,
+                numPages: maxCachedPdfPages + 5,
                 getPage,
                 destroy: vi.fn(),
             }),
@@ -674,19 +672,19 @@ describe('usePdfDocument range loading', () => {
 
         expect(getPage).toHaveBeenCalledTimes(1);
 
-        for (let pageNumber = 2; pageNumber <= MAX_CACHED_PDF_PAGES + 1; pageNumber += 1) {
+        for (let pageNumber = 2; pageNumber <= maxCachedPdfPages + 1; pageNumber += 1) {
             await documentState.getPage(pageNumber);
         }
 
-        expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 1);
+        expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 1);
 
         await documentState.getPage(1);
 
-        expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 2);
+        expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 2);
 
-        await documentState.getPage(MAX_CACHED_PDF_PAGES + 1);
+        await documentState.getPage(maxCachedPdfPages + 1);
 
-        expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 2);
+        expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 2);
         expect(loadedPages.get(2)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
     });
 });

@@ -5,10 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    ref,
-    type Ref,
-} from 'vue';
+import { ref } from 'vue';
+import type { Ref } from 'vue';
 import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,

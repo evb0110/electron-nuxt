@@ -1,12 +1,10 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
 import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
-import {
-    isPageRenderTimeoutError,
-    withPageStageTimeout,
-    type IPageRenderStallPayload,
-} from '@app/composables/pdf/pdfPageRenderTimeout';
-import { clearPdfSelectionForLayerTeardown } from '@app/composables/pdf/pdfSelectionCleanup';
+import { isPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/isPageRenderTimeoutError';
+import type { IPageRenderStallPayload } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import { withPageStageTimeout } from '@app/utils/pdf-viewer/pdf-page-render-timeout/withPageStageTimeout';
+import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;

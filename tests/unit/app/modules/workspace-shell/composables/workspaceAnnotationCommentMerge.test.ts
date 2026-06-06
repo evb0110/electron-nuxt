@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/composables/workspaceAnnotationCommentMerge';
+import { mergeWorkspaceAnnotationComments } from '@app/modules/workspace-shell/annotations/mergeWorkspaceAnnotationComments';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

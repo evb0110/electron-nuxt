@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { annotationCommentEditScore } from '@app/composables/pdf/annotationCommentMatching';
+import { annotationCommentEditScore } from '@app/utils/pdf-viewer/annotation-comment-matching/annotationCommentEditScore';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

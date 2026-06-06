@@ -6,8 +6,8 @@ import {
     vi,
 } from 'vitest';
 import {
-    createRenderer,
     computed,
+    createRenderer,
     defineComponent,
     nextTick,
     ref,

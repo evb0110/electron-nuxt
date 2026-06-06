@@ -26,7 +26,6 @@ interface IExtractedBrowserSearchDocumentText {
     pageTexts: string[];
 }
 
-
 async function loadBrowserSearchDocument(
     pdfPath: string,
 ): Promise<ILoadedBrowserSearchDocument> {

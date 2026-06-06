@@ -3,11 +3,9 @@ import type {
     Ref,
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import {
-    captureScrollSnapshot,
-    restoreScrollFromSnapshot,
-} from '@app/composables/pdf/pdfPageRenderPipeline';
-import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
+import { captureScrollSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/captureScrollSnapshot';
+import { restoreScrollFromSnapshot } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/restoreScrollFromSnapshot';
+import { summarizeViewerMetrics } from '@app/utils/pdf-viewer/pdf-viewer-metrics/summarizeViewerMetrics';
 import { ZOOM } from '@app/constants/pdfLayout';
 import type {
     TPdfSource,
@@ -15,13 +13,11 @@ import type {
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import {
-    WHEEL_DETAIL_LOG_THROTTLE_MS,
-    WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-    WHEEL_ZOOM_GESTURE_GRACE_MS,
-    WHEEL_ZOOM_SESSION_IDLE_MS,
-    WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom.constants';
+import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
+import { wheelZoomExpectedScrollWindowMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomExpectedScrollWindowMs';
+import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
+import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';
+import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
 import { usePdfViewerWheelZoomSession } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoomSession';
 
 const WHEEL_ZOOM_SENSITIVITY = 0.0016;
@@ -192,7 +188,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const activeSession = getActiveWheelZoomSession(nowMs);
         const isContinuationPacket = Boolean(
             activeSession
-            && nowMs - activeSession.lastPacketAtMs <= WHEEL_ZOOM_GESTURE_GRACE_MS,
+            && nowMs - activeSession.lastPacketAtMs <= wheelZoomGestureGraceMs,
         );
         const hasModifierZoomSignal = event.ctrlKey
             || event.metaKey
@@ -274,7 +270,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     ) {
         session.lastEmittedZoom = nextEffectiveZoom;
         session.lastPacketAtMs = nowMs;
-        session.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
+        session.lockUntilMs = nowMs + wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs;
         session.emittedCount += 1;
     }
 
@@ -311,8 +307,8 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     function suppressSinglePageSnapForWheelZoom() {
         singlePageScroll.suppressSnapFor(
             Math.max(
-                WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
+                wheelZoomSessionIdleMs + wheelZoomSessionLockExtensionMs,
+                wheelZoomExpectedScrollWindowMs,
             ),
         );
     }
@@ -352,7 +348,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             ? nowMs - lastModifierWheelZoomAtMs
             : null;
         const isWithinModifierZoomGraceWindow = modifierZoomAgeMs !== null
-            && modifierZoomAgeMs <= WHEEL_ZOOM_GESTURE_GRACE_MS;
+            && modifierZoomAgeMs <= wheelZoomGestureGraceMs;
 
         return {
             nowMs,
@@ -389,7 +385,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         event.preventDefault();
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-blocked-snip', WHEEL_DETAIL_LOG_THROTTLE_MS, '[wheel] blocked by snip mode');
+        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-blocked-snip', wheelDetailLogThrottleMs, '[wheel] blocked by snip mode');
         return true;
     }
 
@@ -413,11 +409,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         BrowserLogger.warnThrottled(
             'pdf-zoom-debug',
             'wheel-suppressed-non-modifier',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
+            wheelDetailLogThrottleMs,
             '[wheel] suppressed non-modifier packet during active zoom lock',
             {
                 zoomInteractionLocked: context.zoomInteractionLocked,
-                graceWindowMs: WHEEL_ZOOM_GESTURE_GRACE_MS,
+                graceWindowMs: wheelZoomGestureGraceMs,
                 recentModifierZoomEventId: lastModifierWheelZoomEventId || null,
                 modifierZoomAgeMs: context.modifierZoomAgeMs,
                 activeSessionId: context.activeSession?.id ?? null,
@@ -496,7 +492,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const nowMs = Date.now();
         const debugId = ++zoomDebugWheelEventId;
         const wheelIntent = getModifierWheelIntent(event, nowMs);
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-received', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] received id=${debugId}`, {
+        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-received', wheelDetailLogThrottleMs, `[wheel-zoom] received id=${debugId}`, {
             id: debugId,
             hasModifierZoomSignal: wheelIntent.hasModifierZoomSignal,
             shouldTreatAsZoomSignal: wheelIntent.shouldTreatAsZoomSignal,
@@ -509,7 +505,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-no-modifier',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=no-zoom-signal`,
             );
             return false;
@@ -517,13 +513,13 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
 
         lastModifierWheelZoomAtMs = nowMs;
         lastModifierWheelZoomEventId = debugId;
-        markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
+        markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
 
         event.preventDefault();
         BrowserLogger.warnThrottled(
             'pdf-zoom-debug',
             'wheel-zoom-prevent-default',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
+            wheelDetailLogThrottleMs,
             `[wheel-zoom] prevent-default id=${debugId}`,
             {
                 id: debugId,
@@ -536,7 +532,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-not-ready',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=viewer-not-ready`,
                 {
                     id: debugId,
@@ -563,7 +559,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-zero-delta',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=zero-delta`,
                 {
                     id: debugId,
@@ -578,7 +574,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-invalid-factor',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=invalid-factor`,
                 {
                     id: debugId,
@@ -595,7 +591,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-no-change',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
+                wheelDetailLogThrottleMs,
                 `[wheel-zoom] ignored id=${debugId} reason=no-zoom-change`,
                 {
                     id: debugId,
@@ -613,7 +609,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
         updateWheelZoomSessionAfterEmit(session, zoomTarget.nextEffectiveZoom, nowMs);
         setPendingZoomAnchors(container, debugId, session.id, anchorX, anchorY, nowMs);
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-emit', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] emit id=${debugId}`, {
+        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-emit', wheelDetailLogThrottleMs, `[wheel-zoom] emit id=${debugId}`, {
             id: debugId,
             sessionId: session.id,
             gestureAnchorReused: reusedGestureAnchor,
@@ -639,7 +635,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
         emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
         emit('update:zoom', zoomTarget.nextZoom);
-        markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
+        markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs);
         return true;
     }
 
@@ -693,7 +689,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 preferPageAnchor: true,
                 allowVerticalRatioFallback: false,
             });
-            BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-immediate-restore', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] immediate-restore id=${pendingIntent.id}`, {
+            BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-immediate-restore', wheelDetailLogThrottleMs, `[wheel-zoom] immediate-restore id=${pendingIntent.id}`, {
                 id: pendingIntent.id,
                 sessionId: pendingIntent.sessionId,
                 capturedAtMs: pendingIntent.capturedAtMs,

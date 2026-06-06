@@ -1,9 +1,9 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
     vi,
-    beforeEach,
 } from 'vitest';
 import { effectScope } from 'vue';
 import { retry } from 'es-toolkit/function';
@@ -38,10 +38,8 @@ const mockElectronAPI = {
 
 vi.mock('@app/utils/platformOcr', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
 vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockElectronAPI.documents }));
-vi.mock('@app/utils/ocr/processing', () => ({
-    loadOcrText: loadOcrTextMock,
-    extractPdfText: extractPdfTextMock,
-}));
+vi.mock('@app/utils/ocr/loadOcrText', () => ({ loadOcrText: loadOcrTextMock }));
+vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
 vi.mock('@app/utils/docx', () => ({createDocxFromText: createDocxFromTextMock}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 

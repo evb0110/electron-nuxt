@@ -18,13 +18,11 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import {
-    type IPdfSerializationSavePayload,
-    serializePdfEdits,
-    updateEmbeddedAnnotationText,
-} from '@app/composables/pdf/pdfSerializationOperations';
-import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
+import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits';
+import { updateEmbeddedAnnotationText } from '@app/utils/pdf-viewer/pdf-serialization-operations/updateEmbeddedAnnotationText';
+import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationOperationsTypes';
+import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import {
     getPdfDictContents,
     getPdfStringValue,

@@ -4,10 +4,8 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import {
-    buildPdfSaveTypes,
-    type IFilePickerAcceptType,
-} from '@app/platform/browser-api/browserFileAccepts';
+import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
+import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {

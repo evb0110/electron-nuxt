@@ -56,7 +56,7 @@ import type { TStartSection } from '@app/types/startPage';
 import type {
     ITabLifecycleState,
     ITabViewSessionState,
-} from '@app/modules/workspace-shell/composables/useTabSessionStore';
+} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 defineOptions({ name: 'EditorPanesHost' });
 

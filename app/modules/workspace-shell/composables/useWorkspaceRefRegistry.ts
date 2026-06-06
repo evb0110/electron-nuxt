@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { withTimeout } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspaceExposeContract';
+import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
 interface IUseWorkspaceRefRegistryOptions { activeTabId: Ref<string | null>; }

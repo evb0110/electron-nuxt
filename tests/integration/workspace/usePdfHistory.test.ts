@@ -8,8 +8,8 @@ import {
 import {
     nextTick,
     ref,
-    type Ref,
 } from 'vue';
+import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import type { IScrollSnapshot } from '@app/types/pdf';

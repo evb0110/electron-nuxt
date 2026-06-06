@@ -10,8 +10,8 @@ import {
     effectScope,
     nextTick,
     ref,
-    type Ref,
 } from 'vue';
+import type { Ref } from 'vue';
 import { usePdfMountedPageRenderRecovery } from '@app/modules/pdf-viewer/runtime/rendering/usePdfMountedPageRenderRecovery';
 
 async function flushTimersAndTicks() {
