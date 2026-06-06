@@ -271,7 +271,7 @@ import type {
 import {
     getSettingsAssistantStatusModel,
     type TSettingsAssistantCopy,
-} from '@app/components/settings/settingsAssistantStatus';
+} from '@app/modules/workspace-shell/agent/getSettingsAssistantStatusModel';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const props = defineProps<{

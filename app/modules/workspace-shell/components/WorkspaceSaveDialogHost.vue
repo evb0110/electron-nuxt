@@ -47,9 +47,9 @@
 </template>
 
 <script setup lang="ts">
-import PdfCropDialog from '@app/components/pdf/PdfCropDialog.vue';
-import PdfExportScopeDialog from '@app/components/pdf/PdfExportScopeDialog.vue';
-import PdfPrintDialog from '@app/components/pdf/PdfPrintDialog.vue';
+import PdfCropDialog from '@app/modules/pdf-viewer/components/PdfCropDialog.vue';
+import PdfExportScopeDialog from '@app/modules/pdf-viewer/components/PdfExportScopeDialog.vue';
+import PdfPrintDialog from '@app/modules/pdf-viewer/components/PdfPrintDialog.vue';
 
 const DjvuConvertDialog = defineAsyncComponent(() => import('@app/components/djvu/DjvuConvertDialog.vue'));
 

@@ -21,25 +21,11 @@ import { createLogger } from '@electron/utils/logger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { addRecentInputs } from '@electron/features/documents/main/recentInputs.service';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/pathEncoding';
+import type { TOpenFileResult } from '@electron/features/documents/contract';
 
 const logger = createLogger('documents-open-service');
 
 type TOpenPathOwner = number | Electron.WebContents;
-
-interface IOpenPdfResult {
-    kind: 'pdf';
-    workingPath: string;
-    originalPath: string;
-    isGenerated?: boolean;
-}
-
-interface IOpenDjvuResult {
-    kind: 'djvu';
-    workingPath: '';
-    originalPath: string;
-}
-
-export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
 interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
 

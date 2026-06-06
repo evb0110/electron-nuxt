@@ -162,6 +162,24 @@ function checkElectronFeatureMainPrivacy(edge) {
     });
 }
 
+function isInsideComponentDirectory(filePath) {
+    return filePath.split('/').includes('components');
+}
+
+function checkComponentDirectoryFilePlacement(filePath) {
+    if (!isInsideComponentDirectory(filePath) || filePath.endsWith('.vue')) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'component-directory-non-vue-source',
+        source: filePath,
+        target: filePath,
+        specifier: 'filesystem',
+        message: 'Component directories must contain Vue SFCs only; move helpers, state, and schedulers into feature modules.',
+    });
+}
+
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
@@ -181,7 +199,8 @@ function relativeWithinOwner(filePath, prefix, owner) {
 }
 
 function isAllowedPublicEntrypoint(relativePath, allowedSet) {
-    return allowedSet.has(relativePath);
+    return allowedSet.has(relativePath)
+        || (relativePath.startsWith('components/') && relativePath.endsWith('.vue'));
 }
 
 function createViolation({
@@ -287,7 +306,12 @@ async function run() {
         ...(roots === null ? {} : {roots}),
     });
 
-    const violations = graph.edges.flatMap(checkEdge);
+    const violations = [
+        ...graph.edges.flatMap(checkEdge),
+        ...graph.nodes
+            .map(node => checkComponentDirectoryFilePlacement(node.file))
+            .filter(Boolean),
+    ];
     const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];
 
     if (violations.length > 0 || unresolvedInternalImports.length > 0) {
