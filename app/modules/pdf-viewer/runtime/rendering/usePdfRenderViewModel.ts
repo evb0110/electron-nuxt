@@ -40,6 +40,7 @@ interface IUsePdfRenderViewModelOptions {
     skeletonTrackedPages?: ComputedRef<number[]> | undefined;
     isPageBuffered: (page: number) => boolean;
     isPageRenderedForClass: (page: number) => boolean;
+    isPageRendering: (page: number) => boolean;
     hasMountedPageCanvas: (page: number) => boolean;
     shouldShowSkeleton: (page: number) => boolean;
     visibleRange: Ref<{
@@ -131,7 +132,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
             delayedSkeleton.markPageRendered(page);
             return false;
         }
-        if (options.hasMountedPageCanvas(page)) {
+        if (options.hasMountedPageCanvas(page) && options.isPageRendering(page)) {
             delayedSkeleton.markPageRendered(page);
             return false;
         }
@@ -144,6 +145,7 @@ export function usePdfRenderViewModel(options: IUsePdfRenderViewModelOptions) {
                 visibleRange: `${options.visibleRange.value.start}-${options.visibleRange.value.end}`,
                 pagesToRender: options.pagesToRender.value,
                 rendered: options.isPageRenderedForClass(page),
+                rendering: options.isPageRendering(page),
                 hasMountedCanvas: options.hasMountedPageCanvas(page),
                 buffered: options.isPageBuffered(page),
                 nearVisible: options.shouldShowSkeleton(page),

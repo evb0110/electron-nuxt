@@ -21,6 +21,7 @@ import { cast } from '@tests/helpers/cast';
 
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
+    isPageRendering?: (page: number) => boolean;
     shouldShowSkeleton?: (page: number) => boolean;
 }) {
     const scope = effectScope();
@@ -47,6 +48,7 @@ function createHarness(options?: {
         pagesToRender: computed(() => mountedPages.value),
         isPageBuffered: vi.fn(() => false),
         isPageRenderedForClass: vi.fn(() => false),
+        isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         hasMountedPageCanvas: options?.hasMountedPageCanvas ?? vi.fn(() => false),
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
         visibleRange,
@@ -126,15 +128,17 @@ describe('usePdfRenderViewModel', () => {
         scope.stop();
     });
 
-    it('hides page skeletons as soon as the canvas is mounted', () => {
+    it('hides page skeletons while an active render has mounted a canvas', () => {
         vi.useFakeTimers();
         try {
             const hasMountedCanvas = ref(false);
+            const isRendering = ref(false);
             const {
                 scope,
                 viewModel,
             } = createHarness({
                 hasMountedPageCanvas: () => hasMountedCanvas.value,
+                isPageRendering: () => isRendering.value,
                 shouldShowSkeleton: () => true,
             });
 
@@ -146,7 +150,34 @@ describe('usePdfRenderViewModel', () => {
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             hasMountedCanvas.value = true;
+            isRendering.value = true;
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps recovery skeletons eligible for an orphan mounted canvas', () => {
+        vi.useFakeTimers();
+        try {
+            const hasMountedCanvas = ref(true);
+            const {
+                scope,
+                viewModel,
+            } = createHarness({
+                hasMountedPageCanvas: () => hasMountedCanvas.value,
+                isPageRendering: () => false,
+                shouldShowSkeleton: () => true,
+            });
+
+            if (!viewModel) {
+                throw new Error('Failed to create PDF render view model');
+            }
+
+            vi.advanceTimersByTime(PDF_VIEWER_PAGE_SKELETON_DELAY_MS);
+            expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
 
             scope.stop();
         } finally {

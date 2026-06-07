@@ -595,7 +595,13 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         );
     }
     function isPageVisuallyReady(pageNumber: number) {
-        return isPageRenderedForClass(pageNumber) || hasMountedPageCanvas(pageNumber);
+        return (
+            isPageRenderedForClass(pageNumber)
+            || (
+                hasMountedPageCanvas(pageNumber)
+                && isPageRendering(pageNumber)
+            )
+        );
     }
     const shouldShowNavigationSkeleton = (pageNumber: number) => shouldShowPdfNavigationSkeleton({
         pageNumber,
@@ -658,6 +664,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         skeletonTrackedPages,
         isPageBuffered,
         isPageRenderedForClass,
+        isPageRendering,
         hasMountedPageCanvas,
         shouldShowSkeleton: shouldShowNavigationSkeleton,
         visibleRange,
