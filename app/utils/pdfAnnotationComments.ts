@@ -75,10 +75,6 @@ export function compareAnnotationCommentSummaries(left: IAnnotationCommentSummar
     return left.stableKey.localeCompare(right.stableKey);
 }
 
-export function compareComments(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
-    return compareAnnotationCommentSummaries(left, right);
-}
-
 export function getAnnotationCommentPreviewText(comment: IAnnotationCommentSummary) {
     return comment.displayText?.trim()
         || comment.text.trim()

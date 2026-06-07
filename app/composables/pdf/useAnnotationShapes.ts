@@ -25,10 +25,6 @@ function generateShapeId() {
     return `shape-${crypto.randomUUID()}`;
 }
 
-function nowTimestamp() {
-    return Date.now();
-}
-
 function normalizeComparableNumber(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return null;
@@ -469,7 +465,7 @@ export const useAnnotationShapes = () => {
         settings: IAnnotationSettings,
     ): IShapeAnnotation {
         const style = resolveDrawingStyle(tool, settings);
-        const createdAt = nowTimestamp();
+        const createdAt = Date.now();
         return {
             id: generateShapeId(),
             type: resolveDrawingShapeType(tool),
@@ -838,7 +834,7 @@ export const useAnnotationShapes = () => {
             const index = pageShapes.findIndex(s => s.id === id);
             if (index !== -1) {
                 const currentShape = pageShapes[index]!;
-                const updatedAt = nowTimestamp();
+                const updatedAt = Date.now();
                 pageShapes[index] = {
                     ...currentShape,
                     ...updates, 
@@ -1273,7 +1269,7 @@ export const useAnnotationShapes = () => {
 
         const shape = {
             ...drawingShape.value,
-            modifiedAt: nowTimestamp(),
+            modifiedAt: Date.now(),
         };
         resetDrawingState();
 

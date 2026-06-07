@@ -539,8 +539,8 @@ describe('pdfPrint', () => {
 
         await renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3));
 
-        const { getPdfjsWorkerUrl } = await import('@app/utils/viewerAssets');
-        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getPdfjsWorkerUrl());
+        const { getViewerAssetResolver } = await import('@app/utils/viewerAssets');
+        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getViewerAssetResolver().pdfWorkerUrl());
         expect(root.replaceChildren).toHaveBeenCalledTimes(1);
         expect(root.append).toHaveBeenCalledTimes(2);
         expect(head.appendChild).toHaveBeenCalledWith(expect.objectContaining({textContent: expect.stringContaining('size: 100pt 200pt')}));

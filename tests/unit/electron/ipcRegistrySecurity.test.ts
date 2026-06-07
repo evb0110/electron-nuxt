@@ -62,7 +62,7 @@ vi.mock('@electron/windowTabTransfer', () => ({
     acknowledgeWindowTabTransfer: vi.fn(),
     requestWindowTabTransfer: vi.fn(),
 }));
-vi.mock('@electron/window', () => ({getAllAppWindows: vi.fn(() => [])}));
+vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: vi.fn(() => [])}));
 vi.mock('@electron/updates', () => ({
     deferDownloadedUpdate: vi.fn(),
     getUpdateStatus: vi.fn(() => ({phase: 'idle'})),

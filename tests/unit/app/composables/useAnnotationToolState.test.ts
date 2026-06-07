@@ -690,7 +690,7 @@ describe('useAnnotationToolState', () => {
     });
 
     it('clips overlapping multi-line markup boxes into non-overlapping fragment bands', async () => {
-        const { normalizeMarkupSubtypeFragmentBoxes } = await import('@app/utils/pdf-viewer/annotations/annotation-editor-presentation/normalizeMarkupSubtypeFragmentBoxes');
+        const { normalizeTextMarkupBoxesByLine } = await import('@app/utils/pdf-viewer/text-markup-visual-model/normalizeTextMarkupBoxesByLine');
         const boxes = [
             {
                 x: 0.10,
@@ -712,7 +712,7 @@ describe('useAnnotationToolState', () => {
             },
         ];
 
-        const normalized = normalizeMarkupSubtypeFragmentBoxes(boxes);
+        const normalized = normalizeTextMarkupBoxesByLine(boxes);
 
         expect(normalized).toHaveLength(3);
         expect(normalized[0]).toEqual(expect.objectContaining({

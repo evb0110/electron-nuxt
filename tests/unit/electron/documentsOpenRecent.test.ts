@@ -31,10 +31,8 @@ vi.mock('electron', () => ({ dialog: { showOpenDialog: vi.fn() } }));
 vi.mock('@electron/te', () => ({ te: (key: string) => key }));
 vi.mock('@electron/utils/error', () => ({ getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error) }));
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
-vi.mock('@electron/image/pdfConversion', () => ({
-    isSupportedOpenPath: () => true,
-    SUPPORTED_IMAGE_EXTENSIONS: ['.png'],
-}));
+vi.mock('@electron/image/pdfConversion', () => ({ isSupportedOpenPath: () => true }));
+vi.mock('@electron/image/pdfCombineShared', () => ({PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS: ['.png']}));
 vi.mock('@electron/recentFiles', () => ({ getRecentFiles: mocks.getRecentFiles }));
 vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({ openInputPaths: mocks.openInputPaths }));
 vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({

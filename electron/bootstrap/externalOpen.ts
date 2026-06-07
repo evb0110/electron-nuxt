@@ -122,10 +122,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let startupEmptyClaimGraceResolve: (() => void) | null = null;
     let startupEmptyClaimGracePromise: Promise<void> | null = null;
 
-    function isSupportedFile(filePath: string) {
-        return isSupportedExternalOpenPath(filePath);
-    }
-
     function normalizeCommandLineArg(arg: string) {
         let normalized = arg.trim();
         if (!normalized || normalized.startsWith('-')) {
@@ -166,7 +162,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 break;
             }
             candidate = `${candidate} ${nextToken}`;
-            if (isSupportedFile(candidate)) {
+            if (isSupportedExternalOpenPath(candidate)) {
                 return {
                     path: candidate,
                     endIndex: cursor,
@@ -185,7 +181,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 continue;
             }
 
-            if (isSupportedFile(normalized)) {
+            if (isSupportedExternalOpenPath(normalized)) {
                 files.push(normalized);
                 continue;
             }
@@ -507,7 +503,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     return {
         clearTimers,
-        isSupportedFile,
+        isSupportedFile: isSupportedExternalOpenPath,
         markBootstrapReady() {
             externalOpenBootstrapReady = true;
             if (pendingFlushRequested || pendingExternalOpenPaths.length > 0) {

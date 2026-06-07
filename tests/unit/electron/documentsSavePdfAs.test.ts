@@ -54,8 +54,8 @@ vi.mock('@electron/image/pdfConversion', () => ({
     isDjvuPath: vi.fn(() => false),
     isPdfPath: vi.fn((path: string) => path.toLowerCase().endsWith('.pdf')),
     isSupportedOpenPath: vi.fn(() => true),
-    SUPPORTED_IMAGE_EXTENSIONS: ['.png'],
 }));
+vi.mock('@electron/image/pdfCombineShared', () => ({PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS: ['.png']}));
 
 vi.mock('@electron/menu', () => ({
     refreshMenu: vi.fn(),

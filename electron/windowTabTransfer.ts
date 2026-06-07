@@ -7,10 +7,8 @@ import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
 } from '@contracts/windowTabs';
-import {
-    createAppWindow,
-    getWindowById,
-} from '@electron/window';
+import { createAppWindow } from '@electron/window';
+import { getWindowByIdFromRegistry } from '@electron/window/registry';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -234,7 +232,7 @@ export class WindowTabTransferBroker {
 
 const browserWindowTransferBroker = new WindowTabTransferBroker({
     createTargetWindow: async () => createAppWindow(),
-    getWindowById: windowId => getWindowById(windowId),
+    getWindowById: getWindowByIdFromRegistry,
     setTimer: (callback, ms) => setTimeout(callback, ms),
     clearTimer: handle => clearTimeout(handle),
 });

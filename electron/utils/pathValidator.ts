@@ -118,10 +118,6 @@ function safeRealpathSync(path: string) {
     }
 }
 
-function getTempBaseDirs() {
-    return getTempBaseDirsSync();
-}
-
 function getTempBaseDirsSync() {
     const configuredTempDir = getAppTempDirPath();
     const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
@@ -203,7 +199,7 @@ function resolveAllowedReadPathSync(filePath: string) {
         return null;
     }
 
-    const tempBaseDirs = getTempBaseDirs();
+    const tempBaseDirs = getTempBaseDirsSync();
     if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
         return null;
     }
@@ -222,7 +218,7 @@ function resolveAllowedWritePathSync(filePath: string) {
         return null;
     }
 
-    const tempBaseDirs = getTempBaseDirs();
+    const tempBaseDirs = getTempBaseDirsSync();
     if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
         return null;
     }

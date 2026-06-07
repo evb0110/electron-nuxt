@@ -138,7 +138,7 @@ import type {
 } from '@app/types/annotations';
 import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
 import {
-    compareComments,
+    compareAnnotationCommentSummaries,
     getAnnotationCommentDisplayTimestamp,
     getAnnotationCommentPreviewText,
     matchesCommentQuery,
@@ -188,7 +188,7 @@ const authorName = computed(() => authorNameProp ?? null);
 const activeCommentStableKey = computed(() => activeCommentStableKeyProp ?? null);
 const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 
-const sortedComments = computed(() => comments.slice().sort(compareComments));
+const sortedComments = computed(() => comments.slice().sort(compareAnnotationCommentSummaries));
 
 const filteredComments = computed(() => {
     return sortedComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));

@@ -6,7 +6,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { collectAnnotationRefsToDelete } from '@app/utils/pdf-viewer/pdf-serialization-comments/collectAnnotationRefsToDelete';
 import { removeAnnotationRefsFromPages } from '@app/utils/pdf-viewer/pdf-serialization-comments/removeAnnotationRefsFromPages';
 import { resolveCommentPdfRefInDocument } from '@app/utils/pdf-viewer/pdf-serialization-refs/resolveCommentPdfRefInDocument';
-import { refToTag } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/refToTag';
+import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 export function applyEmbeddedAnnotationDeletes(
     doc: PDFDocument,
@@ -24,7 +24,7 @@ export function applyEmbeddedAnnotationDeletes(
         }
 
         collectAnnotationRefsToDelete(doc, targetRef).forEach((ref) => {
-            refsToDeleteByTag.set(refToTag(ref), ref);
+            refsToDeleteByTag.set(formatPdfJsAnnotationRef(ref), ref);
         });
     }
 

@@ -8,8 +8,8 @@ import { sortBy } from 'es-toolkit/array';
 import {
     type ICreatePdfFromInputPathsProgress,
     isSupportedOpenPath,
-    SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdfConversion';
+import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {
     allowOpenPath,
     logRejectedOpenPath,
@@ -125,7 +125,7 @@ export async function handleOpenPdfDialog(event: Electron.IpcMainInvokeEvent): P
             'pdf',
             'djvu',
             'djv',
-            ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+            ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
         ],
     });
 
@@ -194,7 +194,7 @@ export async function handleOpenCombineDialog(event: Electron.IpcMainInvokeEvent
         title: te('dialogs.combineFiles'),
         extensions: [
             'pdf',
-            ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+            ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
         ],
     });
 

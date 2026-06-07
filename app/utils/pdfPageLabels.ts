@@ -444,10 +444,6 @@ export function getVisiblePageLabel(page: number, pageLabels: string[] | null) {
     return label;
 }
 
-export function formatPageIndicator(page: number, pageLabels: string[] | null) {
-    return formatPageIndicatorWithOptions(page, pageLabels);
-}
-
 export interface IPageIndicatorFormatOptions { compactPhysicalPage?: boolean; }
 
 export function formatPageIndicatorWithOptions(

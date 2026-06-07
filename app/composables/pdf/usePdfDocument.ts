@@ -11,16 +11,16 @@ import type {
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { guardAsync } from '@app/utils/asyncGuard';
-import { readDocumentRange } from '@app/utils/platformDocuments';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import {
     getPdfjsAssetDir,
-    getPdfjsWorkerUrl,
+    getViewerAssetResolver,
 } from '@app/utils/viewerAssets';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { maxCachedPdfPages } from '@app/utils/pdf-viewer/maxCachedPdfPages';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = getPdfjsWorkerUrl();
+pdfjsLib.GlobalWorkerOptions.workerSrc = getViewerAssetResolver().pdfWorkerUrl();
 
 type TPdfDataRangeTransportCtor = new (
     length: number,
@@ -515,7 +515,7 @@ export const usePdfDocument = () => {
             }
 
             const requestedLength = end - cursor;
-            const chunk = await readDocumentRange(src.path, cursor, requestedLength);
+            const chunk = await getDocumentsCapability().readFileRange(src.path, cursor, requestedLength);
             if (version !== renderVersion) {
                 logPdfRenderTrace('pdf-document-range-request-stale-after-read', {
                     begin,
@@ -641,9 +641,9 @@ export const usePdfDocument = () => {
             initialData,
             tailData,
         ] = await Promise.all([
-            readDocumentRange(src.path, 0, initialLen),
+            getDocumentsCapability().readFileRange(src.path, 0, initialLen),
             needsTail
-                ? readDocumentRange(src.path, tailStart, length - tailStart)
+                ? getDocumentsCapability().readFileRange(src.path, tailStart, length - tailStart)
                 : Promise.resolve(null),
         ]);
 

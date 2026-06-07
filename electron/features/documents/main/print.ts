@@ -72,10 +72,6 @@ function normalizePrintableFileName(fileName?: string) {
     return `${safeBaseName || 'document'}.pdf`;
 }
 
-function toOwnedBuffer(data: Uint8Array) {
-    return Buffer.from(data);
-}
-
 function includesAsciiToken(data: Uint8Array, token: string, start: number, end: number) {
     const tokenBytes = Buffer.from(token, 'ascii');
     const lastStart = end - tokenBytes.byteLength;
@@ -417,7 +413,7 @@ export async function handlePrintPdfData(
     let shouldRetainTempPdf = false;
 
     try {
-        await writeFile(tempPath, toOwnedBuffer(data));
+        await writeFile(tempPath, Buffer.from(data));
         const result = await openNativePrintDialogForPath(ownerWindow, tempPath);
         if (result.success) {
             shouldRetainTempPdf = true;
@@ -441,7 +437,7 @@ export async function handleOpenPdfInDefaultAppData(
     const tempFileName = `${DEFAULT_APP_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
     const tempPath = join(getAppTempDir(), tempFileName);
     try {
-        await writeFile(tempPath, toOwnedBuffer(data));
+        await writeFile(tempPath, Buffer.from(data));
         const result = await openPdfInDefaultApp(tempPath);
         if (result.success) {
             scheduleDefaultAppTempCleanup(tempPath);

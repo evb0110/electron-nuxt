@@ -60,10 +60,6 @@ function parsePositiveInt(value: string | undefined) {
     return parsed;
 }
 
-function getSystemMemoryBytes() {
-    return totalmem();
-}
-
 function getPageDimensions(request: Pick<IOcrResourceRequest, 'pageWidthIn' | 'pageHeightIn'>) {
     const widthIn = typeof request.pageWidthIn === 'number' && Number.isFinite(request.pageWidthIn) && request.pageWidthIn > 0
         ? request.pageWidthIn
@@ -105,7 +101,7 @@ function getDefaultSlotCount(effectiveDpi: number, request: IOcrResourceRequest)
         return clamp(configured, 1, 8);
     }
 
-    const memoryBytes = getSystemMemoryBytes();
+    const memoryBytes = totalmem();
     if (memoryBytes > 0 && memoryBytes < LOW_MEMORY_BYTES) {
         return LOW_MEMORY_PAGE_SLOTS;
     }

@@ -20,7 +20,6 @@ import { createLogger } from '@electron/utils/createLogger';
 import {
     createCombinedPdf,
     isImagePath,
-    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdfCombineShared';
 import { convertDjvuToPdfFile } from '@electron/features/djvu/public';
 import { getErrorMessage } from '@electron/utils/error';
@@ -91,8 +90,6 @@ const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     }
     return Math.min(parsed, 256) * 1024 * 1024;
 })();
-export const SUPPORTED_IMAGE_EXTENSIONS = PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS;
-
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     [
         '.png',

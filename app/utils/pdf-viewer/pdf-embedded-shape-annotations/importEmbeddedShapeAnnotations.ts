@@ -159,10 +159,6 @@ function readBorderWidth(dict: PDFDict) {
     return 1;
 }
 
-function refToAnnotationId(ref: PDFRef) {
-    return formatPdfJsAnnotationRef(ref);
-}
-
 function createImportedShapeId(
     pageIndex: number,
     annotationId: string | null,
@@ -279,7 +275,7 @@ function importRectShape(
         return null;
     }
 
-    const annotationId = refToAnnotationId(ref);
+    const annotationId = formatPdfJsAnnotationRef(ref);
     const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const fillColor = toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '');
     const dates = readShapeDates(dict);
@@ -336,7 +332,7 @@ function importLineShape(
         return null;
     }
 
-    const annotationId = refToAnnotationId(ref);
+    const annotationId = formatPdfJsAnnotationRef(ref);
     const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const {
         lineStartStyle,
@@ -396,7 +392,7 @@ function importVerticesShape(
         return null;
     }
 
-    const annotationId = refToAnnotationId(ref);
+    const annotationId = formatPdfJsAnnotationRef(ref);
     const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const {
         lineStartStyle,
@@ -481,7 +477,7 @@ function importInkShape(
         return null;
     }
 
-    const annotationId = refToAnnotationId(ref);
+    const annotationId = formatPdfJsAnnotationRef(ref);
     const dates = readShapeDates(dict);
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, 'Ink'),

@@ -85,7 +85,7 @@ import type {
 } from 'pdfjs-dist';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { formatPageIndicator } from '@app/utils/pdfPageLabels';
+import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
@@ -97,8 +97,8 @@ import {
     createHiddenAnnotationIdsSignature,
     drawEditedTextMarkupThumbnailVisuals,
     getEditedTextMarkupThumbnailComments,
-    getEditedTextMarkupThumbnailSuppressionIds,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import {
     DEFAULT_THUMBNAIL_ITEM_HEIGHT,
     VIRTUAL_OVERSCAN,
@@ -209,7 +209,7 @@ const documentRenderEpoch = ref(0);
 const thumbnailKeySignal = ref(0);
 
 const editedTextMarkupComments = computed(() => getEditedTextMarkupThumbnailComments(annotationComments ?? []));
-const hiddenAnnotationIdSet = computed(() => getEditedTextMarkupThumbnailSuppressionIds(
+const hiddenAnnotationIdSet = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
     annotationComments ?? [],
     hiddenAnnotationIds ?? [],
 ));
@@ -406,7 +406,7 @@ function getThumbnailElement(pageNum: number) {
 }
 
 function getPageIndicator(page: number) {
-    return formatPageIndicator(page, pageLabels ?? null);
+    return formatPageIndicatorWithOptions(page, pageLabels ?? null);
 }
 
 function isCanvasRendered(canvas: HTMLCanvasElement | null) {

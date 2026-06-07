@@ -5,7 +5,7 @@ import {
 } from '@app/platform/browserDocumentStore';
 import {
     getPdfjsAssetDir,
-    getPdfjsWorkerUrl,
+    getViewerAssetResolver,
 } from '@app/utils/viewerAssets';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 
@@ -20,7 +20,7 @@ async function getPdfjsLib() {
     pdfjsLibPromise ??= import('pdfjs-dist');
     const pdfjsLib = await pdfjsLibPromise;
     const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
-    const workerSrc = getPdfjsWorkerUrl();
+    const workerSrc = getViewerAssetResolver().pdfWorkerUrl();
 
     if (globalWorkerOptions.workerSrc !== workerSrc) {
         globalWorkerOptions.workerSrc = workerSrc;

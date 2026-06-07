@@ -21,10 +21,12 @@ import { removeAnnotationRefsFromPages } from '@app/utils/pdf-viewer/pdf-seriali
 import { normalizeManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/normalizeManagedShapeStableKey';
 import { readManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/readManagedShapeStableKey';
 import { writeManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/writeManagedShapeStableKey';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import {
+    formatPdfJsAnnotationRef,
+    normalizePdfJsAnnotationId,
+} from '@app/utils/pdfAnnotationRefs';
 import { lookupAnnotationRefDict } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/lookupAnnotationRefDict';
 import { appendAnnotationRefToPage } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/appendAnnotationRefToPage';
-import { refToTag } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/refToTag';
 import { setBorderWidth } from '@app/utils/pdf-viewer/serialization/pdf-serialization-colors/setBorderWidth';
 import { setOpacity } from '@app/utils/pdf-viewer/serialization/pdf-serialization-colors/setOpacity';
 import { setRgbColor } from '@app/utils/pdf-viewer/serialization/pdf-serialization-colors/setRgbColor';
@@ -515,7 +517,7 @@ function collectShapeAnnotationRefsToDelete(
     ref: PDFRef,
 ) {
     collectAnnotationRefsToDelete(doc, ref).forEach((deleteRef) => {
-        refsToDeleteByTag.set(refToTag(deleteRef), deleteRef);
+        refsToDeleteByTag.set(formatPdfJsAnnotationRef(deleteRef), deleteRef);
     });
 }
 
@@ -542,7 +544,7 @@ function applyExistingShapeAnnotationDecision(
         ref,
     } = annotation;
     const annotationStableKey = readManagedShapeStableKey(annotDict);
-    const annotationId = refToTag(ref);
+    const annotationId = formatPdfJsAnnotationRef(ref);
     const isDeletedManagedShape = annotationStableKey
         ? deletedRefs.stableKeys.has(annotationStableKey)
         : false;
