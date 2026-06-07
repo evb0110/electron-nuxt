@@ -11,6 +11,7 @@ import {
     PDFString,
 } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { tryResolvePdfLibPageView } from '@pdf-core/pdfPageBoxes';
 
 interface IBookmarkOutlineNode {
     ref: PDFRef;
@@ -29,12 +30,14 @@ function setNodeDestination(
         && item.pageIndex >= 0
         && item.pageIndex < document.getPageCount()
     ) {
-        const pageRef = document.getPage(item.pageIndex).ref;
+        const page = document.getPage(item.pageIndex);
+        const pageRef = page.ref;
+        const pageTop = tryResolvePdfLibPageView(page)?.[3] ?? page.getHeight();
         dict.set(PDFName.of('Dest'), document.context.obj([
             pageRef,
             PDFName.of('XYZ'),
             document.context.obj(null),
-            document.context.obj(null),
+            PDFNumber.of(pageTop),
             document.context.obj(null),
         ]));
         return;

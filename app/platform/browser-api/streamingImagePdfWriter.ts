@@ -138,6 +138,7 @@ export class StreamingImagePdfWriter {
     private readonly bookmarks: IPdfBookmarkEntry[];
     private readonly pageCount: number;
     private readonly sink: IStreamingPdfSink;
+    private readonly pageHeights = new Map<number, number>();
     private bytesWritten = 0;
     private pagesWritten = 0;
 
@@ -182,6 +183,7 @@ export class StreamingImagePdfWriter {
         const imageRef = imageObjectNumber(pageIndex);
         const contentRef = contentObjectNumber(pageIndex);
         const pageRef = pageObjectNumber(pageIndex);
+        this.pageHeights.set(pageIndex, pageHeight);
 
         await this.writeStreamObject(imageRef, [
             '/Type /XObject',
@@ -308,8 +310,9 @@ export class StreamingImagePdfWriter {
             && node.item.pageIndex >= 0
             && node.item.pageIndex < this.pageCount
         ) {
+            const pageHeight = this.pageHeights.get(node.item.pageIndex) ?? 0;
             lines.push(
-                `/Dest [${pageObjectNumber(node.item.pageIndex)} 0 R /XYZ null null null]`,
+                `/Dest [${pageObjectNumber(node.item.pageIndex)} 0 R /XYZ null ${formatPdfNumber(pageHeight)} null]`,
             );
         }
 
