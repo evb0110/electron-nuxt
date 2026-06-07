@@ -46,10 +46,7 @@ const mockDjvuModeState = {
     djvuTempPdfPath: ref<string | null>(null),
 };
 
-vi.mock('@app/utils/platform', () => ({
-    getPlatformAPI: () => mockElectronAPI,
-    getElectronAPI: () => mockElectronAPI,
-}));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockElectronAPI}));
 
 vi.mock('@app/composables/useDjvuMode', () => {
     const enterDjvuMode = vi.fn((source: string, temp: string | null = null) => {

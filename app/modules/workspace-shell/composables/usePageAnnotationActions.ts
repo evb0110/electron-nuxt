@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     useClipboard,
     useEventListener,

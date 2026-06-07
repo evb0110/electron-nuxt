@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
 import { isRecord } from '@contracts/runtimeGuards';
-import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
+import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
 import { createLogger } from '@electron/utils/createLogger';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {

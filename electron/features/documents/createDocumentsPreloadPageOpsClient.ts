@@ -1,5 +1,5 @@
 import type { IpcRenderer } from 'electron';
-import type { IPageOpsCapability } from '@contracts/platformApi';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import {
     PAGE_OPS_CHANNELS,
     type IPageOpsInvokeMap,

@@ -25,7 +25,7 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import { readPdfRectFromDict } from '@app/utils/pdf-viewer/pdf-page-boxes/readPdfRectFromDict';
+import { readPdfRectFromDict } from '@pdf-core';
 import { iterateAnnotationRefDicts } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { appendAnnotationRefToPage } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/appendAnnotationRefToPage';

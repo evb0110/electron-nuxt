@@ -93,7 +93,7 @@ describe('open path capabilities', () => {
         const {
             allowOpenPath,
             requireOpenPath,
-        } = await import('@electron/ipc/openPathCapabilities');
+        } = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath)).not.toBeNull();
         expect(() => requireOpenPath(filePath)).not.toThrow();
@@ -111,7 +111,7 @@ describe('open path capabilities', () => {
         const {
             allowOpenPath,
             requireOpenPath,
-        } = await import('@electron/ipc/openPathCapabilities');
+        } = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
         expect(() => requireOpenPath(filePath, owner as never)).not.toThrow();
@@ -129,7 +129,7 @@ describe('open path capabilities', () => {
         const {
             allowOpenPath,
             requireOpenPath,
-        } = await import('@electron/ipc/openPathCapabilities');
+        } = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
         triggerRenderProcessGone(owner);
@@ -145,7 +145,7 @@ describe('open path capabilities', () => {
         const {
             allowOpenPath,
             requireOpenPath,
-        } = await import('@electron/ipc/openPathCapabilities');
+        } = await import('@electron/file-access/openPathCapabilities');
 
         expect(allowOpenPath(filePath, owner as never)).not.toBeNull();
         triggerMainFrameNavigation(owner);
@@ -160,7 +160,7 @@ describe('open path capabilities', () => {
         writeFileSync(secondPath, new Uint8Array([2]));
 
         const owner = createOwner(7);
-        const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
+        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
 
         allowOpenPath(firstPath, owner as never);
         allowOpenPath(secondPath, owner as never);

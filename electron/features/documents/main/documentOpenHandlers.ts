@@ -15,7 +15,7 @@ import {
     logRejectedOpenPath,
     requireOpenPath,
     type TOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import { getRecentFiles } from '@electron/recentFiles';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';

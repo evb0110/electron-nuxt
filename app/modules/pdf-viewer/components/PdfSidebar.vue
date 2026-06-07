@@ -154,7 +154,7 @@
 <script setup lang="ts">
 
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfSearchRequestOptions } from '@contracts/search';
 import type {
     IPdfBookmarkEntry,

@@ -27,7 +27,7 @@ vi.mock('electron', () => ({
 
 vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
 
-vi.mock('@electron/ipc/workingCopyCreation', () => ({ ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory }));
+vi.mock('@electron/file-access/workingCopyCreation', () => ({ ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory }));
 
 vi.mock('@electron/utils/pathValidator', () => ({ resolveAllowedWritePath: mocks.resolveAllowedWritePath }));
 

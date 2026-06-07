@@ -103,10 +103,8 @@
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
 import { delay } from 'es-toolkit/promise';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@contracts/windowTabs';
@@ -126,8 +124,8 @@ import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/sho
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import AppSpinner from '@app/components/AppSpinner.vue';
-import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
-import PdfPageSkeleton from '@app/modules/pdf-viewer/components/PdfPageSkeleton.vue';
+import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
+import { PdfPageSkeleton } from '@app/modules/pdf-viewer/public/component-exports/pdfPageSkeleton';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';

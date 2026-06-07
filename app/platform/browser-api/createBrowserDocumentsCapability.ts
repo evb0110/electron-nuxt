@@ -1,8 +1,8 @@
 import type {
     IDocumentsCapability,
     IImageExportCapability,
-    IPageOpsCapability,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiDocuments';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import {
     OPEN_PDF_IMAGE_ACCEPT,
     buildOpenPdfImagePickerTypes,

@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 export async function savePdfBytesAs(

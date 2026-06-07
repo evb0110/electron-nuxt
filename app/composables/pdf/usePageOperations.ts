@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';

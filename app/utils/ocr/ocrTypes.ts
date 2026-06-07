@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 export type TOcrPageRange = 'all' | 'current' | 'custom';
 

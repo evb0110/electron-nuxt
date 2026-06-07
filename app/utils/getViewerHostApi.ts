@@ -1,7 +1,5 @@
-import type {
-    IPlatformApi,
-    IViewerHostApi,
-} from '@contracts/platformApi';
+import type { IPlatformApi } from '@contracts/platformApi';
+import type { IViewerHostApi } from '@contracts/viewerHost';
 import {
     getPlatformAPI,
     hasElectronAPI,

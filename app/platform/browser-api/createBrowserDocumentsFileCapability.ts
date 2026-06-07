@@ -1,4 +1,4 @@
-import type { IDocumentsFileCapability } from '@contracts/platformApi';
+import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import {
     BROWSER_MAX_FULL_READ_BYTES,

@@ -5,10 +5,8 @@ import type { IPageOpsHandlersDeps } from '@app/modules/workspace-shell/composab
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import type { IPageFileOperationsDeps } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps,

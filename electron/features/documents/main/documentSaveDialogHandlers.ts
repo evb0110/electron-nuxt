@@ -12,8 +12,8 @@ import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
 import { beginSerializedPdfSaveAs } from '@electron/features/documents/main/serializedPdfPersistence';
 import type { IBeginSerializedPdfSaveAsResult } from '@electron/features/documents/serializedPdfPersistenceContract';
-import { getWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { te } from '@electron/te';
 
 export async function handleSavePdfAs(

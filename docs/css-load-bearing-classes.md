@@ -32,12 +32,13 @@ rg --type ts --type vue 'page_container' -l
 ```
 
 PDF viewer-owned selector constants and page lookup helpers live in
-`app/modules/pdf-viewer/dom/pdfViewerDom.ts`. Prefer those helpers for new
+`app/modules/pdf-viewer/dom/pdf-viewer-dom/`. Prefer those helpers for new
 viewer runtime/rendering code so selector ownership stays explicit.
 
 ## Dual camelCase / kebab-case Convention
 
-`PdfViewerPage.vue` emits **both** naming formats on PDF.js layer elements:
+`app/modules/pdf-viewer/components/PdfViewerPage.vue` emits **both** naming
+formats on PDF.js layer elements:
 
 ```html
 <div class="text-layer textLayer" />

@@ -6,7 +6,7 @@ import { existsSync } from 'fs';
 import { extname } from 'path';
 import { uniq } from 'es-toolkit/array';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,

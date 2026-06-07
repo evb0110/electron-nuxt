@@ -3,7 +3,7 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';

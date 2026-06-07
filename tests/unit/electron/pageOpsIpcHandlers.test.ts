@@ -99,8 +99,8 @@ vi.mock('fs/promises', () => ({
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
-vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
-vi.mock('@electron/ipc/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args)}));
+vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
         0,
@@ -131,7 +131,7 @@ vi.mock('@electron/image/pdfConversion', () => ({
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
 vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => mocks.getNativeToolPaths()}));
-vi.mock('@electron/ipc/openPathCapabilities', () => ({
+vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     allowOpenPaths: (...args: unknown[]) => mocks.allowOpenPaths(...args),
     requireOpenPath: (path: string) => mocks.requireOpenPath(path),

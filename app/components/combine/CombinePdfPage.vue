@@ -186,7 +186,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';

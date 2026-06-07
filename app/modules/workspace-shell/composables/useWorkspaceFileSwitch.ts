@@ -1,8 +1,6 @@
 import type { Ref } from 'vue';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 

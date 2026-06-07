@@ -5,10 +5,10 @@ import {
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@pdf-core/pdfConformanceHelpers';
+    loadPdfStructure,
+} from '@pdf-core';
 import type { IPdfConformanceProfile } from '@contracts/pdfConformance';
 import { createLogger } from '@electron/utils/createLogger';
-import { loadPdfStructure } from '@pdf-core/loadPdfStructure';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-pdfConformance');

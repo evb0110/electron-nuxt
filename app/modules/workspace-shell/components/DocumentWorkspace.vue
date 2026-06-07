@@ -384,10 +384,10 @@ import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
 import { useMutationObserver } from '@vueuse/core';
-import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
-import PdfSidebar from '@app/modules/pdf-viewer/components/PdfSidebar.vue';
-import PdfStatusBar from '@app/modules/pdf-viewer/components/PdfStatusBar.vue';
-import PdfViewer from '@app/modules/pdf-viewer/components/PdfViewer.vue';
+import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
+import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
+import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
+import { PdfViewer } from '@app/modules/pdf-viewer/public/component-exports/pdfViewer';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { bucketPageCount } from '@app/utils/analytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
@@ -413,10 +413,8 @@ import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorks
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/utils/pdf-viewer/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TStartSection } from '@app/types/startSection';
 import type { IPdfPageMatches } from '@app/types/pdf';

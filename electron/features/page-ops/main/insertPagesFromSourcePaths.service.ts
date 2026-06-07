@@ -15,7 +15,7 @@ import {
 } from '@electron/image/pdfConversion';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     cleanupTempOutput,
     makeTempPdfOutputPath,
@@ -28,7 +28,7 @@ import {
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
 } from '@electron/features/page-ops/main/qpdf';
-import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
 

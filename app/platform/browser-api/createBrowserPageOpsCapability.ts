@@ -1,4 +1,4 @@
-import type { IPageOpsCapability } from '@contracts/platformApi';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import type { IPageGeometry } from '@contracts/shared';
 import {
     browserDocumentStore,

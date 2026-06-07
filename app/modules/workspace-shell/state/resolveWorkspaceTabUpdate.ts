@@ -1,5 +1,5 @@
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 function getBaseName(path: TDocumentRef | null) {

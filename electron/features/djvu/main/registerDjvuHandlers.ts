@@ -29,7 +29,7 @@ import { isDjvuPath } from '@electron/image/pdfConversion';
 import {
     requireOpenPath,
     type TOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TDjvuIpcMainRegistrar } from '@electron/features/djvu/ports';
 import { DJVU_CHANNELS } from '@electron/features/djvu/contract';

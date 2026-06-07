@@ -1,6 +1,12 @@
 import type {
+    PDFDict,
     PDFDocument,
     PDFPage,
+} from 'pdf-lib';
+import {
+    PDFArray,
+    PDFName,
+    PDFNumber,
 } from 'pdf-lib';
 
 export interface IPdfPageBox {
@@ -11,6 +17,8 @@ export interface IPdfPageBox {
 }
 
 export type TPdfRect = [number, number, number, number];
+
+const RECT_NAME = 'Rect';
 
 export function arePdfPageBoxesEqual(left: IPdfPageBox, right: IPdfPageBox) {
     return left.x === right.x
@@ -109,4 +117,44 @@ export function resolvePdfLibPageView(page: ReturnType<PDFDocument['getPages']>[
     const mediaBox = resolvePdfLibMediaBox(page);
     const cropBox = resolvePdfLibCropBox(page, mediaBox);
     return toPdfRect(cropBox ?? mediaBox);
+}
+
+export function tryResolvePdfLibPageView(page: ReturnType<PDFDocument['getPages']>[number]): TPdfRect | null {
+    try {
+        return resolvePdfLibPageView(page);
+    } catch {
+        return null;
+    }
+}
+
+export function numberFromPdfBox(box: PDFArray, index: number) {
+    const value = box.get(index);
+    return value instanceof PDFNumber ? value.asNumber() : null;
+}
+
+export function readPdfRectFromDict(dict: PDFDict): TPdfRect | null {
+    const rect = dict.lookupMaybe(PDFName.of(RECT_NAME), PDFArray);
+    if (!(rect instanceof PDFArray) || rect.size() < 4) {
+        return null;
+    }
+
+    const x1 = numberFromPdfBox(rect, 0);
+    const y1 = numberFromPdfBox(rect, 1);
+    const x2 = numberFromPdfBox(rect, 2);
+    const y2 = numberFromPdfBox(rect, 3);
+    if (
+        x1 === null
+        || y1 === null
+        || x2 === null
+        || y2 === null
+    ) {
+        return null;
+    }
+
+    return [
+        x1,
+        y1,
+        x2,
+        y2,
+    ];
 }

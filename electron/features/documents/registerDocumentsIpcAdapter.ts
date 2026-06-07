@@ -16,9 +16,9 @@ import {
     allowOpenPath,
     requireOpenPath,
     type TOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
-import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
+import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 type TDocumentsIpcRegistrar = IIpcMainRegistrar<IDocumentsInvokeMap, IpcMainInvokeEvent>;

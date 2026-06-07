@@ -2,7 +2,7 @@ import type {
     IPdfPersistResult,
     TPdfSaveMode,
 } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 export function createPdfPersistResult(
     success: boolean,

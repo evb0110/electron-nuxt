@@ -1,4 +1,4 @@
-import type { IViewerAssetResolver } from '@contracts/platformApi';
+import type { IViewerAssetResolver } from '@contracts/viewerHost';
 
 const PDF_ASSET_BASE_URL = '/pdf/';
 const PDF_WORKER_FILE = 'pdf.worker.min.mjs';

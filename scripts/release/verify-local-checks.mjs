@@ -29,7 +29,7 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
-                'check:architecture',
+                'check:architecture:all',
             ],
             command: 'pnpm',
         },

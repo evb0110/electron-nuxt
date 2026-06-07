@@ -10,10 +10,8 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 import type { IEditorPaneState } from '@app/types/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 
 interface IResolvedTabAction {

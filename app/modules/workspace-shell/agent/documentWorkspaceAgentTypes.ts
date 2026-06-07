@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
     IPdfBookmarkEntry,

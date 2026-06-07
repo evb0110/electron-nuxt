@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TTranslateFn } from '@i18n-app';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { extractPdfText } from '@app/utils/ocr/extractPdfText';

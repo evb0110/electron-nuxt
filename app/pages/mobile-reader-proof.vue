@@ -219,15 +219,16 @@ import type {
     TZoomMode,
 } from '@app/types/pdf';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
-import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
-import PdfPageDropdown from '@app/modules/pdf-viewer/components/PdfPageDropdown.vue';
-import PdfToolbar from '@app/modules/pdf-viewer/components/PdfToolbar.vue';
-import PdfZoomDropdown from '@app/modules/pdf-viewer/components/PdfZoomDropdown.vue';
+import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
+import { PdfPageDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';
+import { PdfToolbar } from '@app/modules/pdf-viewer/public/component-exports/pdfToolbar';
+import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { MOBILE_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 
-const PdfViewer = defineAsyncComponent(() => import('@app/modules/pdf-viewer/components/PdfViewer.vue'));
+const PdfViewer = defineAsyncComponent(() =>
+    import('@app/modules/pdf-viewer/public/component-exports/pdfViewer').then(module => module.PdfViewer));
 
 const { t } = useTypedI18n();
 const {

@@ -1,5 +1,5 @@
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 
 interface IHandleWorkspaceHostOpenFileFromUiOptions {
     mountedWorkspace: IWorkspaceExpose | null;

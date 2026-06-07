@@ -1,5 +1,5 @@
 import type { PageViewport } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IOcrWord } from '@app/types/pdf';
 import { createWordBoxOverlays } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/createWordBoxOverlays';
 import { isOcrDebugEnabled } from '@app/utils/pdf-viewer/ocr/pdf-word-box-geometry/isOcrDebugEnabled';

@@ -4,7 +4,7 @@ import {
     range,
     sumBy,
 } from 'es-toolkit/math';
-import type { IImageExportCapability } from '@contracts/platformApi';
+import type { IImageExportCapability } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -25,7 +25,7 @@ import {
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-} from '@pdf-core/tiffEncoding';
+} from '@pdf-core';
 
 interface IRenderedPdfPage {
     pageNumber: number;

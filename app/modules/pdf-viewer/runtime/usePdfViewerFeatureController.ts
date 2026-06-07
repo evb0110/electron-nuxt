@@ -21,6 +21,7 @@ import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/c
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
+import { useEditedTextMarkupVisualSync } from '@app/modules/pdf-viewer/runtime/annotations/useEditedTextMarkupVisualSync';
 import type {
     IPdfViewerProps,
     TPdfViewerEmit,
@@ -32,15 +33,8 @@ import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import { getPageRowBoundsForViewMode } from '@app/utils/pdf-viewer/pdf-page-layout/getPageRowBoundsForViewMode';
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
 import { summarizeViewerMetrics } from '@app/utils/pdf-viewer/pdf-viewer-metrics/summarizeViewerMetrics';
-import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
-import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
-import { toOpaqueHighlightDisplayColor } from '@app/utils/pdf-viewer/text-markup-color/toOpaqueHighlightDisplayColor';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import type {
-    IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationModifiedPayload,
 } from '@app/types/annotations';
@@ -233,57 +227,15 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
     function relayPageRenderStall(payload: IPageRenderStallPayload) {
         pageRenderStallRecoveryHandler?.(payload);
     }
-    const canvasHiddenAnnotationIds = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
-        annotationCommentsCache.value,
-        hiddenEmbeddedAnnotationIds.value,
-    ));
-    function resolveRenderedTextMarkupColor(comment: IAnnotationCommentSummary) {
-        if (!comment.color) {
-            return null;
-        }
-        if ((comment.subtype ?? '').trim().toLowerCase() !== 'highlight') {
-            return comment.color;
-        }
-        return toOpaqueHighlightDisplayColor(
-            comment.color,
-            annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
-        );
-    }
-
-    function resolveRenderedTextMarkupOverlayColor(comment: IAnnotationCommentSummary) {
-        return comment.color?.trim() || null;
-    }
-
-    function resolveRenderedTextMarkupHighlightOpacity(comment: IAnnotationCommentSummary) {
-        if ((comment.subtype ?? '').trim().toLowerCase() !== 'highlight') {
-            return null;
-        }
-        return annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
-    }
-    function applyEditedTextMarkupColorsForRenderedPage(pageNumber: number) {
-        const container = viewerContainer.value;
-        if (!container) {
-            return;
-        }
-        for (const comment of annotationCommentsCache.value) {
-            if (
-                comment.pageNumber !== pageNumber
-                || comment.colorEdited !== true
-                || !isTextMarkupSubtype(comment.subtype)
-            ) {
-                continue;
-            }
-            const color = resolveRenderedTextMarkupColor(comment);
-            if (color) {
-                applyAnnotationCommentTextMarkupColor(container, comment, color, { suppressNativeTextMarkupDecoration: true });
-            }
-        }
-        syncAnnotationCommentTextMarkupVisualOverlays(container, annotationCommentsCache.value, {
-            pageNumber,
-            resolveColor: resolveRenderedTextMarkupOverlayColor,
-            resolveHighlightOpacity: resolveRenderedTextMarkupHighlightOpacity,
-        });
-    }
+    const {
+        canvasHiddenAnnotationIds,
+        applyEditedTextMarkupColorsForRenderedPage,
+    } = useEditedTextMarkupVisualSync({
+        viewerContainer,
+        annotationCommentsCache,
+        hiddenEmbeddedAnnotationIds,
+        annotationSettings,
+    });
     const {
         setupPagePlaceholders,
         renderVisiblePages,

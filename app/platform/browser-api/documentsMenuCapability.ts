@@ -1,4 +1,4 @@
-import type { IDocumentsMenuCapability } from '@contracts/platformApi';
+import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 interface IOpenDocumentDirectBatchProgressPayload {

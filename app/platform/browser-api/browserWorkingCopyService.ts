@@ -1,7 +1,5 @@
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { clamp } from 'es-toolkit/math';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {

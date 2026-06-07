@@ -40,9 +40,6 @@ import type {
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
     IOcrPdfPageRequest,
-    IWorkerPaths,
-    TOcrWorkerInboundMessage,
-    IOcrWorkerStartPayload,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
 import {
@@ -62,179 +59,15 @@ import {
     writeOcrIndexV1,
     writeOcrIndexV2,
 } from '@electron/ocr/worker/indexWriter';
+import { parseOcrWorkerInboundMessage } from '@electron/ocr/worker/inboundMessage';
+import { resolveWorkerPaths } from '@electron/ocr/worker/resolveWorkerPaths';
 import {
-    runOcrCommand,
-    type TOcrRunCommandOptions,
-} from '@electron/ocr/worker/runOcrCommand';
-import { isRecord } from '@contracts/runtimeGuards';
+    buildPopplerEnv,
+    preparePdfForPoppler,
+    renderPdfPageToPng,
+} from '@electron/ocr/worker/popplerStage';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-
-const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
-const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-
-function toStringArray(value: unknown) {
-    if (!Array.isArray(value)) {
-        return null;
-    }
-    if (!value.every(item => typeof item === 'string')) {
-        return null;
-    }
-    return value;
-}
-
-function parsePdfPageRequest(value: unknown) {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (typeof value.pageNumber !== 'number' || !Number.isFinite(value.pageNumber)) {
-        return null;
-    }
-    const languages = toStringArray(value.languages);
-    if (!languages) {
-        return null;
-    }
-    return {
-        pageNumber: value.pageNumber,
-        languages,
-    };
-}
-
-function parsePdfPageRequests(value: unknown) {
-    if (!Array.isArray(value)) {
-        return null;
-    }
-
-    const pages: IOcrPdfPageRequest[] = [];
-    for (const page of value) {
-        const parsedPage = parsePdfPageRequest(page);
-        if (!parsedPage) {
-            return null;
-        }
-        pages.push(parsedPage);
-    }
-
-    return pages;
-}
-
-function parseOptionalDpi(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : undefined;
-}
-
-function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const sourcePdfPath = typeof value.sourcePdfPath === 'string'
-        ? value.sourcePdfPath.trim()
-        : '';
-    const pages = parsePdfPageRequests(value.pages);
-    if (!sourcePdfPath || !pages) {
-        return null;
-    }
-
-    const payload: IOcrWorkerStartPayload = {
-        sourcePdfPath,
-        pages,
-    };
-    const renderDpi = parseOptionalDpi(value.renderDpi);
-    if (renderDpi !== undefined) {
-        payload.renderDpi = renderDpi;
-    }
-    return payload;
-}
-
-function parseInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
-    if (!isRecord(value) || typeof value.jobId !== 'string') {
-        return null;
-    }
-
-    if (value.type === 'cancel') {
-        return {
-            type: 'cancel',
-            jobId: value.jobId,
-        };
-    }
-
-    if (value.type === 'resource-acquired') {
-        if (
-            typeof value.requestId !== 'string'
-            || typeof value.token !== 'string'
-            || typeof value.effectiveDpi !== 'number'
-            || !Number.isFinite(value.effectiveDpi)
-        ) {
-            return null;
-        }
-        return {
-            type: 'resource-acquired',
-            jobId: value.jobId,
-            requestId: value.requestId,
-            token: value.token,
-            effectiveDpi: value.effectiveDpi,
-        };
-    }
-
-    if (value.type !== 'start') {
-        return null;
-    }
-
-    const data = parseStartPayload(value.data);
-    if (!data) {
-        return null;
-    }
-
-    return {
-        type: 'start',
-        jobId: value.jobId,
-        data,
-    };
-}
-
-function readRequiredPath(
-    data: Record<string, unknown>,
-    key: keyof IWorkerPaths,
-) {
-    const value = data[key];
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error(`Invalid OCR workerData.${String(key)} path`);
-    }
-    return value;
-}
-
-function readOptionalPath(
-    data: Record<string, unknown>,
-    key: keyof IWorkerPaths,
-): string | undefined {
-    const value = data[key];
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        return undefined;
-    }
-    return value;
-}
-
-function resolveWorkerPaths(rawWorkerData: unknown) {
-    if (!isRecord(rawWorkerData)) {
-        throw new Error('Invalid OCR workerData payload');
-    }
-    return {
-        tesseractBinary: readRequiredPath(rawWorkerData, 'tesseractBinary'),
-        tessdataPath: readRequiredPath(rawWorkerData, 'tessdataPath'),
-        pdftoppmBinary: readRequiredPath(rawWorkerData, 'pdftoppmBinary'),
-        pdftotextBinary: readRequiredPath(rawWorkerData, 'pdftotextBinary'),
-        pdfimagesBinary: readOptionalPath(rawWorkerData, 'pdfimagesBinary'),
-        popplerDataDir: readOptionalPath(rawWorkerData, 'popplerDataDir'),
-        popplerFontConfigDir: readOptionalPath(rawWorkerData, 'popplerFontConfigDir'),
-        qpdfBinary: readRequiredPath(rawWorkerData, 'qpdfBinary'),
-        unpaperBinary: readOptionalPath(rawWorkerData, 'unpaperBinary'),
-        tempDir: readRequiredPath(rawWorkerData, 'tempDir'),
-    };
-}
 
 const paths = resolveWorkerPaths(workerData);
 const activeJobControllers = new Map<string, AbortController>();
@@ -256,102 +89,6 @@ const log: TWorkerLog = (level, message) => {
     };
     parentPort?.postMessage(payload);
 };
-
-function buildPopplerEnv() {
-    const env: NodeJS.ProcessEnv = {};
-
-    if (paths.popplerDataDir) {
-        env.POPPLER_DATADIR = paths.popplerDataDir;
-    }
-
-    if (paths.popplerFontConfigDir) {
-        env.FONTCONFIG_PATH = paths.popplerFontConfigDir;
-        env.FONTCONFIG_FILE = join(paths.popplerFontConfigDir, 'fonts.conf');
-    }
-
-    if (Object.keys(env).length === 0) {
-        return undefined;
-    }
-
-    return env;
-}
-
-async function renderPdfPageToPng(
-    pageNumber: number,
-    sourcePdfPath: string,
-    outputPngPath: string,
-    dpi: number,
-    popplerEnv?: NodeJS.ProcessEnv,
-    signal?: AbortSignal,
-) {
-    const commandOptions: TOcrRunCommandOptions = {
-        commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
-        timeoutMs: PDFTOPPM_TIMEOUT_MS,
-        log,
-    };
-    if (popplerEnv !== undefined) {
-        commandOptions.env = popplerEnv;
-    }
-    if (signal !== undefined) {
-        commandOptions.signal = signal;
-    }
-
-    await runOcrCommand(paths.pdftoppmBinary, [
-        '-png',
-        '-r',
-        String(dpi),
-        '-f',
-        String(pageNumber),
-        '-l',
-        String(pageNumber),
-        '-singlefile',
-        sourcePdfPath,
-        outputPngPath.replace(/\.png$/, ''),
-    ], commandOptions);
-}
-
-async function preparePdfForPoppler(
-    sourcePdfPath: string,
-    sessionId: string,
-    trackTempFile: (path: string) => string,
-    signal?: AbortSignal,
-) {
-    const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
-
-    try {
-        const commandOptions: TOcrRunCommandOptions = {
-            commandLabel: 'qpdf(poppler-preflight)',
-            allowedExitCodes: [
-                0,
-                3,
-            ],
-            timeoutMs: QPDF_TIMEOUT_MS,
-            log,
-        };
-        if (signal !== undefined) {
-            commandOptions.signal = signal;
-        }
-
-        await runOcrCommand(paths.qpdfBinary, [
-            sourcePdfPath,
-            normalizedPdfPath,
-        ], commandOptions);
-
-        const normalizedStat = await stat(normalizedPdfPath);
-        if (normalizedStat.size <= 0) {
-            throw new Error('qpdf produced an empty normalized PDF');
-        }
-
-        log('debug', `Prepared Poppler input via qpdf: ${normalizedPdfPath} (${normalizedStat.size} bytes)`);
-        return normalizedPdfPath;
-    } catch (err) {
-        if (signal?.aborted) {
-            throw signal.reason instanceof Error ? signal.reason : err;
-        }
-        log('warn', `qpdf preflight failed; falling back to original PDF for Poppler commands: ${getErrorMessage(err)}`);
-        return sourcePdfPath;
-    }
-}
 
 function sendProgress(jobId: string, currentPage: number, processedCount: number, totalPages: number) {
     const payload: TOcrWorkerOutboundMessage = {
@@ -513,6 +250,8 @@ async function processOcrPage(
         }
 
         await renderPdfPageToPng(
+            paths,
+            log,
             page.pageNumber,
             context.popplerSourcePdfPath,
             pageImagePath,
@@ -850,8 +589,15 @@ async function processOcrJob(
         await validateSourcePdf(jobId, sourcePdfPath, pages.length);
 
         const sessionId = `ocr-${randomUUID()}`;
-        const popplerSourcePdfPath = await preparePdfForPoppler(sourcePdfPath, sessionId, trackTempFile, abortController.signal);
-        const popplerEnv = buildPopplerEnv();
+        const popplerSourcePdfPath = await preparePdfForPoppler(
+            paths,
+            log,
+            sourcePdfPath,
+            sessionId,
+            trackTempFile,
+            abortController.signal,
+        );
+        const popplerEnv = buildPopplerEnv(paths);
         logPopplerEnvironment(popplerEnv);
 
         const planOptions: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'> = {
@@ -943,7 +689,7 @@ async function processOcrJob(
 }
 
 parentPort?.on('message', async (rawMessage: unknown) => {
-    const message = parseInboundMessage(rawMessage);
+    const message = parseOcrWorkerInboundMessage(rawMessage);
     if (!message) {
         log('warn', 'Ignoring malformed inbound OCR worker message');
         return;

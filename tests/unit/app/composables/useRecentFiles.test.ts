@@ -43,23 +43,6 @@ vi.mock('@app/utils/platform', () => ({
             },
             openPdfDirect: vi.fn(),
         }},
-    getElectronAPI: () => electronBridgeReady.value
-        ? {documents: {
-            recentFiles: {
-                get: electronRecentFilesGet,
-                remove: electronRecentFilesRemove,
-                clear: electronRecentFilesClear,
-            },
-            openPdfDirect: electronOpenPdfDirect,
-        }}
-        : {documents: {
-            recentFiles: {
-                get: browserRecentFilesGet,
-                remove: vi.fn(),
-                clear: vi.fn(),
-            },
-            openPdfDirect: vi.fn(),
-        }},
     hasElectronAPI: () => electronBridgeReady.value,
     isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
     shouldPreferDesktopPlatform: (

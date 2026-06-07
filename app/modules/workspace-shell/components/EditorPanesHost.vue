@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanesGrid.vue';
 import type {
     IEditorPaneState,

@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     getDocumentRefDisplayLabel,
     isBrowserDocumentRef,

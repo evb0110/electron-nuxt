@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { createDocxFromTextAsync } from '@app/utils/docx';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { useAnalytics } from '@app/composables/useAnalytics';

@@ -1,5 +1,5 @@
 import type {IpcRenderer} from 'electron';
-import type { IDocumentsCapability } from '@contracts/platformApi';
+import type { IDocumentsCapability } from '@contracts/electronApiDocuments';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { createDocumentsPreloadMenuClient } from '@electron/features/documents/createDocumentsPreloadMenuClient';
 

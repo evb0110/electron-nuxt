@@ -191,15 +191,15 @@
 
 <script setup lang="ts">
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     TFitMode,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
-import PdfPageDropdown from '@app/modules/pdf-viewer/components/PdfPageDropdown.vue';
-import PdfToolbar from '@app/modules/pdf-viewer/components/PdfToolbar.vue';
-import PdfZoomDropdown from '@app/modules/pdf-viewer/components/PdfZoomDropdown.vue';
+import { PdfPageDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';
+import { PdfToolbar } from '@app/modules/pdf-viewer/public/component-exports/pdfToolbar';
+import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';

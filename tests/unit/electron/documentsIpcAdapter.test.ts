@@ -25,12 +25,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
-vi.mock('@electron/ipc/openPathCapabilities', () => ({
+vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
 }));
 vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: unknown) => mocks.isSupportedOpenPath(path)}));
-vi.mock('@electron/ipc/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: unknown, owner: unknown) => mocks.requireManagedWorkingCopyPath(path, owner)}));
+vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: unknown, owner: unknown) => mocks.requireManagedWorkingCopyPath(path, owner)}));
 
 describe('documents ipc adapter', () => {
     it('grants renderer file-open paths to the sender webContents owner', async () => {

@@ -8,9 +8,9 @@ import { refreshMenu } from '@electron/menu';
 import {
     requireOpenPath,
     type TOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import { isKnownWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
+import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';

@@ -1,8 +1,8 @@
 import type {
     IDebugLogEntry,
     IRendererLogEntry,
-    ISettingsCapability,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiCommon';
+import type { ISettingsCapability } from '@contracts/settingsCapability';
 import {
     DEFAULT_SETTINGS,
     normalizeLocale,

@@ -11,7 +11,7 @@ import {
 } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdf';
 import { cast } from '@tests/helpers/cast';

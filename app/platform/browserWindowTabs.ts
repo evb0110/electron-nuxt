@@ -1,7 +1,5 @@
-import type {
-    IMenuEventUnsubscribe,
-    IWindowTabsCapability,
-} from '@contracts/platformApi';
+import type { IMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,

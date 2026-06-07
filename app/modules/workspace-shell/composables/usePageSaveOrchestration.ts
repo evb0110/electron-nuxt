@@ -14,7 +14,7 @@ import type {
     IPdfPageLabelRange,
     IScrollSnapshot,
 } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import { useFileOperations } from '@app/composables/useFileOperations';

@@ -9,7 +9,7 @@ import {
     computed,
     ref,
 } from 'vue';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | { onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void; } }));

@@ -1,7 +1,7 @@
 import type {
     IAppUpdateStatus,
     IUpdatesCapability,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiUpdates';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getUpdatesCapability(): IUpdatesCapability {

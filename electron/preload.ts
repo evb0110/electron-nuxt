@@ -15,7 +15,7 @@ import { createTypedIpcInvoker } from '@electron/preload/ipcClient';
 import {
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
-} from '@electron/ipc/coreContract';
+} from '@electron/platform-ipc/coreContract';
 
 const PRELOAD_INSTALL_FLAG = '__preloadInstalled';
 const PRELOAD_DEBUG_LOG_LISTENER_FLAG = '__preloadDebugLogListenerInstalled';

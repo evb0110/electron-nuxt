@@ -17,19 +17,6 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
         && from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
 }
 
-function isLegacyElectronShimImport(entry: unknown) {
-    if (!entry || typeof entry !== 'object') {
-        return false;
-    }
-
-    const from = Reflect.get(entry, 'from');
-    return typeof from === 'string'
-        && (
-            from.endsWith('/app/utils/electron')
-            || from.endsWith('/app/utils/electron.ts')
-        );
-}
-
 const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1'
     ? '.vercel/output'
     : 'nuxt-output';
@@ -165,10 +152,7 @@ export default defineNuxtConfig({
         // Removing it here prevents runtime ESM import errors during app bootstrap.
         'imports:extend': (imports) => {
             for (let index = imports.length - 1; index >= 0; index -= 1) {
-                if (
-                    isInvalidNuxtUiResizableImport(imports[index])
-                    || isLegacyElectronShimImport(imports[index])
-                ) {
+                if (isInvalidNuxtUiResizableImport(imports[index])) {
                     imports.splice(index, 1);
                 }
             }

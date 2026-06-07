@@ -11,7 +11,7 @@ import type {
     TAgentCommand,
 } from '@contracts/agent';
 import { isRecord } from '@contracts/runtimeGuards';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { getErrorMessage } from '@electron/utils/error';
 
 const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 2500;

@@ -12,8 +12,8 @@ import {
     isAllowedReadPath,
     resolveAllowedReadPath,
 } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
-import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 
 const MAX_IPC_READ_BYTES = (() => {

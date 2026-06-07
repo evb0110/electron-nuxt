@@ -1,7 +1,7 @@
 import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiUpdates';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getUpdatesCapability,

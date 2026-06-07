@@ -29,70 +29,19 @@ export interface IPlatformApi {
 }
 
 export type { TDocumentRef } from '@contracts/documentRef';
-export type {
-    IDesktopMenuCapability,
-    IDesktopWindowCapability,
-    IViewerAssetResolver,
-    IViewerDocumentCapability,
-    IViewerDocumentOutputCapability,
-    IViewerDocumentPickerCapability,
-    IViewerDocumentReadCapability,
-    IViewerHostApi,
-    IViewerHostEnvironment,
-    IViewerSearchCapability,
-    IViewerSettingsCapability,
-    TViewerHostKind,
-} from '@contracts/viewerHost';
-
-export type {
-    IAppUpdateStatus,
-    IAgentCapability,
-    IAgentCommandRequest,
-    IAgentCommandResponse,
-    IAgentDocumentOcrState,
-    IAgentDocumentReadiness,
-    IAgentDocumentRecommendation,
-    IAgentMcpIntegrationStatus,
-    IAgentMcpIntegrationUpdateResult,
-    IAgentPaneSnapshot,
-    IAgentTabSnapshot,
-    IAgentWorkspaceSnapshot,
-    IAgentWorkspaceSnapshotRequest,
-    IAgentWorkspaceSnapshotResponse,
-    IDebugLogEntry,
-    IDjvuCapability,
-    IDjvuInfo,
-    IDjvuProgress,
-    IDjvuSizeEstimate,
-    IDjvuViewingErrorEvent,
-    IDjvuViewingReadyEvent,
-    IDocumentsCapability,
-    IDocumentsFileCapability,
-    IDocumentsMenuCapability,
-    IHostCapability,
-    IHostEnvironmentSnapshot,
-    IImageExportCapability,
-    IMenuEventCallback,
-    IMenuEventUnsubscribe,
-    IOcrCapability,
-    IPageOpsCapability,
-    IRendererLogEntry,
-    ISearchCapability,
-    ISettingsCapability,
-    IUpdatesCapability,
-    IWindowTabsCapability,
-    TAppUpdateCheckOrigin,
-    TAppUpdatePhase,
-    THostPlatform,
-    TOpenFileResult,
-    TPdfSaveMode,
-    IPdfConformanceProfile,
-    IPdfValidationResult,
-    TAgentCommand,
-    TAgentCommandName,
-    TAgentDocumentKind,
-    TAgentDocumentReadinessStatus,
-    TAgentMcpCodexRegistrationState,
-    TAgentOcrCoverageStatus,
-    TAgentRecommendationId,
-} from '@contracts/electronApi';
+export type * from '@contracts/shared';
+export type * from '@contracts/viewerHost';
+export type * from '@contracts/agent';
+export type * from '@contracts/agentCapability';
+export type * from '@contracts/electronApiCommon';
+export type * from '@contracts/electronApiDocuments';
+export type * from '@contracts/electronApiDjvu';
+export type * from '@contracts/electronApiHost';
+export type * from '@contracts/electronApiOcr';
+export type * from '@contracts/electronApiPageOps';
+export type * from '@contracts/electronApiUpdates';
+export type * from '@contracts/electronApiWindowTabs';
+export type * from '@contracts/searchCapability';
+export type * from '@contracts/settingsCapability';
+export type * from '@contracts/shellCapability';
+export type * from '@contracts/pdfConformance';

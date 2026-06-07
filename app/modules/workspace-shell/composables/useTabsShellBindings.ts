@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     getPlatformAPI,
     shouldPreferDesktopPlatform,

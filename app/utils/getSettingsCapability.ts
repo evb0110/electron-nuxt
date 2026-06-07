@@ -1,4 +1,4 @@
-import type { ISettingsCapability } from '@contracts/platformApi';
+import type { ISettingsCapability } from '@contracts/settingsCapability';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getSettingsCapability(): ISettingsCapability {

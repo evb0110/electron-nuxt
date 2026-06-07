@@ -49,11 +49,11 @@ import {
     handlePrintPdfData,
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
-import { cleanupWorkingCopy } from '@electron/ipc/workingCopyCleanup';
+import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     handleFileSave,
     handleSerializedPdfSave,
-} from '@electron/ipc/workingCopySave';
+} from '@electron/features/documents/main/workingCopySave';
 import { beginSerializedPdfSaveToOriginal } from '@electron/features/documents/main/serializedPdfPersistence';
 import {
     clearRecentFiles,
@@ -63,7 +63,7 @@ import {
 import {
     allowOpenPaths,
     removeAllowedOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import {
     setMenuDocumentState,
     setMenuTabCount,

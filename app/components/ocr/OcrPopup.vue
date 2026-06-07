@@ -280,10 +280,8 @@ import {
     useTimeoutFn,
 } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type {
-    IDebugLogEntry,
-    TDocumentRef,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TTranslationKey } from '@i18n-app';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';

@@ -70,8 +70,3 @@ export function getPlatformAPI(): IPlatformApi {
     const electronApi = getElectronWindow()?.electronAPI;
     return electronApi ?? lazyBrowserPlatformApi;
 }
-
-/** @deprecated Prefer getPlatformAPI() in shared code. */
-export function getElectronAPI(): IPlatformApi {
-    return getPlatformAPI();
-}

@@ -49,7 +49,7 @@ import {
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import { requireManagedWorkingCopyPath } from '@electron/ipc/workingCopyCreation';
+import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
 import type { TOcrIpcMainRegistrar } from '@electron/features/ocr/ports';
 

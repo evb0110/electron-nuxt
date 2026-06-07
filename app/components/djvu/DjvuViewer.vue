@@ -103,13 +103,13 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
 import { useResizeObserver } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';
+import type { IDjvuPageSize } from '@app/platform/browser-api/public';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
-import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import { createDjvuWorkerFromPath } from '@app/platform/browser-api/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import {

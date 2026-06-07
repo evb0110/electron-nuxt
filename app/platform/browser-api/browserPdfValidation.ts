@@ -1,8 +1,7 @@
-import { loadPdfStructure } from '@pdf-core/loadPdfStructure';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
-} from '@contracts/platformApi';
+} from '@contracts/pdfConformance';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
     buildPdfSaveRestrictions,
@@ -10,7 +9,8 @@ import {
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@pdf-core/pdfConformanceHelpers';
+    loadPdfStructure,
+} from '@pdf-core';
 import {
     createPdfjsDocumentInit,
     getPdfjsLib,

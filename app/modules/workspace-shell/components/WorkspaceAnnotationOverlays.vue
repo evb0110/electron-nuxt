@@ -140,11 +140,11 @@
 
 <script setup lang="ts">
 
-import PdfAnnotationProperties from '@app/modules/pdf-viewer/components/PdfAnnotationProperties.vue';
-import PdfTextMarkupAnnotationProperties from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotationProperties.vue';
-import PdfAnnotationContextMenu from '@app/modules/pdf-viewer/components/annotations/PdfAnnotationContextMenu.vue';
-import PdfAnnotationNoteWindow from '@app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue';
-import PdfPageContextMenu from '@app/modules/pdf-viewer/components/PdfPageContextMenu.vue';
+import { PdfAnnotationContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu';
+import { PdfAnnotationNoteWindow } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationNoteWindow';
+import { PdfAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationProperties';
+import { PdfPageContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu';
+import { PdfTextMarkupAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfTextMarkupAnnotationProperties';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,

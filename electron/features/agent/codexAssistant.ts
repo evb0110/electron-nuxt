@@ -41,6 +41,16 @@ import {
     type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
 import {
+    ASSISTANT_IMAGE_ONLY_PROMPT,
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+    ASSISTANT_MCP_SERVER_NAME,
+    ASSISTANT_MCP_TOKEN_ENV,
+    ASSISTANT_MODEL_CONFIG_DIR,
+    ASSISTANT_ROLE_PROMPT,
+    createAssistantCodexConfig,
+} from '@electron/features/agent/codexAssistantConfig';
+import {
     CodexAppServerClient,
     type ICodexAppServerNotification,
 } from '@electron/features/agent/codexAppServerClient';
@@ -50,37 +60,13 @@ import {
     shutdownEmbeddedMcpServer,
     startEmbeddedMcpServer,
 } from '@electron/features/agent/mcpServer';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { loadSettings } from '@electron/settings';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('agent-codex-assistant');
-const ASSISTANT_IMAGE_ONLY_PROMPT = 'Please answer using the attached image.';
-const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
-const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ASSISTANT_MCP_SERVER_NAME = 'evb_viewer_embedded';
-const ASSISTANT_MCP_TOKEN_ENV = 'EVB_MCP_TOKEN';
-const ASSISTANT_MODEL_CONFIG_DIR = 'assistant';
-const ASSISTANT_ROLE_PROMPT = [
-    'You are EVB Assistant, a concise assistant embedded in EVB Viewer for researchers working with local documents.',
-    'Help with the live EVB Viewer workspace. A document may be absent; inspect workspace state before answering questions that depend on open tabs, current pages, or document contents.',
-    'Use only the EVB Viewer MCP tools available in this session. Do not use local files, shell commands, browser automation, web search, or external services.',
-    'Use the compact EVB workflow: evb_workspace_snapshot for state, evb_list_capabilities for actions, evb_describe_capability for schemas and policies, evb_read_resource for document resources, evb_run_action for viewer actions, and evb_job_status only for job ids.',
-    'Prefer semantic capabilities over toolbar manipulation: document.search, document.read_pages, document.capture_page_image, annotation.create_text_markup, annotation.create_note_at_point, annotation.create_shape, annotation.update_note, annotation.update_text_markup_color, page_labels.preview, page_labels.apply_plan, bookmarks.preview_tree, bookmarks.apply_plan, and file.save after verified writes.',
-    'For write, destructive, or long-running work, inspect policy and availability first and use dryRun or preview unless the user intent is already explicit. OCR start requires an explicit user request or approved policy.',
-    'Recent files are metadata only. Do not infer their contents until a file is opened and read through EVB tools. When searchable PDF text is missing, say OCR or conversion is needed instead of guessing.',
-    'Be concise, cite page numbers when tools provide them, and navigate the viewer only when it directly helps.',
-].join('\n');
-const ASSISTANT_MCP_TOOLS = [
-    'evb_workspace_snapshot',
-    'evb_list_capabilities',
-    'evb_describe_capability',
-    'evb_read_resource',
-    'evb_run_action',
-    'evb_job_status',
-];
 
 interface IAssistantRuntime {
     client: CodexAppServerClient;
@@ -270,43 +256,6 @@ function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAss
     const scope = resolveRequestedScope(request);
     rememberStateScope(scope);
     return scope ? getChatSession(scope, { create: true }) : null;
-}
-
-function tomlString(value: string) {
-    return JSON.stringify(value);
-}
-
-function createAssistantCodexConfig(serverUrl: string) {
-    const enabledTools = ASSISTANT_MCP_TOOLS.map(tomlString).join(', ');
-    return [
-        'cli_auth_credentials_store = "file"',
-        'model_reasoning_effort = "low"',
-        'web_search = "disabled"',
-        'sandbox_mode = "read-only"',
-        'approval_policy = "never"',
-        'default_permissions = "evb-mcp-only"',
-        '',
-        '[features]',
-        'shell_tool = false',
-        'unified_exec = false',
-        'shell_snapshot = false',
-        'multi_agent = false',
-        'apps = false',
-        'memories = false',
-        'hooks = false',
-        '',
-        '[permissions.evb-mcp-only.filesystem]',
-        '":minimal" = "read"',
-        '',
-        '[permissions.evb-mcp-only.network]',
-        'enabled = false',
-        '',
-        `[mcp_servers.${ASSISTANT_MCP_SERVER_NAME}]`,
-        `url = ${tomlString(serverUrl)}`,
-        `bearer_token_env_var = ${tomlString(ASSISTANT_MCP_TOKEN_ENV)}`,
-        `enabled_tools = [${enabledTools}]`,
-        '',
-    ].join('\n');
 }
 
 async function writeAssistantConfig(codeHome: string, serverUrl: string) {

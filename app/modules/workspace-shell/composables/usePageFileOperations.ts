@@ -3,10 +3,8 @@ import type {
     Ref,
 } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';

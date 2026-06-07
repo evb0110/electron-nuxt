@@ -11,14 +11,14 @@ import {
 } from 'path';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
-import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
+import { allowDocxWritePath } from '@electron/file-access/docxExportPaths';
 import { allowDjvuWritePath } from '@electron/djvu/exportPaths';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     getWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
-} from '@electron/ipc/workingCopyStore';
-import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/workingCopyStore';
+import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import {
     atomicReplace,
@@ -26,7 +26,7 @@ import {
 } from '@electron/utils/atomicReplace';
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
-import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 
 export type TShowSaveDialogWithExtension = (
     event: Electron.IpcMainInvokeEvent,

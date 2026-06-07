@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import { difference } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}

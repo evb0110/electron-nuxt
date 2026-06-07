@@ -34,6 +34,7 @@ const SOURCE_EXTENSIONS = [
 const IGNORED_DIRECTORY_NAMES = new Set([
     'node_modules',
     '.nuxt',
+    '.vercel',
     'nuxt-output',
     '.output',
     'dist',
@@ -401,6 +402,7 @@ function toMarkdown(graph) {
         `- Generated: ${new Date().toISOString()}`,
         `- Nodes: ${graph.nodes.length}`,
         `- Edges: ${graph.edges.length}`,
+        `- Cycles: ${graph.cycles.length}`,
         '',
         '## Edges',
     ];
@@ -410,6 +412,77 @@ function toMarkdown(graph) {
     }
 
     return `${lines.join('\n')}\n`;
+}
+
+export function findStronglyConnectedComponents(nodes, edges) {
+    const nodeFiles = new Set(nodes.map(node => node.file));
+    for (const edge of edges) {
+        nodeFiles.add(edge.source);
+        nodeFiles.add(edge.target);
+    }
+
+    const adjacency = new Map(Array.from(nodeFiles, file => [
+        file,
+        [],
+    ]));
+    for (const edge of edges) {
+        adjacency.get(edge.source)?.push(edge.target);
+    }
+
+    let nextIndex = 0;
+    const indexes = new Map();
+    const lowlinks = new Map();
+    const stack = [];
+    const onStack = new Set();
+    const components = [];
+
+    function visit(file) {
+        indexes.set(file, nextIndex);
+        lowlinks.set(file, nextIndex);
+        nextIndex += 1;
+        stack.push(file);
+        onStack.add(file);
+
+        for (const target of adjacency.get(file) ?? []) {
+            if (!indexes.has(target)) {
+                visit(target);
+                lowlinks.set(file, Math.min(lowlinks.get(file), lowlinks.get(target)));
+                continue;
+            }
+            if (onStack.has(target)) {
+                lowlinks.set(file, Math.min(lowlinks.get(file), indexes.get(target)));
+            }
+        }
+
+        if (lowlinks.get(file) !== indexes.get(file)) {
+            return;
+        }
+
+        const component = [];
+        while (stack.length > 0) {
+            const member = stack.pop();
+            onStack.delete(member);
+            component.push(member);
+            if (member === file) {
+                break;
+            }
+        }
+        components.push(component.sort());
+    }
+
+    for (const file of Array.from(nodeFiles).sort()) {
+        if (!indexes.has(file)) {
+            visit(file);
+        }
+    }
+
+    const selfLoopFiles = new Set(edges
+        .filter(edge => edge.source === edge.target)
+        .map(edge => edge.source));
+
+    return components
+        .filter(component => component.length > 1 || selfLoopFiles.has(component[0]))
+        .sort((a, b) => a[0].localeCompare(b[0]));
 }
 
 export async function buildDependencyGraph({
@@ -475,6 +548,7 @@ export async function buildDependencyGraph({
     return {
         nodes,
         edges,
+        cycles: findStronglyConnectedComponents(nodes, edges).map(files => ({ files })),
         unresolvedInternalImports,
     };
 }

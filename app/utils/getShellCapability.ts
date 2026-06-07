@@ -1,6 +1,6 @@
-import type { IPlatformApi } from '@contracts/platformApi';
+import type { IShellCapability } from '@contracts/shellCapability';
 import { getPlatformAPI } from '@app/utils/platform';
 
-export function getShellCapability(): IPlatformApi['shell'] {
+export function getShellCapability(): IShellCapability {
     return getPlatformAPI().shell;
 }

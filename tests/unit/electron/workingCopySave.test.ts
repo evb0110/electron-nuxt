@@ -38,9 +38,9 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
-vi.mock('@electron/ipc/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
-vi.mock('@electron/ipc/workingCopyStore', () => ({getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args)}));
-vi.mock('@electron/ipc/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
+vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args)}));
+vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 
 describe('workingCopySave', () => {
     let tempRoot = '';
@@ -73,9 +73,9 @@ describe('workingCopySave', () => {
         writeFileSync(originalPath, 'old-original');
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
         const queuedMutation = deferred<undefined>();
-        const { enqueueWorkingCopyMutation } = await import('@electron/ipc/workingCopyMutationQueue');
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
         const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
-        const { handleFileSave } = await import('@electron/ipc/workingCopySave');
+        const { handleFileSave } = await import('@electron/features/documents/main/workingCopySave');
 
         const savePromise = handleFileSave(event, workingPath);
         await waitForSettledQueueTurn();
@@ -97,9 +97,9 @@ describe('workingCopySave', () => {
         writeFileSync(originalPath, 'old-original');
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
         const queuedMutation = deferred<undefined>();
-        const { enqueueWorkingCopyMutation } = await import('@electron/ipc/workingCopyMutationQueue');
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
         const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
-        const { handleSerializedPdfSave } = await import('@electron/ipc/workingCopySave');
+        const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
 
         const savePromise = handleSerializedPdfSave(event, workingPath, Buffer.from('serialized-pdf'));
         await waitForSettledQueueTurn();

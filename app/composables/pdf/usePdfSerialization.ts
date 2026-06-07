@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -18,8 +18,10 @@ import { deleteEmbeddedAnnotationOffThread } from '@app/utils/pdf-viewer/pdf-ser
 import { serializePdfEditsOffThread } from '@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread';
 import { updateEmbeddedAnnotationTextOffThread } from '@app/utils/pdf-viewer/pdf-serialization-worker-client/updateEmbeddedAnnotationTextOffThread';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-import { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
+import {
+    decodeBrowserImageBlob,
+    toTransferableUint8Array,
+} from '@app/platform/browser-api/public';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { measureDevPerfAsync } from '@app/utils/devPerf';
 import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';

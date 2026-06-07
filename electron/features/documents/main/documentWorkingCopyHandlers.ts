@@ -4,9 +4,9 @@ import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import {
     createWorkingCopyFromData,
     createWorkingCopyFromPath,
-} from '@electron/ipc/workingCopyCreation';
-import { isKnownWorkingCopyOriginalPath } from '@electron/ipc/workingCopyStore';
-import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/workingCopyCreation';
+import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { createLogger } from '@electron/utils/createLogger';
 
 const logger = createLogger('documents-dialogs');

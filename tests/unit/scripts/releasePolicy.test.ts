@@ -202,7 +202,7 @@ describe('release policy', () => {
             ],
             [
                 'run',
-                'check:architecture',
+                'check:architecture:all',
             ],
             [
                 'run',

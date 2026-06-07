@@ -14,7 +14,7 @@ import { isAllowedDjvuTempPdfPath } from '@electron/djvu/isAllowedDjvuTempPdfPat
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const logger = createLogger('djvu-viewing');
 const allowedDjvuViewingPathsBySender = new Map<number, Map<string, number>>();

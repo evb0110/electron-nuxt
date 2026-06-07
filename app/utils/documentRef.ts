@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 function decodeUriComponentRepeatedly(value: string, maxPasses = 3) {
     let decoded = value;

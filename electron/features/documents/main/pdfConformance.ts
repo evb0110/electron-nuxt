@@ -15,8 +15,10 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
-import { createDefaultPdfConformanceProfile } from '@pdf-core/pdfConformanceHelpers';
-import { loadPdfStructure } from '@pdf-core/loadPdfStructure';
+import {
+    createDefaultPdfConformanceProfile,
+    loadPdfStructure,
+} from '@pdf-core';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';

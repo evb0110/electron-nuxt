@@ -1,7 +1,7 @@
 import { uniq } from 'es-toolkit/array';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
-import { allowOpenPaths } from '@electron/ipc/openPathCapabilities';
+import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 type TOpenPathOwner = number | Electron.WebContents;
 

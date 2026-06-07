@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     useEventListener,
     useIntervalFn,

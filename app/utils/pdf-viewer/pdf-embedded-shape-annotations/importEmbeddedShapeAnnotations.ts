@@ -24,7 +24,7 @@ import { generateManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-seriali
 import { readManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/readManagedShapeStableKey';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getAllShapePoints } from '@app/utils/pdf-viewer/pdf-shape-strokes/getAllShapePoints';
-import { readPdfRectFromDict } from '@app/utils/pdf-viewer/pdf-page-boxes/readPdfRectFromDict';
+import { readPdfRectFromDict } from '@pdf-core';
 import { parsePdfDateStringTimestamp } from '@app/utils/pdfDate';
 import { computePointsMinMax } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/computePointsMinMax';
 import { iterateAnnotationRefDicts } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/iterateAnnotationRefDicts';

@@ -62,7 +62,7 @@ import {
     readRecentFilesFromStorage,
     writeRecentFilesToStorage,
 } from '@app/platform/browser/browserRecentFilesStore';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();

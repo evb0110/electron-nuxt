@@ -7,7 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
-import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const mocks = vi.hoisted(() => {
     class MockDjvuPdfWorkerStartupError extends Error {

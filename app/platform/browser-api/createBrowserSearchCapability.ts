@@ -10,9 +10,7 @@ import {
     buildPdfSearchRegex,
     iteratePdfSearchMatches,
 } from '@contracts/search';
-import type { IBrowserOcrSearchDocumentText } from '@app/platform/browser-api/readBrowserOcrSearchDocumentText';
-import { readBrowserOcrSearchDocumentText } from '@app/platform/browser-api/readBrowserOcrSearchDocumentText';
-import type { ISearchCapability } from '@contracts/platformApi';
+import type { ISearchCapability } from '@contracts/searchCapability';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
@@ -647,28 +645,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
     }
 
-    async function extractDocumentTextFromOcrArtifacts(
-        pdfPath: string,
-        fileSize: number,
-        contentSignature: string,
-        requestId: string | undefined,
-        expectedPageCount?: number,
-    ): Promise<IBrowserOcrSearchDocumentText | null> {
-        try {
-            return await readBrowserOcrSearchDocumentText(pdfPath, {
-                fileSize,
-                contentSignature,
-                ...(expectedPageCount !== undefined ? { expectedPageCount } : {}),
-                shouldContinue: () => !isExtractionCanceled(requestId),
-            });
-        } catch (error) {
-            if (isBrowserSearchCanceledError(error)) {
-                return null;
-            }
-            return null;
-        }
-    }
-
     async function deliverPage(
         pageNumber: number,
         text: string,
@@ -781,34 +757,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
         if (persistedRecord) {
             await clearPersistedSearchCacheForDocument(pdfPath);
-        }
-
-        const ocrDocumentText = await extractDocumentTextFromOcrArtifacts(
-            pdfPath,
-            fileSize,
-            contentSignature,
-            options.requestId,
-            options.expectedPageCount,
-        );
-        if (isSearchCanceled(options.requestId)) {
-            return false;
-        }
-        if (ocrDocumentText) {
-            cache.pageCount = ocrDocumentText.pageCount;
-            const { canceled } = await iterateExtractedDocumentPages(cache, ocrDocumentText, options);
-
-            if (!canceled && canPersistPageTexts(ocrDocumentText.pageTexts)) {
-                await persistSearchCacheRecord(createPersistedSearchCacheRecord(
-                    pdfPath,
-                    fileSize,
-                    contentSignature,
-                    ocrDocumentText.pageCount,
-                    ocrDocumentText.pageTexts,
-                    ocrDocumentText.textSource,
-                ));
-            }
-
-            return !canceled;
         }
 
         if (options.streamDirectExtraction) {

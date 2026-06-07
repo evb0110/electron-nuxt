@@ -1,5 +1,5 @@
 import type { IpcRenderer } from 'electron';
-import type {IDocumentsFileCapability} from '@contracts/platformApi';
+import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     DOCUMENTS_CHANNELS,

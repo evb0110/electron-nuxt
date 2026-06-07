@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IOcrWord } from '@contracts/shared';
 
 export interface IOcrManifest {

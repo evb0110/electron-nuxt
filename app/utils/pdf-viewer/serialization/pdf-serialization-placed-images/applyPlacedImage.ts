@@ -8,9 +8,9 @@ import {
 } from 'pdf-lib';
 import { normalizePageRotation } from '@app/utils/pdf-viewer/annotation-geometry/normalizePageRotation';
 import { toPdfRectFromMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/toPdfRectFromMarkerRect';
-import { resolvePdfPageView } from '@app/utils/pdf-viewer/pdf-page-boxes/resolvePdfPageView';
 import { appendAnnotationRefToPage } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/appendAnnotationRefToPage';
 import type { IPdfSerializedPlacedImagePayload } from '@app/utils/pdf-viewer/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
+import { tryResolvePdfLibPageView } from '@pdf-core';
 
 export async function applyPlacedImage(
     doc: PDFDocument,
@@ -25,7 +25,7 @@ export async function applyPlacedImage(
         return false;
     }
 
-    const pageView = resolvePdfPageView(page);
+    const pageView = tryResolvePdfLibPageView(page);
     if (!pageView) {
         return false;
     }
