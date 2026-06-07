@@ -9,10 +9,6 @@ function normalizeNonNegative(value: number) {
     return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-function clampNumber(value: number, min: number, max: number) {
-    return clamp(value, min, max);
-}
-
 export function resolvePageBoundedHorizontalScroll(
     input: IPageBoundedHorizontalScrollInput,
 ) {
@@ -48,7 +44,7 @@ export function resolvePageBoundedHorizontalScroll(
     return {
         minScrollLeft,
         maxScrollLeft,
-        scrollLeft: clampNumber(input.scrollLeft, minScrollLeft, maxScrollLeft),
+        scrollLeft: clamp(input.scrollLeft, minScrollLeft, maxScrollLeft),
         shouldLock: false,
     };
 }

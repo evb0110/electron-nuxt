@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
-import { renderedPageContainerClass } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/renderedPageContainerClass';
+import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 
 interface ICreatePdfRendererPageDomOptions {
     container: Ref<HTMLElement | null>;
@@ -52,7 +52,7 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
         };
         return {
             hasContainer: Boolean(pageContainer),
-            containerRenderedClass: pageContainer?.classList.contains(renderedPageContainerClass) ?? false,
+            containerRenderedClass: pageContainer?.classList.contains(pdfViewerDomClasses.renderedPageContainer) ?? false,
             hasCanvas: Boolean(pageContainer?.querySelector(pdfViewerDomSelectors.pageCanvasElement)),
             skeletonDisplay: skeleton?.style.display ?? null,
             textLayerChildren: getChildCount(pdfViewerDomSelectors.textLayer),

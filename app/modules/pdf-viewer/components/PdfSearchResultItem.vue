@@ -27,7 +27,7 @@
 
 <script setup lang="ts">
 import type { IPdfSearchMatch } from '@app/types/pdf';
-import { formatPageIndicator } from '@app/utils/pdfPageLabels';
+import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 
 const { t } = useTypedI18n();
 
@@ -46,7 +46,7 @@ const {
 const emit = defineEmits<{(e: 'activate'): void;}>();
 
 const showPageLabel = computed(() => showPageLabelProp ?? true);
-const pageIndicator = computed(() => formatPageIndicator(result.pageIndex + 1, pageLabels ?? null));
+const pageIndicator = computed(() => formatPageIndicatorWithOptions(result.pageIndex + 1, pageLabels ?? null));
 const matchIndicator = computed(() => (result.pageMatchIndex ?? result.matchIndex) + 1);
 
 function activate() {

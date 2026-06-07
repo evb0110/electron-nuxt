@@ -71,7 +71,7 @@
                         />
                         <span class="pdf-search-results-group-label">
                             {{ t('searchResults.pageWithCount', {
-                                page: formatPageIndicator(group.pageIndex + 1, pageLabels ?? null),
+                                page: formatPageIndicatorWithOptions(group.pageIndex + 1, pageLabels ?? null),
                                 count: group.matches.length,
                             }) }}
                         </span>
@@ -101,7 +101,7 @@ import { groupBy } from 'es-toolkit/array';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/modules/pdf-viewer/components/PdfSearchResultItem.vue';
-import { formatPageIndicator } from '@app/utils/pdfPageLabels';
+import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 
 const { t } = useTypedI18n();
 

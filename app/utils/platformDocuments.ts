@@ -20,18 +20,6 @@ export function getImageExportCapability(): IImageExportCapability {
     return getPlatformAPI().imageExport;
 }
 
-export function getDocumentPathForFile(file: File) {
-    return getDocumentsCapability().getPathForFile(file);
-}
-
-export function readDocumentRange(
-    path: TDocumentRef,
-    offset: number,
-    length: number,
-) {
-    return getDocumentsCapability().readFileRange(path, offset, length);
-}
-
 const FULL_READ_FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
 
 function isBrowserFullReadLimitError(error: unknown) {

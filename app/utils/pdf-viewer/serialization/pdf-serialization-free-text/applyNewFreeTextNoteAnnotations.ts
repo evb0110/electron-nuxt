@@ -34,10 +34,6 @@ import { toFreeTextNoteMarkerRect } from '@app/utils/pdf-viewer/serialization/pd
 import { setRgbColor } from '@app/utils/pdf-viewer/serialization/pdf-serialization-colors/setRgbColor';
 import { resolveShapePageContext } from '@app/utils/pdf-viewer/serialization/pdf-serialization-geometry/resolveShapePageContext';
 
-function freeTextRefTag(ref: PDFRef) {
-    return formatPdfJsAnnotationRef(ref);
-}
-
 function findFreeTextCommentMatch(
     dict: PDFDict,
     ref: PDFRef,
@@ -51,7 +47,7 @@ function findFreeTextCommentMatch(
         pageView,
         pageRotation,
     );
-    const refTag = freeTextRefTag(ref);
+    const refTag = formatPdfJsAnnotationRef(ref);
     const dictText = getPdfDictContents(dict).trim().toLowerCase();
 
     let bestMatch: {

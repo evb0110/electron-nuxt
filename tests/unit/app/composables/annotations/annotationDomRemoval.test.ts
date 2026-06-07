@@ -8,7 +8,7 @@ import {
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { applyAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
 import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay';
-import { drawAnnotationCommentTextMarkupCanvasVisual } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/drawAnnotationCommentTextMarkupCanvasVisual';
+import { drawEditedTextMarkupCanvasVisual } from '@app/utils/pdf-viewer/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
 import { removeAnnotationCommentDom } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/removeAnnotationCommentDom';
 import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 import { resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics';
@@ -1445,7 +1445,7 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             width: 1000,
         } as HTMLCanvasElement;
 
-        const didDraw = drawAnnotationCommentTextMarkupCanvasVisual(
+        const didDraw = drawEditedTextMarkupCanvasVisual(
             canvas,
             context as CanvasRenderingContext2D,
             createComment({

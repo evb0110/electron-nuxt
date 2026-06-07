@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { compareAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-rules/compareAnnotations';
+import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 import { isNoteEligible } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligible';
 import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
@@ -64,17 +64,17 @@ describe('isNoteEligible', () => {
     });
 });
 
-describe('compareAnnotations', () => {
+describe('compareAnnotationCommentSummaries', () => {
     it('returns negative when left has a smaller pageIndex', () => {
         const left = createComment({pageIndex: 0});
         const right = createComment({pageIndex: 5});
-        expect(compareAnnotations(left, right)).toBeLessThan(0);
+        expect(compareAnnotationCommentSummaries(left, right)).toBeLessThan(0);
     });
 
     it('returns positive when left has a larger pageIndex', () => {
         const left = createComment({pageIndex: 7});
         const right = createComment({pageIndex: 2});
-        expect(compareAnnotations(left, right)).toBeGreaterThan(0);
+        expect(compareAnnotationCommentSummaries(left, right)).toBeGreaterThan(0);
     });
 
     it('orders by sortIndex when pageIndex matches', () => {
@@ -86,7 +86,7 @@ describe('compareAnnotations', () => {
             pageIndex: 1,
             sortIndex: 5,
         });
-        expect(compareAnnotations(left, right)).toBeLessThan(0);
+        expect(compareAnnotationCommentSummaries(left, right)).toBeLessThan(0);
     });
 
     it('orders by creation time before source-local sort indexes', () => {
@@ -102,7 +102,7 @@ describe('compareAnnotations', () => {
             createdAt: 200,
             modifiedAt: 200,
         });
-        expect(compareAnnotations(older, newer)).toBeLessThan(0);
+        expect(compareAnnotationCommentSummaries(older, newer)).toBeLessThan(0);
     });
 
     it('treats a comment with sortIndex as preceding one without', () => {
@@ -114,8 +114,8 @@ describe('compareAnnotations', () => {
             pageIndex: 1,
             sortIndex: null,
         });
-        expect(compareAnnotations(left, right)).toBe(-1);
-        expect(compareAnnotations(right, left)).toBe(1);
+        expect(compareAnnotationCommentSummaries(left, right)).toBe(-1);
+        expect(compareAnnotationCommentSummaries(right, left)).toBe(1);
     });
 
     it('does not reorder undated annotations by edit time', () => {
@@ -129,7 +129,7 @@ describe('compareAnnotations', () => {
             sortIndex: 0,
             modifiedAt: 200,
         });
-        expect(compareAnnotations(left, right)).toBeGreaterThan(0);
+        expect(compareAnnotationCommentSummaries(left, right)).toBeGreaterThan(0);
     });
 
     it('keeps creation order stable when a note is edited later', () => {
@@ -145,7 +145,7 @@ describe('compareAnnotations', () => {
             modifiedAt: 200,
         });
 
-        expect(compareAnnotations(createdFirstEditedLater, createdSecond)).toBeLessThan(0);
+        expect(compareAnnotationCommentSummaries(createdFirstEditedLater, createdSecond)).toBeLessThan(0);
     });
 
     it('keeps undated legacy annotations before dated additions on the same page', () => {
@@ -159,7 +159,7 @@ describe('compareAnnotations', () => {
             createdAt: 200,
             modifiedAt: 200,
         });
-        expect(compareAnnotations(legacy, addedLater)).toBeLessThan(0);
+        expect(compareAnnotationCommentSummaries(legacy, addedLater)).toBeLessThan(0);
     });
 
     it('falls back to stableKey comparison when all other fields match', () => {
@@ -171,8 +171,8 @@ describe('compareAnnotations', () => {
             pageIndex: 0,
             stableKey: 'b',
         });
-        expect(compareAnnotations(left, right)).toBeLessThan(0);
-        expect(compareAnnotations(right, left)).toBeGreaterThan(0);
+        expect(compareAnnotationCommentSummaries(left, right)).toBeLessThan(0);
+        expect(compareAnnotationCommentSummaries(right, left)).toBeGreaterThan(0);
     });
 });
 

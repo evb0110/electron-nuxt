@@ -5,7 +5,7 @@ import type { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLay
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { clearPdfSelectionForLayerTeardown } from '@app/utils/pdf-viewer/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { renderedPageContainerClass } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/renderedPageContainerClass';
+import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 
 interface IUsePdfRendererCleanupControllerOptions {
     container: Ref<HTMLElement | null>;
@@ -104,7 +104,7 @@ export function usePdfRendererCleanupController(options: IUsePdfRendererCleanupC
         annotationLayerRenderer.cleanupEditorLayer(pageNumber);
 
         if (containerRoot) {
-            container?.classList.remove(renderedPageContainerClass);
+            container?.classList.remove(pdfViewerDomClasses.renderedPageContainer);
             const skeleton =
                 container?.querySelector<HTMLElement>('.pdf-page-skeleton');
             const canvasHost =

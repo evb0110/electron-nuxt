@@ -74,13 +74,13 @@ import type {
     IPdfViewerProps,
     TPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-import { usePdfViewerController } from '@app/modules/pdf-viewer/runtime/usePdfViewerController';
+import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 const props = defineProps<IPdfViewerProps>();
 const emit = defineEmits<TPdfViewerEmit>();
-const controller = usePdfViewerController(props, emit);
+const controller = usePdfViewerFeatureController(props, emit);
 const {
     t,
     viewerHost,

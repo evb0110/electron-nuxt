@@ -18,9 +18,9 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getRecentFilesSync } from '@electron/recentFiles';
 import { te } from '@electron/te';
 import {
-    getAllAppWindows,
-    getWindowById,
-} from '@electron/window';
+    getAllRegisteredAppWindows,
+    getWindowByIdFromRegistry,
+} from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
 
 const appName = te('app.title');
@@ -65,7 +65,7 @@ function getFocusedAppWindow() {
         return focusedWindow;
     }
 
-    const windows = getAllAppWindows();
+    const windows = getAllRegisteredAppWindows();
     return windows[0] ?? null;
 }
 
@@ -121,7 +121,7 @@ function getWindowDisplayLabel(window: BrowserWindow, duplicateCountByTitle: Rec
 
 function getOtherWindows(sourceWindowId: number) {
     return sortBy(
-        getAllAppWindows().filter(window => window.id !== sourceWindowId),
+        getAllRegisteredAppWindows().filter(window => window.id !== sourceWindowId),
         [window => window.id],
     );
 }
@@ -133,7 +133,7 @@ function buildDuplicateWindowTitleMap(windows: BrowserWindow[]) {
 function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabsAction) {
     const sourceWindow = sourceWindowId === null
         ? getFocusedAppWindow()
-        : (getWindowById(sourceWindowId) ?? getFocusedAppWindow());
+        : (getWindowByIdFromRegistry(sourceWindowId) ?? getFocusedAppWindow());
 
     if (!sourceWindow) {
         return;
@@ -815,7 +815,7 @@ function registerMenuListeners() {
 
 export function setupMenu() {
     registerMenuListeners();
-    for (const window of getAllAppWindows()) {
+    for (const window of getAllRegisteredAppWindows()) {
         trackWindowForMenu(window);
     }
     rebuildMenu(true);

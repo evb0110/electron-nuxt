@@ -127,9 +127,9 @@ vi.mock('electron', () => {
     };
 });
 
-vi.mock('@electron/window', () => ({
-    getAllAppWindows: () => mocks.windows,
-    getWindowById: (windowId: number) =>
+vi.mock('@electron/window/registry', () => ({
+    getAllRegisteredAppWindows: () => mocks.windows,
+    getWindowByIdFromRegistry: (windowId: number) =>
         mocks.windows.find(window => window.id === windowId) ?? null,
 }));
 

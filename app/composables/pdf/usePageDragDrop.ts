@@ -5,7 +5,7 @@ import {
     useEventListener,
     useIntervalFn,
 } from '@vueuse/core';
-import { getDocumentPathForFile } from '@app/utils/platformDocuments';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
 
 interface IPageDragDropDeps {
@@ -385,7 +385,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                 continue;
             }
 
-            const filePath = getDocumentPathForFile(file);
+            const filePath = getDocumentsCapability().getPathForFile(file);
             if (!filePath || seen.has(filePath) || !isSupportedPdfInsertFilePath(filePath)) {
                 continue;
             }

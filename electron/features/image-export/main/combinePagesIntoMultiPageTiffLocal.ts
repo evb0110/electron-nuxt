@@ -59,8 +59,7 @@ interface ITiffPageDescriptor {
     dataLength: number;
 }
 
-const UTIF_BASE = utifModule as IUtifModule;
-const UTIF = UTIF_BASE as IUtifEncoderModule;
+const UTIF = utifModule as IUtifModule as IUtifEncoderModule;
 
 function toPositiveInteger(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {

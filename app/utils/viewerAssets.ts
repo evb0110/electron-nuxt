@@ -28,10 +28,6 @@ export function getViewerAssetResolver(): IViewerAssetResolver {
     return browserViewerAssets;
 }
 
-export function getPdfjsWorkerUrl() {
-    return getViewerAssetResolver().pdfWorkerUrl();
-}
-
 export function getPdfjsAssetDir(path: string) {
     return ensureTrailingSlash(getViewerAssetResolver().pdfAssetUrl(path));
 }

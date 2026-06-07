@@ -21,7 +21,7 @@ import {
 } from '@pdf-core';
 import {
     getPdfjsAssetDir,
-    getPdfjsWorkerUrl,
+    getViewerAssetResolver,
 } from '@app/utils/viewerAssets';
 import type {
     PDFDocumentProxy,
@@ -210,7 +210,7 @@ export function buildBrowserPrintFrameMarkup() {
 async function getPdfjsPrintLib() {
     const pdfjsLib = await import('pdfjs-dist');
     const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
-    const workerSrc = getPdfjsWorkerUrl();
+    const workerSrc = getViewerAssetResolver().pdfWorkerUrl();
 
     if (globalWorkerOptions.workerSrc !== workerSrc) {
         globalWorkerOptions.workerSrc = workerSrc;

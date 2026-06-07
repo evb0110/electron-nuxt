@@ -374,10 +374,6 @@ export function resolveDjvuFixturePath() {
     };
 }
 
-export function getFixtureName(path: string) {
-    return basename(path);
-}
-
 function hasDjvuExtension(path: string) {
     const lowerPath = path.toLowerCase();
     return lowerPath.endsWith('.djvu') || lowerPath.endsWith('.djv');

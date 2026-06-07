@@ -67,7 +67,6 @@ export function createBrowserDocumentsFileCapability(
     const { clearSearchCaches } = options;
     const browserLargeSaveHandleHintProvider = options.errorMessageProvider?.largeSaveHandleHint
         ?? defaultBrowserLargeSaveHandleHintProvider;
-    const getBrowserLargeSaveHandleHint = () => browserLargeSaveHandleHintProvider();
 
     async function cleanupTransientOpenRefs(paths: string[]) {
         await Promise.all(paths.map(async (path) => {
@@ -140,14 +139,14 @@ export function createBrowserDocumentsFileCapability(
                 if (bytes.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
                     throw new Error(
                         'Saving documents is unavailable in the browser for inputs larger than 64MB '
-                        + getBrowserLargeSaveHandleHint(),
+                        + browserLargeSaveHandleHintProvider(),
                     );
                 }
             } else {
                 await assertBrowserPathWithinFullReadBudget(
                     workingCopyPath,
                     'Saving documents',
-                    getBrowserLargeSaveHandleHint(),
+                    browserLargeSaveHandleHintProvider(),
                 );
                 bytes = await browserDocumentStore.read(workingCopyPath);
             }
@@ -415,7 +414,7 @@ export function createBrowserDocumentsFileCapability(
             }
 
             await browserDocumentStore.write(path, data);
-            if (await saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint)) {
+            if (await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider)) {
                 clearSearchCaches();
             }
             return validation;
@@ -490,7 +489,7 @@ export function createBrowserDocumentsFileCapability(
             return workingPath;
         },
         async saveFile(path) {
-            const saved = await saveWorkingBytesToSource(path, getBrowserLargeSaveHandleHint);
+            const saved = await saveWorkingBytesToSource(path, browserLargeSaveHandleHintProvider);
             if (saved) {
                 clearSearchCaches();
             }

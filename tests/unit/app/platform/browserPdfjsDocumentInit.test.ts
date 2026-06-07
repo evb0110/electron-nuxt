@@ -28,7 +28,7 @@ describe('browserPdfjsDocumentInit', () => {
         } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
         const {
             getPdfjsAssetDir,
-            getPdfjsWorkerUrl,
+            getViewerAssetResolver,
         } = await import('@app/utils/viewerAssets');
 
         const pdfjsLib = await getPdfjsLib();
@@ -39,7 +39,7 @@ describe('browserPdfjsDocumentInit', () => {
         ]);
         const init = createPdfjsDocumentInit(pdfjsLib, input);
 
-        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getPdfjsWorkerUrl());
+        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getViewerAssetResolver().pdfWorkerUrl());
         expect(init).not.toHaveProperty('disableWorker');
         expect(init).toMatchObject({
             data: expect.any(Uint8Array),

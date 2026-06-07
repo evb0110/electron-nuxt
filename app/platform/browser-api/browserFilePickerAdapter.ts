@@ -38,10 +38,6 @@ export function configureBrowserFilePickerMessages(options: { largeSaveHandleHin
     browserLargeSaveHandleHintProvider = options.largeSaveHandleHint ?? browserLargeSaveHandleHintProvider;
 }
 
-function getBrowserLargeSaveHandleHint() {
-    return browserLargeSaveHandleHintProvider();
-}
-
 export function isFileSystemAccessDeniedError(error: unknown) {
     return error instanceof DOMException
         && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
@@ -170,7 +166,7 @@ function buildBrowserLargeDownloadFallbackError(
     label: string,
     maxBytes: number,
 ) {
-    return buildBrowserLargeJobError(label, maxBytes, getBrowserLargeSaveHandleHint());
+    return buildBrowserLargeJobError(label, maxBytes, browserLargeSaveHandleHintProvider());
 }
 
 export async function pickFiles(options: {

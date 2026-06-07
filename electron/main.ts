@@ -48,10 +48,12 @@ import { shutdownAgentAssistant } from '@electron/features/agent/codexAssistant'
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
-    getAllAppWindows,
-    getMainWindow,
     hasWindows,
 } from '@electron/window';
+import {
+    getAllRegisteredAppWindows,
+    getRegisteredMainWindow,
+} from '@electron/window/registry';
 import { markWindowRendererReady } from '@electron/window/rendererReady';
 import {
     markWindowTabTransferReady,
@@ -91,7 +93,6 @@ const macOpenFileRouter = createMacOpenFileRouter({ logger });
 // feature-local and should not crash the entire public app.
 const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
 const startupTrace = createStartupTrace(logger);
-const logStartupPhase = startupTrace.log;
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
 
 function requestFatalShutdown(reason: string) {
@@ -164,7 +165,7 @@ let defaultViewerPromptShown = false;
 let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
 
 function isMainWindowRendererReady() {
-    const mainWindow = getMainWindow();
+    const mainWindow = getRegisteredMainWindow();
     if (!mainWindow) {
         return false;
     }
@@ -173,7 +174,7 @@ function isMainWindowRendererReady() {
 }
 
 function focusMainWindow() {
-    const window = getMainWindow();
+    const window = getRegisteredMainWindow();
     if (!window) {
         return;
     }
@@ -191,9 +192,9 @@ function focusMainWindow() {
 const externalOpenManager = createExternalOpenManager({
     logger,
     noFocus: config.automation.noFocus,
-    logStartupPhase,
+    logStartupPhase: startupTrace.log,
     isMainWindowRendererReady,
-    getMainWindow,
+    getMainWindow: getRegisteredMainWindow,
     hasWindows,
     createWindow: async () => {
         readyWindowIds.clear();
@@ -201,7 +202,7 @@ const externalOpenManager = createExternalOpenManager({
     },
     dispatchOpenPaths: (paths) => {
         const window = resolveExternalOpenDispatchWindow({
-            mainWindow: getMainWindow(),
+            mainWindow: getRegisteredMainWindow(),
             focusedWindow: BrowserWindow.getFocusedWindow(),
         });
         if (!window) {
@@ -222,7 +223,7 @@ function maybePromptForDefaultViewer() {
     if (defaultViewerPromptShown) {
         return;
     }
-    const window = getMainWindow();
+    const window = getRegisteredMainWindow();
     if (!window) {
         return;
     }
@@ -283,7 +284,7 @@ shutdownCoordinator = createShutdownCoordinator({
 });
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
-    for (const window of getAllAppWindows()) {
+    for (const window of getAllRegisteredAppWindows()) {
         sendToWindow(window, 'updates:status', status);
     }
 }
@@ -303,14 +304,14 @@ void runInitSequence({
     devDockIconPath,
     externalOpenManager,
     focusMainWindow,
-    getMainWindow,
+    getMainWindow: getRegisteredMainWindow,
     getWindowFromWebContents: BrowserWindow.fromWebContents,
     hasWindows,
     initRecentFilesCache,
     initializeUpdates,
     installHostEnvironmentDisplayWatcher,
     logger,
-    logStartupPhase,
+    logStartupPhase: startupTrace.log,
     markWindowRendererReady,
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,

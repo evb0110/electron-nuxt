@@ -13,7 +13,7 @@ import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
 import { te } from '@electron/te';
-import { SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfConversion';
+import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {
     cropPages,
     getPageGeometry,
@@ -83,10 +83,6 @@ async function validateWorkingCopyPath(path: unknown, senderWebContentsId?: numb
     return resolvedPath;
 }
 
-async function validateQueuedWorkingCopyPath(path: string, senderWebContentsId?: number) {
-    return validateWorkingCopyPath(path, senderWebContentsId);
-}
-
 async function resolveWorkingCopyPath(path: unknown, senderWebContentsId?: number) {
     const normalizedPath = typeof path === 'string' ? path.trim() : '';
     if (!normalizedPath) {
@@ -142,7 +138,7 @@ async function handlePageOpsDelete(
     }
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         const mainTotalPages = await getPdfPageCount(queuedWorkingCopyPath);
         if (mainTotalPages !== totalPages) {
             throw new Error('Renderer page count is stale');
@@ -198,7 +194,7 @@ async function handlePageOpsExtract(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await extractPages(queuedWorkingCopyPath, destPath, pages);
     });
     allowOpenPath(destPath, event.sender);
@@ -218,7 +214,7 @@ async function handlePageOpsReorder(
     validateReorderPermutation(newOrder);
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
         return operationResult;
@@ -245,7 +241,7 @@ async function handlePageOpsInsert(
             name: te('dialogs.documentsFilter'),
             extensions: [
                 'pdf',
-                ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+                ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
             ],
         }],
         properties: [
@@ -268,7 +264,7 @@ async function handlePageOpsInsert(
         .map(path => requireOpenPath(path, event.sender));
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
@@ -299,7 +295,7 @@ async function handlePageOpsRotate(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await rotatePages(queuedWorkingCopyPath, pages, angle, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -324,7 +320,7 @@ async function handlePageOpsInsertFile(
     const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await insertPagesFromSourcePaths(
             queuedWorkingCopyPath,
             insertArgs.totalPages,
@@ -366,7 +362,7 @@ async function handlePageOpsCrop(
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await cropPages(queuedWorkingCopyPath, pages, margins, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
@@ -382,7 +378,7 @@ async function handlePageOpsRemoveCrop(
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
-        const queuedWorkingCopyPath = await validateQueuedWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
+        const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, event.sender?.id);
         await removeCropFromPages(queuedWorkingCopyPath, pages, event.sender?.id);
         await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });

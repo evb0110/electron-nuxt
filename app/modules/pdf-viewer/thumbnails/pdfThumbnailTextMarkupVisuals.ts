@@ -4,7 +4,6 @@ import type {
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { drawEditedTextMarkupCanvasVisual } from '@app/utils/pdf-viewer/annotations/annotation-edited-text-markup-canvas/drawEditedTextMarkupCanvasVisual';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 
 export function getEditedTextMarkupThumbnailComments(comments: readonly IAnnotationCommentSummary[]) {
@@ -14,13 +13,6 @@ export function getEditedTextMarkupThumbnailComments(comments: readonly IAnnotat
         && Boolean(comment.markerRect)
         && isTextMarkupSubtype(comment.subtype)
     ));
-}
-
-export function getEditedTextMarkupThumbnailSuppressionIds(
-    comments: readonly IAnnotationCommentSummary[],
-    hiddenAnnotationIds: readonly string[],
-) {
-    return collectEditedTextMarkupCanvasSuppressionIds(comments, hiddenAnnotationIds);
 }
 
 export function createHiddenAnnotationIdsSignature(hiddenAnnotationIdSet: ReadonlySet<string>) {

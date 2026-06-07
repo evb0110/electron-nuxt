@@ -123,11 +123,11 @@ vi.mock('@electron/features/page-ops/main/crop', () => ({
 vi.mock('@electron/image/pdfConversion', () => ({
     createPdfFromInputPaths: (...args: unknown[]) => mocks.createPdfFromInputPaths(...args),
     isPdfOrImagePath: (...args: unknown[]) => mocks.isPdfOrImagePath(...args),
-    SUPPORTED_IMAGE_EXTENSIONS: [
-        '.png',
-        '.jpg',
-    ],
 }));
+vi.mock('@electron/image/pdfCombineShared', () => ({ PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS: [
+    '.png',
+    '.jpg',
+] }));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
 vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => mocks.getNativeToolPaths()}));

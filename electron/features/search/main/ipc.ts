@@ -273,13 +273,6 @@ async function handlePdfSearchWarmIndex(
     return true;
 }
 
-function handlePdfSearchCancel(
-    event: IpcMainInvokeEvent,
-    requestId?: string,
-) {
-    return searchWorkerService.cancel(event, requestId);
-}
-
 export function registerSearchHandlers(registrar: TSearchIpcMainRegistrar = ipcMain) {
     const serviceConfig = getSearchWorkerServiceConfig();
     log.info(
@@ -288,7 +281,9 @@ export function registerSearchHandlers(registrar: TSearchIpcMainRegistrar = ipcM
     );
     registrar.handle(SEARCH_CHANNELS.search, handlePdfSearch);
     registrar.handle(SEARCH_CHANNELS.warmIndex, handlePdfSearchWarmIndex);
-    registrar.handle(SEARCH_CHANNELS.cancel, handlePdfSearchCancel);
+    registrar.handle(SEARCH_CHANNELS.cancel, (event, requestId?: string) =>
+        searchWorkerService.cancel(event, requestId),
+    );
     registrar.handle(SEARCH_CHANNELS.resetCache, () => searchWorkerService.resetCache());
 
     if (!appCleanupRegistered) {

@@ -247,10 +247,6 @@ function isSupportedCombineFile(file: File) {
     return isSupportedWorkspaceDocumentPath(file.name);
 }
 
-function getFileKind(fileName: string): TCombineFileKind {
-    return getDocumentKindFromPath(fileName);
-}
-
 function createFileSignature(file: File) {
     return [
         file.name,
@@ -266,7 +262,7 @@ function toCombineFile(file: File): ICombineFile {
         name: file.name,
         size: file.size,
         signature: createFileSignature(file),
-        kind: getFileKind(file.name),
+        kind: getDocumentKindFromPath(file.name),
     };
 }
 

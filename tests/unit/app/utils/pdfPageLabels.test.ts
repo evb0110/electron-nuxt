@@ -7,7 +7,6 @@ import {
     buildPageLabelsFromRanges,
     buildWholeDocumentPageLabelRanges,
     findPageByPageLabelInput,
-    formatPageIndicator,
     formatPageIndicatorWithOptions,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
@@ -26,7 +25,7 @@ describe('pdfPageLabels', () => {
             'Appendix',
         ];
 
-        const expected = Math.max(...pageLabels.map((_, index) => formatPageIndicator(index + 1, pageLabels).length));
+        const expected = Math.max(...pageLabels.map((_, index) => formatPageIndicatorWithOptions(index + 1, pageLabels).length));
 
         expect(getMaxPageIndicatorLength(pageLabels.length, pageLabels)).toBe(expected);
     });
@@ -68,7 +67,7 @@ describe('pdfPageLabels', () => {
     });
 
     it('keeps the default page indicator spacing for general UI', () => {
-        expect(formatPageIndicator(16, [
+        expect(formatPageIndicatorWithOptions(16, [
             'i',
             'ii',
             'iii',

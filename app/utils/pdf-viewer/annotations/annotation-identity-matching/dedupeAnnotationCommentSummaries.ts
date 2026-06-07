@@ -5,10 +5,6 @@ import { commentsAreSameLogicalAnnotation } from '@app/utils/pdf-viewer/annotati
 import { mergeDuplicateCommentSummary } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeDuplicateCommentSummary';
 import { normalizeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/normalizeSummaryStableKey';
 
-function compareSummarySortOrder(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
-    return compareAnnotationCommentSummaries(a, b);
-}
-
 export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSummary[]) {
     const sorted = comments
         .map(comment => normalizeSummaryStableKey(comment))
@@ -40,5 +36,5 @@ export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSum
         merged[existingIndex] = mergeDuplicateCommentSummary(primary, candidate);
     }
 
-    return merged.sort(compareSummarySortOrder);
+    return merged.sort(compareAnnotationCommentSummaries);
 }

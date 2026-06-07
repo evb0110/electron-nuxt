@@ -1,8 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    getDocumentsCapability,
-    readDocumentRange,
-} from '@app/utils/platformDocuments';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 const DEFAULT_DOCUMENT_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -54,7 +51,7 @@ export async function readDocumentBytes(
 
     while (offset < size) {
         const nextChunkLength = Math.min(chunkSize, size - offset);
-        const chunk = await readDocumentRange(path, offset, nextChunkLength);
+        const chunk = await documents.readFileRange(path, offset, nextChunkLength);
         output.set(chunk, offset);
         offset += chunk.byteLength;
 

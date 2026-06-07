@@ -97,18 +97,6 @@ async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePat
     }
 }
 
-function registerDocumentHandler<TChannel extends TDocumentsIpcChannel>(
-    registrar: TDocumentsIpcRegistrar,
-    channel: TChannel,
-    handler: TIpcMainInvokeHandler<
-        IDocumentsInvokeMap[TChannel]['args'],
-        IDocumentsInvokeMap[TChannel]['result'],
-        IpcMainInvokeEvent
-    >,
-) {
-    registrar.handle(channel, handler);
-}
-
 export function registerDocumentsIpcAdapter(
     registrar: TDocumentsIpcRegistrar,
     service: IDocumentsService = createDocumentsService(),
@@ -120,7 +108,7 @@ export function registerDocumentsIpcAdapter(
             IDocumentsInvokeMap[TChannel]['result'],
             IpcMainInvokeEvent
         >,
-    ) => registerDocumentHandler(registrar, channel, handler);
+    ) => registrar.handle(channel, handler);
 
     register(DOCUMENTS_CHANNELS.openDocumentDialog, event => service.openDocumentDialog(event));
     register(DOCUMENTS_CHANNELS.openCombineDialog, event => service.openCombineDialog(event));

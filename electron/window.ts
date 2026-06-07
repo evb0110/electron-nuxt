@@ -19,7 +19,6 @@ import { loadStartupPlaceholder } from '@electron/window/loadStartupPlaceholder'
 import {
     getAllRegisteredAppWindows,
     getRegisteredMainWindow,
-    getWindowByIdFromRegistry,
     registerAppWindow,
 } from '@electron/window/registry';
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
@@ -61,9 +60,6 @@ let createMainWindowPromise: Promise<BrowserWindow> | null = null;
 interface ICreateAppWindowOptions {
     setAsMain?: boolean;
     waitForInitialRendererReady?: boolean;
-}
-function formatErrorMessage(error: unknown) {
-    return getErrorMessage(error);
 }
 const windowSecurity = createWindowSecurity({
     getTrustedRendererUrl: () => config.renderer.trustedUrl,
@@ -162,7 +158,7 @@ async function promptUnresponsiveRendererRecovery(
         }
     } catch (error) {
         logger.error(
-            `Failed to prompt for unresponsive renderer recovery (windowId=${windowId}): ${formatErrorMessage(error)}`,
+            `Failed to prompt for unresponsive renderer recovery (windowId=${windowId}): ${getErrorMessage(error)}`,
         );
         recoverRenderer('unresponsive-dialog-fallback');
     }
@@ -379,7 +375,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 }
 
 export async function createWindow(options: { waitForInitialRendererReady?: boolean; } = {}) {
-    const existingMainWindow = getMainWindow();
+    const existingMainWindow = getRegisteredMainWindow();
     if (existingMainWindow) {
         return existingMainWindow;
     }
@@ -401,18 +397,6 @@ export async function createWindow(options: { waitForInitialRendererReady?: bool
     }
 }
 
-export function getWindowById(windowId: number) {
-    return getWindowByIdFromRegistry(windowId);
-}
-
-export function getAllAppWindows() {
-    return getAllRegisteredAppWindows();
-}
-
 export function hasWindows() {
-    return getAllAppWindows().length > 0;
-}
-
-export function getMainWindow() {
-    return getRegisteredMainWindow();
+    return getAllRegisteredAppWindows().length > 0;
 }

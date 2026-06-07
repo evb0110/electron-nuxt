@@ -16,10 +16,7 @@ const mockDocuments = {
     readFileRange: vi.fn(),
 };
 
-vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => mockDocuments,
-    readDocumentRange: (path: string, offset: number, length: number) => mockDocuments.readFileRange(path, offset, length),
-}));
+vi.mock('@app/utils/platformDocuments', () => ({ getDocumentsCapability: () => mockDocuments }));
 
 describe('documentBytes', () => {
     beforeEach(() => {

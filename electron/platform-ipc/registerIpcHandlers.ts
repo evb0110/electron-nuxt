@@ -23,7 +23,6 @@ import type {
     IAgentAssistantChatScope,
     IAgentAssistantLoginRequest,
     IAgentAssistantImageAttachment,
-    IAgentAssistantScopedRequest,
     IAgentAssistantSendMessageRequest,
     IAgentAssistantStateRequest,
 } from '@contracts/agent';
@@ -36,7 +35,7 @@ import {
     acknowledgeWindowTabTransfer,
     requestWindowTabTransfer,
 } from '@electron/windowTabTransfer';
-import { getAllAppWindows } from '@electron/window';
+import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import {registerDocumentsIpcAdapter} from '@electron/features/documents/registerDocumentsIpcAdapter';
 import {
     DOCUMENTS_CHANNELS,
@@ -162,10 +161,6 @@ function isAgentAssistantStateRequest(request: unknown): request is IAgentAssist
         );
 }
 
-function isAgentAssistantScopedRequest(request: unknown): request is IAgentAssistantScopedRequest {
-    return isAgentAssistantStateRequest(request);
-}
-
 function isAgentAssistantImageAttachment(attachment: unknown): attachment is IAgentAssistantImageAttachment {
     return isRecord(attachment)
         && attachment.type === 'image'
@@ -189,10 +184,6 @@ function isAgentAssistantSendMessageRequest(request: unknown): request is IAgent
             request.attachments === undefined
             || (Array.isArray(request.attachments) && request.attachments.every(isAgentAssistantImageAttachment))
         );
-}
-
-function sanitizeExternalUrl(rawUrl: unknown) {
-    return sanitizeAllowedExternalUrl(rawUrl);
 }
 
 function isTrustedWebContentsSender(
@@ -271,7 +262,7 @@ function createValidatedIpcMainRegistrar(
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = sortBy(
-        getAllAppWindows().filter(window => window.id !== sourceWindowId),
+        getAllRegisteredAppWindows().filter(window => window.id !== sourceWindowId),
         [window => window.id],
     );
     const titleCountByLabel = countBy(otherWindows, window => (window.getTitle() || te('app.title')).trim() || te('app.title'));
@@ -425,7 +416,7 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     });
 
     registrar.handle(CORE_IPC_CHANNELS.shellOpenExternal, async (_event, url: unknown) => {
-        const sanitizedUrl = sanitizeExternalUrl(url);
+        const sanitizedUrl = sanitizeAllowedExternalUrl(url);
         await shell.openExternal(sanitizedUrl);
     });
 
@@ -485,14 +476,14 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     });
 
     registrar.handle(CORE_IPC_CHANNELS.agentInterruptAssistant, (_event, request: unknown) => {
-        if (!isAgentAssistantScopedRequest(request)) {
+        if (!isAgentAssistantStateRequest(request)) {
             throw new Error('Invalid assistant interrupt request payload');
         }
         return interruptAgentAssistant(request);
     });
 
     registrar.handle(CORE_IPC_CHANNELS.agentResetAssistantChat, (_event, request: unknown) => {
-        if (!isAgentAssistantScopedRequest(request)) {
+        if (!isAgentAssistantStateRequest(request)) {
             throw new Error('Invalid assistant reset request payload');
         }
         return resetAgentAssistantChat(request);

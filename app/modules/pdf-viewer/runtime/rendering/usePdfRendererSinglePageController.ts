@@ -5,7 +5,7 @@ import { formatRenderError } from '@app/utils/pdf-viewer/pdf-page-render-pipelin
 import { isRenderingCancelledError } from '@app/utils/pdf-viewer/pdf-page-render-pipeline/isRenderingCancelledError';
 import { isPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/isPageRenderTimeoutError';
 import type { IPageRenderTimeoutError } from '@app/utils/pdf-viewer/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import { renderedPageContainerClass } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/renderedPageContainerClass';
+import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -187,7 +187,7 @@ export function usePdfRendererSinglePageController<TRenderResult>(
         releasePageResources(pageNumber, pdfPage);
         renderedPages.add(pageNumber);
         staleRenderedPages.delete(pageNumber);
-        pageContainer.classList.add(renderedPageContainerClass);
+        pageContainer.classList.add(pdfViewerDomClasses.renderedPageContainer);
         logPdfRenderTrace('renderer-finalize-page', {
             pageNumber,
             version,
