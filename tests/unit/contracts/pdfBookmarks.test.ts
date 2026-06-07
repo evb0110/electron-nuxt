@@ -25,7 +25,10 @@ function createBookmark(title: string, pageIndex: number): IPdfBookmarkEntry {
 describe('writePdfBookmarkOutlines', () => {
     it('writes a nested outlines tree', async () => {
         const document = await PDFDocument.create();
-        document.addPage();
+        document.addPage([
+            612,
+            792,
+        ]);
         document.addPage();
 
         const result = writePdfBookmarkOutlines(document, [{
@@ -36,7 +39,11 @@ describe('writePdfBookmarkOutlines', () => {
         expect(result).toBe(true);
         expect(document.catalog.get(PDFName.of('Outlines'))).toBeTruthy();
 
-        const serialized = await document.save();
+        const serialized = await document.save({ useObjectStreams: false });
+        const pdfText = new TextDecoder('latin1').decode(serialized);
+        expect(pdfText).toContain('/XYZ null 792 null');
+        expect(pdfText).not.toContain('/XYZ null null null');
+
         const reloadedDocument = await PDFDocument.load(serialized, { updateMetadata: false });
         expect(reloadedDocument.catalog.get(PDFName.of('Outlines'))).toBeTruthy();
     });
