@@ -19,7 +19,7 @@ import {
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));

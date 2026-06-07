@@ -1,12 +1,12 @@
 import { PDFArray } from 'pdf-lib';
 import type { PDFDocument } from 'pdf-lib';
 import { normalizePageRotation } from '@app/utils/pdf-viewer/annotation-geometry/normalizePageRotation';
-import { resolvePdfPageView } from '@app/utils/pdf-viewer/pdf-page-boxes/resolvePdfPageView';
+import { tryResolvePdfLibPageView } from '@pdf-core';
 
 export function resolvePageAnnotationContext(
     page: ReturnType<PDFDocument['getPages']>[number],
 ) {
-    const pageView = resolvePdfPageView(page);
+    const pageView = tryResolvePdfLibPageView(page);
     if (!pageView) {
         return null;
     }

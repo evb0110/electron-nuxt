@@ -1,7 +1,5 @@
-import type {
-    IPlatformApi,
-    TDocumentRef,
-} from '@contracts/platformApi';
+import type { IPlatformApi } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { Ref } from 'vue';
 import type { TPaneDirection } from '@app/types/editorPanes';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';

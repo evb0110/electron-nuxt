@@ -3,7 +3,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 export interface IWorkspacePdfViewerForAnnotationUtils {

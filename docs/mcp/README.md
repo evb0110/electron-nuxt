@@ -155,7 +155,7 @@ claude mcp add --transport http --scope user evb_viewer_dev http://127.0.0.1:386
 }
 ```
 
-Renderer settings saves intentionally preserve `agentMcpEnabled` in `electron/ipc/registry.ts` so stale renderer settings snapshots cannot clobber a value managed by the Codex mutation flow. `assistantPanelEnabled` is allowed through normal settings saves because it does not mutate external Codex configuration; when it is saved as `false`, the main process shuts down the embedded assistant runtime.
+Renderer settings saves intentionally preserve `agentMcpEnabled` in `electron/platform-ipc/registerIpcHandlers.ts` so stale renderer settings snapshots cannot clobber a value managed by the Codex mutation flow. `assistantPanelEnabled` is allowed through normal settings saves because it does not mutate external Codex configuration; when it is saved as `false`, the main process shuts down the embedded assistant runtime.
 
 ## Startup And Shutdown
 
@@ -411,7 +411,7 @@ Platform API:
 - Server binds only to `127.0.0.1`.
 - Codex config mutation requires a native user confirmation dialog.
 - Codex CLI calls are spawned with fixed argument arrays, not shell command strings.
-- Trusted IPC validation in `electron/ipc/registry.ts` rejects untrusted renderer URLs and non-main-frame senders.
+- Trusted IPC validation in `electron/platform-ipc/registerIpcHandlers.ts` rejects untrusted renderer URLs and non-main-frame senders.
 - Renderer bridge responses are accepted only from the window that received the request.
 - MCP tools are scoped to current EVB Viewer windows and open tabs.
 - The embedded assistant MCP server uses a random loopback port and bearer token known only to the sandboxed Codex app-server process.

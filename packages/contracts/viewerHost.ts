@@ -2,8 +2,8 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
-    TOpenFileResult,
-} from '@contracts/electronApi';
+} from '@contracts/electronApiCommon';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {
     IPdfSearchProgress,
     IPdfSearchRequestOptions,

@@ -1,9 +1,9 @@
 import type {
     IDocumentsCapability,
     IImageExportCapability,
-    IPageOpsCapability,
-    TDocumentRef,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiDocuments';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { getPlatformAPI } from '@app/utils/platform';

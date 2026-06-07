@@ -8,8 +8,8 @@ import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
 } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
-import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
 import {
     copyFileAtomic,
     normalizeIpcWritePayload,

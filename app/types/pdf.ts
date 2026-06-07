@@ -1,8 +1,8 @@
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfValidationResult,
-    TDocumentRef,
     TPdfSaveMode,
-} from '@contracts/platformApi';
+} from '@contracts/pdfConformance';
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
@@ -19,7 +19,7 @@ export type {
     IPdfConformanceProfile,
     IPdfValidationResult,
     TPdfSaveMode,
-} from '@contracts/platformApi';
+} from '@contracts/pdfConformance';
 
 export type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 

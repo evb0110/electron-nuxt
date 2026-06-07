@@ -45,7 +45,6 @@ const mockHasElectronAPI = vi.fn(() => true);
 
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => mockElectronAPI,
-    getElectronAPI: () => mockElectronAPI,
     hasElectronAPI: () => mockHasElectronAPI(),
     isDesktopPlatformActive: () => mockHasElectronAPI(),
     isBrowserPlatformActive: () => !mockHasElectronAPI(),

@@ -10,7 +10,7 @@ import {
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@pdf-core/pdfConformanceHelpers';
+} from '@pdf-core';
 
 describe('PDF conformance contract helpers', () => {
     it('creates the default conformance profile', () => {

@@ -33,7 +33,7 @@ import {
     formatPdfJsAnnotationRef,
     normalizePdfJsAnnotationId,
 } from '@app/utils/pdfAnnotationRefs';
-import { readPdfRectFromDict } from '@app/utils/pdf-viewer/pdf-page-boxes/readPdfRectFromDict';
+import { readPdfRectFromDict } from '@pdf-core';
 import { iterateAnnotationRefDicts } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
 import { resolvePageAnnotationContext } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/resolvePageAnnotationContext';
 import { clampRgbChannel } from '@app/utils/pdf-viewer/text-markup-color/clampRgbChannel';

@@ -7,8 +7,8 @@ import type {
     IDjvuSizeEstimate,
     IDjvuViewingErrorEvent,
     IDjvuViewingReadyEvent,
-    TDocumentRef,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiDjvu';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,

@@ -10,7 +10,7 @@ import type {
 import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
-} from '@pdf-core/pdfPageBoxes';
+} from '@pdf-core';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     cleanupTempOutput,

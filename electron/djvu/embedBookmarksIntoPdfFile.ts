@@ -5,7 +5,7 @@ import {
 } from 'fs/promises';
 import { PDFDocument } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
+import { writePdfBookmarkOutlines } from '@pdf-core';
 
 async function embedBookmarksIntoPdf(
     pdfData: Uint8Array,

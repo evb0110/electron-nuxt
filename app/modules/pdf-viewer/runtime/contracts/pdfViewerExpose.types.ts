@@ -76,7 +76,7 @@ export interface IDocumentViewerExpose {
     requestScrollToCurrentResult?: () => void;
 }
 
-export interface IPdfViewerExpose extends IDocumentViewerExpose {
+export interface IPdfViewerLoadExpose {
     preserveNextSourceReloadVisibleContent?: (request?: {
         scrollSnapshot?: IScrollSnapshot | null;
         pageToRestore?: number | null;
@@ -85,22 +85,36 @@ export interface IPdfViewerExpose extends IDocumentViewerExpose {
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     getPageMetricsSnapshot?: () => IPdfPageMetric[];
+}
+
+export interface IPdfViewerRegionCaptureExpose {
     captureRegionToClipboard: () => Promise<boolean>;
     isCapturingRegion: boolean;
+}
+
+export interface IPdfViewerCropExpose {
     startCropSelection: () => Promise<ICropSelectionResult | null>;
     cancelCropSelection: () => void;
     isCropSelecting: boolean;
+}
+
+export interface IPdfViewerShapePersistenceExpose {
     adoptPersistedManagedShapesOnNextImport?: () => void;
     clearPendingManagedShapeImportAdoption?: () => void;
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
-    saveDocument: () => Promise<Uint8Array | null>;
+}
+
+export interface IPdfViewerSaveExpose {saveDocument: () => Promise<Uint8Array | null>;}
+
+export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPrint?: (
+    targetDocument: IBrowserPrintDocument,
+    pageNumbers: number[],
+    options?: { signal?: AbortSignal },
+) => Promise<void>;}
+
+export interface IPdfViewerAnnotationCommandExpose {
     clearAnnotationHistory?: () => void;
-    renderLoadedPdfPagesForBrowserPrint?: (
-        targetDocument: IBrowserPrintDocument,
-        pageNumbers: number[],
-        options?: { signal?: AbortSignal },
-    ) => Promise<void>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
     createTextMarkupFromText: (
@@ -122,14 +136,17 @@ export interface IPdfViewerExpose extends IDocumentViewerExpose {
     cancelCommentPlacement: () => void;
     undoAnnotation: () => void;
     redoAnnotation: () => void;
-    focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
-    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
-    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
-    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     registerAnnotationHistoryCommand?: (command: {
         cmd: () => void;
         undo: () => void;
     }) => void;
+}
+
+export interface IPdfViewerAnnotationCommentExpose {
+    focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
+    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
+    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     suppressAnnotationId: (id: string) => void;
     unsuppressAnnotationId?: (id: string) => void;
     suppressAnnotationStableKey: (stableKey: string) => void;
@@ -143,6 +160,9 @@ export interface IPdfViewerExpose extends IDocumentViewerExpose {
     getSelectedTextMarkupAnnotationProperties?: () => ITextMarkupAnnotationProperties | null;
     updateSelectedTextMarkupAnnotationColor?: (color: string) => boolean;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
+}
+
+export interface IPdfViewerShapeExpose {
     getAllShapes: () => IShapeAnnotation[];
     markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
@@ -155,6 +175,9 @@ export interface IPdfViewerExpose extends IDocumentViewerExpose {
     selectedShapeId: string | null;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
+}
+
+export interface IPdfViewerImagePlacementExpose {
     startImagePlacement: (
         file: File,
         options?: {
@@ -165,6 +188,20 @@ export interface IPdfViewerExpose extends IDocumentViewerExpose {
     ) => Promise<boolean>;
     clearPendingImagePlacement: () => void;
     restorePendingImagePlacement: () => void;
+}
+
+export interface IPdfViewerExpose extends
+    IDocumentViewerExpose,
+    IPdfViewerLoadExpose,
+    IPdfViewerRegionCaptureExpose,
+    IPdfViewerCropExpose,
+    IPdfViewerShapePersistenceExpose,
+    IPdfViewerSaveExpose,
+    IPdfViewerBrowserPrintExpose,
+    IPdfViewerAnnotationCommandExpose,
+    IPdfViewerAnnotationCommentExpose,
+    IPdfViewerShapeExpose,
+    IPdfViewerImagePlacementExpose {
     invalidatePages: (pages: number[]) => void;
     requestScrollToCurrentResult: () => void;
 }

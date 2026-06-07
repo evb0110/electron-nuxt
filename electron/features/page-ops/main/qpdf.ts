@@ -19,7 +19,7 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 
 const log = createLogger('page-ops-qpdf');
 export const QPDF_TIMEOUT_MS = 2 * 60 * 1000;

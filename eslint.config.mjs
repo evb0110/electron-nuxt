@@ -254,6 +254,7 @@ export default withNuxt(
                         group: [
                             '@i18n-core/*',
                             '@i18n-app/*',
+                            '@pdf-core/*',
                             '@releaseSelection/*',
                         ],
                         message: 'Import shared packages via their root entrypoint to keep package APIs slim.',
@@ -328,7 +329,6 @@ export default withNuxt(
         ],
         ignores: [
             'app/composables/useTypedI18n.ts',
-            'app/utils/electron.ts',
         ],
         rules: {
             'no-restricted-properties': [
@@ -336,7 +336,7 @@ export default withNuxt(
                 {
                     object: 'window',
                     property: 'electronAPI',
-                    message: 'Use hasElectronAPI()/getElectronAPI() from @app/utils/electron instead of reaching into window.electronAPI directly.',
+                    message: 'Use hasElectronAPI()/getPlatformAPI() from @app/utils/platform instead of reaching into window.electronAPI directly.',
                 },
             ],
             'no-restricted-syntax': [
@@ -638,21 +638,6 @@ export default withNuxt(
             'custom/no-scss-ampersand-concatenation': 'error',
             'custom/nuxt-ui-semantic-utilities': 'error',
             'custom/tailwind-class-shorthand': 'error',
-        },
-    },
-    {
-        files: [
-            'app/**/*.ts',
-            'app/**/*.vue',
-        ],
-        rules: {
-            'no-restricted-imports': [
-                'error',
-                {paths: [{
-                    name: '@app/utils/electron',
-                    message: 'Use @app/utils/platform so renderer code stays platform-neutral.',
-                }]},
-            ],
         },
     },
 );

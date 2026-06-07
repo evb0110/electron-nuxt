@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import type { IRendererLogEntry } from '@contracts/platformApi';
+import type { IRendererLogEntry } from '@contracts/electronApiCommon';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TLazyValue = unknown | (() => unknown);

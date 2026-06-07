@@ -1,4 +1,4 @@
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 
 export type TDocumentOpenOutcome =
     | {

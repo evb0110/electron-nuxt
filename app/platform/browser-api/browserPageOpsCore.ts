@@ -11,7 +11,7 @@ import type { IPageMutationWorkerResult } from '@app/platform/browser-api/browse
 import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
-} from '@pdf-core/pdfPageBoxes';
+} from '@pdf-core';
 
 function toSavedPdfResult(
     pdfDocument: PDFDocument,

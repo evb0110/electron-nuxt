@@ -9,15 +9,15 @@ import { deleteEmbeddedAnnotation } from '@app/utils/pdf-viewer/pdf-serializatio
 import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits';
 import { updateEmbeddedAnnotationText } from '@app/utils/pdf-viewer/pdf-serialization-operations/updateEmbeddedAnnotationText';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
-import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type {
     IPendingBrowserWorkerRequest,
     TBrowserWorkerResult,
-} from '@app/platform/browser-api/settleBrowserWorkerResult';
+} from '@app/platform/browser-api/public';
 import {
     BrowserWorkerClient,
     canUseBrowserWorker,
-} from '@app/platform/browser-api/browserWorkerClient';
+    settleBrowserWorkerResult,
+} from '@app/platform/browser-api/public';
 
 type TSerializationWorkerResult = TBrowserWorkerResult<Uint8Array | null>;
 

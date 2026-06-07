@@ -266,11 +266,11 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
         targetPages,
         targetAngle,
     }) => {
-        const api = (window as Window & {electronAPI?: {documents?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};};}).electronAPI;
+        const api = (window as Window & {electronAPI?: {pageOps?: {rotate?: (workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) => Promise<{ success: boolean }>;};};}).electronAPI;
 
-        const rotate = api?.documents?.pageOps?.rotate;
+        const rotate = api?.pageOps?.rotate;
         if (!rotate) {
-            throw new Error('electronAPI.documents.pageOps.rotate is unavailable');
+            throw new Error('electronAPI.pageOps.rotate is unavailable');
         }
         return rotate(workingPath, targetPages, targetAngle);
     }, {
@@ -285,14 +285,14 @@ export async function reorderPages(page: Page, workingCopyPath: string, newOrder
         workingPath,
         order,
     }) => {
-        const api = (window as Window & {electronAPI?: {documents?: {pageOps?: {reorder?: (workingCopyPath: string, newOrder: number[]) => Promise<{
+        const api = (window as Window & {electronAPI?: {pageOps?: {reorder?: (workingCopyPath: string, newOrder: number[]) => Promise<{
             success: boolean;
             pageCount?: number 
-        }>;};};};}).electronAPI;
+        }>;};};}).electronAPI;
 
-        const reorder = api?.documents?.pageOps?.reorder;
+        const reorder = api?.pageOps?.reorder;
         if (!reorder) {
-            throw new Error('electronAPI.documents.pageOps.reorder is unavailable');
+            throw new Error('electronAPI.pageOps.reorder is unavailable');
         }
         return reorder(workingPath, order);
     }, {
@@ -307,14 +307,14 @@ export async function deletePages(page: Page, workingCopyPath: string, pages: nu
         targetPages,
         pageCount,
     }) => {
-        const api = (window as Window & {electronAPI?: {documents?: {pageOps?: {delete?: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<{
+        const api = (window as Window & {electronAPI?: {pageOps?: {delete?: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<{
             success: boolean;
             pageCount?: number 
-        }>;};};};}).electronAPI;
+        }>;};};}).electronAPI;
 
-        const remove = api?.documents?.pageOps?.delete;
+        const remove = api?.pageOps?.delete;
         if (!remove) {
-            throw new Error('electronAPI.documents.pageOps.delete is unavailable');
+            throw new Error('electronAPI.pageOps.delete is unavailable');
         }
         return remove(workingPath, targetPages, pageCount);
     }, {

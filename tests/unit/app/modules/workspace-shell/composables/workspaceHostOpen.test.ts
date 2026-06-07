@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/host/handleWorkspaceHostOpenFileFromUi';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { TOpenFileResult } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { cast } from '@tests/helpers/cast';
 
 function createOpenResult(): TOpenFileResult {

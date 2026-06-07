@@ -19,8 +19,10 @@ import {
     normalizeAnnotationSubtypeToken,
     normalizeComparableText,
 } from '@app/utils/textNormalization';
-import { readPdfRectFromDict } from '@app/utils/pdf-viewer/pdf-page-boxes/readPdfRectFromDict';
-import { resolvePdfPageView } from '@app/utils/pdf-viewer/pdf-page-boxes/resolvePdfPageView';
+import {
+    readPdfRectFromDict,
+    tryResolvePdfLibPageView,
+} from '@pdf-core';
 import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getPdfPopupDict } from '@app/utils/pdf-viewer/pdf-serialization-refs/getPdfPopupDict';
 
@@ -214,7 +216,7 @@ function collectPageAnnotationCandidates(doc: PDFDocument, annots: PDFArray): IA
 }
 
 function buildCommentMatchTarget(comment: IAnnotationCommentSummary, page: TPdfPage): ICommentMatchTarget | null {
-    const pageView = resolvePdfPageView(page);
+    const pageView = tryResolvePdfLibPageView(page);
     if (!pageView) {
         return null;
     }

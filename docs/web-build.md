@@ -26,8 +26,9 @@
   - `/electron` desktop-only shell entry
 - PDF-and-images-first browser runtime
 - Browser-backed open/save/recent-files/search/page-ops flows
-- OCR is available in the browser runtime through cached Tesseract language
-  packs and browser-side OCR artifacts.
+- OCR and searchable-PDF generation are desktop-only. Browser search uses
+  text extracted from the current PDF bytes and does not consume browser OCR
+  sidecar artifacts.
 - DjVu viewing and explicit PDF conversion are available in browser runtime
   through the vendored DjVu.js worker path.
 - Desktop app updates unavailable in browser runtime

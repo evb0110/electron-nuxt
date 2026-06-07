@@ -1,5 +1,5 @@
 import type { IpcRenderer } from 'electron';
-import type { IDocumentsMenuCapability } from '@contracts/platformApi';
+import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
 import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,

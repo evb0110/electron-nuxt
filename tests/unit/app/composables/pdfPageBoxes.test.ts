@@ -7,7 +7,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
-import { resolvePdfPageView } from '@app/utils/pdf-viewer/pdf-page-boxes/resolvePdfPageView';
+import { tryResolvePdfLibPageView } from '@pdf-core';
 
 describe('pdfPageBoxes', () => {
     it('resolves page view as CropBox intersected with MediaBox', async () => {
@@ -18,7 +18,7 @@ describe('pdfPageBoxes', () => {
         ]);
         page.setCropBox(-20, 30, 260, 520);
 
-        expect(resolvePdfPageView(page)).toEqual([
+        expect(tryResolvePdfLibPageView(page)).toEqual([
             0,
             30,
             240,
@@ -39,7 +39,7 @@ describe('pdfPageBoxes', () => {
             480,
         ]));
 
-        expect(resolvePdfPageView(page)).toEqual([
+        expect(tryResolvePdfLibPageView(page)).toEqual([
             10,
             20,
             290,
@@ -55,7 +55,7 @@ describe('pdfPageBoxes', () => {
         ]);
         page.setCropBox(400, 600, 50, 50);
 
-        expect(resolvePdfPageView(page)).toEqual([
+        expect(tryResolvePdfLibPageView(page)).toEqual([
             0,
             0,
             300,

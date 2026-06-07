@@ -11,11 +11,11 @@ import {
 import {
     createWorkingCopy,
     createWorkingCopyFromData,
-} from '@electron/ipc/workingCopyCreation';
+} from '@electron/file-access/workingCopyCreation';
 import {
     allowOpenPaths,
     requireOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';

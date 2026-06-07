@@ -1,6 +1,6 @@
 import type {IpcRenderer} from 'electron';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     assertAbsolutePath,
     assertNonEmptyString,

@@ -51,10 +51,7 @@ vi.mock('pdfjs-dist', () => pdfjsState);
 
 const electronApi = {documents: {readFileRange: vi.fn()}};
 
-vi.mock('@app/utils/platform', () => ({
-    getPlatformAPI: () => electronApi,
-    getElectronAPI: () => electronApi,
-}));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {usePdfDocument} = await import('@app/composables/pdf/usePdfDocument');
 const {maxCachedPdfPages} = await import('@app/utils/pdf-viewer/maxCachedPdfPages');

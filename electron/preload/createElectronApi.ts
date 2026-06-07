@@ -27,7 +27,7 @@ import {
     CORE_IPC_SEND_CHANNELS,
     type ICoreEventMap,
     type ICoreInvokeMap,
-} from '@electron/ipc/coreContract';
+} from '@electron/platform-ipc/coreContract';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -130,14 +130,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         },
     };
 
-    const legacyDocuments = {
-        ...documents,
-        ...imageExport,
-        pageOps,
-    };
-
     const api = {
-        documents: legacyDocuments,
+        documents,
         pageOps,
         imageExport,
 

@@ -1,4 +1,4 @@
-import type { IDjvuCapability } from '@contracts/platformApi';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getDjvuCapability(): IDjvuCapability {

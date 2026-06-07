@@ -20,17 +20,17 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     getWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
-} from '@electron/ipc/workingCopyStore';
-import { isAllowedOriginalSavePath } from '@electron/ipc/isAllowedOriginalSavePath';
+} from '@electron/file-access/workingCopyStore';
+import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
-import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
+import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
-import { enqueueWorkingCopyMutation } from '@electron/ipc/workingCopyMutationQueue';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { assertWithinIpcWriteBudget } from '@electron/features/documents/main/documentFileWriteAtomic';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;

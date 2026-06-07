@@ -1,5 +1,5 @@
 import type { PageViewport } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfRawDims } from '@app/types/pdf';
 import type { IOcrWord } from '@contracts/shared';
 import {

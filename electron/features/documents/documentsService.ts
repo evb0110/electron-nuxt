@@ -5,7 +5,7 @@ import type {
 } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
-import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,

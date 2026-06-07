@@ -73,7 +73,7 @@ describe('documents show item in folder', () => {
         const filePath = join(tempRoot, 'opened.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        const { allowOpenPath } = await import('@electron/ipc/openPathCapabilities');
+        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
         const { handleShowItemInFolder } = await import('@electron/features/documents/main/documentWindowHandlers');
 
         allowOpenPath(filePath);

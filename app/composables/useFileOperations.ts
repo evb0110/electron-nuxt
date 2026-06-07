@@ -4,7 +4,7 @@ import type {
     IPdfSaveResult,
     TPdfSaveMode,
 } from '@app/types/pdf';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { isTimeoutError } from '@contracts/isTimeoutError';
 import type {
     Ref,

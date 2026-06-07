@@ -73,7 +73,7 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,

@@ -72,7 +72,7 @@ vi.mock('@electron/updates', () => ({
 }));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/ipc/rendererLogBridge', () => ({
+vi.mock('@electron/platform-ipc/rendererLogBridge', () => ({
     normalizeRendererLogEntry: vi.fn(),
     registerRendererLogBridge: vi.fn(),
 }));
@@ -90,7 +90,7 @@ function createEvent(url: string): IRegisteredEvent {
 }
 
 async function getSettingsHandler() {
-    const { registerIpcHandlers } = await import('@electron/ipc/registerIpcHandlers');
+    const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
     registerIpcHandlers();
 
     const handler = mocks.handlers.get('settings:get');

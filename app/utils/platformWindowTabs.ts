@@ -1,4 +1,4 @@
-import type { IWindowTabsCapability } from '@contracts/platformApi';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getWindowTabsCapability(): IWindowTabsCapability {

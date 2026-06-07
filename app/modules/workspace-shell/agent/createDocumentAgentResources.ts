@@ -5,7 +5,7 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
 import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 interface ICreateDocumentAgentResourcesOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;

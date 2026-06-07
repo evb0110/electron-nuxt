@@ -16,7 +16,7 @@ import {
 } from 'path';
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/ipc/coreContract';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 interface ILogMessage {
     source: string;

@@ -23,12 +23,12 @@ import {
 } from '@electron/bootstrap/shutdown';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
+import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
 import {
-    registerIpcHandlers,
     clearAllWorkingCopies,
     cleanupStaleWorkingCopyDirectories,
-} from '@electron/ipc';
-import { allowOpenPaths } from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/workingCopyCleanup';
+import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 import {
     attachHostEnvironmentToWindow,
     installHostEnvironmentDisplayWatcher,

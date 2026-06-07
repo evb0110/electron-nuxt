@@ -28,13 +28,13 @@ import {
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopyCreation';
-import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopyStore';
+import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
 import {
     allowOpenPath,
     allowOpenPaths,
     requireOpenPath,
-} from '@electron/ipc/openPathCapabilities';
+} from '@electron/file-access/openPathCapabilities';
 import {
     formatPageRange,
     validatePageNumbers,
@@ -44,7 +44,7 @@ import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/ins
 import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
-} from '@electron/ipc/workingCopyMutationQueue';
+} from '@electron/file-access/workingCopyMutationQueue';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import type { TPageOpsIpcMainRegistrar } from '@electron/features/page-ops/ports';
 

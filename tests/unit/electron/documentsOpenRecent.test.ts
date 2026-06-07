@@ -46,7 +46,7 @@ vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({
     getOpenDialogParentWindow: () => null,
     showOpenDocumentDialog: mocks.showOpenDocumentDialog,
 }));
-vi.mock('@electron/ipc/openPathCapabilities', () => ({
+vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (filePath: string, owner?: number | { id?: number }) => {
         const ownerId = mocks.getOwnerId(owner);
         const allowedPaths = mocks.allowedPathsByOwner.get(ownerId) ?? new Set<string>();

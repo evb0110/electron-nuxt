@@ -6,7 +6,7 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdf';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     MaybeRefOrGetter,
     Ref,

@@ -1,5 +1,5 @@
 import { withTimeout } from 'es-toolkit/promise';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,

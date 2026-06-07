@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { TOpenDjvuFile } from '@app/composables/useDjvu';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { clamp } from 'es-toolkit/math';
 import { hasDocumentHintUpdate } from '@app/modules/workspace-shell/tabs/hasDocumentHintUpdate';
 import { isEmptyTabDocumentUpdate } from '@app/modules/workspace-shell/tabs/isEmptyTabDocumentUpdate';

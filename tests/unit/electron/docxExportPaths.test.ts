@@ -8,7 +8,7 @@ import {
     allowDocxWritePath,
     consumeAllowedDocxWritePath,
     normalizeDocxPath,
-} from '@electron/ipc/docxExportPaths';
+} from '@electron/file-access/docxExportPaths';
 
 describe('docxExportPaths', () => {
     it('allows consuming a path that was provided by save dialog', () => {

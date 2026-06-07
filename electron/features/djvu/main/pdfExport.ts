@@ -32,8 +32,8 @@ import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsy
 import { safeSendToWindow } from '@electron/djvu/safeSendToWindow';
 import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/exportPaths';
-import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
-import type { TOpenPath } from '@electron/ipc/openPathCapabilities';
+import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import {
     createDjvuPdfBookmarkTask,

@@ -4,7 +4,7 @@ import { useDocumentTransitions } from '@app/modules/workspace-shell/composables
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/useWorkspaceUiSyncWatchers';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TDocumentRef } from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
     pendingDjvu: Ref<TDocumentRef | null>;

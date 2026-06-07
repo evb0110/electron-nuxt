@@ -63,20 +63,20 @@ vi.mock('@electron/menu', () => ({
 }));
 
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
-vi.mock('@electron/ipc/docxExportPaths', () => ({allowDocxWritePath: vi.fn()}));
+vi.mock('@electron/file-access/docxExportPaths', () => ({allowDocxWritePath: vi.fn()}));
 vi.mock('@electron/djvu/exportPaths', () => ({allowDjvuWritePath: vi.fn()}));
-vi.mock('@electron/ipc/workingCopyCreation', () => ({
+vi.mock('@electron/file-access/workingCopyCreation', () => ({
     createWorkingCopy: vi.fn(),
     createWorkingCopyFromData: vi.fn(),
     createWorkingCopyFromPath: vi.fn(),
     ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
 }));
-vi.mock('@electron/ipc/workingCopyStore', () => ({
+vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     isKnownWorkingCopyOriginalPath: vi.fn(() => false),
     setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
-vi.mock('@electron/ipc/openPathCapabilities', () => ({
+vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
     allowOpenPaths: vi.fn(),
     logRejectedOpenPath: vi.fn(),

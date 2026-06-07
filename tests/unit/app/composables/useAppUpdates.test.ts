@@ -8,7 +8,7 @@ import {
 import type {
     IAppUpdateStatus,
     IUpdatesCapability,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiUpdates';
 
 const getUpdatesCapabilityMock = vi.hoisted(() => vi.fn<() => IUpdatesCapability>());
 const isUpdatesCapabilitySupportedMock = vi.hoisted(() => vi.fn((status: IAppUpdateStatus) => status.phase !== 'unsupported'));

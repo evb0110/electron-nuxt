@@ -1,7 +1,5 @@
-import type {
-    IDocumentsCapability,
-    TDocumentRef,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDocumentsCapability } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,

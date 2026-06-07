@@ -1,4 +1,4 @@
-import type { IDebugLogEntry } from '@contracts/platformApi';
+import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import {
     DEFAULT_LOCALE,

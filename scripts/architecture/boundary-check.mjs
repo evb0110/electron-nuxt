@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { buildDependencyGraph } from './dep-graph.mjs';
 
 const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
+    'public',
     'index.ts',
     'index.tsx',
     'index.js',
@@ -29,6 +30,12 @@ const ROOT_BOUNDARY_RULES = [
         targetRoot: 'app',
         rule: 'electron-to-app',
         message: 'Electron code must not import app runtime code.',
+    },
+    {
+        sourceRoot: 'electron/features',
+        targetRoot: 'electron/ipc',
+        rule: 'electron-feature-to-legacy-ipc',
+        message: 'Electron feature code must not import legacy IPC infrastructure; use feature contracts, platform IPC contracts, or file-access services.',
     },
     {
         sourceRoot: 'landing',
@@ -122,6 +129,24 @@ const ROOT_BOUNDARY_RULES = [
     },
 ];
 
+const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [ {
+    ownerRoot: 'app/platform/browser-api',
+    publicEntry: 'public.ts',
+    rule: 'browser-api-public-entrypoint',
+    message: 'Browser platform API consumers must import through app/platform/browser-api/public.',
+} ];
+
+const PLATFORM_API_ALLOWED_CONSUMERS = new Set(`
+app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
+app/platform/browserPlatformApi.ts
+app/platform/lazyBrowserPlatformApi.ts
+app/types/electron.d.ts
+app/utils/getViewerHostApi.ts
+app/utils/platform.ts
+packages/contracts/electronApi.ts
+packages/contracts/index.ts
+`.trim().split('\n'));
+
 const FEATURE_BOUNDARY_RULES = [
     {
         prefix: 'app/modules',
@@ -180,6 +205,45 @@ function checkComponentDirectoryFilePlacement(filePath) {
     });
 }
 
+function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
+    if (!matchesRoot(edge.source, 'app') || !matchesRoot(edge.target, boundaryRule.ownerRoot)) {
+        return null;
+    }
+    if (matchesRoot(edge.source, boundaryRule.ownerRoot)) {
+        return null;
+    }
+
+    const targetRelativePath = edge.target.slice(`${boundaryRule.ownerRoot}/`.length);
+    if (targetRelativePath === boundaryRule.publicEntry) {
+        return null;
+    }
+
+    return createViolation({
+        rule: boundaryRule.rule,
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: boundaryRule.message,
+    });
+}
+
+function checkPlatformApiAggregateImport(edge) {
+    if (edge.target !== 'packages/contracts/platformApi.ts') {
+        return null;
+    }
+    if (PLATFORM_API_ALLOWED_CONSUMERS.has(edge.source)) {
+        return null;
+    }
+
+    return createViolation({
+        rule: 'platform-api-aggregate-import',
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: 'Import narrow platform capability contracts instead of the aggregate IPlatformApi contract.',
+    });
+}
+
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
@@ -199,8 +263,7 @@ function relativeWithinOwner(filePath, prefix, owner) {
 }
 
 function isAllowedPublicEntrypoint(relativePath, allowedSet) {
-    return allowedSet.has(relativePath)
-        || (relativePath.startsWith('components/') && relativePath.endsWith('.vue'));
+    return allowedSet.has(relativePath) || relativePath.startsWith('public/');
 }
 
 function createViolation({
@@ -268,8 +331,14 @@ function checkEdge(edge) {
     return [
         ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
         ...collectViolationsFromRules(edge, FEATURE_BOUNDARY_RULES, checkFeatureBoundaryRule),
+        ...collectViolationsFromRules(edge, PUBLIC_ONLY_INTERNAL_ENTRYPOINTS, checkPublicOnlyInternalEntrypoint),
+        checkPlatformApiAggregateImport(edge),
         checkElectronFeatureMainPrivacy(edge),
     ].filter(Boolean);
+}
+
+export function checkArchitectureBoundaryEdge(edge) {
+    return checkEdge(edge);
 }
 
 function formatViolations(violations) {
@@ -280,6 +349,16 @@ function formatViolations(violations) {
             `   source: ${violation.source}`,
             `   target: ${violation.target}`,
             `   import: ${violation.specifier}`,
+        ].join('\n');
+    }).join('\n');
+}
+
+function formatCycles(cycles) {
+    return cycles.map((cycle, index) => {
+        const serial = index + 1;
+        return [
+            `${serial}. Dependency cycle detected:`,
+            ...cycle.files.map(file => `   - ${file}`),
         ].join('\n');
     }).join('\n');
 }
@@ -313,11 +392,16 @@ async function run() {
             .filter(Boolean),
     ];
     const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];
+    const cycles = graph.cycles ?? [];
 
-    if (violations.length > 0 || unresolvedInternalImports.length > 0) {
+    if (violations.length > 0 || unresolvedInternalImports.length > 0 || cycles.length > 0) {
         console.error('Architecture boundary check failed.');
         if (violations.length > 0) {
             console.error(formatViolations(violations));
+        }
+        if (cycles.length > 0) {
+            console.error('Dependency cycles detected:');
+            console.error(formatCycles(cycles));
         }
         if (unresolvedInternalImports.length > 0) {
             console.error('Unresolved internal imports detected:');

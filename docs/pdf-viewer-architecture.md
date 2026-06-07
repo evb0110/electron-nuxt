@@ -5,9 +5,9 @@ that are intentionally load-bearing.
 
 ## Public Surface
 
-`app/components/pdf/PdfViewer.vue` is the component shell. It imports
-`usePdfViewerController` from `app/modules/pdf-viewer/public.ts` and keeps the
-parent-facing contract stable through:
+`app/modules/pdf-viewer/components/PdfViewer.vue` is the component shell. It
+imports its runtime controller from `app/modules/pdf-viewer/runtime/` and keeps
+the parent-facing contract stable through:
 
 - `IPdfViewerProps`
 - `TPdfViewerEmit`
@@ -23,7 +23,7 @@ The PDF viewer feature namespace is `app/modules/pdf-viewer/`.
 
 | Path | Ownership |
 | --- | --- |
-| `public.ts` | Component-facing exports and DOM helper exports |
+| `public.ts` | Cross-module exports and DOM helper exports |
 | `runtime/` | Controller composition, load/reload, viewport, navigation, zoom, rendering lifecycle, save/print bridges, and public API assembly |
 | `runtime/rendering/` | Authoritative page rendering runtime and renderer controllers |
 | `annotations/` | Viewer annotation comment/color feature models |
@@ -31,11 +31,16 @@ The PDF viewer feature namespace is `app/modules/pdf-viewer/`.
 
 Shared PDF services, serialization helpers, and generic document/workspace
 features stay outside this namespace unless they are truly viewer-owned.
+Reusable pure PDF geometry, serialization, conformance, TIFF, and outline logic
+belongs in `packages/pdf-core` and should be consumed through the `@pdf-core`
+package root. `app/utils/pdf-viewer` is for app/viewer integration helpers that
+depend on Vue state, DOM conventions, PDF.js runtime shape, or viewer-specific
+serialization policy.
 
 ## DOM Contracts
 
 PDF.js and app layer classes are runtime contracts. Keep these classes stable
-and use `app/modules/pdf-viewer/dom/pdfViewerDom.ts` for new viewer-owned
+and use `app/modules/pdf-viewer/dom/pdf-viewer-dom/` for new viewer-owned
 lookups:
 
 - `page_container`

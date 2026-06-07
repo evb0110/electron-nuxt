@@ -1,5 +1,5 @@
 import type { IpcRenderer } from 'electron';
-import type { IImageExportCapability } from '@contracts/platformApi';
+import type { IImageExportCapability } from '@contracts/electronApiDocuments';
 import {
     IMAGE_EXPORT_CHANNELS,
     type IImageExportInvokeMap,

@@ -40,7 +40,6 @@ vi.mock('vue-i18n', () => ({useI18n: () => i18nComposer}));
 
 vi.stubGlobal('useRuntimeConfig', () => ({public: {
     analyticsEnabled: false,
-    browserOcrLanguageBaseUrl: '',
     landingUrl: '',
     siteUrl: '',
 }}));

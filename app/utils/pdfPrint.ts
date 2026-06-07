@@ -14,6 +14,11 @@ import {
 } from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageMetric } from '@app/types/pdf';
+import type { IPdfPageBox } from '@pdf-core';
+import {
+    resolvePdfLibCropBox,
+    resolvePdfLibMediaBox,
+} from '@pdf-core';
 import {
     getPdfjsAssetDir,
     getPdfjsWorkerUrl,
@@ -44,13 +49,6 @@ interface IPreferredSinglePagePrintSheet {
     height: number;
     fitScale: number;
     aspectDelta: number;
-}
-
-interface IPdfPageBox {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
 }
 
 interface IRenderPdfPagesForBrowserPrintOptions {signal?: AbortSignal;}
@@ -124,71 +122,9 @@ function throwIfBrowserPrintAborted(signal: AbortSignal | undefined) {
     }
 }
 
-function normalizePdfPageBox(box: IPdfPageBox): IPdfPageBox | null {
-    const minX = Math.min(box.x, box.x + box.width);
-    const minY = Math.min(box.y, box.y + box.height);
-    const maxX = Math.max(box.x, box.x + box.width);
-    const maxY = Math.max(box.y, box.y + box.height);
-    const width = maxX - minX;
-    const height = maxY - minY;
-
-    if (width <= 0 || height <= 0) {
-        return null;
-    }
-
-    return {
-        x: minX,
-        y: minY,
-        width,
-        height,
-    };
-}
-
-function arePdfPageBoxesEqual(left: IPdfPageBox, right: IPdfPageBox) {
-    return left.x === right.x
-        && left.y === right.y
-        && left.width === right.width
-        && left.height === right.height;
-}
-
-function intersectPdfPageBoxes(left: IPdfPageBox, right: IPdfPageBox) {
-    const minX = Math.max(left.x, right.x);
-    const minY = Math.max(left.y, right.y);
-    const maxX = Math.min(left.x + left.width, right.x + right.width);
-    const maxY = Math.min(left.y + left.height, right.y + right.height);
-    const width = maxX - minX;
-    const height = maxY - minY;
-
-    if (width <= 0 || height <= 0) {
-        return null;
-    }
-
-    return {
-        x: minX,
-        y: minY,
-        width,
-        height,
-    };
-}
-
 function resolvePdfJsPageViewBox(page: PDFPage): IPdfPageBox {
-    const mediaBox = normalizePdfPageBox(page.getMediaBox())
-        ?? normalizePdfPageBox({
-            x: 0,
-            y: 0,
-            ...page.getSize(),
-        });
-
-    if (!mediaBox) {
-        throw new Error('PDF page has an invalid media box');
-    }
-
-    const cropBox = normalizePdfPageBox(page.getCropBox());
-    if (!cropBox || arePdfPageBoxesEqual(cropBox, mediaBox)) {
-        return mediaBox;
-    }
-
-    return intersectPdfPageBoxes(cropBox, mediaBox) ?? mediaBox;
+    const mediaBox = resolvePdfLibMediaBox(page);
+    return resolvePdfLibCropBox(page, mediaBox) ?? mediaBox;
 }
 
 function toPageBoundingBox(box: IPdfPageBox): PageBoundingBox {

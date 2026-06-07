@@ -1,17 +1,17 @@
+import type { IPlatformApi } from '@contracts/platformApi';
+import type { IAgentCapability } from '@contracts/agentCapability';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
-    IAgentCapability,
-    IDjvuCapability,
     IDocumentsCapability,
-    IHostCapability,
     IImageExportCapability,
-    IOcrCapability,
-    IPageOpsCapability,
-    IPlatformApi,
-    ISearchCapability,
-    ISettingsCapability,
-    IUpdatesCapability,
-    IWindowTabsCapability,
-} from '@contracts/platformApi';
+} from '@contracts/electronApiDocuments';
+import type { IHostCapability } from '@contracts/electronApiHost';
+import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type { ISearchCapability } from '@contracts/searchCapability';
+import type { ISettingsCapability } from '@contracts/settingsCapability';
 import { isRecord } from '@contracts/runtimeGuards';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 

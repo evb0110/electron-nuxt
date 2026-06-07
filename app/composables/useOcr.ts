@@ -2,10 +2,8 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
-import type {
-    IOcrCapability,
-    TDocumentRef,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { IOcrCapability } from '@contracts/electronApiOcr';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -19,15 +17,8 @@ import { parsePageRange } from '@app/utils/ocr/parsePageRange';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
-import { isBrowserPlatformActive } from '@app/utils/platform';
-import {
-    getDefaultBrowserOcrSettings,
-    readBrowserOcrPreferences,
-    saveBrowserOcrPreferences,
-} from '@app/platform/browser-api/browserOcrPreferences';
 import { getErrorMessage } from '@app/utils/error';
 import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
-import { configureBrowserOcrLanguageBaseUrl } from '@app/utils/browserOcrConfig';
 
 class OcrCanceledError extends Error {
     constructor() {
@@ -48,28 +39,17 @@ interface IOcrRunContext {
     ensureRunActive: TRunGuard;
 }
 
-function getConfiguredBrowserOcrLanguageBaseUrl(value: unknown) {
-    return typeof value === 'string' ? value : undefined;
-}
-
 export const useOcr = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
-    const runtimeConfig = useRuntimeConfig();
     const { localizeOcrError } = useOcrErrorLocalizer();
 
-    configureBrowserOcrLanguageBaseUrl(
-        getConfiguredBrowserOcrLanguageBaseUrl(runtimeConfig.public?.browserOcrLanguageBaseUrl),
-    );
-
     const availableLanguages = ref<IOcrLanguage[]>([]);
-    const settings = ref<IOcrSettings>(isBrowserPlatformActive()
-        ? readBrowserOcrPreferences() ?? getDefaultBrowserOcrSettings()
-        : {
-            pageRange: 'current',
-            customRange: '',
-            selectedLanguages: ['eng'],
-        });
+    const settings = ref<IOcrSettings>({
+        pageRange: 'current',
+        customRange: '',
+        selectedLanguages: ['eng'],
+    });
     const progress = ref<IOcrProgress>({
         isRunning: false,
         phase: 'preparing',
@@ -512,10 +492,6 @@ export const useOcr = () => {
             ...settings.value,
             selectedLanguages,
         };
-    }
-
-    if (isBrowserPlatformActive()) {
-        watch(settings, value => saveBrowserOcrPreferences(value), { deep: true });
     }
 
     const hasResults = computed(() => results.value.searchablePdfResult !== null);

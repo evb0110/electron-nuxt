@@ -320,10 +320,8 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platformApi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { formatRelativeTime } from '@app/utils/formatters';
 import {
     displayProcessedCount,
