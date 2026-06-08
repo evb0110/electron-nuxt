@@ -55,7 +55,7 @@ interface IUsePdfViewerWheelZoomOptions {
         suppressSnapFor: (ms: number) => void;
         handleWheel: (event: WheelEvent) => void;
         handleScroll: () => void;
-        cancelContinuousNavigationTarget: () => void;
+        cancelProgrammaticNavigation: () => void;
     };
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction?: (() => void) | undefined;
@@ -660,7 +660,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         cancelPendingSearchScroll();
-        singlePageScroll.cancelContinuousNavigationTarget();
+        singlePageScroll.cancelProgrammaticNavigation();
         singlePageScroll.handleWheel(event);
     }
 

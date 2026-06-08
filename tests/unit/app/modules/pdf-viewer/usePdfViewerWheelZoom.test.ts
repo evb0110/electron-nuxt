@@ -104,7 +104,7 @@ describe('usePdfViewerWheelZoom', () => {
             suppressSnapFor: vi.fn(),
             handleWheel: vi.fn(),
             handleScroll: vi.fn(),
-            cancelContinuousNavigationTarget: vi.fn(),
+            cancelProgrammaticNavigation: vi.fn(),
         };
         const cancelPendingSearchScroll = vi.fn();
         const emit = vi.fn();
@@ -219,7 +219,7 @@ describe('usePdfViewerWheelZoom', () => {
             setup.wheelZoom.handleViewerWheel(event);
 
             expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
-            expect(setup.singlePageScroll.cancelContinuousNavigationTarget).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.cancelProgrammaticNavigation).toHaveBeenCalledOnce();
             expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
         } finally {
             setup.scope.stop();

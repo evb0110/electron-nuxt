@@ -217,8 +217,16 @@ const bookmarkOrderIndexMap = computed(() => {
 
 let bookmarkNavigationRequestId = 0;
 
-function beginBookmarkNavigationRequest() {
+/**
+ * Prevents async bookmark resolution from applying to an outline/document that
+ * no longer owns the user's navigation intent.
+ */
+function invalidateBookmarkNavigationRequests() {
     bookmarkNavigationRequestId += 1;
+}
+
+function beginBookmarkNavigationRequest() {
+    invalidateBookmarkNavigationRequests();
     return bookmarkNavigationRequestId;
 }
 
@@ -493,6 +501,7 @@ async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
 async function loadOutline() {
     const pdfDocument = pdfDocumentProp;
     outlineRunId += 1;
+    invalidateBookmarkNavigationRequests();
     const runId = outlineRunId;
     resetOutlineInteractionState();
 
@@ -588,6 +597,7 @@ watch(
 
 onBeforeUnmount(() => {
     outlineRunId += 1;
+    invalidateBookmarkNavigationRequests();
 });
 </script>
 

@@ -189,15 +189,28 @@ describe('pdfOutlineHelpers', () => {
         expect(resolveImmediateBookmarkDestinationTarget(createBookmark('missing', null))).toBeNull();
     });
 
-    it('skips late same-page bookmark destination refinement after immediate navigation', () => {
+    it('emits late same-page bookmark destination refinement when the resolved y target differs', () => {
         expect(shouldEmitResolvedBookmarkDestinationTarget({
             page: 279,
             pageYRatio: 0.35,
-        }, 279)).toBe(false);
+        }, {
+            page: 279,
+            pageYRatio: 0,
+        })).toBe(true);
+        expect(shouldEmitResolvedBookmarkDestinationTarget({
+            page: 279,
+            pageYRatio: 0,
+        }, {
+            page: 279,
+            pageYRatio: 0,
+        })).toBe(false);
         expect(shouldEmitResolvedBookmarkDestinationTarget({
             page: 328,
             pageYRatio: 0.35,
-        }, 279)).toBe(true);
+        }, {
+            page: 279,
+            pageYRatio: 0,
+        })).toBe(true);
         expect(shouldEmitResolvedBookmarkDestinationTarget({
             page: 279,
             pageYRatio: 0.35,

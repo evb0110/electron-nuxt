@@ -324,14 +324,14 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
-    it('rerenders paged fit-height without restoring the old viewport snapshot, then snaps to the page', async () => {
+    it('snaps paged fit-height to the target after placeholder sizing and before rendering', async () => {
         vi.useFakeTimers();
         try {
             const currentPage = ref(1);
             const computeFitWidthScale = vi.fn(() => true);
             const cancelInFlightPageRenders = vi.fn();
             const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-            const scrollToPage = vi.fn();
+            const scrollToPage = vi.fn(() => true);
             const syncCurrentPageFromViewport = vi.fn(async () => {});
             const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(currentPage.value));
             const setCurrentPageFitRerenderTransitionActive = vi.fn();
@@ -392,6 +392,12 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect(ensurePageMetricsInRange.mock.invocationCallOrder[0]!).toBeLessThan(
                 computeFitWidthScale.mock.invocationCallOrder[0]!,
             );
+            expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
+                scrollToPage.mock.invocationCallOrder[0]!,
+            );
+            expect(scrollToPage.mock.invocationCallOrder[0]!).toBeLessThan(
+                reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+            );
             expect(buildResizeAnchorContext).not.toHaveBeenCalled();
             expect(cancelInFlightPageRenders).toHaveBeenCalled();
             expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
@@ -408,6 +414,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 preferExactDom: true,
                 suppressRenderAfterSnap: true,
             });
+            expect(scrollToPage).toHaveBeenCalledOnce();
             expect(setCurrentPageFitRerenderTransitionActive.mock.calls).toEqual([
                 [true],
                 [false],
@@ -484,7 +491,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
-    it('skips the delayed fit-height snap when the user scrolls during rerender', async () => {
+    it('does not apply a second fit-height snap when the user scrolls during rerender', async () => {
         vi.useFakeTimers();
         try {
             let userInteractionEpoch = 0;
@@ -492,7 +499,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
                 userInteractionEpoch += 1;
             });
-            const scrollToPage = vi.fn();
+            const scrollToPage = vi.fn(() => true);
 
             usePdfViewerRerenderCoordinator({
                 viewerContainer: ref(null),
@@ -543,10 +550,90 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await flushCurrentPageFitRerender();
 
             expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
-            expect(scrollToPage).not.toHaveBeenCalled();
+            expect(scrollToPage).toHaveBeenCalledOnce();
+            expect(scrollToPage.mock.invocationCallOrder[0]!).toBeLessThan(
+                reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+            );
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('snaps fit-mode height changes before rerender restoration can reuse the old viewport', async () => {
+        const fitMode = ref<'width' | 'height'>('width');
+        const computeFitWidthScale = vi.fn(() => true);
+        const setupPagePlaceholders = vi.fn();
+        const scrollToPage = vi.fn(() => true);
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+
+        usePdfViewerRerenderCoordinator({
+            viewerContainer: ref(null),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+            isLoading: ref(false),
+            numPages: ref(10),
+            currentPage: ref(4),
+            visibleRange: ref({
+                start: 4,
+                end: 4,
+            }),
+            zoom: computed(() => 1),
+            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
+            fitMode: computed(() => fitMode.value),
+            viewMode: computed(() => 'single' as const),
+            isResizing: computed(() => false),
+            continuousScroll: computed(() => false),
+            getVisibleRange: () => ({
+                start: 4,
+                end: 4,
+            }),
+            reRenderAllVisiblePages,
+            isPageRendered: vi.fn(() => true),
+            summarizeViewerMetricsForLog: vi.fn(() => null),
+            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
+            syncCurrentPageFromViewport: vi.fn(async () => {}),
+            markLowResZoomRerenderUsed: vi.fn(),
+            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(4)),
+            scheduleEndResizeTransition: vi.fn(),
+            enqueueZoomSync: vi.fn(),
+            scheduleResizeAwareRerender: vi.fn(),
+            cancelInFlightPageRenders: vi.fn(),
+            computeFitWidthScale,
+            syncHorizontalScrollForZoomMode: vi.fn(() => true),
+            setupPagePlaceholders,
+            scrollToPage,
+            getMostVisiblePage: vi.fn(() => 4),
+            resetContinuousScrollState: vi.fn(),
+            resetZoomRerenderQueueState: vi.fn(),
+            consumeZoomViewportAnchor: vi.fn(() => null),
+            beginResizeTransition: vi.fn(() => 1),
+            consumeSuppressedZoomRerender: vi.fn(() => false),
+        });
+
+        fitMode.value = 'height';
+        await nextTick();
+        await Promise.resolve();
+        await nextTick();
+
+        expect(computeFitWidthScale).toHaveBeenCalled();
+        expect(setupPagePlaceholders.mock.invocationCallOrder[0]!).toBeLessThan(
+            scrollToPage.mock.invocationCallOrder[0]!,
+        );
+        expect(scrollToPage.mock.invocationCallOrder[0]!).toBeLessThan(
+            reRenderAllVisiblePages.mock.invocationCallOrder[0]!,
+        );
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({
+                rerenderSource: 'fit-mode',
+                disableVerticalAnchorRestore: true,
+                disablePageAnchorRestore: true,
+                renderBufferOverride: 0,
+            }),
+        );
+        expect(scrollToPage).toHaveBeenCalledWith(4, {
+            preferExactDom: true,
+            suppressRenderAfterSnap: true,
+        });
     });
 
     it('coalesces rapid paged fit-height current-page rerenders so only the latest page can render', async () => {

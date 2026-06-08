@@ -23,6 +23,7 @@ const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
 const CURRENT_PAGE_FIT_RERENDER_SETTLE_MS = 80;
 const CURRENT_PAGE_FIT_CANCEL_SETTLE_MS = 150;
+const FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS = 4;
 
 interface IPageRange {
     start: number;
@@ -94,7 +95,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     syncHorizontalScrollForZoomMode?: (() => boolean) | undefined;
     setupPagePlaceholders: () => void;
-    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => unknown;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
     resetContinuousScrollState: () => void;
     cancelDestinationNavigationTarget?: (() => void) | undefined;
@@ -341,6 +342,50 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return range;
     }
 
+    /**
+     * Keeps fit-height transitions visually atomic by making the intended page
+     * position the viewport anchor before renderer work can repaint.
+     */
+    async function snapFitHeightPageBeforeRender(
+        source: string,
+        runId: number,
+        page: number,
+        interactionEpoch: number,
+        isRunActive: () => boolean,
+    ) {
+        for (let attempt = 0; attempt <= FIT_HEIGHT_PRE_RENDER_SNAP_MAX_TICKS; attempt += 1) {
+            if (!isRunActive()) {
+                return false;
+            }
+            if (!canApplyDelayedViewportScroll(source, runId, interactionEpoch)) {
+                return false;
+            }
+
+            const snapResult = scrollToPage(page, {
+                preferExactDom: true,
+                suppressRenderAfterSnap: true,
+            });
+            syncHorizontalScrollAfterLayoutUpdate();
+            if (snapResult !== false) {
+                return true;
+            }
+
+            await nextTick();
+        }
+
+        BrowserLogger.warn('pdf-nav', `[${source}] could not snap fit-height page before render`, {
+            runId,
+            page,
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+        });
+        return false;
+    }
+
     function buildRerenderSyncNavLogPayload(runId: number, source: string) {
         return {
             runId,
@@ -454,14 +499,34 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 : null;
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && document) {
+            const isRunActive = () => (
+                isViewerAsyncRunActive(runId, fitModeRunId, document)
+                && fitMode.value === mode
+            );
+            let snappedBeforeRender = false;
+            if (pageToSnapTo !== null) {
+                setupPagePlaceholders();
+                snappedBeforeRender = await snapFitHeightPageBeforeRender(
+                    'fit-mode',
+                    runId,
+                    pageToSnapTo,
+                    interactionEpoch,
+                    isRunActive,
+                );
+                if (!isRunActive()) {
+                    return;
+                }
+            }
             cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 preserveExistingPages: true,
                 disableHorizontalAnchorRestore: mode === 'width' || shouldDisableHorizontalAnchorRestore(),
+                disableVerticalAnchorRestore: mode === 'height',
+                disablePageAnchorRestore: mode === 'height',
                 rerenderSource: 'fit-mode',
                 renderBufferOverride: 0,
             });
-            if (!isViewerAsyncRunActive(runId, fitModeRunId, document) || fitMode.value !== mode) {
+            if (!isRunActive()) {
                 return;
             }
             syncHorizontalScrollAfterLayoutUpdate();
@@ -470,20 +535,22 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     source: 'fit-mode',
                     stabilize: true,
                 });
-                if (!isViewerAsyncRunActive(runId, fitModeRunId, document) || fitMode.value !== mode) {
+                if (!isRunActive()) {
                     return;
                 }
             }
-            if (pageToSnapTo !== null) {
+            if (pageToSnapTo !== null && !snappedBeforeRender) {
                 await nextTick();
                 if (
-                    !isViewerAsyncRunActive(runId, fitModeRunId, document)
-                    || fitMode.value !== mode
+                    !isRunActive()
                     || !canApplyDelayedViewportScroll('fit-mode', runId, interactionEpoch)
                 ) {
                     return;
                 }
-                scrollToPage(pageToSnapTo, { preferExactDom: true });
+                scrollToPage(pageToSnapTo, {
+                    preferExactDom: true,
+                    suppressRenderAfterSnap: true,
+                });
                 syncHorizontalScrollAfterLayoutUpdate();
             }
         }
@@ -563,6 +630,22 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             }
 
             if (fitMode.value === 'height') {
+                const snappedBeforeRender = await snapFitHeightPageBeforeRender(
+                    'fit-height-current-page',
+                    runId,
+                    next,
+                    interactionEpoch,
+                    () => (
+                        isCurrentPageFitRerenderRunActive(runId, document, next)
+                        && fitMode.value === 'height'
+                    ),
+                );
+                if (
+                    !isCurrentPageFitRerenderRunActive(runId, document, next)
+                    || fitMode.value !== 'height'
+                ) {
+                    return;
+                }
                 cancelInFlightPageRenders?.();
                 await waitForCurrentPageFitCancellationToSettle();
                 if (
@@ -586,6 +669,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     return;
                 }
                 await nextTick();
+                if (snappedBeforeRender) {
+                    syncHorizontalScrollAfterLayoutUpdate();
+                    return;
+                }
                 if (
                     !isCurrentPageFitRerenderRunActive(runId, document, next)
                     || fitMode.value !== 'height'

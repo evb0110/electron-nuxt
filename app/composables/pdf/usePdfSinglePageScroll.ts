@@ -331,6 +331,22 @@ export const usePdfSinglePageScroll = (
         clearContinuousNavigationTarget();
     }
 
+    /**
+     * Releases programmatic navigation ownership so future scroll events are
+     * reconciled from the live viewport instead of an obsolete target.
+     */
+    function cancelProgrammaticNavigation() {
+        pagedNavigationRunId += 1;
+        clearPagedNavigationTarget();
+        clearSearchNavigationSettleTimer();
+        cancelContinuousNavigationTarget();
+        searchNavigationState.value = 'idle';
+        searchNavigationTargetPage.value = null;
+        snapSuppressUntil.value = 0;
+        isProgrammaticNavigationActive.value = false;
+        isSnapping.value = false;
+    }
+
     function waitForContinuousRenderFrame() {
         if (
             typeof window !== 'undefined'
@@ -937,7 +953,7 @@ export const usePdfSinglePageScroll = (
         options?: IScrollToPageOptions,
     ) {
         if (!viewerContainer.value) {
-            return;
+            return false;
         }
 
         const previous = currentPage.value;
@@ -956,6 +972,7 @@ export const usePdfSinglePageScroll = (
         if (page !== previous) {
             emitCurrentPage(page);
         }
+        return true;
     }
 
     function finishContinuousNavigationStart(
@@ -971,14 +988,14 @@ export const usePdfSinglePageScroll = (
             || !continuousScroll.value
             || !viewerContainer.value
         ) {
-            return;
+            return false;
         }
 
-        applyContinuousNavigationTargetScroll(targetPage, options);
+        const didScroll = applyContinuousNavigationTargetScroll(targetPage, options);
         if (renderAlreadySettled) {
             startContinuousNavigationLayoutObservers(runId, targetPage, options);
             scheduleContinuousNavigationTargetFallbackClear(runId, targetPage);
-            return;
+            return didScroll;
         }
 
         queueContinuousNavigationRenderAfterNavigation(
@@ -989,6 +1006,7 @@ export const usePdfSinglePageScroll = (
         );
         startContinuousNavigationLayoutObservers(runId, targetPage, options);
         scheduleContinuousNavigationTargetFallbackClear(runId, targetPage);
+        return didScroll;
     }
 
     /**
@@ -1208,13 +1226,17 @@ export const usePdfSinglePageScroll = (
         return true;
     }
 
+    /**
+     * Selects the authoritative paged target and reports whether the viewport
+     * could be aligned to that target immediately.
+     */
     function snapToPage(
         pageNumber: number,
         anchor: TPageSnapAnchor = 'center',
         options?: Pick<IScrollToPageOptions, 'pageYRatio' | 'suppressRenderAfterSnap'>,
     ) {
         if (!viewerContainer.value || numPages.value === 0) {
-            return;
+            return false;
         }
 
         const targetPage = clamp(pageNumber, 1, numPages.value);
@@ -1255,14 +1277,22 @@ export const usePdfSinglePageScroll = (
                         runId,
                     });
                 }
-                return;
+                return true;
             }
 
-            queuePagedRowRenderAfterNavigation(
-                targetPage,
-                'Failed to render visible pages after paged navigation',
-                runId,
-            );
+            if (!options?.suppressRenderAfterSnap) {
+                queuePagedRowRenderAfterNavigation(
+                    targetPage,
+                    'Failed to render visible pages after paged navigation',
+                    runId,
+                );
+            } else {
+                logPdfRenderTrace('single-page-snap-deferred-render-suppressed', {
+                    targetPage,
+                    anchor,
+                    runId,
+                });
+            }
             isSnapping.value = true;
             void nextTick(() => {
                 if (
@@ -1298,11 +1328,11 @@ export const usePdfSinglePageScroll = (
                     anchor,
                 });
             });
-            return;
+            return false;
         }
 
         if (applySnapToMountedPage(targetPage, anchor, options)) {
-            return;
+            return true;
         }
 
         isSnapping.value = true;
@@ -1320,6 +1350,7 @@ export const usePdfSinglePageScroll = (
         requestAnimationFrame(() => {
             isSnapping.value = false;
         });
+        return true;
     }
 
     const debouncedSnapToPage = useDebounceFn(() => {
@@ -1540,12 +1571,16 @@ export const usePdfSinglePageScroll = (
         }
     }
 
+    /**
+     * Starts page navigation with a clear immediate/deferred outcome for
+     * callers that coordinate rendering around the destination viewport.
+     */
     function scrollToPage(
         pageNumber: number,
         options?: IScrollToPageOptions,
     ) {
         if (!viewerContainer.value || numPages.value === 0) {
-            return;
+            return false;
         }
 
         logPdfNav(
@@ -1577,7 +1612,13 @@ export const usePdfSinglePageScroll = (
             continuousNavigationTargetPage.value = targetPage;
             continuousNavigationTargetScrollOptions = options;
 
-            if (ensurePageMetricsInRange) {
+            if (
+                ensurePageMetricsInRange
+                && !(
+                    options?.preferExactDom === true
+                    && getPageContainerByNumber(viewerContainer.value, targetPage)
+                )
+            ) {
                 runGuardedTask(
                     () => finishContinuousNavigationStartAfterMetricHydration(
                         runId,
@@ -1589,10 +1630,10 @@ export const usePdfSinglePageScroll = (
                         message: 'Failed to hydrate target page metrics before scrollToPage',
                     },
                 );
-                return;
+                return false;
             }
 
-            finishContinuousNavigationStart(
+            return finishContinuousNavigationStart(
                 runId,
                 targetPage,
                 options,
@@ -1608,11 +1649,12 @@ export const usePdfSinglePageScroll = (
             // bleeds in). pdf.js's scrollMode setter snaps to top-left of the
             // current page; mirror that behavior uniformly.
             const anchor: TPageSnapAnchor = isTallPage(pageNumber) ? 'center' : 'top';
-            snapToPage(pageNumber, anchor, options);
+            return snapToPage(pageNumber, anchor, options);
         }
     }
 
     function resetContinuousScrollState() {
+        pagedNavigationRunId += 1;
         clearWheelAccumulator();
         clearPagedNavigationTarget();
         clearSearchNavigationSettleTimer();
@@ -1654,6 +1696,7 @@ export const usePdfSinglePageScroll = (
         searchNavigationTargetPage,
         continuousNavigationTargetPage,
         cancelContinuousNavigationTarget,
+        cancelProgrammaticNavigation,
         resetContinuousScrollState,
     };
 };

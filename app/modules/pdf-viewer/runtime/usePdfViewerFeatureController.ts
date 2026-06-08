@@ -322,7 +322,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
 
     function markUserViewportInteraction() {
         userViewportInteractionEpoch.value += 1;
-        singlePageScroll.cancelContinuousNavigationTarget();
+        singlePageScroll.cancelProgrammaticNavigation();
     }
 
     const {
@@ -534,7 +534,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
             options,
         ) => singlePageScroll.scrollToPage(pageNumber, options),
         resetContinuousScrollState: () => singlePageScroll.resetContinuousScrollState(),
-        cancelDestinationNavigationTarget: () => singlePageScroll.cancelContinuousNavigationTarget(),
+        cancelDestinationNavigationTarget: () => singlePageScroll.cancelProgrammaticNavigation(),
         getUserViewportInteractionEpoch: () => userViewportInteractionEpoch.value,
         startDrag,
         onDrag,

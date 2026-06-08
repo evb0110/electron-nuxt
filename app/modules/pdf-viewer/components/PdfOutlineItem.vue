@@ -397,7 +397,7 @@ function emitBookmarkDestinationTarget(target: IBookmarkDestinationTarget) {
     emit('go-to-page', target.page, options);
 }
 
-function emitImmediateBookmarkPage(navigationRequestId: number) {
+function emitImmediateBookmarkDestinationTarget(navigationRequestId: number) {
     if (!treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)) {
         return null;
     }
@@ -408,7 +408,7 @@ function emitImmediateBookmarkPage(navigationRequestId: number) {
     }
 
     emitBookmarkDestinationTarget(target);
-    return target.page;
+    return target;
 }
 
 /**
@@ -417,7 +417,7 @@ function emitImmediateBookmarkPage(navigationRequestId: number) {
  * destination from stealing a later rapid bookmark click.
  */
 async function navigateToBookmarkDestination(navigationRequestId: number) {
-    const immediatePage = emitImmediateBookmarkPage(navigationRequestId);
+    const immediateTarget = emitImmediateBookmarkDestinationTarget(navigationRequestId);
 
     if (pdfDocument && item.dest) {
         try {
@@ -426,7 +426,7 @@ async function navigateToBookmarkDestination(navigationRequestId: number) {
                 target !== null
                 && treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)
             ) {
-                if (shouldEmitResolvedBookmarkDestinationTarget(target, immediatePage)) {
+                if (shouldEmitResolvedBookmarkDestinationTarget(target, immediateTarget)) {
                     emitBookmarkDestinationTarget(target);
                 }
                 return;
@@ -439,7 +439,7 @@ async function navigateToBookmarkDestination(navigationRequestId: number) {
     }
 
     if (
-        immediatePage === null
+        immediateTarget === null
         &&
         typeof item.pageIndex === 'number'
         && treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)
