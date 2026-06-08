@@ -167,6 +167,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
@@ -258,7 +259,7 @@ const {
 const annotationActiveCommentStableKey = computed(() => annotationActiveCommentStableKeyProp ?? null);
 
 const emit = defineEmits<{
-    (e: 'goToPage', page: number): void;
+    (e: 'goToPage', page: number, options?: IScrollToPageOptions): void;
     (e: 'goToResult', index: number): void;
     (e: 'update:activeTab', value: TPdfSidebarTab): void;
     (e: 'update:searchQuery', value: string): void;
@@ -389,8 +390,8 @@ function deleteSelectedPages() {
     emit('page-delete', selectedThumbnailPages.value);
 }
 
-function goToPage(page: number) {
-    emit('goToPage', page);
+function goToPage(page: number, options?: IScrollToPageOptions) {
+    emit('goToPage', page, options);
 }
 
 function openPageContextMenu(payload: {

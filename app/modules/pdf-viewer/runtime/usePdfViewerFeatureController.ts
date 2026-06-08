@@ -105,7 +105,6 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
     } = usePdfViewerLoadLifecycleController({
         renderedPageStateVersion,
         getAnnotationRuntime: () => annotationRuntime,
-        getSinglePageScroll: () => singlePageScroll,
         emitInitialVisualPending: viewerEvents.initialVisualPending,
         emitInitialVisualReady: viewerEvents.initialVisualReady,
         markDelayedSkeletonPageRendered: pageNumber => markDelayedSkeletonPageRendered(pageNumber),
@@ -311,6 +310,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         updateVisibleRange,
         updateCurrentPage,
         renderVisiblePages,
+        ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
         suppressPagedRowRender: shouldSuppressPagedFitRowRender,
         visibleRange,
         emitCurrentPage: viewerEvents.updateCurrentPage,
@@ -318,6 +318,13 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         cancelPendingSearchScroll,
     });
     const { navigationAnchorPage } = singlePageScroll;
+    const userViewportInteractionEpoch = ref(0);
+
+    function markUserViewportInteraction() {
+        userViewportInteractionEpoch.value += 1;
+        singlePageScroll.cancelContinuousNavigationTarget();
+    }
+
     const {
         pendingImagePlacement,
         isPendingImagePlacementFinalizing,
@@ -430,6 +437,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         zoomVirtualizationFreeze,
         singlePageScroll,
         cancelPendingSearchScroll,
+        markUserViewportInteraction,
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
         emit,
     });
@@ -526,6 +534,8 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
             options,
         ) => singlePageScroll.scrollToPage(pageNumber, options),
         resetContinuousScrollState: () => singlePageScroll.resetContinuousScrollState(),
+        cancelDestinationNavigationTarget: () => singlePageScroll.cancelContinuousNavigationTarget(),
+        getUserViewportInteractionEpoch: () => userViewportInteractionEpoch.value,
         startDrag,
         onDrag,
         stopDrag,
@@ -637,6 +647,7 @@ export function usePdfViewerFeatureController(props: IPdfViewerProps, emit: TPdf
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
         isCommentPlacementActive: () => highlightComposable.isPlacingComment.value,
         isViewerPanDragModeActive,
+        markUserViewportInteraction,
         cancelPendingSearchScroll,
         handleDragStart,
         handleDragMove,

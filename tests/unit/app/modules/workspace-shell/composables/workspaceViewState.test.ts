@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { ref } from 'vue';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
@@ -52,6 +53,43 @@ describe('useWorkspaceViewState', () => {
 
         expect(state.isFitHeightActive.value).toBe(true);
         expect(state.isFitWidthActive.value).toBe(false);
+    });
+
+    it('cancels programmatic viewer navigation before changing fit mode', () => {
+        const cancelProgrammaticNavigation = vi.fn();
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(false),
+            sidebarTab: ref('thumbnails'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(1),
+            totalPages: ref(1),
+            pdfViewerRef: ref({
+                scrollToPage: () => {},
+                cancelProgrammaticNavigation,
+                cancelCommentPlacement: () => {},
+            }),
+        });
+
+        state.handleFitMode('height');
+
+        expect(cancelProgrammaticNavigation).toHaveBeenCalledOnce();
     });
 
     it('disables annotation cursor when drag mode is enabled', () => {
@@ -169,5 +207,42 @@ describe('useWorkspaceViewState', () => {
 
         expect(state.isAnnotationUndoContext.value).toBe(true);
         expect(state.canUndo.value).toBe(true);
+    });
+
+    it('scrolls to an explicit bookmark target even when the page is already current', () => {
+        const scrollToPage = vi.fn();
+        const state = useWorkspaceViewState({
+            fitMode: ref('width'),
+            zoomMode: ref('fit-width'),
+            zoom: ref(1),
+            dragMode: ref(false),
+            showSidebar: ref(true),
+            sidebarTab: ref('bookmarks'),
+            annotationTool: ref('none'),
+            annotationPlacingPageNote: ref(false),
+            annotationEditorState: ref({
+                isEditing: false,
+                isEmpty: true,
+                hasSomethingToUndo: false,
+                hasSomethingToRedo: false,
+                hasSelectedEditor: false,
+            }),
+            hasLivePdfJsAnnotationChanges: ref(false),
+            appAnnotationUndoDepth: ref(0),
+            hasOpenAnnotationNotes: ref(false),
+            canUndoHistory: ref(false),
+            canRedoHistory: ref(false),
+            currentPage: ref(3),
+            totalPages: ref(10),
+            pdfViewerRef: ref({
+                scrollToPage,
+                cancelCommentPlacement: () => {},
+            }),
+        });
+        const scrollOptions = {pageYRatio: 0};
+
+        state.handleGoToPage(3, scrollOptions);
+
+        expect(scrollToPage).toHaveBeenCalledWith(3, scrollOptions);
     });
 });

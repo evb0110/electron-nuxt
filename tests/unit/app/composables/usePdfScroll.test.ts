@@ -269,6 +269,26 @@ describe('usePdfScroll page layout fallback', () => {
         expect(getScrollLeft()).toBe(0);
     });
 
+    it('aligns PDF destination y coordinates to the viewport top', () => {
+        const {
+            container,
+            getScrollTop,
+        } = createMountedPageScrollHarness({
+            clientWidth: 1000,
+            clientHeight: 200,
+            pageNumber: 2,
+            pageLeft: 20,
+            pageTop: 400,
+            pageWidth: 960,
+            pageHeight: 800,
+        });
+        const scroll = usePdfScroll();
+
+        scroll.scrollToPage(container, 2, 3, 20, { pageYRatio: 0.25 });
+
+        expect(getScrollTop()).toBe(580);
+    });
+
     it('bounds marker navigation horizontally to the mounted page when the page is wider than the viewport', () => {
         const {
             container,

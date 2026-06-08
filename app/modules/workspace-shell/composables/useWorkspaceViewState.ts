@@ -8,6 +8,7 @@ import type {
     IAnnotationEditorState,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -31,7 +32,8 @@ interface IWorkspaceViewStateDeps {
     totalPages: Ref<number>;
     beginProgrammaticPageNavigation?: ((page: number) => void) | undefined;
     pdfViewerRef: Ref<{
-        scrollToPage: (page: number) => void;
+        scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
+        cancelProgrammaticNavigation?: () => void;
         cancelCommentPlacement: () => void;
         applyFitWidthToCurrentPage?: () => Promise<boolean>;
     } | null>;
@@ -100,6 +102,7 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     ));
 
     function handleFitMode(mode: TFitMode) {
+        deps.pdfViewerRef.value?.cancelProgrammaticNavigation?.();
         deps.zoom.value = 1;
         deps.fitMode.value = mode;
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
@@ -124,13 +127,15 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         return Math.min(Math.max(requestedPage, 1), maxPage);
     }
 
-    function handleGoToPage(page: number) {
+    function handleGoToPage(page: number, options?: IScrollToPageOptions) {
         const targetPage = normalizeNavigationPage(page);
         const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
+        const hasExplicitScrollTarget = options !== undefined;
         BrowserLogger.warn('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
             requestedPage: page,
             targetPage,
             wasAlreadyCurrentPage,
+            hasExplicitScrollTarget,
             hasViewer: Boolean(deps.pdfViewerRef.value),
             sidebarOpen: deps.showSidebar.value,
             sidebarTab: deps.sidebarTab.value,
@@ -143,15 +148,16 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             targetPage,
             currentPageBefore: deps.currentPage.value,
             wasAlreadyCurrentPage,
+            hasExplicitScrollTarget,
             hasViewer: Boolean(deps.pdfViewerRef.value),
         });
         deps.beginProgrammaticPageNavigation?.(targetPage);
         deps.currentPage.value = targetPage;
-        if (wasAlreadyCurrentPage) {
+        if (wasAlreadyCurrentPage && !hasExplicitScrollTarget) {
             logPdfRenderTrace('workspace-go-to-page-skip-scroll-duplicate', { targetPage });
             return;
         }
-        deps.pdfViewerRef.value?.scrollToPage(targetPage);
+        deps.pdfViewerRef.value?.scrollToPage(targetPage, options);
     }
 
     return {

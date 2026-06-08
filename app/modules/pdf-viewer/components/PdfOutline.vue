@@ -99,6 +99,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
     buildResolvedOutline,
@@ -130,7 +131,7 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'goToPage', page: number): void;
+    (e: 'goToPage', page: number, options?: IScrollToPageOptions): void;
     (e: 'bookmarks-change', payload: {
         bookmarks: IPdfBookmarkEntry[];
         dirty: boolean;
@@ -138,8 +139,8 @@ const emit = defineEmits<{
     (e: 'update:isEditMode', value: boolean): void;
 }>();
 
-function goToPage(page: number) {
-    emit('goToPage', page);
+function goToPage(page: number, options?: IScrollToPageOptions) {
+    emit('goToPage', page, options);
 }
 
 function toggleEditMode() {
@@ -213,6 +214,17 @@ const bookmarkOrderIndexMap = computed(() => {
     }
     return map;
 });
+
+let bookmarkNavigationRequestId = 0;
+
+function beginBookmarkNavigationRequest() {
+    bookmarkNavigationRequestId += 1;
+    return bookmarkNavigationRequestId;
+}
+
+function isBookmarkNavigationRequestCurrent(requestId: number) {
+    return requestId === bookmarkNavigationRequestId;
+}
 
 const selection = usePdfOutlineSelection(
     bookmarks,
@@ -351,6 +363,8 @@ provide(pdfOutlineTreeKey, {
     dropTarget: dragDrop.bookmarkDropTarget,
     styleRangeStartId,
     activePathBookmarkIds,
+    beginBookmarkNavigationRequest,
+    isBookmarkNavigationRequestCurrent,
 });
 
 let outlineRunId = 0;

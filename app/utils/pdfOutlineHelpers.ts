@@ -1,4 +1,7 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 import { clamp } from 'es-toolkit/math';
 import type {
     IBookmarkItem,
@@ -25,6 +28,46 @@ export interface IOutlineItemRaw {
     italic?: boolean | undefined;
     color?: ArrayLike<number> | null | undefined;
     items?: IOutlineItemRaw[] | undefined;
+}
+
+export interface IBookmarkDestinationTarget {
+    page: number;
+    pageYRatio?: number | null | undefined;
+}
+
+/**
+ * Returns a fast page-level bookmark target from the outline's cached page index.
+ * Full PDF.js destination resolution can lag on large files, so bookmark clicks
+ * first move to the known page and then refine once the exact destination resolves.
+ */
+export function resolveImmediateBookmarkDestinationTarget(
+    item: Pick<IBookmarkItem, 'pageIndex'>,
+): IBookmarkDestinationTarget | null {
+    if (typeof item.pageIndex !== 'number' || !Number.isFinite(item.pageIndex)) {
+        return null;
+    }
+
+    return {
+        page: Math.max(0, Math.trunc(item.pageIndex)) + 1,
+        pageYRatio: 0,
+    };
+}
+
+/**
+ * Avoids replaying the async resolved destination when the immediate page jump
+ * already targeted the same page, while still allowing cross-page corrections.
+ */
+export function shouldEmitResolvedBookmarkDestinationTarget(
+    target: IBookmarkDestinationTarget,
+    immediatePage: number | null,
+) {
+    return immediatePage === null || target.page !== immediatePage;
+}
+
+interface IPageViewBounds {
+    top: number;
+    bottom: number;
+    height: number;
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {
@@ -119,6 +162,106 @@ function normalizeDestinationPageIndex(rawPageRef: number, numPages: number) {
     return null;
 }
 
+function normalizeDestinationKind(value: string) {
+    return value.startsWith('/') ? value.slice(1) : value;
+}
+
+function getDestinationKind(destinationArray: unknown[]) {
+    const rawKind = destinationArray[1];
+    if (typeof rawKind === 'string') {
+        return normalizeDestinationKind(rawKind);
+    }
+    if (isRecord(rawKind)) {
+        const name = getOptionalString(rawKind, 'name');
+        return name ? normalizeDestinationKind(name) : null;
+    }
+    return null;
+}
+
+function getFiniteDestinationNumber(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : null;
+}
+
+function getDestinationTopValue(destinationArray: unknown[], destinationKind: string | null) {
+    switch (destinationKind) {
+        case 'XYZ':
+            return getFiniteDestinationNumber(destinationArray[3]);
+        case 'FitH':
+        case 'FitBH':
+            return getFiniteDestinationNumber(destinationArray[2]);
+        case 'FitR':
+            return getFiniteDestinationNumber(destinationArray[5]);
+        default:
+            return null;
+    }
+}
+
+function shouldAlignDestinationToPageTop(destinationKind: string | null) {
+    return destinationKind === 'XYZ'
+        || destinationKind === 'Fit'
+        || destinationKind === 'FitB'
+        || destinationKind === 'FitH'
+        || destinationKind === 'FitBH'
+        || destinationKind === 'FitR';
+}
+
+function getPageViewBounds(page: PDFPageProxy): IPageViewBounds | null {
+    const view = Array.isArray(page.view) ? page.view : null;
+    const top = view ? getFiniteDestinationNumber(view[3]) : null;
+    const bottom = view ? getFiniteDestinationNumber(view[1]) : null;
+
+    if (top !== null && bottom !== null && top > bottom) {
+        return {
+            top,
+            bottom,
+            height: top - bottom,
+        };
+    }
+
+    const viewport = page.getViewport({ scale: 1 });
+    const height = getFiniteDestinationNumber(viewport.height);
+    if (height !== null && height > 0) {
+        return {
+            top: height,
+            bottom: 0,
+            height,
+        };
+    }
+
+    return null;
+}
+
+async function resolveDestinationPageYRatio(
+    pdfDocument: PDFDocumentProxy,
+    page: number,
+    destinationArray: unknown[],
+) {
+    const destinationKind = getDestinationKind(destinationArray);
+    if (!shouldAlignDestinationToPageTop(destinationKind)) {
+        return null;
+    }
+
+    const destinationTop = getDestinationTopValue(destinationArray, destinationKind);
+    if (destinationTop === null) {
+        return 0;
+    }
+
+    try {
+        const pdfPage = await pdfDocument.getPage(page);
+        const bounds = getPageViewBounds(pdfPage);
+        if (!bounds) {
+            return null;
+        }
+
+        return clamp((bounds.top - destinationTop) / bounds.height, 0, 1);
+    } catch (error) {
+        BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve bookmark destination y for page ${page}`, error);
+        return null;
+    }
+}
+
 async function resolveDestinationArray(
     pdfDocument: PDFDocumentProxy,
     dest: IOutlineItemRaw['dest'],
@@ -149,6 +292,41 @@ async function resolveDestinationArray(
     }
 }
 
+async function resolvePageIndexFromDestinationArray(
+    pdfDocument: PDFDocumentProxy,
+    destinationArray: unknown[],
+    refIndexCache?: Map<string, number | null>,
+) {
+    if (destinationArray.length === 0) {
+        return null;
+    }
+
+    const pageRef = destinationArray[0];
+
+    if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
+        return normalizeDestinationPageIndex(pageRef, pdfDocument.numPages);
+    }
+
+    if (!isRefProxy(pageRef)) {
+        return null;
+    }
+
+    const refKey = `${pageRef.num}:${pageRef.gen}`;
+    if (refIndexCache?.has(refKey)) {
+        return refIndexCache.get(refKey) ?? null;
+    }
+
+    try {
+        const pageIndex = await pdfDocument.getPageIndex(pageRef);
+        refIndexCache?.set(refKey, pageIndex);
+        return pageIndex;
+    } catch (error) {
+        BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve page index by reference: ${refKey}`, error);
+        refIndexCache?.set(refKey, null);
+        return null;
+    }
+}
+
 export async function resolvePageIndex(
     pdfDocument: PDFDocumentProxy,
     dest: IOutlineItemRaw['dest'],
@@ -165,30 +343,7 @@ export async function resolvePageIndex(
         return null;
     }
 
-    const pageRef = destinationArray[0];
-
-    if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
-        return normalizeDestinationPageIndex(pageRef, pdfDocument.numPages);
-    }
-
-    if (!isRefProxy(pageRef)) {
-        return null;
-    }
-
-    const refKey = `${pageRef.num}:${pageRef.gen}`;
-    if (refIndexCache.has(refKey)) {
-        return refIndexCache.get(refKey) ?? null;
-    }
-
-    try {
-        const pageIndex = await pdfDocument.getPageIndex(pageRef);
-        refIndexCache.set(refKey, pageIndex);
-        return pageIndex;
-    } catch (error) {
-        BrowserLogger.debug(OUTLINE_LOG_SECTION, `Failed to resolve page index by reference: ${refKey}`, error);
-        refIndexCache.set(refKey, null);
-        return null;
-    }
+    return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
 }
 
 export async function buildResolvedOutline(
@@ -234,6 +389,14 @@ export async function resolveBookmarkDestinationPage(
     pdfDocument: PDFDocumentProxy,
     dest: string | unknown[] | null,
 ) {
+    const target = await resolveBookmarkDestinationTarget(pdfDocument, dest);
+    return target?.page ?? null;
+}
+
+export async function resolveBookmarkDestinationTarget(
+    pdfDocument: PDFDocumentProxy,
+    dest: string | unknown[] | null,
+): Promise<IBookmarkDestinationTarget | null> {
     if (!dest) {
         return null;
     }
@@ -244,24 +407,17 @@ export async function resolveBookmarkDestinationPage(
         return null;
     }
 
-    const pageRef = destinationArray[0];
-
-    if (typeof pageRef === 'number' && Number.isFinite(pageRef)) {
-        const zeroBasedIndex = normalizeDestinationPageIndex(pageRef, pdfDocument.numPages);
-        return zeroBasedIndex === null ? null : zeroBasedIndex + 1;
-    }
-
-    if (!isRefProxy(pageRef)) {
+    const zeroBasedIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray);
+    if (zeroBasedIndex === null) {
         return null;
     }
 
-    try {
-        const pageIndex = await pdfDocument.getPageIndex(pageRef);
-        return pageIndex + 1;
-    } catch (error) {
-        BrowserLogger.debug(OUTLINE_LOG_SECTION, 'Failed to resolve bookmark destination page by reference', error);
-        return null;
-    }
+    const page = zeroBasedIndex + 1;
+    const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, page, destinationArray);
+    return {
+        page,
+        ...(pageYRatio === null ? {} : { pageYRatio }),
+    };
 }
 
 export function findBookmarkLocation(

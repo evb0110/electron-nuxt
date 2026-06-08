@@ -20,6 +20,7 @@ import type {
     IPdfPageMetric,
     IScrollSnapshot,
 } from '@app/types/pdf';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -66,7 +67,8 @@ export interface ICreateShapeAnnotationResult {
 export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     getCurrentPage?: () => number;
-    scrollToPage: (page: number) => void;
+    scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
+    cancelProgrammaticNavigation?: () => void;
     captureScrollSnapshot?: () => IScrollSnapshot | null;
     restoreScrollSnapshot?: (
         snapshot: IScrollSnapshot | null,

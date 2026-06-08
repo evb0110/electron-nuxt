@@ -4,23 +4,44 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import {
     convertOutlineColorToHex,
     normalizeBookmarkColor,
     resolveActiveBookmarkForPage,
     resolveBookmarkDestinationPage,
+    resolveBookmarkDestinationTarget,
+    resolveImmediateBookmarkDestinationTarget,
     resolvePageIndex,
+    shouldEmitResolvedBookmarkDestinationTarget,
 } from '@app/utils/pdfOutlineHelpers';
+import { cast } from '@tests/helpers/cast';
 
-type TOutlinePdfDocumentStub = Pick<PDFDocumentProxy, 'numPages' | 'getDestination' | 'getPageIndex'>;
+type TOutlinePdfDocumentStub = Pick<PDFDocumentProxy, 'numPages' | 'getDestination' | 'getPageIndex' | 'getPage'>;
+type TPdfPageView = [number, number, number, number];
+
+function createPdfPageStub(view: TPdfPageView = [
+    0,
+    0,
+    612,
+    792,
+]): PDFPageProxy {
+    return cast<PDFPageProxy>({
+        view,
+        getViewport: vi.fn(() => ({ height: view[3] - view[1] })),
+    });
+}
 
 function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {}): PDFDocumentProxy {
     const base: TOutlinePdfDocumentStub = {
         numPages: 10,
         getDestination: vi.fn(async (_name: string) => null),
         getPageIndex: vi.fn(async (_ref: unknown) => 0),
+        getPage: vi.fn(async (_pageNumber: number): Promise<PDFPageProxy> => createPdfPageStub()),
     };
     return {
         ...base,
@@ -113,6 +134,74 @@ describe('pdfOutlineHelpers', () => {
 
         await expect(resolveBookmarkDestinationPage(pdfDoc, 'toc')).resolves.toBe(4);
         await expect(resolveBookmarkDestinationPage(pdfDoc, [6])).resolves.toBe(6);
+    });
+
+    it('resolves /XYZ bookmark top coordinates into normalized page y targets', async () => {
+        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub([
+            0,
+            100,
+            612,
+            900,
+        ]));
+        const pdfDoc = createPdfDocumentStub({
+            numPages: 6,
+            getPage,
+        });
+
+        await expect(resolveBookmarkDestinationTarget(pdfDoc, [
+            2,
+            { name: 'XYZ' },
+            null,
+            500,
+            null,
+        ])).resolves.toEqual({
+            page: 3,
+            pageYRatio: 0.5,
+        });
+        expect(getPage).toHaveBeenCalledWith(3);
+    });
+
+    it('treats /XYZ destinations without an explicit top as top-of-page bookmarks', async () => {
+        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub());
+        const pdfDoc = createPdfDocumentStub({
+            numPages: 6,
+            getPage,
+        });
+
+        await expect(resolveBookmarkDestinationTarget(pdfDoc, [
+            1,
+            { name: 'XYZ' },
+            null,
+            null,
+            null,
+        ])).resolves.toEqual({
+            page: 2,
+            pageYRatio: 0,
+        });
+        expect(getPage).not.toHaveBeenCalled();
+    });
+
+    it('resolves an already indexed bookmark into an immediate page navigation target', () => {
+        expect(resolveImmediateBookmarkDestinationTarget(createBookmark('indexed', 278))).toEqual({
+            page: 279,
+            pageYRatio: 0,
+        });
+        expect(resolveImmediateBookmarkDestinationTarget(createBookmark('missing', null))).toBeNull();
+    });
+
+    it('skips late same-page bookmark destination refinement after immediate navigation', () => {
+        expect(shouldEmitResolvedBookmarkDestinationTarget({
+            page: 279,
+            pageYRatio: 0.35,
+        }, 279)).toBe(false);
+        expect(shouldEmitResolvedBookmarkDestinationTarget({
+            page: 328,
+            pageYRatio: 0.35,
+        }, 279)).toBe(true);
+        expect(shouldEmitResolvedBookmarkDestinationTarget({
+            page: 279,
+            pageYRatio: 0.35,
+        }, null)).toBe(true);
     });
 
     it('preserves an explicitly active bookmark when multiple entries share the current page', () => {

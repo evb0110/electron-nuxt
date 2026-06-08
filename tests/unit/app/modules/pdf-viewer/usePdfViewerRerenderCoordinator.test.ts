@@ -484,6 +484,71 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }
     });
 
+    it('skips the delayed fit-height snap when the user scrolls during rerender', async () => {
+        vi.useFakeTimers();
+        try {
+            let userInteractionEpoch = 0;
+            const currentPage = ref(1);
+            const reRenderAllVisiblePages = vi.fn<TReRenderAllVisiblePagesMock>(async () => {
+                userInteractionEpoch += 1;
+            });
+            const scrollToPage = vi.fn();
+
+            usePdfViewerRerenderCoordinator({
+                viewerContainer: ref(null),
+                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                isLoading: ref(false),
+                numPages: ref(10),
+                currentPage,
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                zoom: computed(() => 1),
+                zoomMode: computed(() => 'fit-height' as const),
+                fitMode: computed(() => 'height' as const),
+                viewMode: computed(() => 'single' as const),
+                isResizing: computed(() => false),
+                continuousScroll: computed(() => false),
+                getVisibleRange: () => ({
+                    start: 2,
+                    end: 2,
+                }),
+                reRenderAllVisiblePages,
+                isPageRendered: vi.fn(() => true),
+                summarizeViewerMetricsForLog: vi.fn(() => null),
+                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
+                syncCurrentPageFromViewport: vi.fn(async () => {}),
+                markLowResZoomRerenderUsed: vi.fn(),
+                buildResizeAnchorContext: vi.fn(() => createResizeAnchor(currentPage.value)),
+                scheduleEndResizeTransition: vi.fn(),
+                enqueueZoomSync: vi.fn(),
+                scheduleResizeAwareRerender: vi.fn(),
+                cancelInFlightPageRenders: vi.fn(),
+                ensurePageMetricsInRange: vi.fn(async () => true),
+                computeFitWidthScale: vi.fn(() => true),
+                syncHorizontalScrollForZoomMode: vi.fn(() => true),
+                setupPagePlaceholders: vi.fn(),
+                scrollToPage,
+                getMostVisiblePage: vi.fn(() => 2),
+                resetContinuousScrollState: vi.fn(),
+                resetZoomRerenderQueueState: vi.fn(),
+                getUserViewportInteractionEpoch: () => userInteractionEpoch,
+                consumeZoomViewportAnchor: vi.fn(() => null),
+                beginResizeTransition: vi.fn(() => 1),
+                consumeSuppressedZoomRerender: vi.fn(() => false),
+            });
+
+            currentPage.value = 2;
+            await flushCurrentPageFitRerender();
+
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(scrollToPage).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('coalesces rapid paged fit-height current-page rerenders so only the latest page can render', async () => {
         vi.useFakeTimers();
         try {

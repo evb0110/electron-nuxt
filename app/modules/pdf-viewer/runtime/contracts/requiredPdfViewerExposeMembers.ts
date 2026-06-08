@@ -4,6 +4,7 @@ export const requiredPdfViewerExposeMembers = [
     'getViewerContainer',
     'getCurrentPage',
     'scrollToPage',
+    'cancelProgrammaticNavigation',
     'captureScrollSnapshot',
     'restoreScrollSnapshot',
     'preserveNextSourceReloadVisibleContent',

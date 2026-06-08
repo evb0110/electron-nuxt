@@ -4,6 +4,7 @@ interface IUsePdfViewerMouseInteractionsOptions {
     isSnipActive: () => boolean;
     isCommentPlacementActive: () => boolean;
     isViewerPanDragModeActive: ComputedRef<boolean>;
+    markUserViewportInteraction?: (() => void) | undefined;
     cancelPendingSearchScroll: () => void;
     handleDragStart: (event: MouseEvent) => void;
     handleDragMove: (event: MouseEvent) => void;
@@ -37,6 +38,7 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
         isSnipActive,
         isCommentPlacementActive,
         isViewerPanDragModeActive,
+        markUserViewportInteraction,
         cancelPendingSearchScroll,
         handleDragStart,
         handleDragMove,
@@ -51,6 +53,7 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
         if (isSnipActive() || isImagePlacementTarget(event.target)) {
             return;
         }
+        markUserViewportInteraction?.();
         if (isCommentPlacementActive()) {
             event.preventDefault();
             cancelPendingSearchScroll();

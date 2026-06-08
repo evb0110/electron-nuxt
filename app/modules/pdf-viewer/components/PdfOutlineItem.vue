@@ -130,7 +130,13 @@ import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
 } from '@app/types/pdfOutline';
-import { resolveBookmarkDestinationPage } from '@app/utils/pdfOutlineHelpers';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
+import type { IBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
+import {
+    resolveBookmarkDestinationTarget,
+    resolveImmediateBookmarkDestinationTarget,
+    shouldEmitResolvedBookmarkDestinationTarget,
+} from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -155,7 +161,7 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    (e: 'go-to-page', page: number): void;
+    (e: 'go-to-page', page: number, options?: IScrollToPageOptions): void;
     (e: 'activate', payload: {
         id: string;
         hasChildren: boolean;
@@ -231,8 +237,8 @@ function toggleExpandById(id: string) {
     emit('toggle-expand', id);
 }
 
-function goToPage(page: number) {
-    emit('go-to-page', page);
+function goToPage(page: number, options?: IScrollToPageOptions) {
+    emit('go-to-page', page, options);
 }
 
 function activate(payload: {
@@ -384,25 +390,61 @@ function shouldSkipBookmarkNavigation(multiSelect: boolean, rangeSelect: boolean
     return isEditing.value || (treeContext.isEditMode.value && (multiSelect || rangeSelect));
 }
 
-async function navigateToBookmarkDestination() {
-    if (typeof item.pageIndex === 'number') {
-        emit('go-to-page', item.pageIndex + 1);
-        return;
+function emitBookmarkDestinationTarget(target: IBookmarkDestinationTarget) {
+    const options = typeof target.pageYRatio === 'number'
+        ? {pageYRatio: target.pageYRatio}
+        : undefined;
+    emit('go-to-page', target.page, options);
+}
+
+function emitImmediateBookmarkPage(navigationRequestId: number) {
+    if (!treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)) {
+        return null;
     }
 
-    if (!pdfDocument || !item.dest) {
-        return;
+    const target = resolveImmediateBookmarkDestinationTarget(item);
+    if (!target) {
+        return null;
     }
 
-    try {
-        const page = await resolveBookmarkDestinationPage(pdfDocument, item.dest);
-        if (page !== null) {
-            emit('go-to-page', page);
+    emitBookmarkDestinationTarget(target);
+    return target.page;
+}
+
+/**
+ * Starts with the cached page-index jump, then lets slower PDF.js destination
+ * resolution refine the target. The request id prevents an older async
+ * destination from stealing a later rapid bookmark click.
+ */
+async function navigateToBookmarkDestination(navigationRequestId: number) {
+    const immediatePage = emitImmediateBookmarkPage(navigationRequestId);
+
+    if (pdfDocument && item.dest) {
+        try {
+            const target = await resolveBookmarkDestinationTarget(pdfDocument, item.dest);
+            if (
+                target !== null
+                && treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)
+            ) {
+                if (shouldEmitResolvedBookmarkDestinationTarget(target, immediatePage)) {
+                    emitBookmarkDestinationTarget(target);
+                }
+                return;
+            }
+        } catch (error) {
+            if (!isKnownBookmarkDestinationIssue(error)) {
+                BrowserLogger.error('pdfOutline', 'Failed to navigate to bookmark destination', error);
+            }
         }
-    } catch (error) {
-        if (!isKnownBookmarkDestinationIssue(error)) {
-            BrowserLogger.error('pdfOutline', 'Failed to navigate to bookmark destination', error);
-        }
+    }
+
+    if (
+        immediatePage === null
+        &&
+        typeof item.pageIndex === 'number'
+        && treeContext.isBookmarkNavigationRequestCurrent(navigationRequestId)
+    ) {
+        emit('go-to-page', item.pageIndex + 1, {pageYRatio: 0});
     }
 }
 
@@ -438,6 +480,7 @@ async function continueBookmarkClickNavigation(
     wasActive: boolean,
     multiSelect: boolean,
     rangeSelect: boolean,
+    navigationRequestId: number,
 ) {
     if (shouldSkipBookmarkNavigation(multiSelect, rangeSelect)) {
         return;
@@ -448,7 +491,7 @@ async function continueBookmarkClickNavigation(
         return;
     }
 
-    await navigateToBookmarkDestination();
+    await navigateToBookmarkDestination(navigationRequestId);
 }
 
 async function handleClick(event?: MouseEvent | KeyboardEvent) {
@@ -460,8 +503,14 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
         multiSelect,
         rangeSelect,
     } = resolveBookmarkSelectionIntent(event);
+    const navigationRequestId = treeContext.beginBookmarkNavigationRequest();
     const wasActive = emitBookmarkActivation(multiSelect, rangeSelect);
-    await continueBookmarkClickNavigation(wasActive, multiSelect, rangeSelect);
+    await continueBookmarkClickNavigation(
+        wasActive,
+        multiSelect,
+        rangeSelect,
+        navigationRequestId,
+    );
 }
 </script>
 

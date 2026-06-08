@@ -55,8 +55,10 @@ interface IUsePdfViewerWheelZoomOptions {
         suppressSnapFor: (ms: number) => void;
         handleWheel: (event: WheelEvent) => void;
         handleScroll: () => void;
+        cancelContinuousNavigationTarget: () => void;
     };
     cancelPendingSearchScroll: () => void;
+    markUserViewportInteraction?: (() => void) | undefined;
     isSnipActive: () => boolean;
     emit: IWheelEmit;
 }
@@ -103,6 +105,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         zoomVirtualizationFreeze,
         singlePageScroll,
         cancelPendingSearchScroll,
+        markUserViewportInteraction,
         isSnipActive,
         emit,
     } = options;
@@ -647,6 +650,8 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return;
         }
 
+        markUserViewportInteraction?.();
+
         if (
             routeModifierWheelZoom(event)
             || suppressWheelDuringActiveZoom(event, context)
@@ -655,6 +660,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         }
 
         cancelPendingSearchScroll();
+        singlePageScroll.cancelContinuousNavigationTarget();
         singlePageScroll.handleWheel(event);
     }
 

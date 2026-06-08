@@ -104,6 +104,7 @@ describe('usePdfViewerWheelZoom', () => {
             suppressSnapFor: vi.fn(),
             handleWheel: vi.fn(),
             handleScroll: vi.fn(),
+            cancelContinuousNavigationTarget: vi.fn(),
         };
         const cancelPendingSearchScroll = vi.fn();
         const emit = vi.fn();
@@ -200,6 +201,26 @@ describe('usePdfViewerWheelZoom', () => {
             expect(plainWheelEvent.defaultPrevented).toBe(true);
             expect(setup.singlePageScroll.handleWheel).not.toHaveBeenCalled();
             expect(setup.cancelPendingSearchScroll).toHaveBeenCalled();
+        } finally {
+            setup.scope.stop();
+        }
+    });
+
+    it('cancels bookmark navigation ownership before routing a plain wheel scroll', () => {
+        const setup = setupWheelZoom();
+
+        try {
+            const event = createWheelEvent({
+                deltaY: 120,
+                clientX: 120,
+                clientY: 160,
+            });
+
+            setup.wheelZoom.handleViewerWheel(event);
+
+            expect(setup.cancelPendingSearchScroll).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.cancelContinuousNavigationTarget).toHaveBeenCalledOnce();
+            expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
         } finally {
             setup.scope.stop();
         }
