@@ -274,4 +274,83 @@ describe('usePdfViewerVirtualization', () => {
             height: '1040px',
         });
     });
+
+    it('ignores a zoom freeze that would hide the active navigation anchor', () => {
+        const navigationAnchorPage = ref(10);
+        const zoomVirtualizationFreeze = ref({
+            sessionId: 1,
+            capturedAtMs: 0,
+            windowStart: 30,
+            windowEnd: 34,
+            topSpacerHeight: 1234,
+            bottomSpacerHeight: 5678,
+        });
+        const virtualization = usePdfViewerVirtualization({
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'single'),
+            numPages: ref(60),
+            currentPage: ref(32),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref(Array.from({ length: 60 }, () => ({
+                width: 300,
+                height: 100,
+            }))),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 30,
+                end: 32,
+            }),
+            navigationAnchorPage,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze,
+        });
+
+        expect(virtualization.virtualWindowStart.value).toBeLessThanOrEqual(10);
+        expect(virtualization.virtualWindowEnd.value).toBeGreaterThanOrEqual(10);
+        expect(virtualization.pagesToRender.value).toContain(10);
+        expect(virtualization.topVirtualSpacerStyle.value).not.toEqual({height: '1234px'});
+        expect(virtualization.bottomVirtualSpacerStyle.value).not.toEqual({height: '5678px'});
+    });
+
+    it('keeps a compatible zoom freeze while the navigation anchor is inside it', () => {
+        const virtualization = usePdfViewerVirtualization({
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'single'),
+            numPages: ref(60),
+            currentPage: ref(32),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref(Array.from({ length: 60 }, () => ({
+                width: 300,
+                height: 100,
+            }))),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 30,
+                end: 32,
+            }),
+            navigationAnchorPage: ref(32),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref({
+                sessionId: 1,
+                capturedAtMs: 0,
+                windowStart: 30,
+                windowEnd: 34,
+                topSpacerHeight: 1234,
+                bottomSpacerHeight: 5678,
+            }),
+        });
+
+        expect(virtualization.virtualWindowStart.value).toBe(30);
+        expect(virtualization.virtualWindowEnd.value).toBe(34);
+        expect(virtualization.topVirtualSpacerStyle.value).toEqual({height: '1234px'});
+        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({height: '5678px'});
+    });
 });

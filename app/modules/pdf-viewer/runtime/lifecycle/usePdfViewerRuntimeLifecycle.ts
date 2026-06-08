@@ -119,6 +119,8 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     resetContinuousScrollState: () => void;
+    cancelDestinationNavigationTarget?: (() => void) | undefined;
+    getUserViewportInteractionEpoch?: (() => number) | undefined;
     startDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     onDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     stopDrag: () => void;
@@ -213,6 +215,8 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         updateVisibleRange,
         scrollToPage,
         resetContinuousScrollState,
+        cancelDestinationNavigationTarget,
+        getUserViewportInteractionEpoch,
         startDrag,
         onDrag,
         consumeZoomViewportAnchor,
@@ -492,7 +496,9 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         scrollToPage,
         getMostVisiblePage,
         resetContinuousScrollState,
+        cancelDestinationNavigationTarget,
         resetZoomRerenderQueueState: (reason) => resetZoomRerenderQueueState(reason),
+        getUserViewportInteractionEpoch,
         consumeZoomViewportAnchor,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
@@ -575,6 +581,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         if (newSrc !== oldSrc) {
             nextActivationRestoreRunId();
             resetRenderStallRecoveryState();
+            cancelDestinationNavigationTarget?.();
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {
                 invalidateDocumentLoad();

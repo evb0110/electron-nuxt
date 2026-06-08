@@ -21,6 +21,8 @@ import type { TWheelDirection } from '@app/utils/pdf-viewer/single-page-wheel/si
 import type { TPdfViewMode } from '@contracts/shared';
 import { cast } from '@tests/helpers/cast';
 
+type TRenderVisiblePages = Parameters<typeof usePdfSinglePageScroll>[0]['renderVisiblePages'];
+
 interface ITestPageGeometry {
     offsetTop: number;
     offsetHeight: number;
@@ -35,6 +37,8 @@ interface IScrollHarnessOptions {
     scrollHeight?: number;
     continuousScroll?: boolean;
     suppressPagedRowRender?: () => boolean;
+    renderVisiblePages?: TRenderVisiblePages;
+    ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
 }
 
 function createWheelEvent(
@@ -113,7 +117,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         end: 1,
     });
     const scrollToPageInternal = vi.fn();
-    const renderVisiblePages = vi.fn(async () => {});
+    const renderVisiblePages = vi.fn(options?.renderVisiblePages ?? (async () => {}));
     const emitCurrentPage = vi.fn((page: number) => {
         currentPage.value = page;
     });
@@ -133,7 +137,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     const getMostVisiblePage = options?.getMostVisiblePage ?? defaultMostVisiblePage;
 
     const singlePageScroll = usePdfSinglePageScroll({
-        viewerContainer: ref(container),
+        viewerContainer: shallowRef(container),
         numPages: ref(pageGeometries.length),
         currentPage,
         scaledMargin: ref(20),
@@ -146,6 +150,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         updateVisibleRange: vi.fn(),
         updateCurrentPage: vi.fn((viewer: HTMLElement | null) => getMostVisiblePage(viewer)),
         renderVisiblePages,
+        ensurePageMetricsInRange: options?.ensurePageMetricsInRange,
         suppressPagedRowRender: options?.suppressPagedRowRender,
         visibleRange,
         emitCurrentPage,
@@ -563,6 +568,362 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('reapplies continuous destination navigation with the original page y target', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                renderVisiblePages,
+                scrollToPageInternal,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                continuousScroll: true,
+                mountedPageNumbers: [
+                    10,
+                    11,
+                    12,
+                ],
+            });
+
+            singlePageScroll.scrollToPage(1, {pageYRatio: 0});
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+
+            await vi.runOnlyPendingTimersAsync();
+            await nextTick();
+
+            expect(scrollToPageInternal.mock.calls.length).toBeGreaterThan(1);
+            expect(scrollToPageInternal.mock.calls[1]?.[4]).toEqual({ pageYRatio: 0 });
+            expect(renderVisiblePages).toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('reapplies continuous destination navigation after the visible render settles', async () => {
+        const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
+        let resolveRender: (() => void) | undefined;
+        const renderComplete = new Promise<void>((resolve) => {
+            resolveRender = resolve;
+        });
+        const {
+            renderVisiblePages,
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            mountedPageNumbers: [
+                10,
+                11,
+                12,
+            ],
+            renderVisiblePages: async () => renderComplete,
+        });
+
+        try {
+            singlePageScroll.scrollToPage(1, {pageYRatio: 0});
+
+            await waitMacrotask();
+            await waitMacrotask();
+            await nextTick();
+            await Promise.resolve();
+
+            expect(renderVisiblePages).toHaveBeenCalledTimes(1);
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(2);
+
+            resolveRender?.();
+            await nextTick();
+            await Promise.resolve();
+            await nextTick();
+            await waitMacrotask();
+            await waitMacrotask();
+            await Promise.resolve();
+
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(3);
+            expect(scrollToPageInternal.mock.calls[2]?.[4]).toEqual({pageYRatio: 0});
+            const postRenderReapplyOrder = scrollToPageInternal.mock.invocationCallOrder[2];
+            const renderOrder = renderVisiblePages.mock.invocationCallOrder[0];
+            expect(postRenderReapplyOrder).toBeDefined();
+            expect(renderOrder).toBeDefined();
+            expect(postRenderReapplyOrder!)
+                .toBeGreaterThan(renderOrder!);
+        } finally {
+            singlePageScroll.resetContinuousScrollState();
+        }
+    });
+
+    it('hydrates target row metrics before the first continuous destination scroll', async () => {
+        const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
+        let resolveHydration!: (value: boolean) => void;
+        const hydrationPromise = new Promise<boolean>((resolve) => {
+            resolveHydration = resolve;
+        });
+        const ensurePageMetricsInRange = vi.fn(() => hydrationPromise);
+        const {
+            renderVisiblePages,
+            scrollToPageInternal,
+            singlePageScroll,
+            visibleRange,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            ensurePageMetricsInRange,
+        });
+
+        try {
+            singlePageScroll.scrollToPage(3, {pageYRatio: 0});
+
+            expect(ensurePageMetricsInRange).toHaveBeenCalledWith(3, 3);
+            expect(scrollToPageInternal).not.toHaveBeenCalled();
+
+            resolveHydration(true);
+            await nextTick();
+            await Promise.resolve();
+            await nextTick();
+            await waitMacrotask();
+            await waitMacrotask();
+
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 3,
+                    end: 3,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 1,
+                    preserveInFlightRequiredPages: true,
+                },
+            );
+            expect(visibleRange.value).toEqual({
+                start: 3,
+                end: 3,
+            });
+            expect(scrollToPageInternal).toHaveBeenCalledWith(
+                expect.anything(),
+                3,
+                3,
+                20,
+                {pageYRatio: 0},
+            );
+            expect(scrollToPageInternal.mock.invocationCallOrder[0])
+                .toBeGreaterThan(renderVisiblePages.mock.invocationCallOrder[0]!);
+        } finally {
+            singlePageScroll.resetContinuousScrollState();
+        }
+    });
+
+    it('continues continuous destination navigation when target metrics are already cached', async () => {
+        const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
+        const ensurePageMetricsInRange = vi.fn(async () => false);
+        const {
+            renderVisiblePages,
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            ensurePageMetricsInRange,
+        });
+
+        try {
+            singlePageScroll.scrollToPage(3, {pageYRatio: 0});
+
+            await nextTick();
+            await Promise.resolve();
+            await nextTick();
+            await waitMacrotask();
+            await waitMacrotask();
+
+            expect(ensurePageMetricsInRange).toHaveBeenCalledWith(3, 3);
+            expect(renderVisiblePages).toHaveBeenCalledWith(
+                {
+                    start: 3,
+                    end: 3,
+                },
+                {
+                    preserveRenderedPages: true,
+                    bufferOverride: 1,
+                    preserveInFlightRequiredPages: true,
+                },
+            );
+            expect(scrollToPageInternal).toHaveBeenCalledWith(
+                expect.anything(),
+                3,
+                3,
+                20,
+                {pageYRatio: 0},
+            );
+        } finally {
+            singlePageScroll.resetContinuousScrollState();
+        }
+    });
+
+    it('reapplies continuous destination navigation after a target layout mutation', async () => {
+        const mutationCallbacks: MutationCallback[] = [];
+        class TestMutationObserver {
+            observe = vi.fn();
+            disconnect = vi.fn();
+
+            constructor(callback: MutationCallback) {
+                mutationCallbacks.push(callback);
+            }
+        }
+        vi.stubGlobal('MutationObserver', TestMutationObserver);
+
+        const {
+            container,
+            renderVisiblePages,
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            mountedPageNumbers: [
+                10,
+                11,
+                12,
+            ],
+        });
+
+        try {
+            singlePageScroll.scrollToPage(1, {pageYRatio: 0});
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+            expect(mutationCallbacks).toHaveLength(1);
+
+            const mutationRecord = cast<MutationRecord>({
+                target: container,
+                addedNodes: cast<NodeList>([]),
+                removedNodes: cast<NodeList>([]),
+            });
+            mutationCallbacks[0]?.([mutationRecord], cast<MutationObserver>({}));
+            await nextTick();
+            await Promise.resolve();
+
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(2);
+            expect(scrollToPageInternal.mock.calls[1]?.[4]).toEqual({pageYRatio: 0});
+            expect(renderVisiblePages).not.toHaveBeenCalled();
+        } finally {
+            singlePageScroll.resetContinuousScrollState();
+        }
+    });
+
+    it('reapplies continuous destination navigation after stale scroll restoration', async () => {
+        const {
+            container,
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+            ],
+        });
+
+        try {
+            singlePageScroll.scrollToPage(2, {pageYRatio: 0});
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+
+            container.scrollTop = 0;
+            singlePageScroll.handleScroll();
+            await nextTick();
+            await Promise.resolve();
+
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(2);
+            expect(scrollToPageInternal.mock.calls[1]?.[1]).toBe(2);
+            expect(scrollToPageInternal.mock.calls[1]?.[4]).toEqual({pageYRatio: 0});
+        } finally {
+            singlePageScroll.resetContinuousScrollState();
+        }
+    });
+
+    it('reapplies hydrated continuous destination navigation after stale scroll restoration', async () => {
+        const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
+        const ensurePageMetricsInRange = vi.fn(async () => true);
+        const {
+            container,
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            ensurePageMetricsInRange,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+            ],
+        });
+
+        try {
+            singlePageScroll.scrollToPage(2, {pageYRatio: 0});
+
+            await nextTick();
+            await Promise.resolve();
+            await nextTick();
+            await waitMacrotask();
+            await waitMacrotask();
+
+            expect(ensurePageMetricsInRange).toHaveBeenCalledWith(2, 2);
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+
+            container.scrollTop = 0;
+            singlePageScroll.handleScroll();
+            await nextTick();
+            await Promise.resolve();
+
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(2);
+            expect(scrollToPageInternal.mock.calls[1]?.[1]).toBe(2);
+            expect(scrollToPageInternal.mock.calls[1]?.[4]).toEqual({pageYRatio: 0});
+        } finally {
+            singlePageScroll.resetContinuousScrollState();
+        }
+    });
+
+    it('cancels held continuous destination navigation before user scrolling', async () => {
+        vi.useFakeTimers();
+        try {
+            const {
+                scrollToPageInternal,
+                singlePageScroll,
+            } = createSinglePageScrollHarness({
+                continuousScroll: true,
+                mountedPageNumbers: [
+                    10,
+                    11,
+                    12,
+                ],
+            });
+
+            singlePageScroll.scrollToPage(1, {pageYRatio: 0});
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+            expect(singlePageScroll.continuousNavigationTargetPage.value).toBe(1);
+
+            singlePageScroll.cancelContinuousNavigationTarget();
+            expect(singlePageScroll.continuousNavigationTargetPage.value).toBeNull();
+
+            await vi.runOnlyPendingTimersAsync();
+            await nextTick();
+
+            expect(scrollToPageInternal).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('skips stale queued paged row renders after a newer navigation wins', async () => {
         const {
             renderVisiblePages,
@@ -921,6 +1282,31 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         singlePageScroll.scrollToPage(2);
 
         expect(container.scrollTop).toBe(120);
+    });
+
+    it('scrollToPage in single-page mode honors PDF destination y on tall pages', () => {
+        const {
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: false,
+            clientHeight: 100,
+            scrollHeight: 620,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 400,
+                },
+            ],
+        });
+
+        singlePageScroll.scrollToPage(2, { pageYRatio: 0.25 });
+
+        expect(container.scrollTop).toBe(220);
     });
 
     it('scrollToPage in facing-first-single mode frames the full spread row', () => {

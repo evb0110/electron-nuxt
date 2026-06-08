@@ -13,14 +13,12 @@ describe('usePdfViewerInitialVisualLifecycle', () => {
         const emitInitialVisualReady = vi.fn();
         const markDelayedSkeletonPageRendered = vi.fn();
         const syncManagedShapesAfterPageRendered = vi.fn();
-        const clearContinuousNavigationTargetForPage = vi.fn();
 
         const lifecycle = usePdfViewerInitialVisualLifecycle({
             renderedPageStateVersion,
             emitInitialVisualReady,
             markDelayedSkeletonPageRendered,
             syncManagedShapesAfterPageRendered,
-            clearContinuousNavigationTargetForPage,
         });
 
         lifecycle.setPendingInitialVisualReadyToken(11);
@@ -34,7 +32,6 @@ describe('usePdfViewerInitialVisualLifecycle', () => {
         lifecycle.handlePageRendered(3);
 
         expect(markDelayedSkeletonPageRendered).toHaveBeenCalledWith(3);
-        expect(clearContinuousNavigationTargetForPage).toHaveBeenCalledWith(3);
         expect(syncManagedShapesAfterPageRendered).toHaveBeenCalledTimes(2);
         expect(emitInitialVisualReady).toHaveBeenCalledOnce();
         expect(emitInitialVisualReady).toHaveBeenCalledWith({ pageNumber: 3 });

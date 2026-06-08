@@ -15,6 +15,12 @@ type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 export interface IScrollToPageOptions {
     preferExactDom?: boolean;
     /**
+     * Align a normalized page y coordinate to the top of the viewport. This is
+     * used for PDF outline destinations such as /XYZ and /FitH, where the
+     * destination describes a page coordinate rather than an annotation box.
+     */
+    pageYRatio?: number | null | undefined;
+    /**
      * Snap to an already mounted page without queueing another paged render.
      *
      * Fit-height current-page rerenders already start a force render before
@@ -71,8 +77,16 @@ function resolveMarkerScrollTop(options: {
     pageHeight: number;
     containerHeight: number;
     margin: number;
+    pageYRatio?: number | null | undefined;
     markerRect?: IAnnotationMarkerRect | null | undefined;
 }) {
+    if (typeof options.pageYRatio === 'number' && Number.isFinite(options.pageYRatio)) {
+        return Math.max(
+            0,
+            options.pageTop + clamp(options.pageYRatio, 0, 1) * options.pageHeight - options.margin,
+        );
+    }
+
     const markerCenter = getMarkerCenter(options.markerRect);
     if (!markerCenter) {
         return Math.max(0, options.pageTop - options.margin);
@@ -401,6 +415,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 pageHeight,
                 containerHeight: container.clientHeight,
                 margin,
+                pageYRatio: options?.pageYRatio,
                 markerRect: options?.markerRect,
             });
             const nextLeft = resolveMarkerScrollLeft({
@@ -414,6 +429,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 `[PDF-NAV] usePdfScroll.scrollToPage source=dom targetPage=${targetPage}`
                 + ` offsetTop=${targetEl.offsetTop.toFixed(1)} margin=${margin.toFixed(1)}`
                 + ` marker=${options?.markerRect ? 'true' : 'false'}`
+                + ` pageY=${typeof options?.pageYRatio === 'number' ? options.pageYRatio.toFixed(3) : 'none'}`
                 + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
             );
             if (nextLeft !== null) {
@@ -443,6 +459,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 pageHeight,
                 containerHeight: container.clientHeight,
                 margin,
+                pageYRatio: options?.pageYRatio,
                 markerRect: options?.markerRect,
             });
             logPdfNav(
@@ -451,6 +468,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
                 + ` paddingTop=${metrics.paddingTop.toFixed(1)}`
                 + ` top=${top.toFixed(1)} margin=${margin.toFixed(1)}`
                 + ` marker=${options?.markerRect ? 'true' : 'false'}`
+                + ` pageY=${typeof options?.pageYRatio === 'number' ? options.pageYRatio.toFixed(3) : 'none'}`
                 + ` nextTop=${nextTop.toFixed(1)} scrollTop(before)=${container.scrollTop.toFixed(1)}`,
             );
             container.scrollTop = nextTop;

@@ -255,12 +255,33 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         });
     });
 
+    /**
+     * Keeps the zoom freeze only while it still contains the active navigation
+     * anchor. Otherwise a stale frozen window can hide a bookmark target row.
+     */
+    const activeZoomVirtualizationFreeze = computed(() => {
+        const freeze = zoomVirtualizationFreeze.value;
+        if (!virtualizedContinuousMode.value || !freeze) {
+            return null;
+        }
+
+        const anchorPage = navigationAnchorPage.value;
+        if (
+            anchorPage !== null
+            && (anchorPage < freeze.windowStart || anchorPage > freeze.windowEnd)
+        ) {
+            return null;
+        }
+
+        return freeze;
+    });
+
     const virtualWindowStart = computed(() => {
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.start;
         }
-        if (zoomVirtualizationFreeze.value) {
-            return zoomVirtualizationFreeze.value.windowStart;
+        if (activeZoomVirtualizationFreeze.value) {
+            return activeZoomVirtualizationFreeze.value.windowStart;
         }
 
         let nextStart = baseVirtualWindowStart.value;
@@ -277,8 +298,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.end;
         }
-        if (zoomVirtualizationFreeze.value) {
-            return zoomVirtualizationFreeze.value.windowEnd;
+        if (activeZoomVirtualizationFreeze.value) {
+            return activeZoomVirtualizationFreeze.value.windowEnd;
         }
 
         let nextEnd = baseVirtualWindowEnd.value;
@@ -299,7 +320,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return null;
         }
-        const freeze = zoomVirtualizationFreeze.value;
+        const freeze = activeZoomVirtualizationFreeze.value;
         if (freeze) {
             if (freeze.topSpacerHeight <= 0) {
                 return null;
@@ -323,7 +344,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return null;
         }
-        const freeze = zoomVirtualizationFreeze.value;
+        const freeze = activeZoomVirtualizationFreeze.value;
         if (freeze) {
             if (freeze.bottomSpacerHeight <= 0) {
                 return null;

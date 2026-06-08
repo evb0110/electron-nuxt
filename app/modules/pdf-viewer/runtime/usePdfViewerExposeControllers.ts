@@ -16,6 +16,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdf';
+import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 
 interface IPageRange {
     start: number;
@@ -39,7 +40,7 @@ interface IUsePdfViewerExposeControllersOptions {
     visibleRange: Ref<IPageRange>;
     resolveHorizontalScrollClampForActiveSpread: () => { shouldLock: boolean } | null;
     syncHorizontalScrollForZoomMode: () => boolean;
-    scrollToPage: (pageNumber: number) => void;
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => void;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
     isFitWidthScaleCurrent: (container: HTMLElement | null) => boolean;
     cancelInFlightRenders: () => void;

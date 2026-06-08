@@ -60,9 +60,13 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
     return createPdfViewerPublicApi({
         getViewerContainer: () => options.viewerContainer.value,
         getCurrentPage: () => currentPage.value,
-        scrollToPage: (pageNumber) => {
+        scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.scrollToPage(pageNumber);
+            options.singlePageScroll.scrollToPage(pageNumber, scrollOptions);
+        },
+        cancelProgrammaticNavigation: () => {
+            options.cancelPendingSearchScroll();
+            options.singlePageScroll.cancelContinuousNavigationTarget();
         },
         captureScrollSnapshot: options.captureViewerScrollSnapshot,
         restoreScrollSnapshot: options.restoreViewerScrollSnapshot,

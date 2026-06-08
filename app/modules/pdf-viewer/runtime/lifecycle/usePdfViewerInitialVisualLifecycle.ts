@@ -6,7 +6,6 @@ interface IUsePdfViewerInitialVisualLifecycleOptions {
     emitInitialVisualReady: (payload: { pageNumber: number }) => void;
     markDelayedSkeletonPageRendered: (pageNumber: number) => void;
     syncManagedShapesAfterPageRendered: (pageNumber: number) => void;
-    clearContinuousNavigationTargetForPage: (pageNumber: number) => void;
 }
 
 export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitialVisualLifecycleOptions) {
@@ -15,7 +14,6 @@ export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitial
         emitInitialVisualReady,
         markDelayedSkeletonPageRendered,
         syncManagedShapesAfterPageRendered,
-        clearContinuousNavigationTargetForPage,
     } = options;
     let pendingInitialVisualReadyToken: number | null = null;
 
@@ -49,7 +47,6 @@ export function usePdfViewerInitialVisualLifecycle(options: IUsePdfViewerInitial
 
     function handlePageRendered(pageNumber: number) {
         markDelayedSkeletonPageRendered(pageNumber);
-        clearContinuousNavigationTargetForPage(pageNumber);
         syncManagedShapesAfterPageRendered(pageNumber);
         markInitialVisualReady(pageNumber);
     }
