@@ -53,15 +53,29 @@ export function resolveImmediateBookmarkDestinationTarget(
     };
 }
 
+function normalizeBookmarkDestinationRatio(target: IBookmarkDestinationTarget) {
+    return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio)
+        ? target.pageYRatio
+        : null;
+}
+
+function areBookmarkDestinationTargetsEquivalent(
+    first: IBookmarkDestinationTarget,
+    second: IBookmarkDestinationTarget,
+) {
+    return first.page === second.page
+        && normalizeBookmarkDestinationRatio(first) === normalizeBookmarkDestinationRatio(second);
+}
+
 /**
- * Avoids replaying the async resolved destination when the immediate page jump
- * already targeted the same page, while still allowing cross-page corrections.
+ * Preserves bookmark destination intent by replaying async refinement whenever
+ * the resolved target carries information the immediate jump did not.
  */
 export function shouldEmitResolvedBookmarkDestinationTarget(
     target: IBookmarkDestinationTarget,
-    immediatePage: number | null,
+    immediateTarget: IBookmarkDestinationTarget | null,
 ) {
-    return immediatePage === null || target.page !== immediatePage;
+    return immediateTarget === null || !areBookmarkDestinationTargetsEquivalent(target, immediateTarget);
 }
 
 interface IPageViewBounds {

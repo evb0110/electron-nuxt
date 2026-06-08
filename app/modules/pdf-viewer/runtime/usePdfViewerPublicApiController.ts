@@ -66,7 +66,7 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         },
         cancelProgrammaticNavigation: () => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.cancelContinuousNavigationTarget();
+            options.singlePageScroll.cancelProgrammaticNavigation();
         },
         captureScrollSnapshot: options.captureViewerScrollSnapshot,
         restoreScrollSnapshot: options.restoreViewerScrollSnapshot,

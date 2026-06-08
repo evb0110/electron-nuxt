@@ -12,6 +12,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { accumulateWheelForPageFlips } from '@app/utils/pdf-viewer/single-page-wheel/accumulateWheelForPageFlips';
@@ -22,6 +23,10 @@ import type { TPdfViewMode } from '@contracts/shared';
 import { cast } from '@tests/helpers/cast';
 
 type TRenderVisiblePages = Parameters<typeof usePdfSinglePageScroll>[0]['renderVisiblePages'];
+type TVisibleRangeRef = Ref<{
+    start: number;
+    end: number;
+}>;
 
 interface ITestPageGeometry {
     offsetTop: number;
@@ -39,6 +44,11 @@ interface IScrollHarnessOptions {
     suppressPagedRowRender?: () => boolean;
     renderVisiblePages?: TRenderVisiblePages;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
+    updateVisibleRange?: (
+        container: HTMLElement | null,
+        numPages: number,
+        visibleRange: TVisibleRangeRef,
+    ) => void;
 }
 
 function createWheelEvent(
@@ -135,6 +145,10 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         return 1;
     };
     const getMostVisiblePage = options?.getMostVisiblePage ?? defaultMostVisiblePage;
+    const updateVisibleRange = vi.fn((
+        viewer: HTMLElement | null,
+        pageCount: number,
+    ) => options?.updateVisibleRange?.(viewer, pageCount, visibleRange));
 
     const singlePageScroll = usePdfSinglePageScroll({
         viewerContainer: shallowRef(container),
@@ -147,7 +161,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         pdfDocument: shallowRef({} as PDFDocumentProxy),
         getMostVisiblePage,
         scrollToPageInternal,
-        updateVisibleRange: vi.fn(),
+        updateVisibleRange,
         updateCurrentPage: vi.fn((viewer: HTMLElement | null) => getMostVisiblePage(viewer)),
         renderVisiblePages,
         ensurePageMetricsInRange: options?.ensurePageMetricsInRange,
@@ -161,6 +175,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         currentPage,
         emitCurrentPage,
         renderVisiblePages,
+        updateVisibleRange,
         visibleRange,
         scrollToPageInternal,
         singlePageScroll,
@@ -709,6 +724,24 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         }
     });
 
+    it('uses mounted exact DOM immediately for continuous fit snaps even when metric hydration is available', () => {
+        const ensurePageMetricsInRange = vi.fn(async () => true);
+        const {
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            ensurePageMetricsInRange,
+        });
+
+        const didScroll = singlePageScroll.scrollToPage(3, { preferExactDom: true });
+
+        expect(didScroll).toBe(true);
+        expect(ensurePageMetricsInRange).not.toHaveBeenCalled();
+        expect(scrollToPageInternal).toHaveBeenCalledOnce();
+        expect(scrollToPageInternal.mock.calls[0]?.[1]).toBe(3);
+    });
+
     it('continues continuous destination navigation when target metrics are already cached', async () => {
         const waitMacrotask = () => new Promise(resolve => setTimeout(resolve, 0));
         const ensurePageMetricsInRange = vi.fn(async () => false);
@@ -977,6 +1010,67 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         await nextTick();
 
         expect(renderVisiblePages).not.toHaveBeenCalled();
+    });
+
+    it('suppresses queued paged row render when an exact target is not mounted yet', async () => {
+        const mountedPageNumbers = [
+            1,
+            99,
+            100,
+        ];
+        const {
+            currentPage,
+            renderVisiblePages,
+            singlePageScroll,
+            visibleRange,
+        } = createSinglePageScrollHarness({ mountedPageNumbers });
+
+        const didScroll = singlePageScroll.scrollToPage(2, {
+            preferExactDom: true,
+            suppressRenderAfterSnap: true,
+        });
+        await nextTick();
+
+        expect(didScroll).toBe(false);
+        expect(currentPage.value).toBe(2);
+        expect(visibleRange.value).toEqual({
+            start: 2,
+            end: 2,
+        });
+        expect(renderVisiblePages).not.toHaveBeenCalled();
+    });
+
+    it('cancels stale paged navigation ownership before the next viewport scroll sync', () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            singlePageScroll,
+            visibleRange,
+        } = createSinglePageScrollHarness({
+            mountedPageNumbers: [
+                1,
+                99,
+                100,
+            ],
+            getMostVisiblePage: () => 1,
+            updateVisibleRange: (_viewer, _pageCount, range) => {
+                range.value = {
+                    start: 1,
+                    end: 1,
+                };
+            },
+        });
+
+        singlePageScroll.scrollToPage(2);
+        singlePageScroll.cancelProgrammaticNavigation();
+        singlePageScroll.handleScroll();
+
+        expect(currentPage.value).toBe(1);
+        expect(visibleRange.value).toEqual({
+            start: 1,
+            end: 1,
+        });
+        expect(emitCurrentPage).toHaveBeenCalledWith(1);
     });
 
     it('lets fit-current navigation suppress the queued paged row render', async () => {
