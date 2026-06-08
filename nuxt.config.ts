@@ -17,11 +17,15 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
         && from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
 }
 
-const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1'
-    ? '.vercel/output'
-    : 'nuxt-output';
-const nitroOutputPublicDir = `${nitroOutputDir}/public`;
-const nitroOutputServerDir = `${nitroOutputDir}/server`;
+const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1';
+const nitroOutput = isVercelBuildOutput
+    // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
+    ? {dir: '.vercel/output'}
+    : {
+        dir: 'nuxt-output',
+        publicDir: 'nuxt-output/public',
+        serverDir: 'nuxt-output/server',
+    };
 
 const isDev = process.env.NODE_ENV !== 'production';
 const appShellCacheHeaders = {
@@ -468,11 +472,7 @@ export default defineNuxtConfig({
         sourceMap: false,
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
-        output: {
-            dir: nitroOutputDir,
-            publicDir: nitroOutputPublicDir,
-            serverDir: nitroOutputServerDir,
-        },
+        output: nitroOutput,
         prerender: {
             routes: [
                 '/',

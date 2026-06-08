@@ -37,4 +37,13 @@
 
 - `pnpm build`
 - `vercel build`
-- `vercel --prod`
+- `vc-private --prod`
+
+## Private Email CLI Deploys
+
+- Keep Git commits authored with the GitHub no-reply address to avoid leaking a personal email in public repositories.
+- Use `vc-private --prod` instead of `vercel --prod` for local CLI deploys. The global wrapper copies the source tree into a temporary directory without `.git`, preserves `.vercel/project.json`, and runs a normal remote `vercel deploy` from that clean source tree.
+- This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator.
+- Because Vercel still performs the build remotely, Production/Preview environment variables and normal alias behavior match dashboard or Git-backed deploys.
+- Use `vc-private` for a preview deployment.
+- If an upload fails due to a transient network error, rerun the same `vc-private` command.
