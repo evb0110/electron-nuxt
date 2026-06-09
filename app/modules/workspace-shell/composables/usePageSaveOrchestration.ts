@@ -89,6 +89,8 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     hasLivePdfJsAnnotationChanges?: () => boolean;
     hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
     hasPreservedAnnotationSourceChanges?: () => boolean;
+    markNativeFreeTextNotesSaved?: IFileOperationsDeps['markNativeFreeTextNotesSaved'];
+    markNativeFreeTextNotesDeleted?: IFileOperationsDeps['markNativeFreeTextNotesDeleted'];
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
@@ -135,6 +137,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
         hasPreservedAnnotationSourceChanges,
+        markNativeFreeTextNotesSaved,
+        markNativeFreeTextNotesDeleted,
         markAnnotationSaved,
         markPageLabelsSaved,
         markBookmarksSaved,
@@ -214,6 +218,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         ...(hasLivePdfJsAnnotationChanges ? { hasLivePdfJsAnnotationChanges } : {}),
         ...(hasSavedPdfJsAnnotationBaselineChanges ? { hasSavedPdfJsAnnotationBaselineChanges } : {}),
         ...(hasPreservedAnnotationSourceChanges ? { hasPreservedAnnotationSourceChanges } : {}),
+        ...(markNativeFreeTextNotesSaved ? { markNativeFreeTextNotesSaved } : {}),
+        ...(markNativeFreeTextNotesDeleted ? { markNativeFreeTextNotesDeleted } : {}),
         hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
         hasManagedShapes: () => (pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
         getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),

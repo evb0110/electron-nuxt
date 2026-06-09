@@ -219,6 +219,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const pendingEmbeddedAnnotationDeletes = shallowRef(new Map<string, IAnnotationCommentSummary>());
     const pendingEmbeddedAnnotationDeleteCount = computed(() => pendingEmbeddedAnnotationDeletes.value.size);
+    const nativeSavedFreeTextNoteStableKeys = shallowRef(new Set<string>());
     const undoableOpenEmptyEditorNoteCount = computed(() => (
         annotationNoteWindows.value.some((note) => {
             const comment = note.comment;
@@ -304,6 +305,39 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ]);
     }
 
+    function updateNativeSavedFreeTextNoteStableKeys(mutator: (stableKeys: Set<string>) => void) {
+        const nextStableKeys = new Set(nativeSavedFreeTextNoteStableKeys.value);
+        mutator(nextStableKeys);
+        nativeSavedFreeTextNoteStableKeys.value = nextStableKeys;
+    }
+
+    function markNativeFreeTextNotesSaved(notes: Array<{ stableKey: string }>) {
+        updateNativeSavedFreeTextNoteStableKeys((stableKeys) => {
+            notes.forEach((note) => {
+                const stableKey = note.stableKey.trim();
+                if (stableKey) {
+                    stableKeys.add(stableKey);
+                }
+            });
+        });
+    }
+
+    function markNativeFreeTextNotesDeleted(deletes: Array<{ stableKey?: string | null }>) {
+        updateNativeSavedFreeTextNoteStableKeys((stableKeys) => {
+            deletes.forEach((deleteRequest) => {
+                const stableKey = deleteRequest.stableKey?.trim();
+                if (stableKey) {
+                    stableKeys.delete(stableKey);
+                }
+            });
+        });
+    }
+
+    function isNativeFreeTextNoteSaved(comment: IAnnotationCommentSummary) {
+        const stableKey = comment.stableKey?.trim();
+        return Boolean(stableKey && nativeSavedFreeTextNoteStableKeys.value.has(stableKey));
+    }
+
     function markPreservedAnnotationSourceDirty() {
         preservedAnnotationSourceDirty.value = true;
     }
@@ -328,6 +362,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     watch(workingCopyPath, () => {
         pendingEmbeddedAnnotationDeletes.value = new Map();
+        nativeSavedFreeTextNoteStableKeys.value = new Set();
         preservedAnnotationSourceDirty.value = false;
     });
 
@@ -375,6 +410,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasLivePdfJsAnnotationChanges,
         hasSavedPdfJsAnnotationBaselineChanges,
         hasPreservedAnnotationSourceChanges,
+        markNativeFreeTextNotesSaved,
+        markNativeFreeTextNotesDeleted,
         markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
         markPageLabelsSaved,
         markBookmarksSaved,
@@ -556,6 +593,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         queuePendingEmbeddedAnnotationDelete,
         unqueuePendingEmbeddedAnnotationDelete,
+        isNativeFreeTextNoteSaved,
         markPreservedAnnotationSourceDirty,
         setPreservedAnnotationSourceDirty,
         getAnnotationCommentsSnapshot: () => annotationComments.value,

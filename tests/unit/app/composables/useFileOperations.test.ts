@@ -439,6 +439,7 @@ describe('useFileOperations', () => {
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
+        const markNativeFreeTextNotesSaved = vi.fn();
         const {
             deps,
             saveFile,
@@ -447,6 +448,7 @@ describe('useFileOperations', () => {
             annotationComments: ref([editorNote]),
             consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
             hasAnnotationChanges: vi.fn(() => true),
+            markNativeFreeTextNotesSaved,
             trySaveEmbeddedNoteTextUpdates,
         });
         const { handleSave } = useFileOperations(deps);
@@ -480,6 +482,73 @@ describe('useFileOperations', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
+        expect(markNativeFreeTextNotesSaved).toHaveBeenCalledWith([expect.objectContaining({ stableKey: 'uid:0:pdfjs_internal_editor_0' })]);
+    });
+
+    it('keeps replayable editor-only FreeText note edits on the native path after preserving the live session', async () => {
+        const editorNote = createEditorFreeTextNote({text: 'Edited note'});
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const markNativeFreeTextNotesSaved = vi.fn();
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
+            serializable: { map: new Map([[
+                'pdfjs_internal_editor_0',
+                {
+                    annotationType: 3,
+                    pageIndex: 0,
+                    value: '',
+                    comment: {
+                        text: 'Edited note',
+                        deleted: false,
+                    },
+                },
+            ]]) },
+        } }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([editorNote]),
+            pdfDocument: livePdfDocument,
+            hasAnnotationChanges: vi.fn(() => true),
+            hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
+            markNativeFreeTextNotesSaved,
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [],
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                freeTextNotes: [expect.objectContaining({
+                    pageIndex: 0,
+                    stableKey: 'uid:0:pdfjs_internal_editor_0',
+                    text: 'Edited note',
+                    createdAt: 1781009077000,
+                })],
+            }),
+        );
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(markNativeFreeTextNotesSaved).toHaveBeenCalledWith([expect.objectContaining({
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            text: 'Edited note',
+        })]);
     });
 
     it('uses the native annotation changes path for editor-only FreeText note deletes', async () => {
@@ -490,6 +559,7 @@ describe('useFileOperations', () => {
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
+        const markNativeFreeTextNotesDeleted = vi.fn();
         const {
             deps,
             saveFile,
@@ -497,6 +567,7 @@ describe('useFileOperations', () => {
             annotationDirty: ref(true),
             annotationComments: ref([]),
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => pendingDeletes),
+            markNativeFreeTextNotesDeleted,
             trySaveEmbeddedNoteTextUpdates,
         });
         const { handleSave } = useFileOperations(deps);
@@ -521,6 +592,53 @@ describe('useFileOperations', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
+        expect(markNativeFreeTextNotesDeleted).toHaveBeenCalledWith([expect.objectContaining({ stableKey: 'uid:0:pdfjs_internal_editor_0' })]);
+    });
+
+    it('keeps replayable editor-only FreeText note deletes on the native path after preserving the live session', async () => {
+        const pendingDeletes = [createEditorFreeTextNote()];
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const markNativeFreeTextNotesDeleted = vi.fn();
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([]),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => pendingDeletes),
+            hasAnnotationChanges: vi.fn(() => true),
+            hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
+            markNativeFreeTextNotesDeleted,
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [],
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                deletes: [{
+                    pageIndex: 0,
+                    stableKey: 'uid:0:pdfjs_internal_editor_0',
+                    createdAt: 1781009077000,
+                }],
+            }),
+        );
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(markNativeFreeTextNotesDeleted).toHaveBeenCalledWith([expect.objectContaining({ stableKey: 'uid:0:pdfjs_internal_editor_0' })]);
     });
 
     it('uses the native annotation changes path for PDF-sourced annotation deletes', async () => {

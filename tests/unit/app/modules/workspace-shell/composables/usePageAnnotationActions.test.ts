@@ -172,6 +172,7 @@ function createHarness() {
         restoreAnnotationToCache: vi.fn(),
         queuePendingEmbeddedAnnotationDelete: vi.fn(),
         unqueuePendingEmbeddedAnnotationDelete: vi.fn(),
+        isNativeFreeTextNoteSaved: vi.fn(() => false),
         markPreservedAnnotationSourceDirty: vi.fn(),
         setPreservedAnnotationSourceDirty: vi.fn(),
         getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
@@ -1197,6 +1198,60 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
         expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
         expect(viewer.suppressAnnotationId).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+    });
+
+    it('queues native stable-key deletes for saved editor FreeText notes after viewer delete', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('uid:0:pdfjs_internal_editor_0');
+        comment.source = 'editor';
+        comment.annotationId = 'pdfjs_internal_editor_0';
+        comment.uid = 'pdfjs_internal_editor_0';
+        comment.subtype = 'Typewriter';
+        comment.hasNote = true;
+        comment.markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.0016,
+            height: 0.0016,
+        };
+        deps.isNativeFreeTextNoteSaved.mockReturnValue(true);
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
+    });
+
+    it('lets PDF.js own unsaved editor FreeText deletes', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('uid:0:pdfjs_internal_editor_0');
+        comment.source = 'editor';
+        comment.annotationId = 'pdfjs_internal_editor_0';
+        comment.uid = 'pdfjs_internal_editor_0';
+        comment.subtype = 'Typewriter';
+        comment.hasNote = true;
+        comment.markerRect = {
+            left: 0.1,
+            top: 0.2,
+            width: 0.0016,
+            height: 0.0016,
+        };
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
         expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
     });
 
