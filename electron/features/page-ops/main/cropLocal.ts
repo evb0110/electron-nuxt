@@ -17,6 +17,10 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
+import {
+    tryCropPagesWithNativePageOps,
+    tryRemoveCropWithNativePageOps,
+} from '@electron/features/page-ops/main/nativeCrop';
 
 const log = createLogger('page-ops-crop');
 
@@ -77,6 +81,10 @@ export async function cropPagesLocal(
 ) {
     assertValidMargins(margins);
 
+    if (await tryCropPagesWithNativePageOps(workingCopyPath, pages, margins)) {
+        return;
+    }
+
     await mutatePdfPages(workingCopyPath, (allPages) => {
         assertValidRequestedPages(pages, allPages.length);
         for (const pageNum of pages) {
@@ -102,6 +110,10 @@ export async function removeCropFromPagesLocal(
     workingCopyPath: string,
     pages: number[],
 ) {
+    if (await tryRemoveCropWithNativePageOps(workingCopyPath, pages)) {
+        return;
+    }
+
     await mutatePdfPages(workingCopyPath, (allPages) => {
         assertValidRequestedPages(pages, allPages.length);
         for (const pageNum of pages) {

@@ -3,6 +3,10 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-image-combine'],
     },
+    'evb-pdf-page-ops': {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['evb-pdf-page-ops'],
+    },
     ddjvu: {
         allowedExitCodes: new Set([
             0,

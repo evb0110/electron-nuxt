@@ -1,3 +1,4 @@
+use flate2::{write::ZlibEncoder, Compression};
 use std::{
     env,
     error::Error,
@@ -22,6 +23,7 @@ struct Config {
     output_path: PathBuf,
     input_paths: Vec<PathBuf>,
     json_progress: bool,
+    dpi: Option<u32>,
 }
 
 enum ImagePayload {
@@ -62,7 +64,7 @@ fn run() -> Result<()> {
     let mut pages = Vec::with_capacity(total);
 
     for (index, input_path) in config.input_paths.iter().enumerate() {
-        let page = read_image_page(input_path, max_pixels)?;
+        let page = read_image_page(input_path, max_pixels, config.dpi)?;
         pages.push(page);
         if config.json_progress {
             print_progress(index + 1, total, started_at);
@@ -79,6 +81,7 @@ fn parse_args() -> Result<Config> {
     let mut output_path: Option<PathBuf> = None;
     let mut input_paths: Vec<PathBuf> = Vec::new();
     let mut json_progress = false;
+    let mut dpi = None;
     let mut reading_inputs = false;
 
     while let Some(arg) = args.next() {
@@ -94,6 +97,10 @@ fn parse_args() -> Result<Config> {
             }
             "--json-progress" => {
                 json_progress = true;
+            }
+            "--dpi" => {
+                let value = args.next().ok_or("Missing --dpi value")?;
+                dpi = Some(parse_dpi(&value)?);
             }
             "--" => {
                 reading_inputs = true;
@@ -116,7 +123,16 @@ fn parse_args() -> Result<Config> {
         output_path,
         input_paths,
         json_progress,
+        dpi,
     })
+}
+
+fn parse_dpi(value: &str) -> Result<u32> {
+    let dpi = value.parse::<u32>()?;
+    if dpi == 0 {
+        return Err("DPI must be greater than zero".into());
+    }
+    Ok(dpi)
 }
 
 fn read_max_pixels() -> u64 {
@@ -143,7 +159,7 @@ fn print_progress(processed: usize, total: usize, started_at: Instant) {
     let _ = std::io::stdout().flush();
 }
 
-fn read_image_page(path: &Path, max_pixels: u64) -> Result<ImagePage> {
+fn read_image_page(path: &Path, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let bytes = fs::read(path)?;
     let extension = path
         .extension()
@@ -152,13 +168,14 @@ fn read_image_page(path: &Path, max_pixels: u64) -> Result<ImagePage> {
         .to_ascii_lowercase();
 
     match extension.as_str() {
-        "png" => read_png_page(&bytes, max_pixels),
-        "jpg" | "jpeg" => read_jpeg_page(bytes, max_pixels),
+        "png" => read_png_page(&bytes, max_pixels, default_dpi),
+        "jpg" | "jpeg" => read_jpeg_page(bytes, max_pixels, default_dpi),
+        "pgm" | "ppm" => read_netpbm_page(&bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI)),
         _ => Err(format!("Unsupported image extension: {}", path.display()).into()),
     }
 }
 
-fn read_png_page(bytes: &[u8], max_pixels: u64) -> Result<ImagePage> {
+fn read_png_page(bytes: &[u8], max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let png = parse_png(bytes)?;
     assert_pixel_limit(png.width, png.height, max_pixels)?;
 
@@ -178,7 +195,7 @@ fn read_png_page(bytes: &[u8], max_pixels: u64) -> Result<ImagePage> {
     Ok(ImagePage {
         width: png.width,
         height: png.height,
-        dpi: png.dpi.unwrap_or(DEFAULT_DPI),
+        dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
         color_space,
         payload: ImagePayload::RawFlate {
             data: png.idat,
@@ -187,7 +204,7 @@ fn read_png_page(bytes: &[u8], max_pixels: u64) -> Result<ImagePage> {
     })
 }
 
-fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64) -> Result<ImagePage> {
+fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let metadata = parse_jpeg_metadata(&bytes)?;
     assert_pixel_limit(metadata.width, metadata.height, max_pixels)?;
     let color_space = match metadata.components {
@@ -203,9 +220,47 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64) -> Result<ImagePage> {
     Ok(ImagePage {
         width: metadata.width,
         height: metadata.height,
-        dpi: metadata.dpi.unwrap_or(DEFAULT_DPI),
+        dpi: metadata.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
         color_space,
         payload: ImagePayload::Jpeg { data: bytes },
+    })
+}
+
+fn read_netpbm_page(bytes: &[u8], max_pixels: u64, dpi: u32) -> Result<ImagePage> {
+    let netpbm = parse_netpbm(bytes)?;
+    assert_pixel_limit(netpbm.width, netpbm.height, max_pixels)?;
+
+    let total_pixels = netpbm.width as usize * netpbm.height as usize;
+    let (colors, color_space, image_pixels): (u32, &'static str, Vec<u8>) = if netpbm.channels == 1
+    {
+        (1, "DeviceGray", netpbm.pixels.to_vec())
+    } else if is_rgb_data_grayscale(netpbm.pixels, total_pixels) {
+        (
+            1,
+            "DeviceGray",
+            extract_grayscale_from_rgb(netpbm.pixels, total_pixels),
+        )
+    } else {
+        (3, "DeviceRGB", netpbm.pixels.to_vec())
+    };
+
+    let bytes_per_row = netpbm.width as usize * colors as usize;
+    let filtered = apply_up_filter(&image_pixels, bytes_per_row, netpbm.height as usize);
+    let compressed = deflate(&filtered)?;
+    let decode_params = format!(
+        "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {} >>",
+        netpbm.width
+    );
+
+    Ok(ImagePage {
+        width: netpbm.width,
+        height: netpbm.height,
+        dpi,
+        color_space,
+        payload: ImagePayload::RawFlate {
+            data: compressed,
+            decode_params,
+        },
     })
 }
 
@@ -217,6 +272,147 @@ fn assert_pixel_limit(width: u32, height: u32, max_pixels: u64) -> Result<()> {
         );
     }
     Ok(())
+}
+
+struct NetpbmData<'a> {
+    width: u32,
+    height: u32,
+    channels: u8,
+    pixels: &'a [u8],
+}
+
+fn parse_netpbm(data: &[u8]) -> Result<NetpbmData<'_>> {
+    if data.len() < 4 {
+        return Err("Netpbm payload is too short".into());
+    }
+
+    let channels = match data.get(0..2) {
+        Some(b"P5") => 1,
+        Some(b"P6") => 3,
+        _ => return Err("Unsupported Netpbm format".into()),
+    };
+
+    let mut offset = 2usize;
+    let width = read_netpbm_number(data, &mut offset, "width")?;
+    let height = read_netpbm_number(data, &mut offset, "height")?;
+    let maxval = read_netpbm_number(data, &mut offset, "maxval")?;
+    if maxval == 0 || maxval > 255 {
+        return Err(format!("Unsupported maxval {maxval} (only 8-bit supported)").into());
+    }
+    if offset >= data.len() || !is_whitespace_byte(data[offset]) {
+        return Err("Invalid Netpbm header terminator".into());
+    }
+    offset += 1;
+
+    let data_size = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|value| value.checked_mul(channels as usize))
+        .ok_or("Invalid Netpbm payload size")?;
+    let data_end = offset
+        .checked_add(data_size)
+        .ok_or("Invalid Netpbm payload size")?;
+    let pixels = data
+        .get(offset..data_end)
+        .ok_or("Truncated Netpbm payload")?;
+
+    Ok(NetpbmData {
+        width,
+        height,
+        channels,
+        pixels,
+    })
+}
+
+fn read_netpbm_number(data: &[u8], offset: &mut usize, label: &str) -> Result<u32> {
+    skip_netpbm_whitespace_and_comments(data, offset);
+    if *offset >= data.len() {
+        return Err(format!("Missing {label} in Netpbm header").into());
+    }
+
+    let start = *offset;
+    while *offset < data.len() && data[*offset].is_ascii_digit() {
+        *offset += 1;
+    }
+    if start == *offset {
+        return Err(format!("Invalid {label} in Netpbm header").into());
+    }
+
+    let value = std::str::from_utf8(&data[start..*offset])?.parse::<u32>()?;
+    if value == 0 {
+        return Err(format!("Invalid {label} in Netpbm header").into());
+    }
+    Ok(value)
+}
+
+fn skip_netpbm_whitespace_and_comments(data: &[u8], offset: &mut usize) {
+    while *offset < data.len() {
+        let byte = data[*offset];
+        if byte == b'#' {
+            while *offset < data.len() && data[*offset] != b'\n' {
+                *offset += 1;
+            }
+            if *offset < data.len() {
+                *offset += 1;
+            }
+            continue;
+        }
+        if is_whitespace_byte(byte) {
+            *offset += 1;
+            continue;
+        }
+        break;
+    }
+}
+
+fn is_whitespace_byte(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
+}
+
+fn is_rgb_data_grayscale(pixels: &[u8], total_pixels: usize) -> bool {
+    let step = std::cmp::max(1, total_pixels / 10_000);
+    for index in (0..total_pixels).step_by(step) {
+        let offset = index * 3;
+        if pixels[offset] != pixels[offset + 1] || pixels[offset] != pixels[offset + 2] {
+            return false;
+        }
+    }
+    true
+}
+
+fn extract_grayscale_from_rgb(pixels: &[u8], total_pixels: usize) -> Vec<u8> {
+    let mut grayscale = Vec::with_capacity(total_pixels);
+    for index in 0..total_pixels {
+        grayscale.push(pixels[index * 3]);
+    }
+    grayscale
+}
+
+fn apply_up_filter(pixels: &[u8], bytes_per_row: usize, height: usize) -> Vec<u8> {
+    let row_size = 1 + bytes_per_row;
+    let mut filtered = vec![0u8; height * row_size];
+    for y in 0..height {
+        let out_row = y * row_size;
+        filtered[out_row] = 2;
+
+        let src_row = y * bytes_per_row;
+        let prev_row = (y.saturating_sub(1)) * bytes_per_row;
+        for byte_index in 0..bytes_per_row {
+            let current = pixels[src_row + byte_index];
+            let above = if y > 0 {
+                pixels[prev_row + byte_index]
+            } else {
+                0
+            };
+            filtered[out_row + 1 + byte_index] = current.wrapping_sub(above);
+        }
+    }
+    filtered
+}
+
+fn deflate(data: &[u8]) -> Result<Vec<u8>> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data)?;
+    Ok(encoder.finish()?)
 }
 
 fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
@@ -568,5 +764,38 @@ mod tests {
     fn computes_points_from_dpi() {
         assert_eq!(points(300, 300), 72.0);
         assert_eq!(points(144, 72), 144.0);
+    }
+
+    #[test]
+    fn parses_netpbm_comments_and_payload() {
+        let data = b"P6\n# generated by ddjvu\n2 1\n255\n\x01\x01\x01\x02\x03\x04";
+        let netpbm = parse_netpbm(data).unwrap();
+
+        assert_eq!(netpbm.width, 2);
+        assert_eq!(netpbm.height, 1);
+        assert_eq!(netpbm.channels, 3);
+        assert_eq!(netpbm.pixels, &[1, 1, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn builds_grayscale_netpbm_pdf_image_payload() {
+        let data = b"P6\n2 1\n255\n\x07\x07\x07\x09\x09\x09";
+        let page = read_netpbm_page(data, 1_000_000, 300).unwrap();
+
+        assert_eq!(page.width, 2);
+        assert_eq!(page.height, 1);
+        assert_eq!(page.dpi, 300);
+        assert_eq!(page.color_space, "DeviceGray");
+        match page.payload {
+            ImagePayload::RawFlate {
+                data,
+                decode_params,
+            } => {
+                assert!(!data.is_empty());
+                assert!(decode_params.contains("/Colors 1"));
+                assert!(decode_params.contains("/Columns 2"));
+            }
+            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+        }
     }
 }

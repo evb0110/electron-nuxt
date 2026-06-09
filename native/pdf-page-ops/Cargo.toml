@@ -1,0 +1,7 @@
+[package]
+name = "evb-pdf-page-ops"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lopdf = { version = "0.41.0", default-features = false }
