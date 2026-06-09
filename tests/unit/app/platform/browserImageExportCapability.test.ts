@@ -21,6 +21,7 @@ interface IUtifModule {
 }
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
+    cleanupDetachedDocument: vi.fn(async () => true),
     createStoredDocument: vi.fn(),
     replaceWithHandleBackedDocument: vi.fn(),
     touchRecentFile: vi.fn(async () => {}),
@@ -28,6 +29,10 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
 const saveBlobToPickerOrDownloadMock = vi.hoisted(() => vi.fn());
 const saveBytesToPickerOrDownloadMock = vi.hoisted(() => vi.fn());
 const pickSaveTargetMock = vi.hoisted(() => vi.fn());
+const writeBytesToHandleMock = vi.hoisted(() => vi.fn(async (
+    _handle: FileSystemFileHandle,
+    _data: Uint8Array,
+) => {}));
 const getDocumentMock = vi.hoisted(() => vi.fn());
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
@@ -42,6 +47,7 @@ vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
     pickSaveTarget: (...args: unknown[]) => pickSaveTargetMock(...args),
     saveBlobToPickerOrDownload: (...args: unknown[]) => saveBlobToPickerOrDownloadMock(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => saveBytesToPickerOrDownloadMock(...args),
+    writeBytesToHandle: (handle: FileSystemFileHandle, data: Uint8Array) => writeBytesToHandleMock(handle, data),
 }));
 
 vi.mock('@app/platform/browser-api/browserImageExportConfig', () => ({ EXPORT_RENDER_SCALE: 1 }));
@@ -96,8 +102,11 @@ function createCanvas() {
             ]);
             return {data};
         }) })),
-        toBlob: vi.fn((callback: (blob: Blob | null) => void) => {
-            callback(new Blob([new Uint8Array([canvas.currentPageNumber])], {type: 'image/png'}));
+        toBlob: vi.fn((
+            callback: (blob: Blob | null) => void,
+            type = 'image/png',
+        ) => {
+            callback(new Blob([new Uint8Array([canvas.currentPageNumber])], {type}));
         }),
     };
 
@@ -198,21 +207,16 @@ describe('createBrowserImageExportCapability', () => {
         ]);
     });
 
-    it('stores PNG exports as handle-backed outputs when the browser picker returns a file handle', async () => {
+    it('defaults browser image export to JPEG and stores handle-backed outputs', async () => {
         const fakePdfDocument = createFakePdfDocument(1);
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
-        saveBytesToPickerOrDownloadMock.mockResolvedValue({
+        pickSaveTargetMock.mockResolvedValueOnce({
             canceled: false,
-            fileName: 'page-1.png',
-            handle: { name: 'page-1.png' } as FileSystemFileHandle,
-        });
-        saveBlobToPickerOrDownloadMock.mockResolvedValue({
-            canceled: false,
-            fileName: 'page-1.png',
-            handle: { name: 'page-1.png' } as FileSystemFileHandle,
+            fileName: 'page-001.jpg',
+            handle: { name: 'page-001.jpg' } as FileSystemFileHandle,
         });
         browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
-            'browser://documents/output/page-1.png',
+            'browser://documents/output/page-001.jpg',
         );
 
         const { createBrowserImageExportCapability } = await import(
@@ -227,30 +231,167 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(result).toEqual({
             success: true,
-            outputPaths: ['browser://documents/output/page-1.png'],
+            outputPaths: ['browser://documents/output/page-001.jpg'],
         });
+        expect(pickSaveTargetMock).toHaveBeenCalledWith({
+            suggestedName: 'page-001.jpg',
+            pickerTypes: [
+                {
+                    description: 'JPEG Images',
+                    accept: { 'image/jpeg': [
+                        '.jpg',
+                        '.jpeg',
+                    ] },
+                },
+                {
+                    description: 'PNG Images',
+                    accept: { 'image/png': ['.png'] },
+                },
+                {
+                    description: 'TIFF Images',
+                    accept: { 'image/tiff': [
+                        '.tif',
+                        '.tiff',
+                    ] },
+                },
+            ],
+        });
+        expect(writeBytesToHandleMock).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'page-001.jpg' }),
+            new Uint8Array([1]),
+        );
         expect(browserDocumentStoreMock.createStoredDocument).toHaveBeenCalledWith(
-            'page-1.png',
+            'page-001.jpg',
             expect.objectContaining({ byteLength: 0 }),
             expect.objectContaining({
-                mimeType: 'image/png',
-                saveHandle: expect.objectContaining({ name: 'page-1.png' }),
+                mimeType: 'image/jpeg',
+                saveHandle: expect.objectContaining({ name: 'page-001.jpg' }),
                 storageMode: 'handle',
             }),
         );
-        expect(saveBlobToPickerOrDownloadMock).toHaveBeenCalledTimes(1);
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.replaceWithHandleBackedDocument).toHaveBeenCalledWith(
-            'browser://documents/output/page-1.png',
+            'browser://documents/output/page-001.jpg',
             expect.objectContaining({
                 fileSize: 1,
-                saveHandle: expect.objectContaining({ name: 'page-1.png' }),
-                saveName: 'page-1.png',
+                saveHandle: expect.objectContaining({ name: 'page-001.jpg' }),
+                saveName: 'page-001.jpg',
             }),
         );
     });
 
-    it('fails PNG export when selected pages resolve to no valid PDF pages', async () => {
+    it('exports PNG images when the selected file name uses a PNG extension', async () => {
+        const fakePdfDocument = createFakePdfDocument(1);
+        getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
+        pickSaveTargetMock.mockResolvedValueOnce({
+            canceled: false,
+            fileName: 'page-001.png',
+            handle: null,
+        });
+        saveBytesToPickerOrDownloadMock.mockResolvedValueOnce({
+            canceled: false,
+            fileName: 'page-001.png',
+            handle: null,
+        });
+        browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
+            'browser://documents/output/page-001.png',
+        );
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        const result = await capability.exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [1],
+        );
+
+        expect(result).toEqual({
+            success: true,
+            outputPaths: ['browser://documents/output/page-001.png'],
+        });
+        expect(saveBytesToPickerOrDownloadMock).toHaveBeenCalledWith(
+            new Uint8Array([1]),
+            expect.objectContaining({
+                suggestedName: 'page-001.png',
+                mimeType: 'image/png',
+            }),
+        );
+        expect(browserDocumentStoreMock.createStoredDocument).toHaveBeenCalledWith(
+            'page-001.png',
+            new Uint8Array([1]),
+            expect.objectContaining({
+                mimeType: 'image/png',
+                saveHandle: null,
+            }),
+        );
+        expect(writeBytesToHandleMock).not.toHaveBeenCalled();
+    });
+
+    it('exports single-page TIFF images when the selected file name uses a TIFF extension', async () => {
+        const fakePdfDocument = createFakePdfDocument(1);
+        getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
+        pickSaveTargetMock.mockResolvedValueOnce({
+            canceled: false,
+            fileName: 'page-001.tiff',
+            handle: null,
+        });
+        saveBytesToPickerOrDownloadMock.mockResolvedValueOnce({
+            canceled: false,
+            fileName: 'page-001.tiff',
+            handle: null,
+        });
+        browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
+            'browser://documents/output/page-001.tiff',
+        );
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        const result = await capability.exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [1],
+        );
+
+        expect(result).toEqual({
+            success: true,
+            outputPaths: ['browser://documents/output/page-001.tiff'],
+        });
+
+        const savedBytes = saveBytesToPickerOrDownloadMock.mock.calls[0]?.[0];
+        expect(savedBytes).toBeInstanceOf(Uint8Array);
+        if (!(savedBytes instanceof Uint8Array)) {
+            throw new Error('Expected TIFF image export to save raw TIFF bytes');
+        }
+
+        expect(saveBytesToPickerOrDownloadMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+            suggestedName: 'page-001.tiff',
+            mimeType: 'image/tiff',
+        }));
+        expect(countTiffDirectories(savedBytes)).toBe(1);
+        const ifds = UTIF.decode(savedBytes);
+        expect(ifds).toHaveLength(1);
+        UTIF.decodeImage(savedBytes, ifds[0]!);
+        expect(Array.from(UTIF.toRGBA8(ifds[0]!).slice(0, 4))).toEqual([
+            0,
+            0,
+            0,
+            255,
+        ]);
+        expect(browserDocumentStoreMock.createStoredDocument).toHaveBeenCalledWith(
+            'page-001.tiff',
+            savedBytes,
+            expect.objectContaining({
+                mimeType: 'image/tiff',
+                saveHandle: null,
+            }),
+        );
+    });
+
+    it('fails image export when selected pages resolve to no valid PDF pages', async () => {
         const fakePdfDocument = createFakePdfDocument(2);
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
 
@@ -274,6 +415,7 @@ describe('createBrowserImageExportCapability', () => {
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
         expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
         expect(saveBlobToPickerOrDownloadMock).not.toHaveBeenCalled();
+        expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
     });
 });

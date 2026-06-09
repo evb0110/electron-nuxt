@@ -57,14 +57,14 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
 
 function buildImageSuggestedName(pageNumbers: number[] | undefined) {
     if (!pageNumbers || pageNumbers.length === 0) {
-        return 'document-page.png';
+        return 'document-page.jpg';
     }
 
     if (pageNumbers.length === 1) {
-        return `document-page-${String(pageNumbers[0]).padStart(3, '0')}.png`;
+        return `document-page-${String(pageNumbers[0]).padStart(3, '0')}.jpg`;
     }
 
-    return 'document-pages.png';
+    return 'document-pages.jpg';
 }
 
 function buildMultiPageTiffSuggestedName(pageNumbers: number[] | undefined) {
@@ -122,15 +122,15 @@ async function showExportImageDialog(parentWindow: BrowserWindow | null, default
         defaultPath: defaultName,
         filters: [
             {
-                name: te('dialogs.pngImages'),
-                extensions: ['png'],
-            },
-            {
                 name: te('dialogs.jpegImages'),
                 extensions: [
                     'jpg',
                     'jpeg',
                 ],
+            },
+            {
+                name: te('dialogs.pngImages'),
+                extensions: ['png'],
             },
             {
                 name: te('dialogs.tiffImages'),
@@ -188,7 +188,7 @@ export async function handlePdfExportImages(
             };
         }
 
-        const { normalizedPath } = normalizeImageExportPath(result.filePath, 'png');
+        const { normalizedPath } = normalizeImageExportPath(result.filePath, 'jpeg');
         const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,

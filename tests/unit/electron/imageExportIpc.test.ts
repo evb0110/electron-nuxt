@@ -14,9 +14,9 @@ const mocks = vi.hoisted(() => ({
     fromWebContents: vi.fn(() => null),
     normalizeImageExportPath: vi.fn((path: string) => ({ normalizedPath: path })),
     resolveAllowedWritePath: vi.fn(async (path: string) => path),
-    showSaveDialog: vi.fn(async () => ({
+    showSaveDialog: vi.fn(async (..._args: unknown[]) => ({
         canceled: false,
-        filePath: '/tmp/export.png',
+        filePath: '/tmp/export.jpg',
     })),
 }));
 
@@ -77,9 +77,78 @@ describe('image export IPC lifecycle', () => {
         mocks.resolveAllowedWritePath.mockImplementation(async (path: string) => path);
         mocks.showSaveDialog.mockResolvedValue({
             canceled: false,
-            filePath: '/tmp/export.png',
+            filePath: '/tmp/export.jpg',
         });
-        mocks.normalizeImageExportPath.mockImplementation((path: string) => ({ normalizedPath: path }));
+        mocks.normalizeImageExportPath.mockImplementation((
+            path: string,
+            fallbackFormat = 'png',
+        ) => ({ normalizedPath: path.includes('.') ? path : `${path}.${fallbackFormat === 'jpeg' ? 'jpg' : fallbackFormat}` }));
+        mocks.exportPdfPagesAsImages.mockResolvedValue(['/tmp/export.jpg']);
+        mocks.exportPdfAsMultiPageTiff.mockResolvedValue('/tmp/export.tiff');
+    });
+
+    it('defaults page image export to JPEG while offering PNG and TIFF choices', async () => {
+        const sender = createSender();
+
+        await expect(handlePdfExportImages(
+            { sender } as never,
+            '/tmp/working.pdf',
+            [7],
+        )).resolves.toEqual({
+            success: true,
+            outputPaths: ['/tmp/export.jpg'],
+        });
+
+        const dialogOptions = mocks.showSaveDialog.mock.calls[0]?.[0];
+        expect(dialogOptions).toEqual(expect.objectContaining({
+            title: 'dialogs.exportImages',
+            defaultPath: 'document-page-007.jpg',
+            filters: [
+                {
+                    name: 'dialogs.jpegImages',
+                    extensions: [
+                        'jpg',
+                        'jpeg',
+                    ],
+                },
+                {
+                    name: 'dialogs.pngImages',
+                    extensions: ['png'],
+                },
+                {
+                    name: 'dialogs.tiffImages',
+                    extensions: [
+                        'tif',
+                        'tiff',
+                    ],
+                },
+            ],
+        }));
+        expect(mocks.normalizeImageExportPath).toHaveBeenCalledWith('/tmp/export.jpg', 'jpeg');
+    });
+
+    it('uses a JPEG fallback when the image export target has no extension', async () => {
+        const sender = createSender();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export',
+        });
+        mocks.exportPdfPagesAsImages.mockResolvedValueOnce(['/tmp/export.jpg']);
+
+        await expect(handlePdfExportImages(
+            { sender } as never,
+            '/tmp/working.pdf',
+        )).resolves.toEqual({
+            success: true,
+            outputPaths: ['/tmp/export.jpg'],
+        });
+
+        expect(mocks.normalizeImageExportPath).toHaveBeenCalledWith('/tmp/export', 'jpeg');
+        expect(mocks.exportPdfPagesAsImages).toHaveBeenCalledWith(
+            '/tmp/working.pdf',
+            '/tmp/export.jpg',
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
     });
 
     it('aborts page image export when the owning renderer crashes', async () => {
