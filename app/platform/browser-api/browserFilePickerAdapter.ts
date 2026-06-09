@@ -273,7 +273,7 @@ export async function pickSingleFile(options: {
     return files[0] ?? null;
 }
 
-export async function saveBlobToPickerOrDownload(
+async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],
