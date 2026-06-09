@@ -12,6 +12,7 @@ import {
     isRgbDataGrayscale,
     parseNetpbm,
 } from '@electron/djvu/netpbm';
+import { tryBuildOptimizedPdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 
 function createImageXObject(
     context: PDFContext,
@@ -57,6 +58,11 @@ export async function buildOptimizedPdf(
     dpi: number,
     onPageProcessed?: (pageNum: number, totalPages: number) => void,
 ) {
+    const nativePdf = await tryBuildOptimizedPdfWithNativeImageCombiner(imagePaths, dpi, onPageProcessed);
+    if (nativePdf) {
+        return nativePdf;
+    }
+
     const doc = await PDFDocument.create();
     const context = doc.context;
 

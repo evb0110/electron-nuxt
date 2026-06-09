@@ -33,10 +33,14 @@ type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress'
 const logger = createLogger('nativePdfImageCombine');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
-const SUPPORTED_NATIVE_IMAGE_EXTENSIONS = new Set([
+const SUPPORTED_NATIVE_BITMAP_EXTENSIONS = new Set([
     '.png',
     '.jpg',
     '.jpeg',
+]);
+const SUPPORTED_NATIVE_NETPBM_EXTENSIONS = new Set([
+    '.pgm',
+    '.ppm',
 ]);
 const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_IMAGE_COMBINE_TIMEOUT_MS ?? `${5 * 60 * 1000}`, 10);
@@ -74,10 +78,10 @@ function resolveNativePdfImageCombinePath() {
     return candidates.find(candidate => existsSync(candidate)) ?? null;
 }
 
-function canUseNativePdfImageCombine(inputPaths: string[]) {
+function canUseNativePdfImageCombine(inputPaths: string[], supportedExtensions: Set<string>) {
     return !isNativeImageCombineDisabled()
         && inputPaths.length > 0
-        && inputPaths.every(path => SUPPORTED_NATIVE_IMAGE_EXTENSIONS.has(extname(path).toLowerCase()));
+        && inputPaths.every(path => supportedExtensions.has(extname(path).toLowerCase()));
 }
 
 function parseProgressPayload(value: unknown): TNativeProgressPayload | null {
@@ -113,10 +117,35 @@ export async function tryCreatePdfWithNativeImageCombiner(
     inputPaths: string[],
     options?: INativePdfImageCombineOptions,
 ): Promise<Uint8Array | null> {
-    if (!canUseNativePdfImageCombine(inputPaths)) {
+    if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return null;
     }
 
+    return createPdfWithNativeImageCombiner(inputPaths, options);
+}
+
+export async function tryBuildOptimizedPdfWithNativeImageCombiner(
+    imagePaths: string[],
+    dpi: number,
+    onPageProcessed?: (pageNum: number, totalPages: number) => void,
+): Promise<Uint8Array | null> {
+    if (!Number.isFinite(dpi) || dpi <= 0 || !canUseNativePdfImageCombine(imagePaths, SUPPORTED_NATIVE_NETPBM_EXTENSIONS)) {
+        return null;
+    }
+
+    return createPdfWithNativeImageCombiner(imagePaths, onPageProcessed
+        ? {onProgress: progress => onPageProcessed(progress.processed, progress.total)}
+        : undefined, [
+        '--dpi',
+        String(Math.round(dpi)),
+    ]);
+}
+
+async function createPdfWithNativeImageCombiner(
+    inputPaths: string[],
+    options?: INativePdfImageCombineOptions,
+    extraArgs: string[] = [],
+) {
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
         return null;
@@ -126,7 +155,7 @@ export async function tryCreatePdfWithNativeImageCombiner(
     const outputPath = join(tempDir, `${randomUUID()}.pdf`);
 
     try {
-        const ok = await runNativePdfImageCombine(binaryPath, outputPath, inputPaths, options);
+        const ok = await runNativePdfImageCombine(binaryPath, outputPath, inputPaths, options, extraArgs);
         if (!ok) {
             return null;
         }
@@ -144,12 +173,14 @@ function runNativePdfImageCombine(
     outputPath: string,
     inputPaths: string[],
     options?: INativePdfImageCombineOptions,
+    extraArgs: string[] = [],
 ) {
     return new Promise<boolean>((resolve) => {
         const proc = spawn(binaryPath, [
             '--output',
             outputPath,
             '--json-progress',
+            ...extraArgs,
             '--',
             ...inputPaths,
         ], {

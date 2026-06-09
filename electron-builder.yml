@@ -65,6 +65,8 @@ mac:
       to: djvulibre/darwin-${arch}
     - from: .tmp/pdf-image-combine/darwin-${arch}
       to: pdf-image-combine/darwin-${arch}
+    - from: .tmp/pdf-page-ops/darwin-${arch}
+      to: pdf-page-ops/darwin-${arch}
 
 win:
   icon: resources/icon.ico
@@ -89,6 +91,8 @@ win:
       to: djvulibre/win32-${arch}
     - from: .tmp/pdf-image-combine/win32-${arch}
       to: pdf-image-combine/win32-${arch}
+    - from: .tmp/pdf-page-ops/win32-${arch}
+      to: pdf-page-ops/win32-${arch}
 
 linux:
   icon: resources/icon.png
@@ -115,6 +119,8 @@ linux:
       to: djvulibre/linux-${arch}
     - from: .tmp/pdf-image-combine/linux-${arch}
       to: pdf-image-combine/linux-${arch}
+    - from: .tmp/pdf-page-ops/linux-${arch}
+      to: pdf-page-ops/linux-${arch}
 
 nsis:
   oneClick: false
