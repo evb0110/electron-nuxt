@@ -36,6 +36,13 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'test:rust',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'test:release',
             ],
             command: 'pnpm',

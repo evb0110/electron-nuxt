@@ -1,0 +1,107 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+
+type TNativeRustTarget = {
+    arch: string;
+    binaryExtension: string;
+    cargoReleaseDirSegments: string[];
+    cargoTargetArgs: string[];
+    isHostTarget: boolean;
+    platform: string;
+    platformArch: string;
+    rustTarget: string;
+};
+
+type TNativeRustTargetsModule = {
+    getHostNativeTarget: (target?: {
+        arch?: string;
+        platform?: string;
+    }) => {
+        arch: string;
+        platform: string;
+    };
+    getRequestedNativeRustTarget: (
+        env?: Record<string, string | undefined>,
+        hostTarget?: {
+            arch: string;
+            platform: string;
+        },
+    ) => TNativeRustTarget;
+    normalizeNativeTargetArch: (value: string) => string;
+    normalizeNativeTargetPlatform: (value: string) => string;
+};
+
+const {
+    getHostNativeTarget,
+    getRequestedNativeRustTarget,
+    normalizeNativeTargetArch,
+    normalizeNativeTargetPlatform,
+} = await import(
+    pathToFileURL(path.join(process.cwd(), 'scripts/native-rust-targets.mjs')).href
+) as TNativeRustTargetsModule;
+
+describe('native Rust targets', () => {
+    it('normalizes release workflow platform and architecture aliases', () => {
+        expect(normalizeNativeTargetPlatform('mac')).toBe('darwin');
+        expect(normalizeNativeTargetPlatform('win')).toBe('win32');
+        expect(normalizeNativeTargetArch('x86_64')).toBe('x64');
+        expect(normalizeNativeTargetArch('aarch64')).toBe('arm64');
+    });
+
+    it('uses the host release directory when the requested target matches the runner', () => {
+        expect(getRequestedNativeRustTarget({}, {
+            arch: 'arm64',
+            platform: 'darwin',
+        })).toEqual({
+            arch: 'arm64',
+            binaryExtension: '',
+            cargoReleaseDirSegments: [
+                'target',
+                'release',
+            ],
+            cargoTargetArgs: [],
+            isHostTarget: true,
+            platform: 'darwin',
+            platformArch: 'darwin-arm64',
+            rustTarget: 'aarch64-apple-darwin',
+        });
+    });
+
+    it('resolves Windows arm64 as a cargo cross target on Windows x64 release runners', () => {
+        expect(getRequestedNativeRustTarget({
+            EVB_NATIVE_TARGET_ARCH: 'arm64',
+            EVB_NATIVE_TARGET_PLATFORM: 'win',
+        }, {
+            arch: 'x64',
+            platform: 'win32',
+        })).toEqual({
+            arch: 'arm64',
+            binaryExtension: '.exe',
+            cargoReleaseDirSegments: [
+                'target',
+                'aarch64-pc-windows-msvc',
+                'release',
+            ],
+            cargoTargetArgs: [
+                '--target',
+                'aarch64-pc-windows-msvc',
+            ],
+            isHostTarget: false,
+            platform: 'win32',
+            platformArch: 'win32-arm64',
+            rustTarget: 'aarch64-pc-windows-msvc',
+        });
+    });
+
+    it('rejects unsupported host targets before staging release binaries', () => {
+        expect(() => getHostNativeTarget({
+            arch: 'ia32',
+            platform: 'freebsd',
+        })).toThrow('Unsupported native Rust target architecture');
+    });
+});

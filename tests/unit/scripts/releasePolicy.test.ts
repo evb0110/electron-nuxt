@@ -206,6 +206,10 @@ describe('release policy', () => {
             ],
             [
                 'run',
+                'test:rust',
+            ],
+            [
+                'run',
                 'test:release',
             ],
             [
@@ -250,7 +254,7 @@ describe('release policy', () => {
             },
         });
 
-        expect(calls).toHaveLength(6);
+        expect(calls).toHaveLength(7);
         expect(calls.every(call => call.command === 'pnpm')).toBe(true);
         expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
         expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);

@@ -7,35 +7,19 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const platformByNodePlatform = {
-    darwin: 'darwin',
-    linux: 'linux',
-    win32: 'win32',
-};
-const archByNodeArch = {
-    arm64: 'arm64',
-    x64: 'x64',
-};
-
-const platform = platformByNodePlatform[process.platform];
-const arch = archByNodeArch[process.arch];
-if (!platform || !arch) {
-    throw new Error(`Unsupported platform for pdf-page-ops: ${process.platform}-${process.arch}`);
-}
-
-const platformArch = `${platform}-${arch}`;
-const binaryName = platform === 'win32'
-    ? 'evb-pdf-page-ops.exe'
-    : 'evb-pdf-page-ops';
+const target = getRequestedNativeRustTarget();
+const binaryName = `evb-pdf-page-ops${target.binaryExtension}`;
 const cargoArgs = [
     'build',
     '--manifest-path',
     'native/pdf-page-ops/Cargo.toml',
     '--release',
     '--locked',
+    ...target.cargoTargetArgs,
 ];
 
 const result = spawnSync('cargo', cargoArgs, {
@@ -46,8 +30,8 @@ if (result.status !== 0) {
     throw new Error(`cargo ${cargoArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`);
 }
 
-const sourcePath = path.join(projectRoot, 'native', 'pdf-page-ops', 'target', 'release', binaryName);
-const stageDir = path.join(projectRoot, '.tmp', 'pdf-page-ops', platformArch, 'bin');
+const sourcePath = path.join(projectRoot, 'native', 'pdf-page-ops', ...target.cargoReleaseDirSegments, binaryName);
+const stageDir = path.join(projectRoot, '.tmp', 'pdf-page-ops', target.platformArch, 'bin');
 const destinationPath = path.join(stageDir, binaryName);
 
 await rm(stageDir, {
@@ -56,8 +40,8 @@ await rm(stageDir, {
 });
 await mkdir(stageDir, {recursive: true});
 await copyFile(sourcePath, destinationPath);
-if (platform !== 'win32') {
+if (target.platform !== 'win32') {
     await chmod(destinationPath, 0o755);
 }
 
-console.log(`Staged ${binaryName} for ${platformArch}: ${path.relative(projectRoot, destinationPath)}`);
+console.log(`Staged ${binaryName} for ${target.platformArch}: ${path.relative(projectRoot, destinationPath)}`);

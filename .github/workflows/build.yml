@@ -113,7 +113,14 @@ jobs:
           WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
         run: TARGET_ARCH=${{ matrix.arch }} bash scripts/bundle-tools-windows.sh
 
+      - name: Install Rust target (Windows arm64)
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        run: rustup target add aarch64-pc-windows-msvc
+
       - name: Build (Nuxt + Electron)
+        env:
+          EVB_NATIVE_TARGET_ARCH: ${{ matrix.arch }}
+          EVB_NATIVE_TARGET_PLATFORM: ${{ matrix.platform }}
         run: pnpm run build:strict
 
       - name: Upload strict build log on failure
