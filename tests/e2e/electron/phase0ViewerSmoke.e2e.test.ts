@@ -85,6 +85,31 @@ async function readViewerSmokeSnapshot(session: IElectronE2ESession) {
     });
 }
 
+async function waitForViewerSmokeSnapshot(
+    session: IElectronE2ESession,
+    minimums: {
+        viewerHeight: number;
+        firstPageHeight: number;
+    } = {
+        viewerHeight: 300,
+        firstPageHeight: 300,
+    },
+) {
+    await waitForFunctionInPage(session.page, (expected: typeof minimums) => {
+        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+        const firstPage = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
+        if (!viewer || !firstPage) {
+            return false;
+        }
+
+        const viewerRect = viewer.getBoundingClientRect();
+        const firstPageRect = firstPage.getBoundingClientRect();
+        return viewerRect.height > expected.viewerHeight && firstPageRect.height > expected.firstPageHeight;
+    }, { timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS }, minimums);
+
+    return readViewerSmokeSnapshot(session);
+}
+
 async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
     const attempt = await session.page.evaluate((): IViewerScrollAttempt => {
         const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -147,7 +172,7 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
             throw new Error('Viewer smoke session was not initialized');
         }
 
-        const initial = await readViewerSmokeSnapshot(session);
+        const initial = await waitForViewerSmokeSnapshot(session);
         expect(initial.hostHeight).toBeGreaterThan(300);
         expect(initial.viewerHeight).toBeGreaterThan(300);
         expect(initial.firstPageHeight).toBeGreaterThan(300);
@@ -200,7 +225,10 @@ describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
         await openPdfInApp(session.page, pngPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
-        const snapshot = await readViewerSmokeSnapshot(session);
+        const snapshot = await waitForViewerSmokeSnapshot(session, {
+            viewerHeight: 300,
+            firstPageHeight: 0,
+        });
         expect(snapshot.hostHeight).toBeGreaterThan(300);
         expect(snapshot.viewerHeight).toBeGreaterThan(300);
         expect(snapshot.visiblePages).toEqual([1]);
