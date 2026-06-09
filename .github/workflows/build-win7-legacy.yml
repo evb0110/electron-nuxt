@@ -68,6 +68,9 @@ jobs:
         run: TARGET_ARCH=x64 bash scripts/bundle-tools-windows.sh
 
       - name: Build (Nuxt + Electron)
+        env:
+          EVB_NATIVE_TARGET_ARCH: x64
+          EVB_NATIVE_TARGET_PLATFORM: win
         run: pnpm run build:strict
 
       - name: Pin Electron 22 for Windows 7 packaging

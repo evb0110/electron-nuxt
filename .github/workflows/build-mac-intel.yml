@@ -55,6 +55,9 @@ jobs:
           bash scripts/bundle-djvu-macos.sh
 
       - name: Build (Nuxt + Electron)
+        env:
+          EVB_NATIVE_TARGET_ARCH: x64
+          EVB_NATIVE_TARGET_PLATFORM: mac
         run: pnpm run build:strict
 
       - name: Configure optional macOS signing and notarization
