@@ -1,4 +1,8 @@
 const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
+    'evb-pdf-image-combine': {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['evb-pdf-image-combine'],
+    },
     ddjvu: {
         allowedExitCodes: new Set([
             0,

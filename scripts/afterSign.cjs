@@ -177,6 +177,7 @@ function resignBundledNativeToolPayloads(appPath, identity) {
     const toolRoots = [
         path.join(resourcesDir, 'djvulibre'),
         path.join(resourcesDir, 'poppler'),
+        path.join(resourcesDir, 'pdf-image-combine'),
         path.join(resourcesDir, 'qpdf'),
         path.join(resourcesDir, 'tesseract'),
     ];

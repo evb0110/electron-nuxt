@@ -12,6 +12,7 @@ import {
     readTiffFrameDpi,
 } from '@electron/image/imageDpi';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -259,8 +260,19 @@ export async function createCombinedPdf(
         throw new Error('No input files were provided');
     }
 
-    const targetPdf = await PDFDocument.create();
     const limits = getDefaultResourceLimits();
+    assertPageLimit(normalizedPaths.length, limits);
+
+    const nativeOptions = options.onProgress
+        ? {onProgress: options.onProgress}
+        : undefined;
+    const nativeImagePdf = await tryCreatePdfWithNativeImageCombiner(normalizedPaths, nativeOptions);
+    if (nativeImagePdf) {
+        assertOutputLimit(nativeImagePdf, limits);
+        return nativeImagePdf;
+    }
+
+    const targetPdf = await PDFDocument.create();
     let pageCount = 0;
     const startedAt = Date.now();
 

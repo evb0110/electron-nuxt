@@ -72,6 +72,7 @@ fi
 check_file "$resource_root/qpdf/$platform_arch/bin/qpdf$exe_suffix" "qpdf binary"
 check_file "$resource_root/djvulibre/$platform_arch/bin/ddjvu$exe_suffix" "ddjvu binary"
 check_file "$resource_root/djvulibre/$platform_arch/bin/djvused$exe_suffix" "djvused binary"
+check_file "$resource_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine$exe_suffix" "pdf image combine binary"
 
 find_tool_files() {
   local tag="$1"
@@ -79,6 +80,7 @@ find_tool_files() {
   local dirs=(
     "$resource_root/tesseract/$tag/$kind"
     "$resource_root/poppler/$tag/$kind"
+    "$resource_root/pdf-image-combine/$tag/$kind"
     "$resource_root/qpdf/$tag/$kind"
     "$resource_root/djvulibre/$tag/$kind"
   )
@@ -185,6 +187,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "qpdf" "$resource_root/qpdf/$platform_arch/bin/qpdf" --version
   run_macos_packaged_tool_smoke "pdftoppm" "$resource_root/poppler/$platform_arch/bin/pdftoppm" -v
   run_macos_packaged_tool_smoke "pdftotext" "$resource_root/poppler/$platform_arch/bin/pdftotext" -v
+  run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$resource_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version
   run_macos_packaged_tool_smoke "tesseract" "$resource_root/tesseract/$platform_arch/bin/tesseract" --version
   run_macos_packaged_tool_smoke "unpaper" "$resource_root/tesseract/$platform_arch/bin/unpaper" --help
 fi
