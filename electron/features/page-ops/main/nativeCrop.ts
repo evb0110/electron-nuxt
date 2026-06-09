@@ -36,12 +36,12 @@ function getBinaryName() {
         : 'evb-pdf-page-ops';
 }
 
-function isNativePageOpsDisabled() {
+export function isNativePageOpsDisabled() {
     return process.env.EVB_PDF_PAGE_OPS_DISABLE === '1'
         || (process.env.VITEST === 'true' && process.env.EVB_PDF_PAGE_OPS_ENABLE !== '1');
 }
 
-function resolveNativePageOpsPath() {
+export function resolveNativePageOpsPath() {
     const overridePath = process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
     if (overridePath && existsSync(overridePath)) {
         return overridePath;

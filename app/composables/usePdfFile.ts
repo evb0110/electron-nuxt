@@ -10,7 +10,12 @@ import type {
     TPdfSource,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IPdfNativeAnnotationDelete,
+    IPdfNativeFreeTextNote,
+    IPdfNoteTextUpdate,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
@@ -43,6 +48,17 @@ interface IOpenBatchProgressState {
     percent: number;
     elapsedMs: number;
     estimatedRemainingMs: number | null;
+}
+
+interface IConformanceProfileRequest {
+    path: TDocumentRef;
+    requestId: number;
+    promise: Promise<IPdfConformanceProfile | null>;
+}
+
+interface IPdfPersistPhaseTiming {
+    phase: string;
+    durationMs: number;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
@@ -84,6 +100,7 @@ export const usePdfFile = () => {
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     let latestLoadRequestId = 0;
     let latestOpenRequestId = 0;
+    let conformanceProfileInFlight: IConformanceProfileRequest | null = null;
 
     function assertPdfHasBytes(size: number) {
         if (size > 0) {
@@ -552,6 +569,7 @@ export const usePdfFile = () => {
 
     function clearPdfConformanceProfile() {
         conformanceProfileRequestId += 1;
+        conformanceProfileInFlight = null;
         pdfConformanceProfile.value = null;
     }
 
@@ -573,13 +591,23 @@ export const usePdfFile = () => {
     function deferPdfConformanceProfile(path: TDocumentRef) {
         const requestId = ++conformanceProfileRequestId;
         pdfConformanceProfile.value = null;
-        readPdfConformanceProfile(path).then((profile) => {
+        const promise = readPdfConformanceProfile(path);
+        conformanceProfileInFlight = {
+            path,
+            requestId,
+            promise,
+        };
+        promise.then((profile) => {
             applyPdfConformanceProfile(path, requestId, profile);
         }).catch((conformanceError: unknown) => {
             BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
                 path,
                 error: conformanceError,
             });
+        }).finally(() => {
+            if (conformanceProfileInFlight?.requestId === requestId) {
+                conformanceProfileInFlight = null;
+            }
         });
     }
 
@@ -640,9 +668,25 @@ export const usePdfFile = () => {
             return null;
         }
 
+        const inFlight = conformanceProfileInFlight;
+        if (inFlight?.path === path) {
+            const profile = await inFlight.promise;
+            applyPdfConformanceProfile(path, inFlight.requestId, profile);
+            return profile;
+        }
+
         const requestId = ++conformanceProfileRequestId;
-        const profile = await readPdfConformanceProfile(path);
+        const promise = readPdfConformanceProfile(path);
+        conformanceProfileInFlight = {
+            path,
+            requestId,
+            promise,
+        };
+        const profile = await promise;
         applyPdfConformanceProfile(path, requestId, profile);
+        if (conformanceProfileInFlight?.requestId === requestId) {
+            conformanceProfileInFlight = null;
+        }
         return profile;
     }
 
@@ -711,7 +755,10 @@ export const usePdfFile = () => {
     async function commitPersistedPdfState(
         snapshotHint?: Uint8Array | null,
         expectedWorkingPath?: TDocumentRef,
-        opts?: { preserveLoadedSource?: boolean },
+        opts?: {
+            preserveLoadedSource?: boolean;
+            preserveConformanceProfile?: boolean;
+        },
     ) {
         const path = expectedWorkingPath ?? workingCopyPath.value;
         if (!path) {
@@ -765,7 +812,9 @@ export const usePdfFile = () => {
             markCurrentHistoryEntryClean(nextState.pdfData);
         }
 
-        deferPdfConformanceProfile(path);
+        if (opts?.preserveConformanceProfile !== true) {
+            deferPdfConformanceProfile(path);
+        }
         BrowserLogger.debug('workspace', 'Committed persisted PDF state', () => ({
             path,
             isDirty: isDirty.value,
@@ -793,6 +842,26 @@ export const usePdfFile = () => {
             pdfConformanceProfile.value,
             requiresSaveAsOnFirstSave.value,
         );
+    }
+
+    function roundDurationMs(durationMs: number) {
+        return Math.round(durationMs * 10) / 10;
+    }
+
+    async function measurePdfPersistPhase<T>(
+        phaseTimings: IPdfPersistPhaseTiming[],
+        phase: string,
+        operation: () => Promise<T>,
+    ) {
+        const start = performance.now();
+        try {
+            return await operation();
+        } finally {
+            phaseTimings.push({
+                phase,
+                durationMs: roundDurationMs(performance.now() - start),
+            });
+        }
     }
 
     async function shouldForceSaveAsForWorkingCopy(
@@ -1189,6 +1258,157 @@ export const usePdfFile = () => {
         }, opts?.expectedWorkingPath);
     }
 
+    async function trySaveEmbeddedNoteTextUpdates(
+        updates: IPdfNoteTextUpdate[],
+        opts: {
+            saveMode: TPdfSaveMode;
+            preserveLoadedSource?: boolean;
+            expectedWorkingPath?: TDocumentRef | null;
+            modifiedAt: string;
+            freeTextNotes?: IPdfNativeFreeTextNote[];
+            deletes?: IPdfNativeAnnotationDelete[];
+        },
+    ): Promise<IPdfPersistResult | null> {
+        const documents = getDocumentsCapability();
+        const freeTextNotes = opts.freeTextNotes ?? [];
+        const deletes = opts.deletes ?? [];
+        if (
+            freeTextNotes.length === 0
+            && updates.length === 0
+            && deletes.length === 0
+        ) {
+            return null;
+        }
+        if (
+            freeTextNotes.length === 0
+            && deletes.length === 0
+            && typeof documents.savePdfNoteTextUpdates !== 'function'
+        ) {
+            return null;
+        }
+        if (
+            (freeTextNotes.length > 0 || deletes.length > 0)
+            && typeof documents.savePdfNoteChanges !== 'function'
+        ) {
+            return null;
+        }
+
+        const requestedSaveMode = opts.saveMode;
+        const workingPath = workingCopyPath.value;
+        const expectedOriginalPath = originalPath.value;
+        if (!workingPath) {
+            return createFailedPersistResult(requestedSaveMode, false);
+        }
+        if (opts.expectedWorkingPath !== undefined && workingPath !== opts.expectedWorkingPath) {
+            BrowserLogger.debug('workspace', 'Skipped stale native note-text save request', {
+                expectedWorkingPath: opts.expectedWorkingPath,
+                currentWorkingPath: workingPath,
+                saveMode: requestedSaveMode,
+            });
+            return createStalePersistResult(requestedSaveMode, false);
+        }
+
+        const phaseTimings: IPdfPersistPhaseTiming[] = [];
+        const operationStart = performance.now();
+        const logRendererTimings = (status: string, extra?: Record<string, unknown>) => {
+            BrowserLogger.debug('workspace', 'Native note-text save renderer timings', {
+                status,
+                saveMode: requestedSaveMode,
+                updateCount: updates.length,
+                freeTextNoteCount: freeTextNotes.length,
+                deleteCount: deletes.length,
+                totalMs: roundDurationMs(performance.now() - operationStart),
+                phases: phaseTimings,
+                ...extra,
+            });
+        };
+
+        try {
+            const forceSaveAs = await measurePdfPersistPhase(
+                phaseTimings,
+                'should-force-save-as',
+                () => shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath),
+            );
+            if (!isActiveWorkingCopy(workingPath)) {
+                BrowserLogger.debug('workspace', 'Skipped stale native note-text save before write', {
+                    workingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                logRendererTimings('stale-before-write');
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (forceSaveAs) {
+                logRendererTimings('force-save-as');
+                return null;
+            }
+
+            const result = await measurePdfPersistPhase(
+                phaseTimings,
+                'native-ipc',
+                () => freeTextNotes.length > 0 || deletes.length > 0
+                    ? documents.savePdfNoteChanges!(workingPath, {
+                        ...(updates.length > 0 ? {updates} : {}),
+                        ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+                        ...(deletes.length > 0 ? {deletes} : {}),
+                    }, opts.modifiedAt)
+                    : documents.savePdfNoteTextUpdates!(workingPath, updates, opts.modifiedAt),
+            );
+            if (!result.applied || !result.validation?.isValid) {
+                logRendererTimings('not-applied', {validation: result.validation});
+                return null;
+            }
+            const commitWorkingPath = workingCopyPath.value;
+            if (!commitWorkingPath || originalPath.value !== expectedOriginalPath) {
+                BrowserLogger.debug('workspace', 'Skipped stale native note-text save completion', {
+                    workingPath,
+                    expectedOriginalPath,
+                    currentOriginalPath: originalPath.value,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+                logRendererTimings('stale-after-write');
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            if (commitWorkingPath !== workingPath) {
+                BrowserLogger.debug('workspace', 'Using refreshed working copy after native note-text save', {
+                    workingPath,
+                    refreshedWorkingPath: commitWorkingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                    saveMode: requestedSaveMode,
+                });
+            }
+
+            const commitOptions = opts.preserveLoadedSource
+                ? {
+                    preserveLoadedSource: true,
+                    preserveConformanceProfile: true,
+                }
+                : undefined;
+            const committed = await measurePdfPersistPhase(
+                phaseTimings,
+                'commit-persisted-state',
+                () => commitPersistedPdfState(undefined, commitWorkingPath, commitOptions),
+            );
+            if (!committed) {
+                logRendererTimings('stale-commit');
+                return createStalePersistResult(requestedSaveMode, false);
+            }
+            lastSaveMode.value = requestedSaveMode;
+            logRendererTimings('applied');
+            return createPersistResult(true, requestedSaveMode, false);
+        } catch (saveError) {
+            BrowserLogger.debug('workspace', 'Native note-text save unavailable; falling back to serialized PDF save', {
+                error: getErrorMessage(saveError),
+                updateCount: updates.length,
+                saveMode: requestedSaveMode,
+                totalMs: roundDurationMs(performance.now() - operationStart),
+                phases: phaseTimings,
+            });
+            return null;
+        }
+    }
+
     async function saveWorkingCopyAs(
         data?: Uint8Array,
         opts?: {
@@ -1415,6 +1635,7 @@ export const usePdfFile = () => {
         readWorkingCopyBytes,
         saveFile,
         saveWorkingCopy,
+        trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         closeFile,
         markDirty,

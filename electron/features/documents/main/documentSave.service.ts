@@ -1,6 +1,5 @@
 import { existsSync } from 'fs';
 import {
-    copyFile,
     rm,
     writeFile,
 } from 'fs/promises';
@@ -27,6 +26,7 @@ import {
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 
 export type TShowSaveDialogWithExtension = (
     event: Electron.IpcMainInvokeEvent,
@@ -91,7 +91,7 @@ export async function savePdfAs(
                 throw new Error('Working copy is not a valid PDF');
             }
 
-            await copyFile(normalizedWorkingPath, tempPath);
+            await copyFileCopyOnWrite(normalizedWorkingPath, tempPath);
             await atomicReplace(tempPath, targetPath);
             replaced = true;
         } finally {
@@ -166,7 +166,7 @@ export async function savePdfDataAs(
 
         await atomicReplace(tempPath, targetPath);
         replaced = true;
-        await copyFile(targetPath, normalizedWorkingPath);
+        await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
         setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, event.sender.id);
         allowOpenPath(targetPath, event.sender);
         await addRecentFile(targetPath);

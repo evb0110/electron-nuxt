@@ -1,5 +1,4 @@
 import {
-    copyFile,
     rm,
     writeFile,
 } from 'fs/promises';
@@ -16,6 +15,7 @@ import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissin
 import { normalizeIpcWritePayload } from '@electron/features/documents/main/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 
 function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
     const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
@@ -72,7 +72,7 @@ export async function handleFileSave(
 
             return replaceOriginalWithValidatedTemp(
                 originalPath,
-                tempPath => copyFile(normalizedWorkingPath, tempPath),
+                tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
             );
         });
         if (!validation.isValid) {
@@ -111,7 +111,7 @@ export async function handleSerializedPdfSave(
                 tempPath => writeFile(tempPath, payload),
             );
             if (queuedValidation.isValid) {
-                await copyFile(originalPath, normalizedWorkingPath);
+                await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
             }
 
             return queuedValidation;

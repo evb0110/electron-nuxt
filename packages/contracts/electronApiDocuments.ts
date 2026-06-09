@@ -35,6 +35,48 @@ export interface IOpenDjvuResult {
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
+export interface IPdfNoteTextUpdate {
+    objectNumber: number;
+    generationNumber: number;
+    text: string;
+}
+
+export interface IPdfNativeFreeTextNoteMarkerRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+export interface IPdfNativeFreeTextNote {
+    pageIndex: number;
+    stableKey: string;
+    text: string;
+    markerRect: IPdfNativeFreeTextNoteMarkerRect;
+    author?: string | null;
+    color?: string | null;
+    createdAt?: number | null;
+}
+
+export interface IPdfNativeAnnotationDelete {
+    pageIndex: number;
+    objectNumber?: number;
+    generationNumber?: number;
+    stableKey?: string;
+    createdAt?: number | null;
+}
+
+export interface IPdfNativeNoteChanges {
+    updates?: IPdfNoteTextUpdate[];
+    freeTextNotes?: IPdfNativeFreeTextNote[];
+    deletes?: IPdfNativeAnnotationDelete[];
+}
+
+export interface IPdfNativeNoteTextSaveResult {
+    applied: boolean;
+    validation: IPdfValidationResult | null;
+}
+
 export interface IImageExportCapability {
     exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
         success: boolean;
@@ -134,6 +176,16 @@ export interface IDocumentsFileCapability {
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
     saveFile: (path: TDocumentRef) => Promise<boolean>;
     savePdfData: (path: TDocumentRef, data: Uint8Array) => Promise<IPdfValidationResult>;
+    savePdfNoteTextUpdates?: (
+        path: TDocumentRef,
+        updates: IPdfNoteTextUpdate[],
+        modifiedAt: string,
+    ) => Promise<IPdfNativeNoteTextSaveResult>;
+    savePdfNoteChanges?: (
+        path: TDocumentRef,
+        changes: IPdfNativeNoteChanges,
+        modifiedAt: string,
+    ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array) => Promise<{
         path: TDocumentRef | null;
         validation: IPdfValidationResult | null;

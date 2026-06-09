@@ -23,6 +23,8 @@ const mockDocuments = {
     writeFile: vi.fn(),
     createWorkingCopyFromPath: vi.fn(),
     saveFile: vi.fn(),
+    savePdfNoteTextUpdates: vi.fn(),
+    savePdfNoteChanges: vi.fn(),
     savePdfAs: vi.fn(),
     statFile: vi.fn(),
     cleanupFile: vi.fn(),
@@ -940,6 +942,112 @@ describe('usePdfFile', () => {
             await vi.waitFor(() => {
                 expect(file.pdfConformanceProfile.value).toEqual(postSaveProfile);
             });
+        });
+
+        it('keeps the current conformance profile after native note text saves', async () => {
+            const largePdfSize = 128 * 1024 * 1024;
+            const unsignedProfile = {
+                isSigned: false,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: false,
+                hasXfa: false,
+                canIncrementalSave: true,
+                saveRestrictions: [] as string[],
+            };
+            mockDocuments.statFile.mockResolvedValue({ size: largePdfSize });
+            mockDocuments.analyzePdfConformance.mockResolvedValue(unsignedProfile);
+            mockDocuments.savePdfNoteTextUpdates.mockResolvedValue({
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'native',
+                    errors: [],
+                    warnings: [],
+                },
+            });
+
+            const file = usePdfFile();
+            await file.loadPdfFromPath('/tmp/large.pdf');
+            await vi.waitFor(() => {
+                expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
+            });
+
+            await expect(file.trySaveEmbeddedNoteTextUpdates([{
+                objectNumber: 42,
+                generationNumber: 0,
+                text: 'First',
+            }], {
+                saveMode: 'rewrite',
+                preserveLoadedSource: true,
+                modifiedAt: 'D:20260609133855+03\'00\'',
+            })).resolves.toMatchObject({success: true});
+
+            await expect(file.trySaveEmbeddedNoteTextUpdates([{
+                objectNumber: 42,
+                generationNumber: 0,
+                text: 'Second',
+            }], {
+                saveMode: 'rewrite',
+                preserveLoadedSource: true,
+                modifiedAt: 'D:20260609133856+03\'00\'',
+            })).resolves.toMatchObject({success: true});
+
+            expect(mockDocuments.savePdfNoteTextUpdates).toHaveBeenCalledTimes(2);
+            expect(mockDocuments.analyzePdfConformance).toHaveBeenCalledTimes(1);
+            expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
+        });
+
+        it('reuses deferred conformance analysis when native note text save starts before it settles', async () => {
+            const largePdfSize = 128 * 1024 * 1024;
+            const unsignedProfile = {
+                isSigned: false,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: false,
+                hasXfa: false,
+                canIncrementalSave: true,
+                saveRestrictions: [] as string[],
+            };
+            const conformanceGate = deferred<typeof unsignedProfile>();
+            mockDocuments.statFile.mockResolvedValue({ size: largePdfSize });
+            mockDocuments.analyzePdfConformance.mockImplementation(() => conformanceGate.promise);
+            mockDocuments.savePdfNoteTextUpdates.mockResolvedValue({
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'native',
+                    errors: [],
+                    warnings: [],
+                },
+            });
+
+            const file = usePdfFile();
+            await file.loadPdfFromPath('/tmp/large.pdf');
+            expect(file.pdfConformanceProfile.value).toBeNull();
+
+            const savePromise = file.trySaveEmbeddedNoteTextUpdates([{
+                objectNumber: 42,
+                generationNumber: 0,
+                text: 'First',
+            }], {
+                saveMode: 'rewrite',
+                preserveLoadedSource: true,
+                modifiedAt: 'D:20260609133855+03\'00\'',
+            });
+
+            await Promise.resolve();
+            expect(mockDocuments.analyzePdfConformance).toHaveBeenCalledTimes(1);
+            expect(mockDocuments.savePdfNoteTextUpdates).not.toHaveBeenCalled();
+
+            conformanceGate.resolve(unsignedProfile);
+            await expect(savePromise).resolves.toMatchObject({success: true});
+
+            expect(mockDocuments.savePdfNoteTextUpdates).toHaveBeenCalledTimes(1);
+            expect(mockDocuments.analyzePdfConformance).toHaveBeenCalledTimes(1);
+            expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
         });
 
         it('ignores stale deferred conformance results for the same working path', async () => {

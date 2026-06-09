@@ -1,5 +1,10 @@
 import type { IpcRenderer } from 'electron';
-import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsFileCapability,
+    IPdfNativeAnnotationDelete,
+    IPdfNativeFreeTextNote,
+    IPdfNativeFreeTextNoteMarkerRect,
+} from '@contracts/electronApiDocuments';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     DOCUMENTS_CHANNELS,
@@ -17,8 +22,12 @@ import {
 
 type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile'>;
 const PDF_PERSISTENCE_CHUNK_BYTES = 8 * 1024 * 1024;
+const PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS = 2;
 const PDF_PERSISTENCE_READY_TIMEOUT_MS = 10_000;
 const PDF_PERSISTENCE_ACK_TIMEOUT_MS = 60_000;
+const PDF_NOTE_TEXT_MAX_UPDATES = 256;
+const PDF_NATIVE_NOTE_MAX_CHANGES = 256;
+const PDF_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
 
 interface ISerializedPdfPersistencePortResult {
     path: string | null;
@@ -58,6 +67,220 @@ function assertPositiveInteger(value: number, label: string) {
     return value;
 }
 
+function assertPdfNoteTextUpdates(
+    value: unknown,
+    label: string,
+    options: {allowEmpty?: boolean} = {},
+) {
+    if (
+        !Array.isArray(value)
+        || (!options.allowEmpty && value.length === 0)
+        || value.length > PDF_NOTE_TEXT_MAX_UPDATES
+    ) {
+        const emptyDescription = options.allowEmpty ? 'an array' : 'a non-empty array';
+        throw new TypeError(`${label} must be ${emptyDescription} with at most ${PDF_NOTE_TEXT_MAX_UPDATES} updates`);
+    }
+
+    return value.map((update, index) => {
+        if (!isRecord(update)) {
+            throw new TypeError(`${label}[${index}] must be an object`);
+        }
+        const objectNumber = update.objectNumber;
+        const generationNumber = update.generationNumber;
+        const text = update.text;
+        if (typeof objectNumber !== 'number' || !Number.isSafeInteger(objectNumber) || objectNumber < 1) {
+            throw new TypeError(`${label}[${index}].objectNumber must be a positive safe integer`);
+        }
+        if (
+            typeof generationNumber !== 'number'
+            || !Number.isSafeInteger(generationNumber)
+            || generationNumber < 0
+            || generationNumber > 65_535
+        ) {
+            throw new TypeError(`${label}[${index}].generationNumber must be an integer from 0 to 65535`);
+        }
+        if (typeof text !== 'string') {
+            throw new TypeError(`${label}[${index}].text must be a string`);
+        }
+        return {
+            objectNumber,
+            generationNumber,
+            text,
+        };
+    });
+}
+
+function assertPdfDateString(value: unknown, label: string) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (!PDF_DATE_PATTERN.test(normalized)) {
+        throw new TypeError(`${label} must be a PDF date string`);
+    }
+    return normalized;
+}
+
+function assertFiniteUnitNumber(value: unknown, label: string) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+        throw new TypeError(`${label} must be a finite number from 0 to 1`);
+    }
+    return value;
+}
+
+function assertPdfNativeFreeTextNoteMarkerRect(value: unknown, label: string): IPdfNativeFreeTextNoteMarkerRect {
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    const left = assertFiniteUnitNumber(value.left, `${label}.left`);
+    const top = assertFiniteUnitNumber(value.top, `${label}.top`);
+    const width = assertFiniteUnitNumber(value.width, `${label}.width`);
+    const height = assertFiniteUnitNumber(value.height, `${label}.height`);
+    if (width <= 0 || height <= 0 || left + width > 1 || top + height > 1) {
+        throw new TypeError(`${label} must fit inside the normalized page bounds`);
+    }
+    return {
+        left,
+        top,
+        width,
+        height,
+    };
+}
+
+function assertOptionalString(value: unknown, label: string) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (typeof value !== 'string') {
+        throw new TypeError(`${label} must be a string or null`);
+    }
+    return value;
+}
+
+function assertOptionalTimestamp(value: unknown, label: string) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        throw new TypeError(`${label} must be a finite positive timestamp or null`);
+    }
+    return Math.trunc(value);
+}
+
+function assertPdfNativeFreeTextNotes(value: unknown, label: string) {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_NOTE_MAX_CHANGES) {
+        throw new TypeError(`${label} must be an array with at most ${PDF_NATIVE_NOTE_MAX_CHANGES} notes`);
+    }
+
+    return value.map((note, index): IPdfNativeFreeTextNote => {
+        if (!isRecord(note)) {
+            throw new TypeError(`${label}[${index}] must be an object`);
+        }
+        if (
+            typeof note.pageIndex !== 'number'
+            || !Number.isSafeInteger(note.pageIndex)
+            || note.pageIndex < 0
+        ) {
+            throw new TypeError(`${label}[${index}].pageIndex must be a non-negative safe integer`);
+        }
+        const stableKey = typeof note.stableKey === 'string' ? note.stableKey.trim() : '';
+        if (!stableKey) {
+            throw new TypeError(`${label}[${index}].stableKey must be a non-empty string`);
+        }
+        if (typeof note.text !== 'string') {
+            throw new TypeError(`${label}[${index}].text must be a string`);
+        }
+        return {
+            pageIndex: note.pageIndex,
+            stableKey,
+            text: note.text,
+            markerRect: assertPdfNativeFreeTextNoteMarkerRect(note.markerRect, `${label}[${index}].markerRect`),
+            author: assertOptionalString(note.author, `${label}[${index}].author`),
+            color: assertOptionalString(note.color, `${label}[${index}].color`),
+            createdAt: assertOptionalTimestamp(note.createdAt, `${label}[${index}].createdAt`),
+        };
+    });
+}
+
+function assertPdfNativeAnnotationDeletes(value: unknown, label: string) {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_NOTE_MAX_CHANGES) {
+        throw new TypeError(`${label} must be an array with at most ${PDF_NATIVE_NOTE_MAX_CHANGES} deletes`);
+    }
+
+    return value.map((item, index): IPdfNativeAnnotationDelete => {
+        if (!isRecord(item)) {
+            throw new TypeError(`${label}[${index}] must be an object`);
+        }
+        const stableKey = typeof item.stableKey === 'string' ? item.stableKey.trim() : '';
+        const hasRef = item.objectNumber !== undefined || item.generationNumber !== undefined;
+        const hasValidRef = typeof item.objectNumber === 'number'
+            && Number.isSafeInteger(item.objectNumber)
+            && item.objectNumber >= 1
+            && typeof item.generationNumber === 'number'
+            && Number.isSafeInteger(item.generationNumber)
+            && item.generationNumber >= 0
+            && item.generationNumber <= 65_535;
+        const createdAt = item.createdAt === undefined || item.createdAt === null
+            ? null
+            : item.createdAt;
+        if (
+            typeof item.pageIndex !== 'number'
+            || !Number.isSafeInteger(item.pageIndex)
+            || item.pageIndex < 0
+            || (hasRef && !hasValidRef)
+            || (!hasValidRef && !stableKey)
+            || (createdAt !== null && (
+                typeof createdAt !== 'number'
+                || !Number.isFinite(createdAt)
+                || createdAt < 0
+            ))
+        ) {
+            throw new TypeError(`${label}[${index}] must contain a valid pageIndex and either a PDF object ref or stableKey`);
+        }
+        const normalizedDelete = {
+            pageIndex: item.pageIndex,
+            ...(stableKey ? {stableKey} : {}),
+            ...(createdAt !== null ? {createdAt: Math.trunc(createdAt)} : {}),
+        };
+        if (!hasValidRef) {
+            return normalizedDelete;
+        }
+        return {
+            ...normalizedDelete,
+            objectNumber: item.objectNumber as number,
+            generationNumber: item.generationNumber as number,
+        };
+    });
+}
+
+function assertPdfNativeNoteChanges(
+    value: unknown,
+    label: string,
+): NonNullable<Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>[1]> {
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    const updates = value.updates === undefined
+        ? []
+        : assertPdfNoteTextUpdates(value.updates, `${label}.updates`, {allowEmpty: true});
+    const freeTextNotes = assertPdfNativeFreeTextNotes(value.freeTextNotes, `${label}.freeTextNotes`);
+    const deletes = assertPdfNativeAnnotationDeletes(value.deletes, `${label}.deletes`);
+    if (updates.length + freeTextNotes.length + deletes.length === 0) {
+        throw new TypeError(`${label} must include at least one note change`);
+    }
+    if (updates.length + freeTextNotes.length + deletes.length > PDF_NATIVE_NOTE_MAX_CHANGES) {
+        throw new TypeError(`${label} must include at most ${PDF_NATIVE_NOTE_MAX_CHANGES} note changes`);
+    }
+    return {
+        ...(updates.length > 0 ? {updates} : {}),
+        ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+        ...(deletes.length > 0 ? {deletes} : {}),
+    };
+}
+
 function assertPersistenceData(value: unknown, fieldName: string) {
     if (!(value instanceof Uint8Array)) {
         throw new Error(`${fieldName} must be a Uint8Array`);
@@ -71,7 +294,7 @@ function assertPersistenceData(value: unknown, fieldName: string) {
 function isPdfValidationResult(value: unknown): value is TPdfValidationResult {
     return isRecord(value)
         && typeof value.isValid === 'boolean'
-        && (value.tool === 'qpdf' || value.tool === 'browser')
+        && (value.tool === 'qpdf' || value.tool === 'browser' || value.tool === 'native')
         && Array.isArray(value.errors)
         && value.errors.every(error => typeof error === 'string')
         && Array.isArray(value.warnings)
@@ -174,9 +397,6 @@ function waitForPortAck(port: MessagePort, expectedSeq: number) {
             }
             if (payload.type === 'ack') {
                 if (payload.seq !== expectedSeq) {
-                    clearTimeout(timeout);
-                    port.removeEventListener('message', handleMessage);
-                    reject(new Error('Unexpected PDF persistence acknowledgement sequence'));
                     return;
                 }
                 clearTimeout(timeout);
@@ -207,6 +427,7 @@ async function streamPdfBytesToPersistencePort(
         await waitForPortReady(channel.port1);
 
         let seq = 0;
+        const inFlightAcks: Array<Promise<void>> = [];
         for (let offset = 0; offset < data.byteLength; offset += PDF_PERSISTENCE_CHUNK_BYTES) {
             const end = Math.min(offset + PDF_PERSISTENCE_CHUNK_BYTES, data.byteLength);
             const bytes = data.slice(offset, end);
@@ -215,9 +436,13 @@ async function streamPdfBytesToPersistencePort(
                 seq,
                 bytes,
             });
-            await waitForPortAck(channel.port1, seq);
+            inFlightAcks.push(waitForPortAck(channel.port1, seq));
+            if (inFlightAcks.length >= PDF_PERSISTENCE_MAX_IN_FLIGHT_CHUNKS) {
+                await inFlightAcks.shift();
+            }
             seq += 1;
         }
+        await Promise.all(inFlightAcks);
 
         channel.port1.postMessage({ type: 'complete' });
         return await resultPromise;
@@ -367,6 +592,20 @@ export function createDocumentsPreloadFileClient(
             const result = await streamPdfBytesToPersistencePort(ipcRenderer, beginResult.sessionId, checkedData);
             return result.validation;
         },
+        savePdfNoteTextUpdates: (path, updates, modifiedAt) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates,
+                assertAbsolutePath(path, 'savePdfNoteTextUpdates.path'),
+                assertPdfNoteTextUpdates(updates, 'savePdfNoteTextUpdates.updates'),
+                assertPdfDateString(modifiedAt, 'savePdfNoteTextUpdates.modifiedAt'),
+            ),
+        savePdfNoteChanges: (path, changes, modifiedAt) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileSavePdfNoteChanges,
+                assertAbsolutePath(path, 'savePdfNoteChanges.path'),
+                assertPdfNativeNoteChanges(changes, 'savePdfNoteChanges.changes'),
+                assertPdfDateString(modifiedAt, 'savePdfNoteChanges.modifiedAt'),
+            ),
         cleanupFile: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
         cleanupOcrTemp: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
         setWindowTitle: (title) => invoke(DOCUMENTS_CHANNELS.windowSetTitle, title),

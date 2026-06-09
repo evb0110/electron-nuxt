@@ -3,6 +3,11 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
+import type {
+    IPdfNativeNoteChanges,
+    IPdfNativeNoteTextSaveResult,
+    IPdfNoteTextUpdate,
+} from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
@@ -79,6 +84,18 @@ export interface IDocumentsService {
     writeDocxFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;
     savePdfData: (event: IpcMainInvokeEvent, workingPath: string, data: Uint8Array) => Promise<IPdfValidationResult>;
+    savePdfNoteTextUpdates: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        updates: IPdfNoteTextUpdate[],
+        modifiedAt: string,
+    ) => Promise<IPdfNativeNoteTextSaveResult>;
+    savePdfNoteChanges: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        changes: IPdfNativeNoteChanges,
+        modifiedAt: string,
+    ) => Promise<IPdfNativeNoteTextSaveResult>;
     beginSavePdfData: (
         event: IpcMainInvokeEvent,
         workingPath: string,

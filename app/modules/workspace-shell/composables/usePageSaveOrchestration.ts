@@ -62,6 +62,7 @@ type TSharedSaveOperationDeps = Pick<
     | 'validatePdfPath'
     | 'saveFile'
     | 'saveWorkingCopy'
+    | 'trySaveEmbeddedNoteTextUpdates'
     | 'saveWorkingCopyAs'
 >;
 
@@ -142,6 +143,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         validatePdfPath,
         saveFile,
         saveWorkingCopy,
+        trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
@@ -203,6 +205,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         validatePdfPath,
         saveFile,
         saveWorkingCopy,
+        ...(trySaveEmbeddedNoteTextUpdates !== undefined ? { trySaveEmbeddedNoteTextUpdates } : {}),
         saveWorkingCopyAs,
         markAnnotationSaved,
         markPageLabelsSaved,
