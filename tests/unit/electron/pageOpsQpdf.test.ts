@@ -230,4 +230,44 @@ describe('page-ops qpdf working-copy mutations', () => {
             });
         }
     });
+
+    it('formats delete complements as compact qpdf ranges without prebuilding every page index', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockResolvedValueOnce({
+                exitCode: 0,
+                stdout: '7\n',
+                stderr: '',
+            });
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).toContain('1,3,6-7');
+                await writeFile(tempOutputPath, '%PDF-1.7\ndeleted');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { deletePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await expect(deletePages(workingCopyPath, [
+                2,
+                4,
+                5,
+            ], 7, 12)).resolves.toEqual({ pageCount: 4 });
+
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\ndeleted');
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
 });

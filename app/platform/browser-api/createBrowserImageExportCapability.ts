@@ -90,17 +90,9 @@ interface IRenderedPdfPageCanvas {
     context: CanvasRenderingContext2D;
 }
 
-function mergeUint8Arrays(parts: Uint8Array[]) {
-    const totalLength = sumBy(parts, part => part.byteLength);
-    const output = new Uint8Array(totalLength);
-    let offset = 0;
-
-    for (const part of parts) {
-        output.set(part, offset);
-        offset += part.byteLength;
-    }
-
-    return output;
+function releaseCanvas(canvas: HTMLCanvasElement) {
+    canvas.width = 0;
+    canvas.height = 0;
 }
 
 function resolveBrowserImageExportExtension(format: TBrowserImageExportFormat) {
@@ -184,6 +176,7 @@ async function withRenderedPdfPageCanvas<T>(
         } catch {
             // Cleanup is best effort.
         }
+        releaseCanvas(canvas);
     }
 }
 
@@ -199,9 +192,10 @@ async function renderPdfPage(
             context,
         }) => {
             const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
             return {
                 pageNumber,
-                rgba: new Uint8Array(imageData.data),
+                rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
                 width: canvas.width,
                 height: canvas.height,
             };
@@ -334,6 +328,21 @@ function encodeMultiPageTiffHeader(pageDescriptors: ITiffPageDescriptor[]) {
     };
 }
 
+function createMultiPageTiffOutput(pageDescriptors: ITiffPageDescriptor[]) {
+    const {
+        header,
+        firstDataOffset,
+    } = encodeMultiPageTiffHeader(pageDescriptors);
+    const output = new Uint8Array(
+        firstDataOffset + sumBy(pageDescriptors, descriptor => descriptor.dataLength),
+    );
+    output.set(header);
+    return {
+        output,
+        firstDataOffset,
+    };
+}
+
 async function encodeTiffToWritable(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageDescriptors: ITiffPageDescriptor[],
@@ -369,6 +378,30 @@ async function encodeTiffToWritable(
         await writable.abort().catch(() => undefined);
         throw error;
     }
+}
+
+async function encodeTiffToBytes(
+    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pageDescriptors: ITiffPageDescriptor[],
+) {
+    const {
+        output,
+        firstDataOffset,
+    } = createMultiPageTiffOutput(pageDescriptors);
+    let offset = firstDataOffset;
+
+    for (const descriptor of pageDescriptors) {
+        const rendered = await renderPdfPage(pdfDocument, descriptor.pageNumber);
+        if (rendered.rgba.byteLength !== descriptor.dataLength) {
+            throw new Error('Rendered TIFF page size did not match the expected descriptor size');
+        }
+
+        output.set(rendered.rgba, offset);
+        offset += descriptor.dataLength;
+        await yieldToBrowser();
+    }
+
+    return output;
 }
 
 async function loadPdfDocument(path: string) {
@@ -576,24 +609,9 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     );
                 }
 
-                const renderedPages: IRenderedPdfPage[] = [];
-                try {
-                    for (const pageNumber of targetPages) {
-                        renderedPages.push(await renderPdfPage(pdfDocument.pdfDocument, pageNumber));
-                        if (renderedPages.length % 2 === 0) {
-                            await yieldToBrowser();
-                        }
-                    }
-                } finally {
-                    // Nothing to clean up here beyond the document itself.
-                }
-
-                const tiffBytes = encodeMultiPageTiff(
-                    renderedPages.map((page) => ({
-                        rgba: page.rgba,
-                        width: page.width,
-                        height: page.height,
-                    })),
+                const tiffBytes = await encodeTiffToBytes(
+                    pdfDocument.pdfDocument,
+                    descriptors,
                 );
 
                 const saveResult = await saveBytesToPickerOrDownload(tiffBytes, {
@@ -657,14 +675,14 @@ function encodeMultiPageTiff(
         dataLength: page.rgba.byteLength,
     }));
     const {
-        header,
         firstDataOffset,
-    } = encodeMultiPageTiffHeader(pageDescriptors);
-    const parts = [
-        header,
-        new Uint8Array(Math.max(0, firstDataOffset - header.length)),
-        ...pages.map((page) => page.rgba),
-    ];
+        output,
+    } = createMultiPageTiffOutput(pageDescriptors);
+    let offset = firstDataOffset;
+    for (const page of pages) {
+        output.set(page.rgba, offset);
+        offset += page.rgba.byteLength;
+    }
 
-    return mergeUint8Arrays(parts);
+    return output;
 }

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(),
     readFile: vi.fn(),
     rm: vi.fn(),
+    stat: vi.fn(),
     writeFile: vi.fn(),
     atomicReplace: vi.fn(),
     extractTextFromPdf: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 vi.mock('fs/promises', () => ({
     readFile: mocks.readFile,
     rm: mocks.rm,
+    stat: mocks.stat,
     writeFile: mocks.writeFile,
 }));
 
@@ -57,6 +59,7 @@ describe('buildSearchIndex cancellation', () => {
         mocks.existsSync.mockReturnValue(false);
         mocks.readFile.mockRejectedValue(new Error('ENOENT'));
         mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({ size: 0 });
         mocks.atomicReplace.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
     });
@@ -129,6 +132,7 @@ describe('buildSearchIndex assembly', () => {
         vi.clearAllMocks();
         mocks.existsSync.mockReturnValue(false);
         mocks.readFile.mockRejectedValue(new Error('ENOENT'));
+        mocks.stat.mockResolvedValue({ size: 0 });
         mocks.writeFile.mockResolvedValue(undefined);
     });
 
@@ -202,6 +206,24 @@ describe('buildSearchIndex assembly', () => {
             }),
         ]);
         expect(result.pageCount).toBe(3);
+    });
+
+    it('uses pdftotext before pdfjs for large PDFs', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.stat.mockResolvedValue({ size: 128 * 1024 * 1024 });
+        mocks.extractTextFromPdf.mockResolvedValue([{
+            pageNumber: 1,
+            text: 'from-pdftotext',
+        }]);
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 1 });
+
+        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', { pageCount: 1 });
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(result.pages).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            text: 'from-pdftotext',
+        })]);
     });
 
     it('prefers OCR pageData words over previously extracted text and raw OCR text', async () => {

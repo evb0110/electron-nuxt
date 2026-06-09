@@ -601,7 +601,7 @@ describe('createBrowserSearchCapability', () => {
         expect(getPage).toHaveBeenCalledTimes(2);
     });
 
-    it('persists a full page-text index after truncated streaming search', async () => {
+    it('stops direct extraction after truncated streaming search without persisting a full index', async () => {
         vi.doMock('@app/platform/browser-api/browserSearchLimits', () => ({
             SEARCH_EXCERPT_CONTEXT_CHARS: 10,
             SEARCH_RESULT_LIMIT: 2,
@@ -642,8 +642,12 @@ describe('createBrowserSearchCapability', () => {
             truncated: true,
         });
         expect(secondRun.truncated).toBe(true);
-        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(1);
-        expect(getPage).toHaveBeenCalledTimes(3);
+        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
+        expect(getPage).toHaveBeenCalledTimes(4);
+
+        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
+        expect(database?.getStoreRecords('document-text').size ?? 0).toBe(0);
     });
 
     it('assigns page match indexes without scanning prior results', async () => {
