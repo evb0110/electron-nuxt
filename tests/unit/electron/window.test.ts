@@ -330,6 +330,47 @@ describe('window runtime readiness', () => {
         expect(mocks.clearCache).toHaveBeenCalledTimes(1);
     });
 
+    it('logs transient unresponsive renderer events as warnings', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+
+        window?.emit('unresponsive');
+
+        expect(mocks.logger.warn).toHaveBeenCalledWith('[renderer] window unresponsive (windowId=1)');
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+
+        window?.emit('responsive');
+    });
+
+    it('escalates persistent unresponsive renderers after the recovery delay', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            const { createAppWindow } = await import('@electron/window');
+
+            await createAppWindow();
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window).toBeDefined();
+            vi.clearAllMocks();
+
+            window?.emit('unresponsive');
+            expect(mocks.logger.error).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            expect(mocks.logger.error).toHaveBeenCalledWith(
+                '[renderer] window remained unresponsive after 15000ms (windowId=1)',
+            );
+            expect(mocks.dialog.showMessageBox).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('rejects strict startup when the initial loadURL call fails', async () => {
         const loadError = new Error('renderer bootstrap failed');
         const { createAppWindow } = await import('@electron/window');

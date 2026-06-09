@@ -210,7 +210,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
     });
 
     window.on('unresponsive', () => {
-        logger.error(`[renderer] window unresponsive (windowId=${windowId})`);
+        logger.warn(`[renderer] window unresponsive (windowId=${windowId})`);
         if (config.isDev || recoveryAttempted || window.isDestroyed() || UNRESPONSIVE_RECOVERY_DELAY_MS <= 0) {
             return;
         }
@@ -222,6 +222,10 @@ function attachRendererDiagnostics(window: BrowserWindow) {
             }
 
             unresponsivePromptInFlight = true;
+            logger.error(
+                `[renderer] window remained unresponsive after ${UNRESPONSIVE_RECOVERY_DELAY_MS}ms `
+                + `(windowId=${windowId})`,
+            );
             logger.warn(`[renderer] prompting recovery for unresponsive renderer (windowId=${windowId})`);
             void promptUnresponsiveRendererRecovery(window, windowId, recoverRenderer)
                 .finally(() => {
