@@ -157,7 +157,11 @@ function createHarness() {
         removeAnnotationNoteWindow: vi.fn(),
         setAnnotationNoteWindowError: vi.fn(),
         isSameAnnotationComment: vi.fn((a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => a.stableKey === b.stableKey),
-        annotationNoteWindows: ref<Array<{ comment: IAnnotationCommentSummary }>>([]),
+        annotationNoteWindows: ref<Array<{
+            comment: IAnnotationCommentSummary;
+            text?: string | undefined;
+            createdAtMs?: number | undefined;
+        }>>([]),
         loadPdfFromData: vi.fn(async (_data: Uint8Array, _opts?: {
             pushHistory?: boolean;
             persistWorkingCopy?: boolean;
@@ -315,6 +319,64 @@ describe('usePageAnnotationActions', () => {
             vi.runOnlyPendingTimers();
 
             expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('redoes a fresh editor note with the latest saved note text and identity', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-05-26T12:00:00Z'));
+        try {
+            const {
+                deps,
+                viewer,
+                actions,
+            } = createHarness();
+            const comment = createComment('src:editor:0:transient-note');
+            comment.source = 'editor';
+            comment.id = 'transient-note';
+            comment.subtype = 'FreeText';
+            comment.hasNote = true;
+            comment.text = '\u200B';
+            comment.markerRect = {
+                left: 0.25,
+                top: 0.35,
+                width: 0.01,
+                height: 0.01,
+            };
+
+            actions.handleOpenAnnotationNote(comment);
+            const openedComment = deps.openAnnotationNoteWindow.mock.calls[0]?.[0] as IAnnotationCommentSummary;
+            const savedComment: IAnnotationCommentSummary = {
+                ...openedComment,
+                id: 'actual-editor',
+                uid: 'actual-editor',
+                stableKey: 'uid:0:actual-editor',
+                text: 'Saved note text',
+                modifiedAt: Date.now() + 1_000,
+            };
+            deps.annotationNoteWindows.value = [{
+                comment: savedComment,
+                text: 'Saved note text',
+            }];
+            vi.runOnlyPendingTimers();
+
+            const command = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
+            expect(command).toBeDefined();
+
+            command!.undo();
+
+            expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(savedComment);
+            expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith('uid:0:actual-editor');
+            expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('uid:0:actual-editor');
+
+            command!.cmd();
+
+            expect(deps.restoreAnnotationToCache).toHaveBeenLastCalledWith(savedComment);
+            expect(viewer.restoreAnnotationToInternalCache).toHaveBeenLastCalledWith(savedComment);
+            expect(deps.openAnnotationNoteWindow).toHaveBeenLastCalledWith(savedComment);
+            expect(deps.annotationActiveCommentStableKey.value).toBe('uid:0:actual-editor');
         } finally {
             vi.useRealTimers();
         }
