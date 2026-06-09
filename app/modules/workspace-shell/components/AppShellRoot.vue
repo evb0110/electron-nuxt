@@ -1090,6 +1090,7 @@ useAppShellLifecycle({
 
 .browser-install-hint {
     position: fixed;
+    top: auto;
     bottom: 2.5rem;
     right: 1rem;
     z-index: 35;
