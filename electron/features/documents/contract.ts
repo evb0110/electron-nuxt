@@ -46,6 +46,8 @@ export const DOCUMENTS_CHANNELS = {
     fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
+    fileSavePdfNoteTextUpdates: 'file:savePdfNoteTextUpdates',
+    fileSavePdfNoteChanges: 'file:savePdfNoteChanges',
     fileCleanup: 'file:cleanup',
     fileCleanupOcrTemp: 'file:cleanupOcrTemp',
     windowSetTitle: 'window:setTitle',
@@ -227,6 +229,22 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
         args: [path: string, totalBytes: number];
         result: IBeginSerializedPdfPersistenceResult;
+    };
+    [DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates]: {
+        args: [
+            path: string,
+            updates: Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteTextUpdates']>>[1],
+            modifiedAt: string,
+        ];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteTextUpdates']>>>;
+    };
+    [DOCUMENTS_CHANNELS.fileSavePdfNoteChanges]: {
+        args: [
+            path: string,
+            changes: Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>[1],
+            modifiedAt: string,
+        ];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>>;
     };
     [DOCUMENTS_CHANNELS.fileCleanup]: {
         args: [path: string];

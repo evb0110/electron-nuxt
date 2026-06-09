@@ -41,7 +41,7 @@ export async function safeRemoveDirectory(path: string) {
 
 export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
     try {
-        await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE_FORCE);
+        await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE);
         return;
     } catch (error) {
         const shouldFallback = isErrnoException(error)

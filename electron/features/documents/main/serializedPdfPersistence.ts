@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-    copyFile,
     open,
     rm,
 } from 'fs/promises';
@@ -32,6 +31,7 @@ import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { assertWithinIpcWriteBudget } from '@electron/features/documents/main/documentFileWriteAtomic';
+import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 
 const SERIALIZED_PDF_SESSION_TIMEOUT_MS = 10 * 60_000;
 
@@ -263,14 +263,14 @@ async function finishSession(session: ISerializedPdfPersistenceSession) {
 
         if (session.mode === 'save_as') {
             await atomicReplace(session.tempPath, session.targetPath);
-            await copyFile(session.targetPath, session.workingPath);
+            await copyFileCopyOnWrite(session.targetPath, session.workingPath);
             setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
             allowOpenPath(session.targetPath, session.senderId);
             await addRecentFile(session.targetPath);
             updateRecentFilesMenu();
         } else {
             await atomicReplace(session.tempPath, session.targetPath);
-            await copyFile(session.targetPath, session.workingPath);
+            await copyFileCopyOnWrite(session.targetPath, session.workingPath);
         }
     });
 

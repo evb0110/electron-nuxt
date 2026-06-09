@@ -51,6 +51,10 @@ import {
     handleFileSave,
     handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
+import {
+    handleNativeNoteChangesSave,
+    handleNativeNoteTextSave,
+} from '@electron/features/documents/main/handleNativeNoteTextSave';
 import { beginSerializedPdfSaveToOriginal } from '@electron/features/documents/main/serializedPdfPersistence';
 import {
     clearRecentFiles,
@@ -111,6 +115,10 @@ export function createDocumentsService(): IDocumentsService {
         writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
         saveFile: (event, workingPath) => handleFileSave(event, workingPath),
         savePdfData: (event, workingPath, data) => handleSerializedPdfSave(event, workingPath, data),
+        savePdfNoteTextUpdates: (event, workingPath, updates, modifiedAt) =>
+            handleNativeNoteTextSave(event, workingPath, updates, modifiedAt),
+        savePdfNoteChanges: (event, workingPath, changes, modifiedAt) =>
+            handleNativeNoteChangesSave(event, workingPath, changes, modifiedAt),
         beginSavePdfData: (event, workingPath, totalBytes) =>
             beginSerializedPdfSaveToOriginal(event, workingPath, totalBytes),
         cleanupFile: (event, workingPath) => {

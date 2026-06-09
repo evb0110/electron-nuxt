@@ -109,6 +109,56 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
     };
 }
 
+function createPdfNoteComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
+    return {
+        id: overrides.id ?? '3856R',
+        stableKey: overrides.stableKey ?? 'ann:0:3856R',
+        sortIndex: null,
+        pageIndex: 0,
+        pageNumber: 1,
+        text: overrides.text ?? 'Original note',
+        kindLabel: 'Note',
+        subtype: overrides.subtype ?? 'Text',
+        author: null,
+        modifiedAt: null,
+        color: null,
+        uid: null,
+        annotationId: overrides.annotationId ?? '3856R',
+        source: overrides.source ?? 'pdf',
+        hasNote: overrides.hasNote ?? true,
+        markerRect: null,
+        ...overrides,
+    };
+}
+
+function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
+    return {
+        id: overrides.id ?? 'pdfjs_internal_editor_0',
+        stableKey: overrides.stableKey ?? 'uid:0:pdfjs_internal_editor_0',
+        sortIndex: null,
+        pageIndex: 0,
+        pageNumber: 1,
+        text: overrides.text ?? 'Editor note',
+        kindLabel: 'Inline Note',
+        subtype: overrides.subtype ?? 'Typewriter',
+        author: overrides.author ?? 'Tester',
+        modifiedAt: null,
+        createdAt: overrides.createdAt ?? 1781009077000,
+        color: overrides.color ?? 'rgba(255, 204, 0, 0.8)',
+        uid: overrides.uid ?? 'pdfjs_internal_editor_0',
+        annotationId: overrides.annotationId ?? null,
+        source: overrides.source ?? 'editor',
+        hasNote: overrides.hasNote ?? true,
+        markerRect: overrides.markerRect ?? {
+            left: 0.1,
+            top: 0.2,
+            width: 0.0016,
+            height: 0.0016,
+        },
+        ...overrides,
+    };
+}
+
 describe('useFileOperations', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
@@ -334,6 +384,347 @@ describe('useFileOperations', () => {
             4,
             5,
         ]);
+    });
+
+    it('uses the native note text save path for direct PDF-sourced note updates', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [{
+                objectNumber: 3856,
+                generationNumber: 0,
+                text: 'Updated note',
+            }],
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            }),
+        );
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
+    });
+
+    it('uses the native note changes path for editor-only FreeText note upserts', async () => {
+        const editorNote = createEditorFreeTextNote();
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set(editorNote.stableKey, editorNote.text);
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([editorNote]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            hasAnnotationChanges: vi.fn(() => true),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [],
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                freeTextNotes: [expect.objectContaining({
+                    pageIndex: 0,
+                    stableKey: 'uid:0:pdfjs_internal_editor_0',
+                    text: 'Editor note',
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.0016,
+                        height: 0.0016,
+                    },
+                    author: 'Tester',
+                    color: 'rgba(255, 204, 0, 0.8)',
+                    createdAt: 1781009077000,
+                })],
+                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            }),
+        );
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+    });
+
+    it('uses the native annotation changes path for editor-only FreeText note deletes', async () => {
+        const pendingDeletes = [createEditorFreeTextNote()];
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([]),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => pendingDeletes),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [],
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                deletes: [{
+                    pageIndex: 0,
+                    stableKey: 'uid:0:pdfjs_internal_editor_0',
+                    createdAt: 1781009077000,
+                }],
+                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            }),
+        );
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+    });
+
+    it('uses the native annotation changes path for PDF-sourced annotation deletes', async () => {
+        const pendingDeletes = [createPdfNoteComment()];
+        const reloadWaiter = createDeferred<undefined>();
+        const cancelReloadWaiter = vi.fn();
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => pendingDeletes),
+            trySaveEmbeddedNoteTextUpdates,
+            preparePostSaveReload: () => ({
+                promise: reloadWaiter.promise,
+                cancel: cancelReloadWaiter,
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [],
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                deletes: [{
+                    pageIndex: 0,
+                    objectNumber: 3856,
+                    generationNumber: 0,
+                }],
+                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            }),
+        );
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(cancelReloadWaiter).toHaveBeenCalledOnce();
+    });
+
+    it('uses the native note text save path when pending text is keyed by annotation id alias', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('3856R', 'Updated through alias');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [{
+                objectNumber: 3856,
+                generationNumber: 0,
+                text: 'Updated through alias',
+            }],
+            expect.any(Object),
+        );
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+    });
+
+    it('coalesces duplicate native note text aliases for the same PDF annotation', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated once');
+        pendingTexts.set('3856R', 'Updated once');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith(
+            [{
+                objectNumber: 3856,
+                generationNumber: 0,
+                text: 'Updated once',
+            }],
+            expect.any(Object),
+        );
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+    });
+
+    it('falls back to serialized save when duplicate native note aliases conflict', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'First update');
+        pendingTexts.set('3856R', 'Second update');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            trySaveEmbeddedNoteTextUpdates,
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([9]),
+            expect.objectContaining({pendingTexts}),
+        );
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('falls back to serialized save when the native note text save path is not applied', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => null);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            trySaveEmbeddedNoteTextUpdates,
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([9]),
+            expect.objectContaining({pendingTexts}),
+        );
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('does not use the native note text save path for Save As', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveWorkingCopyAs,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            trySaveEmbeddedNoteTextUpdates,
+        });
+        const { handleSaveAs } = useFileOperations(deps);
+
+        const result = await handleSaveAs();
+
+        expect(result).toBe(true);
+        expect(trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(saveWorkingCopyAs).toHaveBeenCalledOnce();
     });
 
     it('uses PDF.js saveDocument when annotation storage has serializable entries without modified ids', async () => {

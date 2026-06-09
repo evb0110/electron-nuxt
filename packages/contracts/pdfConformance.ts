@@ -19,7 +19,7 @@ export type TPdfConformanceProfileBase = Omit<IPdfConformanceProfile, 'saveRestr
 
 export interface IPdfValidationResult {
     isValid: boolean;
-    tool: 'qpdf' | 'browser';
+    tool: 'qpdf' | 'browser' | 'native';
     errors: string[];
     warnings: string[];
 }
