@@ -1,6 +1,4 @@
-export { applyBookmarksToPdfDocument } from '@app/platform/browser-api/applyBookmarksToPdfDocument';
 export { browserAgentCapability } from '@app/platform/browser-api/browserAgentCapability';
-export { toUint8Array } from '@app/platform/browser-api/browserBytes';
 export { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
 export { browserHostCapability } from '@app/platform/browser-api/browserHostCapability';
 export { browserOcrCapability } from '@app/platform/browser-api/browserOcrCapability';
@@ -10,10 +8,7 @@ export {
     BrowserWorkerClient,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
-export { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 export { createBrowserDocumentsCapability } from '@app/platform/browser-api/createBrowserDocumentsCapability';
-export { createBrowserImageExportCapability } from '@app/platform/browser-api/createBrowserImageExportCapability';
-export { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
 export { createCombinedPdfFromPaths } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 export { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';

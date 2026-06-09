@@ -12,23 +12,6 @@ function idbRequestToPromise<T>(
     });
 }
 
-export function openBrowserDatabase(
-    dbName: string,
-    version: number,
-    upgrade: (db: IDBDatabase, transaction: IDBTransaction | null) => void,
-): Promise<IDBDatabase | null> {
-    if (!isIndexedDbAvailable()) {
-        return Promise.resolve(null);
-    }
-
-    const request = indexedDB.open(dbName, version);
-    request.onupgradeneeded = () => {
-        upgrade(request.result, request.transaction);
-    };
-
-    return idbRequestToPromise(request, `Failed to open ${dbName} database`);
-}
-
 export function readStoreValue<T>(
     store: IDBObjectStore,
     key: IDBValidKey,
@@ -44,14 +27,6 @@ export function readAllStoreValues<T>(
 ): Promise<T[]> {
     return idbRequestToPromise(store.getAll(), errorMessage)
         .then((values) => (values as T[] | undefined) ?? []);
-}
-
-export function readAllStoreKeys(
-    store: IDBObjectStore,
-    errorMessage: string,
-): Promise<IDBValidKey[]> {
-    return idbRequestToPromise(store.getAllKeys(), errorMessage)
-        .then((keys) => keys ?? []);
 }
 
 export function writeStoreValue(
