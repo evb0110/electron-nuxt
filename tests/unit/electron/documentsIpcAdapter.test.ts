@@ -69,4 +69,45 @@ describe('documents ipc adapter', () => {
             });
         }
     });
+
+    it('keeps renderer file-open grants for thousands-page combine batches', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-documents-ipc-adapter-batch-test-'));
+        const firstFilePath = join(tempRoot, 'document-page-0001.png');
+        writeFileSync(firstFilePath, new Uint8Array([1]));
+        const tokenCount = 3_000;
+        mocks.allowOpenPath.mockImplementation((filePath: string) => filePath);
+        const handlers = new Map<string, TRegisteredHandler>();
+        const sender = new EventEmitter() as EventEmitter & { id: number; };
+        sender.id = 43;
+        const registrar = {handle: vi.fn((channel: string, handler: TRegisteredHandler) => {
+            handlers.set(channel, handler);
+        })};
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        try {
+            registerDocumentsIpcAdapter(registrar as never);
+
+            for (let index = 0; index < tokenCount; index += 1) {
+                expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
+                    {sender},
+                    `token-${index}`,
+                )).toBe(true);
+            }
+
+            expect(handlers.get(DOCUMENTS_CHANNELS.allowRendererFileOpen)?.(
+                {sender},
+                {
+                    filePath: firstFilePath,
+                    token: 'token-0',
+                },
+            )).toBe(true);
+
+            expect(mocks.allowOpenPath).toHaveBeenCalledWith(firstFilePath, sender);
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 });

@@ -25,7 +25,6 @@ type TDocumentsIpcRegistrar = IIpcMainRegistrar<IDocumentsInvokeMap, IpcMainInvo
 type TDocumentsIpcChannel = Extract<keyof IDocumentsInvokeMap, string>;
 
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
-const MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER = 16;
 const rendererFileOpenTokens = new Map<number, Map<string, IRendererFileOpenToken>>();
 const rendererFileOpenTokenCleanupSenders = new Set<number>();
 
@@ -46,14 +45,6 @@ function pruneRendererFileOpenTokens(senderId: number, now = Date.now()) {
         if (grant.expiresAtMs <= now) {
             tokens.delete(token);
         }
-    }
-
-    while (tokens.size > MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER) {
-        const oldestToken = tokens.keys().next().value;
-        if (!oldestToken) {
-            break;
-        }
-        tokens.delete(oldestToken);
     }
 
     if (tokens.size === 0) {
