@@ -123,6 +123,11 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('keeps the preloaded tail cached until PDF.js requests it', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
         const destroy = vi.fn(() => Promise.resolve());
         const chunkLength = 1024 * 1024;
         const size = chunkLength * 3;
@@ -136,17 +141,7 @@ describe('usePdfDocument range loading', () => {
         pdfjsState.getDocument.mockImplementation((options: { range?: MockPdfDataRangeTransport }) => {
             expect(options.range?.onDataRange).not.toHaveBeenCalled();
             return {
-                promise: Promise.resolve({
-                    numPages: 1,
-                    getPage: vi.fn(async () => ({
-                        cleanup: vi.fn(),
-                        getViewport: vi.fn(() => ({
-                            width: 100,
-                            height: 200,
-                        })),
-                    })),
-                    destroy,
-                }),
+                promise: deferred.promise,
                 destroy,
             };
         });
@@ -201,7 +196,10 @@ describe('usePdfDocument range loading', () => {
         expect(rangeChunk?.[0]).toBe(9);
         expect(rangeChunk?.[chunkLength - 1]).toBe(7);
 
-        await expect(loadPromise).resolves.not.toBeNull();
+        documentState.cleanup();
+        deferred.reject(new Error('range cache test cancelled load'));
+
+        await expect(loadPromise).resolves.toBeNull();
     });
 
     it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
