@@ -342,8 +342,32 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         return annotationNoteWindows.value.some(note => commentsShareDeleteTarget(note.comment, comment));
     }
 
+    function toAnnotationNoteWindowComment(note: {
+        comment: IAnnotationCommentSummary;
+        text?: string | undefined;
+    }) {
+        return {
+            ...note.comment,
+            text: typeof note.text === 'string' ? note.text : note.comment.text,
+            hasNote: true,
+        };
+    }
+
     function getAnnotationCommentsSnapshot() {
         return deps.getAnnotationCommentsSnapshot?.() ?? null;
+    }
+
+    function findLiveAnnotationNoteComment(comment: IAnnotationCommentSummary) {
+        const openNote = annotationNoteWindows.value.find(note =>
+            commentsShareDeleteTarget(toAnnotationNoteWindowComment(note), comment),
+        );
+        if (openNote) {
+            return toAnnotationNoteWindowComment(openNote);
+        }
+
+        return getAnnotationCommentsSnapshot()?.find(candidate =>
+            commentsShareDeleteTarget(candidate, comment),
+        ) ?? null;
     }
 
     function isAnnotationCommentsSnapshotReady() {
@@ -422,18 +446,25 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
 
+        let creationSnapshot = noteComment;
+        const refreshCreationSnapshot = () => {
+            creationSnapshot = findLiveAnnotationNoteComment(creationSnapshot) ?? creationSnapshot;
+            return creationSnapshot;
+        };
+
         const undoCreate = () => {
-            viewer.removeAnnotationFromDom(noteComment);
-            viewer.removeAnnotationFromInternalCache(noteComment.stableKey);
-            removeDeletedAnnotationState(noteComment);
-            invalidateAnnotationPage(noteComment);
+            const currentSnapshot = refreshCreationSnapshot();
+            viewer.removeAnnotationFromDom(currentSnapshot);
+            viewer.removeAnnotationFromInternalCache(currentSnapshot.stableKey);
+            removeDeletedAnnotationState(currentSnapshot);
+            invalidateAnnotationPage(currentSnapshot);
         };
         const redoCreate = () => {
-            restoreAnnotationToCache(noteComment);
-            viewer.restoreAnnotationToInternalCache?.(noteComment);
-            openAnnotationNoteWindow(noteComment);
-            annotationActiveCommentStableKey.value = noteComment.stableKey;
-            invalidateAnnotationPage(noteComment);
+            restoreAnnotationToCache(creationSnapshot);
+            viewer.restoreAnnotationToInternalCache?.(creationSnapshot);
+            openAnnotationNoteWindow(creationSnapshot);
+            annotationActiveCommentStableKey.value = creationSnapshot.stableKey;
+            invalidateAnnotationPage(creationSnapshot);
         };
 
         viewer.registerAnnotationHistoryCommand({
