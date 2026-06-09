@@ -1,0 +1,101 @@
+import { EventEmitter } from 'events';
+import {
+    mkdtemp,
+    readFile,
+    rm,
+    writeFile,
+} from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+    spawn: vi.fn(),
+    atomicReplace: vi.fn(),
+    makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
+    nativePath: '/mock/evb-pdf-image-combine',
+}));
+
+vi.mock('child_process', () => ({spawn: mocks.spawn}));
+vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({resolveNativePdfImageCombinePath: () => mocks.nativePath}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
+    debug: vi.fn(),
+    warn: vi.fn(),
+})}));
+vi.mock('@electron/utils/atomicReplace', () => ({
+    atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
+    makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
+}));
+
+const { tryCombinePagesWithNativeTiffCombiner } = await import('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner');
+
+describe('native TIFF combine wrapper', () => {
+    let tempDir = '';
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE = '1';
+        tempDir = await mkdtemp(join(tmpdir(), 'native-tiff-combine-test-'));
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, { force: true });
+        });
+    });
+
+    afterEach(async () => {
+        delete process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE;
+        if (tempDir) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('passes large page lists through an inputs file and atomically promotes native output', async () => {
+        const inputPaths = [
+            join(tempDir, 'page-001.tif'),
+            join(tempDir, 'page-002.tif'),
+        ];
+        const outputPath = join(tempDir, 'combined.tiff');
+        let recordedInputsFile = '';
+        let recordedInputs = '';
+
+        mocks.spawn.mockImplementation((binaryPath: string, args: string[]) => {
+            expect(binaryPath).toBe('/mock/evb-pdf-image-combine');
+            expect(args).toContain('--format');
+            expect(args[args.indexOf('--format') + 1]).toBe('tiff');
+            expect(args).toContain('--inputs-file');
+            recordedInputsFile = args[args.indexOf('--inputs-file') + 1]!;
+            expect(args).not.toContain(inputPaths[0]);
+
+            const proc = new EventEmitter() as EventEmitter & {
+                stderr: EventEmitter;
+                kill: () => void;
+            };
+            proc.stderr = new EventEmitter();
+            proc.kill = vi.fn();
+
+            queueMicrotask(async () => {
+                recordedInputs = await readFile(recordedInputsFile, 'utf8');
+                const nativeOutputPath = args[args.indexOf('--output') + 1]!;
+                await writeFile(nativeOutputPath, Buffer.from('native-tiff'));
+                proc.emit('close', 0);
+            });
+
+            return proc;
+        });
+
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).resolves.toBe(true);
+        await expect(readFile(outputPath, 'utf8')).resolves.toBe('native-tiff');
+        expect(recordedInputs).toBe(`${inputPaths.join('\n')}\n`);
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(`${outputPath}.tmp`, outputPath);
+    });
+});

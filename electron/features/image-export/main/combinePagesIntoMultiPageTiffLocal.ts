@@ -16,6 +16,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
 
 interface IUtifFrame {
     width?: number;
@@ -244,6 +245,9 @@ async function closeWriteStream(stream: WriteStream) {
 export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], outputPath: string) {
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
+    }
+    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath)) {
+        return;
     }
 
     const pages: ITiffPageDescriptor[] = [];

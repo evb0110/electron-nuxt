@@ -1,0 +1,131 @@
+import { spawn } from 'child_process';
+import { existsSync } from 'fs';
+import {
+    mkdtemp,
+    rm,
+    writeFile,
+} from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { createLogger } from '@electron/utils/createLogger';
+import { getErrorMessage } from '@electron/utils/error';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
+import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+
+const logger = createLogger('nativeTiffCombine');
+const NATIVE_TIFF_COMBINE_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_NATIVE_TIMEOUT_MS ?? `${10 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 10_000) {
+        return 10 * 60 * 1000;
+    }
+    return parsed;
+})();
+
+function isNativeTiffCombineDisabled() {
+    return process.env.EVB_TIFF_COMBINE_NATIVE_DISABLE === '1'
+        || process.env.EVB_PDF_IMAGE_COMBINE_DISABLE === '1'
+        || (process.env.VITEST === 'true' && process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE !== '1');
+}
+
+export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[], outputPath: string) {
+    if (isNativeTiffCombineDisabled() || pagePaths.length === 0) {
+        return false;
+    }
+
+    const binaryPath = resolveNativePdfImageCombinePath();
+    if (!binaryPath) {
+        return false;
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'tiff-combine-native-'));
+    const inputsPath = join(tempDir, 'inputs.txt');
+    const tempOutputPath = makeSiblingTempPath(outputPath);
+    let replacedOutput = false;
+
+    try {
+        await writeFile(inputsPath, `${pagePaths.join('\n')}\n`, 'utf8');
+        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath);
+        if (!ok || !existsSync(tempOutputPath)) {
+            return false;
+        }
+
+        await atomicReplace(tempOutputPath, outputPath);
+        replacedOutput = true;
+        return true;
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+        if (!replacedOutput) {
+            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+        }
+    }
+}
+
+function runNativeTiffCombine(binaryPath: string, outputPath: string, inputsPath: string) {
+    return new Promise<boolean>((resolve) => {
+        const proc = spawn(binaryPath, [
+            '--output',
+            outputPath,
+            '--format',
+            'tiff',
+            '--inputs-file',
+            inputsPath,
+        ], {
+            shell: false,
+            windowsHide: true,
+            stdio: [
+                'ignore',
+                'ignore',
+                'pipe',
+            ],
+        });
+
+        let settled = false;
+        let stderr = '';
+        let timedOut = false;
+
+        const finish = (ok: boolean) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timeoutHandle);
+            resolve(ok);
+        };
+
+        const timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            proc.kill('SIGKILL');
+        }, NATIVE_TIFF_COMBINE_TIMEOUT_MS);
+        timeoutHandle.unref?.();
+
+        proc.stderr?.on('data', (data: Buffer) => {
+            stderr = `${stderr}${data.toString('utf8')}`.slice(-8_192);
+        });
+
+        proc.on('error', (error) => {
+            logger.warn(`Native TIFF combine failed to start: ${getErrorMessage(error)}`);
+            finish(false);
+        });
+
+        proc.on('close', (code) => {
+            if (timedOut) {
+                logger.warn(`Native TIFF combine timed out after ${NATIVE_TIFF_COMBINE_TIMEOUT_MS}ms`);
+                finish(false);
+                return;
+            }
+            if (code !== 0) {
+                const detail = stderr.trim();
+                logger.debug(`Native TIFF combine exited with code ${code}${detail ? `: ${detail}` : ''}`);
+                finish(false);
+                return;
+            }
+            finish(true);
+        });
+    });
+}

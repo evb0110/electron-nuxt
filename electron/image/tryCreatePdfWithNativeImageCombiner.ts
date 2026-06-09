@@ -4,6 +4,7 @@ import {
     mkdtemp,
     readFile,
     rm,
+    writeFile,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
@@ -37,6 +38,8 @@ const SUPPORTED_NATIVE_BITMAP_EXTENSIONS = new Set([
     '.png',
     '.jpg',
     '.jpeg',
+    '.tif',
+    '.tiff',
 ]);
 const SUPPORTED_NATIVE_NETPBM_EXTENSIONS = new Set([
     '.pgm',
@@ -61,7 +64,7 @@ function isNativeImageCombineDisabled() {
         || (process.env.VITEST === 'true' && process.env.EVB_PDF_IMAGE_COMBINE_ENABLE !== '1');
 }
 
-function resolveNativePdfImageCombinePath() {
+export function resolveNativePdfImageCombinePath() {
     const overridePath = process.env.EVB_PDF_IMAGE_COMBINE_PATH?.trim();
     if (overridePath && existsSync(overridePath)) {
         return overridePath;
@@ -153,9 +156,15 @@ async function createPdfWithNativeImageCombiner(
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-image-combine-'));
     const outputPath = join(tempDir, `${randomUUID()}.pdf`);
+    const inputsPath = join(tempDir, 'inputs.txt');
 
     try {
-        const ok = await runNativePdfImageCombine(binaryPath, outputPath, inputPaths, options, extraArgs);
+        await writeFile(inputsPath, `${inputPaths.join('\n')}\n`, 'utf8');
+        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
+            ...extraArgs,
+            '--inputs-file',
+            inputsPath,
+        ]);
         if (!ok) {
             return null;
         }
@@ -176,14 +185,17 @@ function runNativePdfImageCombine(
     extraArgs: string[] = [],
 ) {
     return new Promise<boolean>((resolve) => {
-        const proc = spawn(binaryPath, [
+        const args = [
             '--output',
             outputPath,
             '--json-progress',
             ...extraArgs,
-            '--',
-            ...inputPaths,
-        ], {
+        ];
+        if (inputPaths.length > 0) {
+            args.push('--', ...inputPaths);
+        }
+
+        const proc = spawn(binaryPath, args, {
             shell: false,
             windowsHide: true,
             stdio: [
