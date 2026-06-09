@@ -5,8 +5,6 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import { difference } from 'es-toolkit/array';
-import { range } from 'es-toolkit/math';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -31,10 +29,6 @@ export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
 
 function getQpdfBinary() {
     return getNativeToolPaths().qpdf;
-}
-
-function buildComplementRanges(pagesToRemove: number[], totalPages: number) {
-    return difference(range(1, totalPages + 1), pagesToRemove);
 }
 
 function formatPageList(pages: number[]) {
@@ -64,6 +58,40 @@ function formatPageList(pages: number[]) {
     }
 
     return ranges.join(',');
+}
+
+function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
+    const removePages = new Set(pagesToRemove);
+    const ranges: string[] = [];
+    let keptCount = 0;
+    let rangeStart: number | null = null;
+    let previous: number | null = null;
+
+    for (let page = 1; page <= totalPages; page += 1) {
+        if (removePages.has(page)) {
+            if (rangeStart !== null && previous !== null) {
+                ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+                rangeStart = null;
+                previous = null;
+            }
+            continue;
+        }
+
+        keptCount += 1;
+        if (rangeStart === null) {
+            rangeStart = page;
+        }
+        previous = page;
+    }
+
+    if (rangeStart !== null && previous !== null) {
+        ranges.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`);
+    }
+
+    return {
+        pageList: ranges.join(','),
+        keptCount,
+    };
 }
 
 async function writeQpdfArgsFile(args: string[]) {
@@ -186,8 +214,11 @@ export async function deletePages(
         throw new Error('Renderer page count is stale');
     }
 
-    const kept = buildComplementRanges(pagesToDelete, totalPages);
-    if (kept.length === 0) {
+    const {
+        pageList,
+        keptCount,
+    } = formatComplementPageList(pagesToDelete, totalPages);
+    if (keptCount === 0) {
         throw new Error('Cannot delete all pages from the document');
     }
 
@@ -198,7 +229,7 @@ export async function deletePages(
             workingCopyPath,
             '--pages',
             workingCopyPath,
-            formatPageList(kept),
+            pageList,
             '--',
             tempPath,
         ], {
@@ -213,7 +244,7 @@ export async function deletePages(
         throw err;
     }
 
-    return { pageCount: kept.length };
+    return { pageCount: keptCount };
 }
 
 export async function reorderPages(

@@ -4,6 +4,11 @@ import { getExtension } from '@app/platform/browser-api/browserFileName';
 import { toBrowserOwnedArrayBuffer } from '@app/platform/browser-api/browserPlatformHelpers';
 import { appendPdfImagePage } from '@app/platform/browser-api/appendPdfImagePage';
 
+function releaseCanvas(canvas: HTMLCanvasElement) {
+    canvas.width = 0;
+    canvas.height = 0;
+}
+
 async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
     const extension = getExtension(fileName);
     if (extension === '.png') {
@@ -37,7 +42,11 @@ async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
         }
 
         context.drawImage(image, 0, 0);
-        return await canvasToPngBytes(canvas);
+        try {
+            return await canvasToPngBytes(canvas);
+        } finally {
+            releaseCanvas(canvas);
+        }
     } finally {
         URL.revokeObjectURL(objectUrl);
     }
@@ -86,7 +95,11 @@ async function encodeRgbaToPngBytes(
     }
 
     context.putImageData(createClampedImageData(rgba, width, height), 0, 0);
-    return canvasToPngBytes(canvas);
+    try {
+        return await canvasToPngBytes(canvas);
+    } finally {
+        releaseCanvas(canvas);
+    }
 }
 
 async function embedTiffPages(

@@ -26,6 +26,24 @@ function getNormalizedPageIndexes(pages: number[]) {
     return pages.map((page) => page - 1);
 }
 
+function getPageIndexRange(start: number, end: number) {
+    const pageIndexes: number[] = [];
+    for (let index = start; index < end; index += 1) {
+        pageIndexes.push(index);
+    }
+    return pageIndexes;
+}
+
+function getKeptPageIndexes(pageCount: number, removePages: Set<number>) {
+    const keptIndexes: number[] = [];
+    for (let index = 0; index < pageCount; index += 1) {
+        if (!removePages.has(index + 1)) {
+            keptIndexes.push(index);
+        }
+    }
+    return keptIndexes;
+}
+
 function toPageBoxGeometry(box: {
     x: number;
     y: number;
@@ -75,6 +93,8 @@ function validatePageNumbers(
     if (options.requirePermutation) {
         validatePageNumberPermutation(pageSet, label, options.pageCount);
     }
+
+    return pageSet;
 }
 
 function collectValidatedPageNumberSet(
@@ -159,14 +179,11 @@ export async function deletePdfPages(
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
     const sourcePdf = await PDFDocument.load(data);
-    validatePageNumbers(pages, 'deletePages', {
+    const removePages = validatePageNumbers(pages, 'deletePages', {
         pageCount: sourcePdf.getPageCount(),
         requireUnique: true,
     });
-    const removeIndexes = new Set(getNormalizedPageIndexes(pages));
-    const keptIndexes = sourcePdf
-        .getPageIndices()
-        .filter((index) => !removeIndexes.has(index));
+    const keptIndexes = getKeptPageIndexes(sourcePdf.getPageCount(), removePages);
     const { targetPdf } = await copySelectedPages({
         sourcePdf,
         pageIndexes: keptIndexes,
@@ -220,12 +237,8 @@ export async function insertPdfPages(
         throw new Error('Invalid afterPage');
     }
     const nextPdf = await PDFDocument.create();
-    const beforeIndexes = destinationPdf
-        .getPageIndices()
-        .filter((index) => index < afterPage);
-    const afterIndexes = destinationPdf
-        .getPageIndices()
-        .filter((index) => index >= afterPage);
+    const beforeIndexes = getPageIndexRange(0, afterPage);
+    const afterIndexes = getPageIndexRange(afterPage, destinationPdf.getPageCount());
 
     await copySelectedPages({
         sourcePdf: destinationPdf,

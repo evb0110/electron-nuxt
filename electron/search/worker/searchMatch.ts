@@ -57,8 +57,15 @@ export function findPageMatches(
     query: string,
     options: ISearchMatchOptions,
 ): IPageSearchMatch[] {
+    return Array.from(iteratePageMatches(pageText, query, options));
+}
+
+export function* iteratePageMatches(
+    pageText: string,
+    query: string,
+    options: ISearchMatchOptions,
+): Generator<IPageSearchMatch> {
     const matcher = buildSearchRegex(query, options);
-    const results: IPageSearchMatch[] = [];
 
     let match = matcher.exec(pageText);
     while (match) {
@@ -70,13 +77,11 @@ export function findPageMatches(
             continue;
         }
 
-        results.push({
+        yield {
             startOffset: match.index,
             endOffset: match.index + matchedText.length,
-        });
+        };
 
         match = matcher.exec(pageText);
     }
-
-    return results;
 }

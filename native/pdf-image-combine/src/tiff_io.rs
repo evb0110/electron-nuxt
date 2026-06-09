@@ -1,0 +1,357 @@
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter, Read, Seek},
+    path::{Path, PathBuf},
+};
+
+use tiff::{
+    decoder::{ifd::Value as TiffIfdValue, Decoder, DecodingResult},
+    encoder::{colortype, Rational, TiffEncoder},
+    tags::{ResolutionUnit, Tag},
+    ColorType as TiffColorType,
+};
+
+use crate::{
+    flate::deflate_up_filtered_slices,
+    image::assert_pixel_limit,
+    pdf::{ImagePage, ImagePayload},
+    Result, CM_PER_INCH, DEFAULT_DPI,
+};
+
+pub(crate) fn read_tiff_pdf_pages(
+    path: &Path,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+) -> Result<Vec<ImagePage>> {
+    let file = File::open(path)?;
+    let mut decoder = Decoder::new(BufReader::new(file))?;
+    let mut pages = Vec::new();
+
+    loop {
+        if pages.len() >= max_tiff_frames {
+            return Err(format!(
+                "TIFF frame count is capped at {max_tiff_frames}: {}",
+                path.display()
+            )
+            .into());
+        }
+
+        let (width, height) = decoder.dimensions()?;
+        assert_pixel_limit(width, height, max_pixels)?;
+        let dpi = read_tiff_dpi(&mut decoder)
+            .or(default_dpi)
+            .unwrap_or(DEFAULT_DPI);
+        let color_type = decoder.colortype()?;
+        let decoded = decoder.read_image()?;
+        pages.push(build_tiff_pdf_page(
+            width, height, dpi, color_type, decoded,
+        )?);
+
+        if !decoder.more_images() {
+            break;
+        }
+        decoder.next_image()?;
+    }
+
+    if pages.is_empty() {
+        return Err(format!("No decodable TIFF pages found in {}", path.display()).into());
+    }
+
+    Ok(pages)
+}
+
+fn build_tiff_pdf_page(
+    width: u32,
+    height: u32,
+    dpi: u32,
+    color_type: TiffColorType,
+    decoded: DecodingResult,
+) -> Result<ImagePage> {
+    let pixels = match decoded {
+        DecodingResult::U8(pixels) => pixels,
+        _ => {
+            return Err("Only 8-bit TIFF samples are supported by the native PDF fast path".into())
+        }
+    };
+
+    let (colors, color_space) = match color_type {
+        TiffColorType::Gray(8) => (1, "DeviceGray"),
+        TiffColorType::RGB(8) => (3, "DeviceRGB"),
+        _ => {
+            return Err(format!(
+                "Unsupported TIFF color type for native PDF fast path: {color_type:?}"
+            )
+            .into());
+        }
+    };
+    let expected_len = width as usize * height as usize * colors as usize;
+    if pixels.len() != expected_len {
+        return Err("Decoded TIFF payload length does not match image dimensions".into());
+    }
+
+    let bytes_per_row = width as usize * colors as usize;
+    let compressed = deflate_up_filtered_slices(&pixels, bytes_per_row, height as usize)?;
+    let decode_params =
+        format!("<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {width} >>");
+
+    Ok(ImagePage {
+        width,
+        height,
+        dpi,
+        color_space,
+        payload: ImagePayload::RawFlate {
+            data: compressed,
+            decode_params,
+        },
+    })
+}
+
+fn read_tiff_dpi<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<u32> {
+    let x_resolution = decoder
+        .find_tag(Tag::XResolution)
+        .ok()
+        .flatten()
+        .and_then(tiff_resolution_value_to_f64);
+    let y_resolution = decoder
+        .find_tag(Tag::YResolution)
+        .ok()
+        .flatten()
+        .and_then(tiff_resolution_value_to_f64);
+    let resolution = x_resolution.unwrap_or(0.0).max(y_resolution.unwrap_or(0.0));
+    if resolution <= 0.0 {
+        return None;
+    }
+
+    match decoder
+        .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
+        .ok()
+        .flatten()
+        .unwrap_or(2)
+    {
+        2 => Some(resolution.round() as u32),
+        3 => Some((resolution * CM_PER_INCH).round() as u32),
+        _ => None,
+    }
+}
+
+fn tiff_resolution_value_to_f64(value: TiffIfdValue) -> Option<f64> {
+    match value {
+        TiffIfdValue::Byte(value) => Some(f64::from(value)),
+        TiffIfdValue::Short(value) => Some(f64::from(value)),
+        TiffIfdValue::Unsigned(value) => Some(f64::from(value)),
+        TiffIfdValue::Float(value) => Some(f64::from(value)),
+        TiffIfdValue::Double(value) => Some(value),
+        TiffIfdValue::Rational(numerator, denominator) if denominator > 0 => {
+            Some(f64::from(numerator) / f64::from(denominator))
+        }
+        TiffIfdValue::List(values) => values
+            .into_iter()
+            .next()
+            .and_then(tiff_resolution_value_to_f64),
+        _ => None,
+    }
+}
+
+struct RgbaTiffPage {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+pub(crate) fn combine_tiff_pages(
+    input_paths: &[PathBuf],
+    output_path: &Path,
+    max_pixels: u64,
+    max_pages: usize,
+) -> Result<()> {
+    if input_paths.is_empty() {
+        return Err("No pages available for TIFF export".into());
+    }
+    if input_paths.len() > max_pages {
+        return Err(format!("TIFF export is capped at {max_pages} pages").into());
+    }
+
+    let output = File::create(output_path)?;
+    let mut encoder = TiffEncoder::new(BufWriter::new(output))?;
+
+    for input_path in input_paths {
+        let page = read_first_tiff_rgba_page(input_path, max_pixels)?;
+        let mut image = encoder.new_image::<colortype::RGBA8>(page.width, page.height)?;
+        image.resolution(ResolutionUnit::None, Rational { n: 1, d: 1 });
+        image.write_data(&page.rgba)?;
+    }
+
+    Ok(())
+}
+
+fn read_first_tiff_rgba_page(path: &Path, max_pixels: u64) -> Result<RgbaTiffPage> {
+    let file = File::open(path)?;
+    let mut decoder = Decoder::new(BufReader::new(file))?;
+    let (width, height) = decoder.dimensions()?;
+    assert_pixel_limit(width, height, max_pixels)?;
+    let color_type = decoder.colortype()?;
+    let decoded = decoder.read_image()?;
+    let rgba = build_tiff_rgba_payload(width, height, color_type, decoded)?;
+
+    Ok(RgbaTiffPage {
+        width,
+        height,
+        rgba,
+    })
+}
+
+fn build_tiff_rgba_payload(
+    width: u32,
+    height: u32,
+    color_type: TiffColorType,
+    decoded: DecodingResult,
+) -> Result<Vec<u8>> {
+    let pixels = match decoded {
+        DecodingResult::U8(pixels) => pixels,
+        _ => {
+            return Err("Only 8-bit TIFF samples are supported by the native TIFF fast path".into())
+        }
+    };
+    let pixel_count = width as usize * height as usize;
+
+    match color_type {
+        TiffColorType::Gray(8) => {
+            if pixels.len() != pixel_count {
+                return Err(
+                    "Decoded grayscale TIFF payload length does not match dimensions".into(),
+                );
+            }
+            let mut rgba = Vec::with_capacity(pixel_count * 4);
+            for gray in pixels {
+                rgba.extend_from_slice(&[gray, gray, gray, 255]);
+            }
+            Ok(rgba)
+        }
+        TiffColorType::GrayA(8) => {
+            if pixels.len() != pixel_count * 2 {
+                return Err(
+                    "Decoded grayscale-alpha TIFF payload length does not match dimensions".into(),
+                );
+            }
+            let mut rgba = Vec::with_capacity(pixel_count * 4);
+            for chunk in pixels.chunks_exact(2) {
+                rgba.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
+            }
+            Ok(rgba)
+        }
+        TiffColorType::RGB(8) => {
+            if pixels.len() != pixel_count * 3 {
+                return Err("Decoded RGB TIFF payload length does not match dimensions".into());
+            }
+            let mut rgba = Vec::with_capacity(pixel_count * 4);
+            for chunk in pixels.chunks_exact(3) {
+                rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+            }
+            Ok(rgba)
+        }
+        TiffColorType::RGBA(8) => {
+            if pixels.len() != pixel_count * 4 {
+                return Err("Decoded RGBA TIFF payload length does not match dimensions".into());
+            }
+            Ok(pixels)
+        }
+        _ => Err(
+            format!("Unsupported TIFF color type for native TIFF fast path: {color_type:?}").into(),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        env, fs, process,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn reads_tiff_pages_for_pdf_with_resolution() {
+        let input_path = temp_tiff_path("pdf-input");
+        write_rgb_tiff(&input_path, 2, 1, &[255, 0, 0, 0, 255, 0], 300);
+
+        let pages = read_tiff_pdf_pages(&input_path, 1_000_000, None, 10).unwrap();
+
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].width, 2);
+        assert_eq!(pages[0].height, 1);
+        assert_eq!(pages[0].dpi, 300);
+        assert_eq!(pages[0].color_space, "DeviceRGB");
+        match &pages[0].payload {
+            ImagePayload::RawFlate {
+                data,
+                decode_params,
+            } => {
+                assert!(!data.is_empty());
+                assert!(decode_params.contains("/Colors 3"));
+                assert!(decode_params.contains("/Columns 2"));
+            }
+            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+        }
+
+        let _ = fs::remove_file(input_path);
+    }
+
+    #[test]
+    fn combines_single_page_tiffs_as_rgba_output() {
+        let first_path = temp_tiff_path("combine-first");
+        let second_path = temp_tiff_path("combine-second");
+        let output_path = temp_tiff_path("combine-output");
+        write_rgb_tiff(&first_path, 1, 1, &[255, 0, 0], 72);
+        write_rgb_tiff(&second_path, 1, 1, &[0, 255, 0], 72);
+
+        combine_tiff_pages(
+            &[first_path.clone(), second_path.clone()],
+            &output_path,
+            1_000_000,
+            10,
+        )
+        .unwrap();
+
+        let file = File::open(&output_path).unwrap();
+        let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
+        assert_eq!(decoder.colortype().unwrap(), TiffColorType::RGBA(8));
+        let first = decoder.read_image().unwrap();
+        assert_eq!(decode_u8(first), vec![255, 0, 0, 255]);
+        assert!(decoder.more_images());
+        decoder.next_image().unwrap();
+        let second = decoder.read_image().unwrap();
+        assert_eq!(decode_u8(second), vec![0, 255, 0, 255]);
+        assert!(!decoder.more_images());
+
+        let _ = fs::remove_file(first_path);
+        let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    fn temp_tiff_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "evb-pdf-image-combine-{label}-{}-{nanos}.tiff",
+            process::id()
+        ))
+    }
+
+    fn write_rgb_tiff(path: &Path, width: u32, height: u32, pixels: &[u8], dpi: u32) {
+        let file = File::create(path).unwrap();
+        let mut encoder = TiffEncoder::new(BufWriter::new(file)).unwrap();
+        let mut image = encoder.new_image::<colortype::RGB8>(width, height).unwrap();
+        image.resolution(ResolutionUnit::Inch, Rational { n: dpi, d: 1 });
+        image.write_data(pixels).unwrap();
+    }
+
+    fn decode_u8(decoded: DecodingResult) -> Vec<u8> {
+        match decoded {
+            DecodingResult::U8(pixels) => pixels,
+            _ => panic!("expected u8 pixels"),
+        }
+    }
+}

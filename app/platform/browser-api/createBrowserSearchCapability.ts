@@ -66,6 +66,7 @@ interface IIterateSearchPagesOptions {
     requestId?: string;
     expectedPageCount?: number;
     streamDirectExtraction?: boolean;
+    continueExtractionAfterStop?: boolean;
 }
 
 interface IExtractedDocumentText {
@@ -465,6 +466,12 @@ function getCachedPageText(
     return cached;
 }
 
+function resetExtractedPageCache(cache: IPreparedSearchDocumentCache) {
+    cache.pageTexts.clear();
+    cache.pageTextBytes = 0;
+    cache.canCacheWholeDocumentText = true;
+}
+
 export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityResult {
     const searchProgressListeners = new Set<TSearchListener>();
     const searchDocumentCache = new Map<string, IPreparedSearchDocumentCache>();
@@ -787,10 +794,20 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             }
                         }
                     },
-                    { shouldContinue: () => !isExtractionCanceled(options.requestId) && !canceled },
+                    {shouldContinue: () => (
+                        !isExtractionCanceled(options.requestId)
+                            && !canceled
+                            && (options.continueExtractionAfterStop || !stopped)
+                    )},
                 );
             } catch (error) {
                 if (isBrowserSearchCanceledError(error)) {
+                    pageTexts.length = 0;
+                    resetExtractedPageCache(cache);
+                    if (stopped && !canceled && !isExtractionCanceled(options.requestId)) {
+                        cache.pageCount = pageCount > 0 ? pageCount : cache.pageCount;
+                        return true;
+                    }
                     return !canceled && stopped;
                 }
                 throw error;

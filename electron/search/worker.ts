@@ -20,7 +20,7 @@ import {
 } from '@electron/utils/workerMessage';
 import {
     buildExcerpt,
-    findPageMatches,
+    iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
@@ -422,7 +422,7 @@ function appendPageMatches(
     }
 
     let pageMatchIndex = 0;
-    const pageMatches = findPageMatches(pageText, context.normalizedQuery, {
+    const pageMatches = iteratePageMatches(pageText, context.normalizedQuery, {
         matchCase: context.matchCase,
         wholeWord: context.wholeWord,
         useRegex: context.useRegex,
