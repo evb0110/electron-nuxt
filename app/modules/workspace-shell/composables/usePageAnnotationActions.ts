@@ -33,6 +33,7 @@ import { resolveAnnotationCommentTextMarkupColor } from '@app/utils/pdf-viewer/a
 import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-shell/annotations/resolveShapeAnnotationDefaultSettings';
+import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
 
 type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
     'cancelCommentPlacement'
@@ -119,6 +120,7 @@ interface IPageAnnotationActionsDeps {
     restoreAnnotationToCache: (comment: IAnnotationCommentSummary) => void;
     queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
     unqueuePendingEmbeddedAnnotationDelete: (stableKey: string) => void;
+    isNativeFreeTextNoteSaved?: (comment: IAnnotationCommentSummary) => boolean;
     markPreservedAnnotationSourceDirty?: () => void;
     setPreservedAnnotationSourceDirty?: (dirty: boolean) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
@@ -1164,6 +1166,20 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
     }
 
+    function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
+        const subtype = comment.subtype?.trim().toLowerCase();
+        return comment.source === 'editor'
+            && !parsePdfJsAnnotationRef(comment.annotationId)
+            && Boolean(comment.hasNote)
+            && Boolean(normalizeMarkerRect(comment.markerRect))
+            && (subtype === 'freetext' || subtype === 'typewriter');
+    }
+
+    function shouldQueueNativeSavedFreeTextDelete(comment: IAnnotationCommentSummary) {
+        return isReplayableEditorOnlyFreeTextNote(comment)
+            && deps.isNativeFreeTextNoteSaved?.(comment) === true;
+    }
+
     function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
         return !deleted && shouldUseEmbeddedDeletePath(comment);
     }
@@ -1256,13 +1272,20 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
 
+        const shouldQueueNativeFreeTextDelete = shouldQueueNativeSavedFreeTextDelete(comment);
         const viewerDeleted = await viewer.deleteAnnotationComment(comment);
         BrowserLogger.debug('annotations', 'Delete annotation comment viewer result', {
             stableKey: comment.stableKey,
             deleted: viewerDeleted,
+            shouldQueueNativeFreeTextDelete,
         });
 
-        const deleted = deleteAnnotationCommentWithFallbacks(comment, viewerDeleted);
+        const queuedNativeFreeTextDelete = shouldQueueNativeFreeTextDelete
+            ? queueDeferredEmbeddedDelete(comment)
+            : false;
+        const deleted = shouldQueueNativeFreeTextDelete
+            ? viewerDeleted || queuedNativeFreeTextDelete
+            : deleteAnnotationCommentWithFallbacks(comment, viewerDeleted);
         if (!deleted) {
             handleAnnotationDeleteFailure(comment);
             return;

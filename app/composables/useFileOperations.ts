@@ -105,6 +105,8 @@ export interface IFileOperationsDeps {
             deletes?: IPdfNativeAnnotationDelete[];
         },
     ) => Promise<IPdfPersistResult | null>;
+    markNativeFreeTextNotesSaved?: (notes: IPdfNativeFreeTextNote[]) => void;
+    markNativeFreeTextNotesDeleted?: (deletes: IPdfNativeAnnotationDelete[]) => void;
     markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
@@ -166,6 +168,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         saveWorkingCopy,
         saveWorkingCopyAs,
         trySaveEmbeddedNoteTextUpdates,
+        markNativeFreeTextNotesSaved,
+        markNativeFreeTextNotesDeleted,
         markAnnotationSaved,
         markPageLabelsSaved,
         markBookmarksSaved,
@@ -1308,7 +1312,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             reloadWaiter = preserveLivePdfjsAnnotationSession
                 ? null
                 : (preparePostSaveReload?.() ?? null);
-            const forcePdfjsMaterialize = savedPdfjsAnnotationBaselineDirty || preservedAnnotationSourceDirty;
+            const forcePdfjsMaterialize = preservedAnnotationSourceDirty;
             const includeManagedShapesForLiveSource = forcePdfjsMaterialize && (hasManagedShapes?.() ?? false);
             const annotationCommentsSnapshot = getAnnotationCommentsForSave();
 
@@ -1453,6 +1457,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                             preserveLivePdfjsSession: preserveLiveSessionForNativeNoteChanges && !reloadWaiter,
                         });
                         if (saveSucceeded) {
+                            if (nativeFreeTextNotes?.length) {
+                                markNativeFreeTextNotesSaved?.(nativeFreeTextNotes);
+                            }
+                            if (nativeAnnotationDeletes?.length) {
+                                markNativeFreeTextNotesDeleted?.(nativeAnnotationDeletes);
+                            }
                             trackSaveCompleted(config.mode, persisted, true);
                         }
                         await finalizeSaveReload(reloadWaiter, saveSucceeded, {
