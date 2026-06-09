@@ -63,6 +63,8 @@ mac:
       to: qpdf/darwin-${arch}
     - from: resources/djvulibre/darwin-${arch}
       to: djvulibre/darwin-${arch}
+    - from: .tmp/pdf-image-combine/darwin-${arch}
+      to: pdf-image-combine/darwin-${arch}
 
 win:
   icon: resources/icon.ico
@@ -85,6 +87,8 @@ win:
       to: qpdf/win32-${arch}
     - from: resources/djvulibre/win32-${arch}
       to: djvulibre/win32-${arch}
+    - from: .tmp/pdf-image-combine/win32-${arch}
+      to: pdf-image-combine/win32-${arch}
 
 linux:
   icon: resources/icon.png
@@ -109,6 +113,8 @@ linux:
       to: qpdf/linux-${arch}
     - from: resources/djvulibre/linux-${arch}
       to: djvulibre/linux-${arch}
+    - from: .tmp/pdf-image-combine/linux-${arch}
+      to: pdf-image-combine/linux-${arch}
 
 nsis:
   oneClick: false
