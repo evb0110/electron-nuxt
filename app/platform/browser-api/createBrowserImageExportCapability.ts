@@ -19,26 +19,22 @@ import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
     pickSaveTarget,
-    saveBlobToPickerOrDownload,
     saveBytesToPickerOrDownload,
+    writeBytesToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
+import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@pdf-core';
 
+type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
+
 interface IRenderedPdfPage {
     pageNumber: number;
-    fileName: string;
     rgba: Uint8Array;
     width: number;
     height: number;
-}
-
-interface IRenderedPngPage {
-    pageNumber: number;
-    fileName: string;
-    pngBlob: Blob;
 }
 
 interface ITiffPageDescriptor {
@@ -49,6 +45,26 @@ interface ITiffPageDescriptor {
 }
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
+const BROWSER_IMAGE_EXPORT_PICKER_TYPES: IFilePickerAcceptType[] = [
+    {
+        description: 'JPEG Images',
+        accept: { 'image/jpeg': [
+            '.jpg',
+            '.jpeg',
+        ] },
+    },
+    {
+        description: 'PNG Images',
+        accept: { 'image/png': ['.png'] },
+    },
+    {
+        description: 'TIFF Images',
+        accept: { 'image/tiff': [
+            '.tif',
+            '.tiff',
+        ] },
+    },
+];
 
 interface IUtifBinaryWriter {
     writeUint(buffer: Uint8Array, offset: number, value: number): void;
@@ -85,6 +101,54 @@ function mergeUint8Arrays(parts: Uint8Array[]) {
     }
 
     return output;
+}
+
+function resolveBrowserImageExportExtension(format: TBrowserImageExportFormat) {
+    if (format === 'jpeg') {
+        return '.jpg';
+    }
+    if (format === 'tiff') {
+        return '.tif';
+    }
+    return '.png';
+}
+
+function resolveBrowserImageMimeType(format: TBrowserImageExportFormat) {
+    if (format === 'jpeg') {
+        return 'image/jpeg';
+    }
+    if (format === 'tiff') {
+        return 'image/tiff';
+    }
+    return 'image/png';
+}
+
+function resolveBrowserImageExportFormat(fileName: string): TBrowserImageExportFormat {
+    if (/\.png$/iu.test(fileName)) {
+        return 'png';
+    }
+    if (/\.(?:tif|tiff)$/iu.test(fileName)) {
+        return 'tiff';
+    }
+    return 'jpeg';
+}
+
+function normalizeBrowserImageExportFileName(
+    fileName: string,
+    fallbackFormat: TBrowserImageExportFormat,
+) {
+    const trimmedFileName = fileName.trim();
+    if (/\.(?:jpg|jpeg|png|tif|tiff)$/iu.test(trimmedFileName)) {
+        return trimmedFileName;
+    }
+    return `${trimmedFileName}${resolveBrowserImageExportExtension(fallbackFormat)}`;
+}
+
+function buildBrowserImageExportFileName(
+    pageNumber: number,
+    format: TBrowserImageExportFormat = 'jpeg',
+) {
+    return `page-${String(pageNumber).padStart(3, '0')}${resolveBrowserImageExportExtension(format)}`;
 }
 
 async function withRenderedPdfPageCanvas<T>(
@@ -137,7 +201,6 @@ async function renderPdfPage(
             const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
             return {
                 pageNumber,
-                fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
                 rgba: new Uint8Array(imageData.data),
                 width: canvas.width,
                 height: canvas.height,
@@ -146,7 +209,11 @@ async function renderPdfPage(
     );
 }
 
-async function canvasToPngBlob(canvas: HTMLCanvasElement) {
+async function canvasToBlob(
+    canvas: HTMLCanvasElement,
+    mimeType: string,
+    quality?: number,
+) {
     return new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (!blob) {
@@ -155,20 +222,36 @@ async function canvasToPngBlob(canvas: HTMLCanvasElement) {
             }
 
             resolve(blob);
-        }, 'image/png');
+        }, mimeType, quality);
     });
 }
 
-async function renderPdfPageToPng(
+async function renderPdfPageToImageBytes(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageNumber: number,
-): Promise<IRenderedPngPage> {
-    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, async ({ canvas }) => {
-        const pngBlob = await canvasToPngBlob(canvas);
+    format: TBrowserImageExportFormat,
+) {
+    if (format === 'tiff') {
+        const rendered = await renderPdfPage(pdfDocument, pageNumber);
         return {
-            pageNumber,
-            fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
-            pngBlob,
+            bytes: encodeMultiPageTiff([{
+                rgba: rendered.rgba,
+                width: rendered.width,
+                height: rendered.height,
+            }]),
+            mimeType: resolveBrowserImageMimeType(format),
+        };
+    }
+
+    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, async ({ canvas }) => {
+        const imageBlob = await canvasToBlob(
+            canvas,
+            resolveBrowserImageMimeType(format),
+            format === 'jpeg' ? 0.92 : undefined,
+        );
+        return {
+            bytes: new Uint8Array(await imageBlob.arrayBuffer()),
+            mimeType: resolveBrowserImageMimeType(format),
         };
     });
 }
@@ -330,16 +413,11 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             try {
                 for (let index = 0; index < targetPages.length; index += 1) {
                     const pageNumber = targetPages[index]!;
-                    const page = await renderPdfPageToPng(pdfDocument.pdfDocument, pageNumber);
-                    const saveResult = await saveBlobToPickerOrDownload(
-                        page.pngBlob,
-                        page.fileName,
-                        [{
-                            description: 'PNG Images',
-                            accept: { 'image/png': ['.png'] },
-                        }],
-                    );
-                    if (saveResult.canceled) {
+                    const saveTarget = await pickSaveTarget({
+                        suggestedName: buildBrowserImageExportFileName(pageNumber),
+                        pickerTypes: BROWSER_IMAGE_EXPORT_PICKER_TYPES,
+                    });
+                    if (saveTarget.canceled) {
                         await Promise.allSettled(
                             outputRefs.map(async (outputRef) => {
                                 await browserDocumentStore.cleanupDetachedDocument(outputRef);
@@ -351,26 +429,55 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                         };
                     }
 
-                    const pageBytes = saveResult.handle
-                        ? new Uint8Array()
-                        : new Uint8Array(await page.pngBlob.arrayBuffer());
+                    const format = resolveBrowserImageExportFormat(saveTarget.fileName);
+                    const renderedPage = await renderPdfPageToImageBytes(
+                        pdfDocument.pdfDocument,
+                        pageNumber,
+                        format,
+                    );
+                    let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, format);
+                    let saveHandle = saveTarget.handle ?? null;
+
+                    if (saveTarget.handle) {
+                        await writeBytesToHandle(saveTarget.handle, renderedPage.bytes);
+                    } else {
+                        const downloadResult = await saveBytesToPickerOrDownload(renderedPage.bytes, {
+                            suggestedName: saveName,
+                            mimeType: renderedPage.mimeType,
+                            pickerTypes: BROWSER_IMAGE_EXPORT_PICKER_TYPES,
+                        });
+                        if (downloadResult.canceled) {
+                            await Promise.allSettled(
+                                outputRefs.map(async (outputRef) => {
+                                    await browserDocumentStore.cleanupDetachedDocument(outputRef);
+                                }),
+                            );
+                            return {
+                                success: false,
+                                canceled: true,
+                            };
+                        }
+                        saveName = normalizeBrowserImageExportFileName(downloadResult.fileName, format);
+                        saveHandle = downloadResult.handle ?? null;
+                    }
+
                     const outputRef = await browserDocumentStore.createStoredDocument(
-                        saveResult.fileName,
-                        pageBytes,
+                        saveName,
+                        saveHandle ? new Uint8Array() : renderedPage.bytes,
                         {
-                            mimeType: 'image/png',
+                            mimeType: renderedPage.mimeType,
                             saveKind: 'generic',
                             kind: 'output',
                             retention: 'transient',
-                            saveHandle: saveResult.handle ?? null,
-                            ...(saveResult.handle ? { storageMode: 'handle' as const } : {}),
+                            saveHandle,
+                            ...(saveHandle ? { storageMode: 'handle' as const } : {}),
                         },
                     );
-                    if (saveResult.handle) {
+                    if (saveHandle) {
                         await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {
-                            fileSize: page.pngBlob.size,
-                            saveHandle: saveResult.handle,
-                            saveName: saveResult.fileName,
+                            fileSize: renderedPage.bytes.byteLength,
+                            saveHandle,
+                            saveName,
                         });
                     }
                     await browserDocumentStore.touchRecentFile(outputRef);

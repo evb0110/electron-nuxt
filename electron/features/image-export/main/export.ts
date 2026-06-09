@@ -3,6 +3,7 @@ import {
     copyFile,
     mkdir,
     mkdtemp,
+    readFile,
     readdir,
     stat,
     rename,
@@ -24,6 +25,7 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
+import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
 import {
@@ -46,6 +48,7 @@ import {
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
+type TPageRenderFormat = TImageExportFormat | 'ppm';
 
 interface IRenderedPageFile {
     page: number;
@@ -68,6 +71,7 @@ const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
 const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
+const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_PNG_RENDER_CHUNK_PAGES', 5, 1, 25);
 const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
 const TIFF_COMBINE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['image-export-tiff'].fileName;
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = (() => {
@@ -130,14 +134,17 @@ export function normalizeImageExportPath(filePath: string, fallbackFormat: TImag
     };
 }
 
-function toPdftoppmFormatArg(format: TImageExportFormat) {
+function toPdftoppmFormatArgs(format: TPageRenderFormat) {
     if (format === 'jpeg') {
-        return '-jpeg';
+        return ['-jpeg'];
     }
     if (format === 'tiff') {
-        return '-tiff';
+        return ['-tiff'];
     }
-    return '-png';
+    if (format === 'png') {
+        return ['-png'];
+    }
+    return [];
 }
 
 function parsePageNumber(fileName: string) {
@@ -148,7 +155,7 @@ function parsePageNumber(fileName: string) {
     return Number.parseInt(match[1] ?? '', 10);
 }
 
-function isExpectedPageFile(fileName: string, format: TImageExportFormat) {
+function isExpectedPageFile(fileName: string, format: TPageRenderFormat) {
     const extension = extname(fileName).toLowerCase();
 
     if (format === 'jpeg') {
@@ -157,8 +164,111 @@ function isExpectedPageFile(fileName: string, format: TImageExportFormat) {
     if (format === 'tiff') {
         return extension === '.tif' || extension === '.tiff';
     }
+    if (format === 'ppm') {
+        return extension === '.ppm';
+    }
 
     return extension === '.png';
+}
+
+function readPnmToken(bytes: Uint8Array, cursor: { offset: number }) {
+    while (cursor.offset < bytes.length) {
+        const byte = bytes[cursor.offset];
+        if (byte === 0x23) {
+            while (cursor.offset < bytes.length && bytes[cursor.offset] !== 0x0A) {
+                cursor.offset += 1;
+            }
+            continue;
+        }
+        if (byte !== undefined && byte <= 0x20) {
+            cursor.offset += 1;
+            continue;
+        }
+        break;
+    }
+
+    const start = cursor.offset;
+    while (cursor.offset < bytes.length) {
+        const byte = bytes[cursor.offset];
+        if (byte === undefined || byte <= 0x20) {
+            break;
+        }
+        cursor.offset += 1;
+    }
+
+    if (start === cursor.offset) {
+        throw new Error('Invalid PPM image header');
+    }
+
+    return Buffer.from(bytes.buffer, bytes.byteOffset + start, cursor.offset - start).toString('ascii');
+}
+
+function parsePositivePnmInteger(value: string, label: string) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+        throw new Error(`Invalid PPM ${label}`);
+    }
+    return parsed;
+}
+
+function parseRawPpm(bytes: Uint8Array) {
+    const cursor = { offset: 0 };
+    const magic = readPnmToken(bytes, cursor);
+    if (magic !== 'P6') {
+        throw new Error(`Unsupported PPM image type: ${magic}`);
+    }
+
+    const width = parsePositivePnmInteger(readPnmToken(bytes, cursor), 'width');
+    const height = parsePositivePnmInteger(readPnmToken(bytes, cursor), 'height');
+    const maxValue = parsePositivePnmInteger(readPnmToken(bytes, cursor), 'max value');
+    if (maxValue !== 255) {
+        throw new Error(`Unsupported PPM max value: ${maxValue}`);
+    }
+
+    if (cursor.offset < bytes.length && bytes[cursor.offset]! <= 0x20) {
+        cursor.offset += 1;
+    }
+
+    const expectedByteLength = width * height * 3;
+    const data = bytes.subarray(cursor.offset);
+    if (data.length !== expectedByteLength) {
+        throw new Error(`Invalid PPM pixel data length: expected ${expectedByteLength}, found ${data.length}`);
+    }
+
+    return {
+        width,
+        height,
+        data,
+    };
+}
+
+function createLosslessGrayscaleData(data: Uint8Array) {
+    const grayscaleData = new Uint8Array(data.length / 3);
+    for (let sourceIndex = 0, targetIndex = 0; sourceIndex < data.length; sourceIndex += 3, targetIndex += 1) {
+        const red = data[sourceIndex]!;
+        if (red !== data[sourceIndex + 1] || red !== data[sourceIndex + 2]) {
+            return null;
+        }
+        grayscaleData[targetIndex] = red;
+    }
+    return grayscaleData;
+}
+
+async function convertRenderedPpmToPng(sourcePath: string) {
+    const sourceBytes = await readFile(sourcePath);
+    const image = parseRawPpm(sourceBytes);
+    const grayscaleData = createLosslessGrayscaleData(image.data);
+    const pngBytes = encodePng({
+        width: image.width,
+        height: image.height,
+        channels: grayscaleData ? 1 : 3,
+        depth: 8,
+        data: grayscaleData ?? image.data,
+    });
+    const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
+    await writeFile(pngPath, pngBytes);
+    await unlink(sourcePath).catch(() => undefined);
+    return pngPath;
 }
 
 async function moveFile(sourcePath: string, targetPath: string) {
@@ -283,8 +393,9 @@ async function renderPdfToTempPages(
         const renderDpi = clampDpi(detectedDpi ?? 300);
 
         throwIfAborted(signal);
+        const renderFormat: TPageRenderFormat = format === 'png' ? 'ppm' : format;
         await runNativeToolCommand(paths.pdftoppm, [
-            toPdftoppmFormatArg(format),
+            ...toPdftoppmFormatArgs(renderFormat),
             '-r',
             String(renderDpi),
             '-f',
@@ -304,7 +415,7 @@ async function renderPdfToTempPages(
         const pageFiles = sortBy(
             fileNames
                 .filter(fileName => fileName.startsWith('page-'))
-                .filter(fileName => isExpectedPageFile(fileName, format))
+                .filter(fileName => isExpectedPageFile(fileName, renderFormat))
                 .map(fileName => ({
                     fileName,
                     page: parsePageNumber(fileName),
@@ -318,6 +429,13 @@ async function renderPdfToTempPages(
 
         if (pageFiles.length === 0) {
             throw new Error('No page images were generated from the PDF');
+        }
+
+        if (renderFormat === 'ppm') {
+            for (const pageFile of pageFiles) {
+                throwIfAborted(signal);
+                pageFile.path = await convertRenderedPpmToPng(pageFile.path);
+            }
         }
 
         return pageFiles;
@@ -443,11 +561,11 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
     }
 }
 
-function createPageRanges(pageCount: number) {
-    return range(1, pageCount + 1, PDF_EXPORT_RENDER_CHUNK_PAGES)
+function createPageRanges(pageCount: number, chunkPages = PDF_EXPORT_RENDER_CHUNK_PAGES) {
+    return range(1, pageCount + 1, chunkPages)
         .map(firstPage => ({
             firstPage,
-            lastPage: Math.min(pageCount, firstPage + PDF_EXPORT_RENDER_CHUNK_PAGES - 1),
+            lastPage: Math.min(pageCount, firstPage + chunkPages - 1),
         }));
 }
 
@@ -483,7 +601,10 @@ export async function exportPdfPagesAsImages(
         const exportedPaths: string[] = [];
         const isSinglePageExport = pageCount === 1;
         try {
-            for (const pageRange of createPageRanges(pageCount)) {
+            for (const pageRange of createPageRanges(
+                pageCount,
+                format === 'png' ? PDF_EXPORT_PNG_RENDER_CHUNK_PAGES : PDF_EXPORT_RENDER_CHUNK_PAGES,
+            )) {
                 throwIfAborted(options.signal);
                 const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format, pageRange, options.signal);
 

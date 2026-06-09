@@ -9,6 +9,7 @@ import {
 } from 'fs/promises';
 import type * as FsPromises from 'fs/promises';
 import * as utifModule from 'utif';
+import { decode as decodePng } from 'fast-png';
 import {
     afterEach,
     beforeEach,
@@ -84,10 +85,19 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 const {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
+    normalizeImageExportPath,
 } = await import('@electron/features/image-export/main/export');
 const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
 const UTIF = utifModule as IUtifModule;
+
+function expectSinglePixelPng(bytes: Uint8Array, rgb: [number, number, number]) {
+    const decoded = decodePng(bytes);
+    expect(decoded.width).toBe(1);
+    expect(decoded.height).toBe(1);
+    expect(decoded.channels).toBe(3);
+    expect(Array.from(decoded.data.slice(0, 3))).toEqual(rgb);
+}
 
 function countTiffDirectories(bytes: Uint8Array) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -123,7 +133,10 @@ describe('image export', () => {
             isFile: () => true,
             size: 1024,
         }));
-        mocks.rename.mockResolvedValue(undefined);
+        mocks.rename.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            await writeFile(targetPath, await readFile(sourcePath));
+            await rm(sourcePath, { force: true });
+        });
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await writeFile(targetPath, await readFile(sourcePath));
             await rm(sourcePath, { force: true });
@@ -146,12 +159,20 @@ describe('image export', () => {
                 throw new Error('Expected pdftoppm output prefix');
             }
 
-            const formatArg = args[0];
+            const formatArg = args.includes('-png')
+                ? '-png'
+                : args.includes('-jpeg')
+                    ? '-jpeg'
+                    : args.includes('-tiff')
+                        ? '-tiff'
+                        : '-ppm';
             const extension = formatArg === '-png'
                 ? 'png'
                 : formatArg === '-jpeg'
                     ? 'jpg'
-                    : 'tif';
+                    : formatArg === '-tiff'
+                        ? 'tif'
+                        : 'ppm';
 
             const firstPageArgIndex = args.indexOf('-f');
             const lastPageArgIndex = args.indexOf('-l');
@@ -170,7 +191,16 @@ describe('image export', () => {
                         0,
                         255,
                     ]), 1, 1))
-                    : Buffer.from(`page-${page}-${extension}`);
+                    : extension === 'ppm'
+                        ? Buffer.concat([
+                            Buffer.from('P6\n1 1\n255\n'),
+                            Buffer.from([
+                                page,
+                                0,
+                                0,
+                            ]),
+                        ])
+                        : Buffer.from(`page-${page}-${extension}`);
                 await writeFile(`${prefix}-${page}.${extension}`, pageBytes);
             }
 
@@ -294,8 +324,79 @@ describe('image export', () => {
         expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(outputPath);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(`${tempPath}.tmp`, tempPath);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, outputPath);
-        expect(await readFile(outputPath, 'utf8')).toBe('page-1-png');
+        expectSinglePixelPng(new Uint8Array(await readFile(outputPath)), [
+            1,
+            0,
+            0,
+        ]);
         expect(existsSync(tempPath)).toBe(false);
+    });
+
+    it('normalizes extensionless image targets with a JPEG fallback when requested', () => {
+        expect(normalizeImageExportPath(join(tempDir, 'exported'), 'jpeg')).toEqual({
+            normalizedPath: join(tempDir, 'exported.jpg'),
+            format: 'jpeg',
+        });
+    });
+
+    it('exports JPEG page images when the target extension is JPG', async () => {
+        const outputPath = join(tempDir, 'exported.jpg');
+        const firstOutputPath = join(tempDir, 'exported-001.jpg');
+        const secondOutputPath = join(tempDir, 'exported-002.jpg');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([
+            firstOutputPath,
+            secondOutputPath,
+        ]);
+
+        const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
+        expect(pdftoppmCall?.[1]).toContain('-jpeg');
+        expect(pdftoppmCall?.[1]).not.toContain('-png');
+        expect(pdftoppmCall?.[1]).not.toContain('-tiff');
+        expect(await readFile(firstOutputPath, 'utf8')).toBe('page-1-jpg');
+        expect(await readFile(secondOutputPath, 'utf8')).toBe('page-2-jpg');
+    });
+
+    it('exports TIFF page images when the target extension is TIF', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+
+        const outputPath = join(tempDir, 'exported.tif');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
+        expect(pdftoppmCall?.[1]).toContain('-tiff');
+        expect(pdftoppmCall?.[1]).not.toContain('-png');
+        expect(pdftoppmCall?.[1]).not.toContain('-jpeg');
+
+        const outputBytes = new Uint8Array(await readFile(outputPath));
+        const ifds = UTIF.decode(outputBytes);
+        expect(ifds).toHaveLength(1);
+        UTIF.decodeImage(outputBytes, ifds[0]!);
+        expect(Array.from(UTIF.toRGBA8(ifds[0]!).slice(0, 4))).toEqual([
+            255,
+            0,
+            0,
+            255,
+        ]);
+    });
+
+    it('renders PNG exports through raw PPM before encoding to avoid slow native PNG output', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+
+        const outputPath = join(tempDir, 'exported.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
+        expect(pdftoppmCall?.[1]).not.toContain('-png');
+        expectSinglePixelPng(new Uint8Array(await readFile(outputPath)), [
+            1,
+            0,
+            0,
+        ]);
     });
 
     it('keeps an existing image target when EXDEV atomic replacement fails', async () => {
@@ -357,7 +458,14 @@ describe('image export', () => {
             if (command !== '/mock/pdftoppm' || typeof prefix !== 'string') {
                 throw new Error('Unexpected command');
             }
-            await writeFile(`${prefix}-1.png`, 'page-1-png');
+            await writeFile(`${prefix}-1.ppm`, Buffer.concat([
+                Buffer.from('P6\n1 1\n255\n'),
+                Buffer.from([
+                    1,
+                    0,
+                    0,
+                ]),
+            ]));
             controller.abort();
             return {
                 stdout: '',
