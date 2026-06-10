@@ -3,9 +3,21 @@ import {
     run,
     sleep,
 } from './shared.mjs';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const POLL_INTERVAL_MS = 10 * 1000;
+const TRANSIENT_GITHUB_CLI_ERROR_PATTERNS = [
+    /TLS handshake timeout/i,
+    /context deadline exceeded/i,
+    /connection reset/i,
+    /ECONNRESET/i,
+    /ETIMEDOUT/i,
+    /EAI_AGAIN/i,
+    /502 Bad Gateway/i,
+    /503 Service Unavailable/i,
+    /504 Gateway Timeout/i,
+];
 
 function readTag() {
     const tag = process.argv[2]?.trim();
@@ -30,6 +42,16 @@ function readWaitTimeoutMs() {
     }
 
     return parsed;
+}
+
+export function isTransientGitHubCliError(error) {
+    const message = errorMessage(error);
+
+    return TRANSIENT_GITHUB_CLI_ERROR_PATTERNS.some(pattern => pattern.test(message));
+}
+
+function briefErrorMessage(error) {
+    return errorMessage(error).split('\n')[0] ?? String(error);
 }
 
 function listReleaseRuns() {
@@ -86,33 +108,95 @@ function readFailedJobSummary(runId) {
     };
 }
 
-async function waitForRelease(tag) {
-    const deadline = Date.now() + readWaitTimeoutMs();
-    let announcedUrl = '';
+function writeTransientPollingFailure({
+    error,
+    stderr,
+    tag,
+    transientPollFailures,
+}) {
+    stderr.write(
+        `Transient GitHub polling failure while waiting for ${tag} `
+        + `(attempt ${transientPollFailures}); retrying: ${briefErrorMessage(error)}\n`,
+    );
+}
 
-    while (Date.now() < deadline) {
-        const runInfo = findReleaseRun(tag);
+export async function waitForRelease(tag, {
+    findReleaseRunFn = findReleaseRun,
+    nowFn = Date.now,
+    readFailedJobSummaryFn = readFailedJobSummary,
+    readWaitTimeoutMsFn = readWaitTimeoutMs,
+    sleepFn = sleep,
+    stderr = process.stderr,
+    stdout = process.stdout,
+} = {}) {
+    const deadline = nowFn() + readWaitTimeoutMsFn();
+    let announcedUrl = '';
+    let transientPollFailures = 0;
+
+    while (nowFn() < deadline) {
+        let runInfo;
+
+        try {
+            runInfo = findReleaseRunFn(tag);
+            transientPollFailures = 0;
+        } catch (error) {
+            if (!isTransientGitHubCliError(error)) {
+                throw error;
+            }
+
+            // The release workflow keeps running when a single GitHub API poll hits
+            // a network/TLS blip, so keep waiting instead of failing the release command.
+            transientPollFailures += 1;
+            writeTransientPollingFailure({
+                error,
+                stderr,
+                tag,
+                transientPollFailures,
+            });
+            await sleepFn(POLL_INTERVAL_MS);
+            continue;
+        }
+
         if (!runInfo) {
-            await sleep(POLL_INTERVAL_MS);
+            await sleepFn(POLL_INTERVAL_MS);
             continue;
         }
 
         if (runInfo.url && runInfo.url !== announcedUrl) {
-            process.stdout.write(`Waiting for ${tag} release workflow: ${runInfo.url}\n`);
+            stdout.write(`Waiting for ${tag} release workflow: ${runInfo.url}\n`);
             announcedUrl = runInfo.url;
         }
 
         if (runInfo.status !== 'completed') {
-            await sleep(POLL_INTERVAL_MS);
+            await sleepFn(POLL_INTERVAL_MS);
             continue;
         }
 
         if (runInfo.conclusion === 'success') {
-            process.stdout.write(`Release workflow succeeded for ${tag}: ${runInfo.url}\n`);
+            stdout.write(`Release workflow succeeded for ${tag}: ${runInfo.url}\n`);
             return;
         }
 
-        const failureSummary = readFailedJobSummary(runInfo.databaseId);
+        let failureSummary;
+
+        try {
+            failureSummary = readFailedJobSummaryFn(runInfo.databaseId);
+        } catch (error) {
+            if (!isTransientGitHubCliError(error)) {
+                throw error;
+            }
+
+            transientPollFailures += 1;
+            writeTransientPollingFailure({
+                error,
+                stderr,
+                tag,
+                transientPollFailures,
+            });
+            await sleepFn(POLL_INTERVAL_MS);
+            continue;
+        }
+
         const failedJobsText = failureSummary.failedJobs.length > 0
             ? ` Failed jobs: ${failureSummary.failedJobs.join(', ')}.`
             : '';
@@ -133,7 +217,9 @@ async function main() {
     await waitForRelease(tag);
 }
 
-main().catch((error) => {
-    process.stderr.write(`${errorMessage(error)}\n`);
-    process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((error) => {
+        process.stderr.write(`${errorMessage(error)}\n`);
+        process.exit(1);
+    });
+}
