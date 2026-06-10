@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
     renderPageCount: 2,
     pdfPageCount: 2,
+    nativeImageCombinePath: null as string | null,
 }));
 
 vi.mock('fs/promises', async () => {
@@ -68,6 +69,10 @@ vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths:
 })}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
+vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
+    isNativePdfImageCombineDisabled: () => mocks.nativeImageCombinePath === null,
+    resolveNativePdfImageCombinePath: () => mocks.nativeImageCombinePath,
+}));
 vi.mock('pdf-lib', () => ({PDFDocument: {load: vi.fn(async () => ({ getPageCount: () => mocks.pdfPageCount }))}}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -129,6 +134,7 @@ describe('image export', () => {
         mocks.makeSiblingTempPath.mockClear();
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;
+        mocks.nativeImageCombinePath = null;
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -145,6 +151,21 @@ describe('image export', () => {
             if (command === '/mock/qpdf' && args[0] === '--show-npages') {
                 return {
                     stdout: String(mocks.pdfPageCount),
+                    stderr: '',
+                    exitCode: 0,
+                };
+            }
+
+            if (command === mocks.nativeImageCombinePath) {
+                expect(args).toContain('png');
+                const outputArgIndex = args.indexOf('--output');
+                const outputPath = args[outputArgIndex + 1];
+                if (typeof outputPath !== 'string') {
+                    throw new Error('Expected native image combiner output path');
+                }
+                await writeFile(outputPath, 'native-png');
+                return {
+                    stdout: '',
                     stderr: '',
                     exitCode: 0,
                 };
@@ -397,6 +418,26 @@ describe('image export', () => {
             0,
             0,
         ]);
+    });
+
+    it('uses native PPM-to-PNG encoding when the Rust image combiner is available', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        mocks.nativeImageCombinePath = '/native/evb-pdf-image-combine';
+
+        const outputPath = join(tempDir, 'exported.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        expect(mocks.runCommand).toHaveBeenCalledWith('/native/evb-pdf-image-combine', [
+            '--format',
+            'png',
+            '--output',
+            expect.stringMatching(/page-1\.png$/u),
+            '--',
+            expect.stringMatching(/page-1\.ppm$/u),
+        ], expect.objectContaining({commandLabel: 'evb-pdf-image-combine(ppm-to-png)'}));
+        expect(await readFile(outputPath, 'utf8')).toBe('native-png');
     });
 
     it('keeps an existing image target when EXDEV atomic replacement fails', async () => {

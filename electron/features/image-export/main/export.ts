@@ -46,6 +46,11 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {
+    isNativePdfImageCombineDisabled,
+    resolveNativePdfImageCombinePath,
+} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import { getErrorMessage } from '@electron/utils/error';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
@@ -254,7 +259,43 @@ function createLosslessGrayscaleData(data: Uint8Array) {
     return grayscaleData;
 }
 
+async function tryConvertRenderedPpmToPngNative(sourcePath: string, pngPath: string) {
+    if (isNativePdfImageCombineDisabled()) {
+        return false;
+    }
+
+    const binaryPath = resolveNativePdfImageCombinePath();
+    if (!binaryPath) {
+        return false;
+    }
+
+    try {
+        await runNativeToolCommand(binaryPath, [
+            '--format',
+            'png',
+            '--output',
+            pngPath,
+            '--',
+            sourcePath,
+        ], {
+            timeoutMs: PDFTOPPM_TIMEOUT_MS,
+            commandLabel: 'evb-pdf-image-combine(ppm-to-png)',
+        });
+        await unlink(sourcePath).catch(() => undefined);
+        return true;
+    } catch (error) {
+        logger.debug(`Native PPM-to-PNG conversion failed, falling back to JS encoder: ${getErrorMessage(error)}`);
+        await rm(pngPath, {force: true}).catch(() => undefined);
+        return false;
+    }
+}
+
 async function convertRenderedPpmToPng(sourcePath: string) {
+    const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
+    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath)) {
+        return pngPath;
+    }
+
     const sourceBytes = await readFile(sourcePath);
     const image = parseRawPpm(sourceBytes);
     const grayscaleData = createLosslessGrayscaleData(image.data);
@@ -265,7 +306,6 @@ async function convertRenderedPpmToPng(sourcePath: string) {
         depth: 8,
         data: grayscaleData ?? image.data,
     });
-    const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
     await writeFile(pngPath, pngBytes);
     await unlink(sourcePath).catch(() => undefined);
     return pngPath;

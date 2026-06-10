@@ -5,6 +5,7 @@ mod jpeg;
 mod netpbm;
 mod pdf;
 mod png;
+mod png_encode;
 mod tiff_io;
 
 use std::{
@@ -16,7 +17,12 @@ use std::{
     time::Instant,
 };
 
-use crate::{image::read_image_pages, pdf::build_pdf, tiff_io::combine_tiff_pages};
+use crate::{
+    image::read_image_pages,
+    pdf::build_pdf,
+    png_encode::encode_netpbm_file_as_png,
+    tiff_io::combine_tiff_pages,
+};
 
 pub(crate) const DEFAULT_DPI: u32 = 72;
 pub(crate) const METERS_PER_INCH: f64 = 0.0254;
@@ -36,6 +42,7 @@ struct Config {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OutputFormat {
     Pdf,
+    Png,
     Tiff,
 }
 
@@ -67,6 +74,13 @@ fn run() -> Result<()> {
             max_pixels,
             read_limit("EVB_TIFF_COMBINE_MAX_PAGES", 10_000, 1, 100_000) as usize,
         )?;
+        return Ok(());
+    }
+    if config.output_format == OutputFormat::Png {
+        if config.input_paths.len() != 1 {
+            return Err("PNG output requires exactly one Netpbm input".into());
+        }
+        encode_netpbm_file_as_png(&config.input_paths[0], &config.output_path)?;
         return Ok(());
     }
 
@@ -123,6 +137,7 @@ fn parse_args() -> Result<Config> {
                 let value = args.next().ok_or("Missing --format value")?;
                 output_format = match value.as_str() {
                     "pdf" => OutputFormat::Pdf,
+                    "png" => OutputFormat::Png,
                     "tiff" => OutputFormat::Tiff,
                     _ => return Err(format!("Unsupported output format: {value}").into()),
                 };
