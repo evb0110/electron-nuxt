@@ -3,18 +3,22 @@
         :visible="overlay !== null"
         :title="title"
         :detail="detail"
+        :sub-detail="subDetail"
+        :value="overlay?.progressPercent ?? null"
         :state="overlay?.state ?? 'running'"
         offset-bottom="low"
     />
 </template>
 
 <script setup lang="ts">
+import { clamp } from 'es-toolkit/math';
 import AppProgressChip from '@app/components/AppProgressChip.vue';
 
 interface IWorkspaceExportOverlay {
     kind: 'images' | 'multipage-tiff';
     state: 'running' | 'success';
     pageCount: number;
+    progressPercent?: number;
 }
 
 const { overlay } = defineProps<{overlay: IWorkspaceExportOverlay | null;}>();
@@ -39,4 +43,11 @@ const title = computed(() => {
 const detail = computed(() => overlay
     ? t('export.pageCount', {count: overlay.pageCount})
     : '');
+const subDetail = computed(() => {
+    if (!overlay || overlay.state !== 'running' || typeof overlay.progressPercent !== 'number') {
+        return '';
+    }
+
+    return `${clamp(Math.round(overlay.progressPercent), 0, 100)}%`;
+});
 </script>

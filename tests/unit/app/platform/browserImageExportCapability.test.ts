@@ -178,6 +178,7 @@ describe('createBrowserImageExportCapability', () => {
         expect(result).toEqual({
             success: true,
             outputPath: 'browser://documents/output/sample.tiff',
+            outputPaths: ['browser://documents/output/sample.tiff'],
         });
         expect(saveBytesToPickerOrDownloadMock).toHaveBeenCalledTimes(1);
         expect(browserDocumentStoreMock.createStoredDocument).toHaveBeenCalledTimes(1);

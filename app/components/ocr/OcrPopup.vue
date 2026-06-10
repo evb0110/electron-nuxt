@@ -177,7 +177,7 @@
                         v-if="progress.isRunning"
                         class="progress flex flex-col gap-1.5"
                     >
-                        <UProgress :value="progressPercent" />
+                        <AppProgressBar :value="progressPercent" />
                         <span class="progress-text">
                             <template v-if="progress.phase === 'preparing'">
                                 {{ t('ocr.preparing') }}
@@ -283,6 +283,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TTranslationKey } from '@i18n-app';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';

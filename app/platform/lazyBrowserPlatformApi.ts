@@ -441,6 +441,10 @@ const lazyImageExportCapability: IImageExportCapability = {
         'imageExport',
         'exportPdfToMultiPageTiff',
     ]),
+    onProgress: lazyEvent<IImageExportCapability['onProgress']>([
+        'imageExport',
+        'onProgress',
+    ]),
 };
 
 const lazyPageOpsCapability: IPageOpsCapability = {

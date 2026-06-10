@@ -16,7 +16,7 @@
                     total: openBatchProgress.total,
                 }) }}
             </p>
-            <UProgress :value="openBatchProgress.percent" class="mt-2" />
+            <AppProgressBar :value="openBatchProgress.percent" class="mt-2" />
             <p v-if="batchEtaText" class="mt-2 text-xs text-[var(--ui-text-dimmed)]">
                 {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
             </p>
@@ -329,6 +329,7 @@ import {
 } from '@app/utils/progressFormatting';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { isBrowserPlatformActive } from '@app/utils/platform';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';

@@ -156,6 +156,7 @@
             :open="updatesDialog.open"
             :title="updatesDialogTitle"
             :description="updatesDialogDescription"
+            :progress-percent="updatesDialog.phase === 'downloading' ? updatesDialog.percent : null"
             :ready="updatesDialog.kind === 'ready'"
             @update:open="updatesDialog.open = $event"
             @defer="handleDeferUpdate"

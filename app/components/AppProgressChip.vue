@@ -25,7 +25,7 @@
                 </p>
             </div>
         </div>
-        <UProgress
+        <AppProgressBar
             :value="progressValue"
             class="mt-2"
         />
@@ -34,6 +34,7 @@
 
 <script setup lang="ts">
 import AppSpinner from '@app/components/AppSpinner.vue';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 
 type TProgressChipState = 'running' | 'success';
 type TProgressChipOffset = 'low' | 'high';
@@ -61,7 +62,9 @@ const progressValue = computed(() => {
     if (state === 'success') {
         return 100;
     }
-    return value ?? undefined;
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : null;
 });
 
 const containerClass = computed(() => {

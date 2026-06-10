@@ -3,8 +3,13 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     range,
     sumBy,
+    clamp,
 } from 'es-toolkit/math';
-import type { IImageExportCapability } from '@contracts/electronApiDocuments';
+import type {
+    IImageExportCapability,
+    IImageExportProgress,
+    TImageExportProgressFormat,
+} from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -29,6 +34,7 @@ import {
 } from '@pdf-core';
 
 type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
+type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
 
 interface IRenderedPdfPage {
     pageNumber: number;
@@ -45,6 +51,7 @@ interface ITiffPageDescriptor {
 }
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
+const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
 const BROWSER_IMAGE_EXPORT_PICKER_TYPES: IFilePickerAcceptType[] = [
     {
         description: 'JPEG Images',
@@ -83,6 +90,34 @@ interface IUtifEncoderModule {
 }
 
 const UTIF_ENCODER = UTIF as typeof UTIF & IUtifEncoderModule;
+
+function normalizeBrowserExportRequestId(requestId: unknown) {
+    return typeof requestId === 'string' ? requestId.trim() : '';
+}
+
+function emitBrowserImageExportProgress(
+    requestId: string | undefined,
+    format: TImageExportProgressFormat,
+    progress: TBrowserImageExportProgressPayload,
+) {
+    const normalizedRequestId = normalizeBrowserExportRequestId(requestId);
+    if (!normalizedRequestId) {
+        return;
+    }
+
+    const total = Math.max(1, Math.trunc(progress.total));
+    const processed = clamp(Math.trunc(progress.processed), 0, total);
+    const event = {
+        requestId: normalizedRequestId,
+        format,
+        phase: progress.phase,
+        processed,
+        total,
+        percent: clamp(progress.percent, 0, 100),
+    } satisfies IImageExportProgress;
+
+    imageExportProgressListeners.forEach((listener) => listener(event));
+}
 
 interface IRenderedPdfPageCanvas {
     pageNumber: number;
@@ -347,6 +382,7 @@ async function encodeTiffToWritable(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageDescriptors: ITiffPageDescriptor[],
     handle: FileSystemFileHandle,
+    onPageWritten?: (processed: number) => void,
 ) {
     const writable = await handle.createWritable();
     try {
@@ -360,13 +396,15 @@ async function encodeTiffToWritable(
             await writable.write(new Uint8Array(paddingLength));
         }
 
-        for (const descriptor of pageDescriptors) {
+        for (let index = 0; index < pageDescriptors.length; index += 1) {
+            const descriptor = pageDescriptors[index]!;
             const rendered = await renderPdfPage(pdfDocument, descriptor.pageNumber);
             if (rendered.rgba.byteLength !== descriptor.dataLength) {
                 throw new Error('Rendered TIFF page size did not match the expected descriptor size');
             }
 
             await writable.write(toUint8Array(rendered.rgba));
+            onPageWritten?.(index + 1);
             await yieldToBrowser();
         }
 
@@ -383,6 +421,7 @@ async function encodeTiffToWritable(
 async function encodeTiffToBytes(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageDescriptors: ITiffPageDescriptor[],
+    onPageWritten?: (processed: number) => void,
 ) {
     const {
         output,
@@ -390,7 +429,8 @@ async function encodeTiffToBytes(
     } = createMultiPageTiffOutput(pageDescriptors);
     let offset = firstDataOffset;
 
-    for (const descriptor of pageDescriptors) {
+    for (let index = 0; index < pageDescriptors.length; index += 1) {
+        const descriptor = pageDescriptors[index]!;
         const rendered = await renderPdfPage(pdfDocument, descriptor.pageNumber);
         if (rendered.rgba.byteLength !== descriptor.dataLength) {
             throw new Error('Rendered TIFF page size did not match the expected descriptor size');
@@ -398,6 +438,7 @@ async function encodeTiffToBytes(
 
         output.set(rendered.rgba, offset);
         offset += descriptor.dataLength;
+        onPageWritten?.(index + 1);
         await yieldToBrowser();
     }
 
@@ -430,7 +471,7 @@ function getTargetPages(pdfDocument: { numPages: number }, pageNumbers?: number[
 
 export function createBrowserImageExportCapability(): IImageExportCapability {
     return {
-        async exportPdfToImages(workingCopyPath, pageNumbers) {
+        async exportPdfToImages(workingCopyPath, pageNumbers, requestId) {
             const pdfDocument = await loadPdfDocument(workingCopyPath);
             const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
             const outputRefs: string[] = [];
@@ -444,6 +485,12 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             }
 
             try {
+                emitBrowserImageExportProgress(requestId, 'images', {
+                    phase: 'rendering',
+                    processed: 0,
+                    total: targetPages.length,
+                    percent: 0,
+                });
                 for (let index = 0; index < targetPages.length; index += 1) {
                     const pageNumber = targetPages[index]!;
                     const saveTarget = await pickSaveTarget({
@@ -515,6 +562,12 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     }
                     await browserDocumentStore.touchRecentFile(outputRef);
                     outputRefs.push(outputRef);
+                    emitBrowserImageExportProgress(requestId, 'images', {
+                        phase: 'rendering',
+                        processed: index + 1,
+                        total: targetPages.length,
+                        percent: ((index + 1) / targetPages.length) * 100,
+                    });
 
                     if (index % 2 === 1) {
                         await yieldToBrowser();
@@ -536,7 +589,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 outputPaths: outputRefs,
             };
         },
-        async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers) {
+        async exportPdfToMultiPageTiff(workingCopyPath, pageNumbers, requestId) {
             const pdfDocument = await loadPdfDocument(workingCopyPath);
             const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
             const outputFileName = ensurePdfExtension(
@@ -572,12 +625,27 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             }
 
             try {
+                const emitPageProgress = (processed: number) => emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
+                    phase: 'rendering',
+                    processed,
+                    total: descriptors.length,
+                    percent: (processed / descriptors.length) * 90,
+                });
+                emitPageProgress(0);
+
                 if (saveTarget.handle) {
                     const fileSize = await encodeTiffToWritable(
                         pdfDocument.pdfDocument,
                         descriptors,
                         saveTarget.handle,
+                        emitPageProgress,
                     );
+                    emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
+                        phase: 'combining',
+                        processed: 1,
+                        total: 1,
+                        percent: 100,
+                    });
                     const outputRef = await browserDocumentStore.createStoredDocument(
                         saveTarget.fileName,
                         new Uint8Array(),
@@ -599,6 +667,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     return {
                         success: true,
                         outputPath: outputRef,
+                        outputPaths: [outputRef],
                     };
                 }
 
@@ -612,7 +681,14 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 const tiffBytes = await encodeTiffToBytes(
                     pdfDocument.pdfDocument,
                     descriptors,
+                    emitPageProgress,
                 );
+                emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
+                    phase: 'combining',
+                    processed: 1,
+                    total: 1,
+                    percent: 100,
+                });
 
                 const saveResult = await saveBytesToPickerOrDownload(tiffBytes, {
                     suggestedName: saveTarget.fileName,
@@ -649,10 +725,17 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 return {
                     success: true,
                     outputPath: outputRef,
+                    outputPaths: [outputRef],
                 };
             } finally {
                 await pdfDocument.destroy();
             }
+        },
+        onProgress: (callback) => {
+            imageExportProgressListeners.add(callback);
+            return () => {
+                imageExportProgressListeners.delete(callback);
+            };
         },
     };
 }

@@ -12,9 +12,12 @@
         </template>
 
         <template #body>
-            <p class="text-sm text-muted">
-                {{ description }}
-            </p>
+            <div class="flex flex-col gap-3">
+                <p class="text-sm text-muted">
+                    {{ description }}
+                </p>
+                <AppProgressBar :value="progressPercent" />
+            </div>
         </template>
 
         <template #footer="{ close }">
@@ -49,10 +52,13 @@
 </template>
 
 <script setup lang="ts">
+import AppProgressBar from '@app/components/AppProgressBar.vue';
+
 defineProps<{
     open: boolean;
     title: string;
     description: string;
+    progressPercent?: number | null;
     ready: boolean;
 }>();
 

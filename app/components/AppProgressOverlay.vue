@@ -10,7 +10,7 @@
             <div class="app-progress-overlay-title">
                 {{ title }}
             </div>
-            <UProgress
+            <AppProgressBar
                 :value="value"
                 class="app-progress-overlay-bar"
             />
@@ -31,6 +31,7 @@
 
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
 
 interface IAppProgressOverlayProps {
