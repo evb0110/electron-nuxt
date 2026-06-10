@@ -1,3 +1,4 @@
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
 function mimeTypeFromPath(path: string) {
@@ -72,7 +73,7 @@ export async function pickPageAnnotationImageFile() {
             lastModified: Date.now(),
         });
     } finally {
-        if (typeof documents.cleanupFile === 'function') {
+        if (typeof documents.cleanupFile === 'function' && isBrowserDocumentRef(imagePath)) {
             await documents.cleanupFile(imagePath).catch(() => {});
         }
     }
