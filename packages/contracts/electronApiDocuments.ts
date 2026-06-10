@@ -191,17 +191,31 @@ export interface IPdfNativeWorkingCopyExpectation {
     sha256: string;
 }
 
+export type TImageExportProgressFormat = 'images' | 'multipage-tiff';
+export type TImageExportProgressPhase = 'rendering' | 'combining';
+
+export interface IImageExportProgress {
+    requestId: string;
+    format: TImageExportProgressFormat;
+    phase: TImageExportProgressPhase;
+    processed: number;
+    total: number;
+    percent: number;
+}
+
 export interface IImageExportCapability {
-    exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
+    exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPaths?: TDocumentRef[];
     }>;
-    exportPdfToMultiPageTiff: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
+    exportPdfToMultiPageTiff: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPath?: TDocumentRef;
+        outputPaths?: TDocumentRef[];
     }>;
+    onProgress: (callback: (progress: IImageExportProgress) => void) => IMenuEventUnsubscribe;
 }
 
 export interface IDocumentsMenuCapability {

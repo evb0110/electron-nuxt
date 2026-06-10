@@ -94,7 +94,11 @@ const {
     exportPdfPagesAsImages,
     normalizeImageExportPath,
 } = await import('@electron/features/image-export/main/export');
-const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
+const {
+    combinePagesIntoMultiPageTiffLocal,
+    estimateMultiPageTiffByteLength,
+    splitTiffPageDescriptorsForClassicLimit,
+} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
 const UTIF = utifModule as IUtifModule;
 
@@ -271,8 +275,8 @@ describe('image export', () => {
     it('creates a multi-page TIFF without host tool fallbacks', async () => {
         const outputPath = join(tempDir, 'exported.tiff');
 
-        const resultPath = await exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath);
-        expect(resultPath).toBe(outputPath);
+        const resultPaths = await exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath);
+        expect(resultPaths).toEqual([outputPath]);
 
         const outputBytes = new Uint8Array(await readFile(outputPath));
         const ifds = UTIF.decode(outputBytes);
@@ -305,6 +309,34 @@ describe('image export', () => {
                 commandLabel: 'pdftoppm(export-tiff)',
             }),
         );
+    });
+
+    it('reports multi-page TIFF render and combine progress', async () => {
+        const outputPath = join(tempDir, 'progress.tiff');
+        const progress = vi.fn();
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {onProgress: progress}))
+            .resolves
+            .toEqual([outputPath]);
+
+        expect(progress).toHaveBeenCalledWith({
+            phase: 'rendering',
+            processed: 0,
+            total: 2,
+            percent: 0,
+        });
+        expect(progress).toHaveBeenCalledWith({
+            phase: 'rendering',
+            processed: 2,
+            total: 2,
+            percent: 90,
+        });
+        expect(progress).toHaveBeenCalledWith({
+            phase: 'combining',
+            processed: 1,
+            total: 1,
+            percent: 100,
+        });
     });
 
     it('bounds export DPI probes to the current render chunk', async () => {
@@ -403,6 +435,52 @@ describe('image export', () => {
             0,
             255,
         ]);
+    });
+
+    it('splits TIFF descriptors into classic-size multi-page parts', () => {
+        const descriptors = [
+            {
+                path: '/tmp/page-1.tif',
+                width: 1,
+                height: 1,
+                dataLength: 400,
+            },
+            {
+                path: '/tmp/page-2.tif',
+                width: 1,
+                height: 1,
+                dataLength: 400,
+            },
+            {
+                path: '/tmp/page-3.tif',
+                width: 1,
+                height: 1,
+                dataLength: 400,
+            },
+        ];
+        const twoPageLimit = estimateMultiPageTiffByteLength(descriptors.slice(0, 2));
+
+        expect(splitTiffPageDescriptorsForClassicLimit(descriptors, twoPageLimit)).toEqual([
+            [
+                descriptors[0],
+                descriptors[1],
+            ],
+            [descriptors[2]],
+        ]);
+    });
+
+    it('rejects a TIFF split when a single page exceeds the classic-size limit', () => {
+        const descriptor = {
+            path: '/tmp/page-1.tif',
+            width: 1,
+            height: 1,
+            dataLength: 400,
+        };
+
+        expect(() => splitTiffPageDescriptorsForClassicLimit(
+            [descriptor],
+            estimateMultiPageTiffByteLength([descriptor]) - 1,
+        )).toThrow('A single TIFF page exceeds the Classic TIFF 4GB limit');
     });
 
     it('rejects large TIFF exports when worker startup fails and local fallback is unsafe', async () => {

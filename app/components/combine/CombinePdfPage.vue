@@ -167,7 +167,7 @@
                             }) }}
                         </span>
                     </div>
-                    <UProgress :value="progress.percent" />
+                    <AppProgressBar :value="progress.percent" />
                 </div>
 
                 <footer class="combine-actions">
@@ -187,6 +187,7 @@
 
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';

@@ -50,7 +50,17 @@ interface ITestSender {
     isDestroyed: () => boolean;
     once: ReturnType<typeof vi.fn>;
     removeListener: ReturnType<typeof vi.fn>;
+    send: ReturnType<typeof vi.fn>;
 }
+
+interface ITestProgressPayload {
+    phase: 'rendering' | 'combining';
+    processed: number;
+    total: number;
+    percent: number;
+}
+
+interface ITestProgressOptions { onProgress?: (progress: ITestProgressPayload) => void; }
 
 function createSender(): ITestSender {
     const sender: ITestSender = {
@@ -59,6 +69,7 @@ function createSender(): ITestSender {
         isDestroyed: () => sender.destroyed,
         once: vi.fn(),
         removeListener: vi.fn(),
+        send: vi.fn(),
     };
     return sender;
 }
@@ -84,7 +95,7 @@ describe('image export IPC lifecycle', () => {
             fallbackFormat = 'png',
         ) => ({ normalizedPath: path.includes('.') ? path : `${path}.${fallbackFormat === 'jpeg' ? 'jpg' : fallbackFormat}` }));
         mocks.exportPdfPagesAsImages.mockResolvedValue(['/tmp/export.jpg']);
-        mocks.exportPdfAsMultiPageTiff.mockResolvedValue('/tmp/export.tiff');
+        mocks.exportPdfAsMultiPageTiff.mockResolvedValue(['/tmp/export.tiff']);
     });
 
     it('defaults page image export to JPEG while offering PNG and TIFF choices', async () => {
@@ -200,7 +211,7 @@ describe('image export IPC lifecycle', () => {
             options: { signal?: AbortSignal },
         ) => {
             exportState.signal = options.signal;
-            return outputPath;
+            return [outputPath];
         });
 
         await expect(handlePdfExportMultiPageTiff(
@@ -209,10 +220,76 @@ describe('image export IPC lifecycle', () => {
         )).resolves.toEqual({
             success: true,
             outputPath: '/tmp/export.tiff',
+            outputPaths: ['/tmp/export.tiff'],
         });
 
         expect(exportState.signal).toBeInstanceOf(AbortSignal);
         expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
         expect(sender.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
+    });
+
+    it('returns every split multi-page TIFF output path', async () => {
+        const sender = createSender();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export.tiff',
+        });
+        mocks.exportPdfAsMultiPageTiff.mockResolvedValueOnce([
+            '/tmp/export-part-001.tiff',
+            '/tmp/export-part-002.tiff',
+        ]);
+
+        await expect(handlePdfExportMultiPageTiff(
+            { sender } as never,
+            '/tmp/working.pdf',
+        )).resolves.toEqual({
+            success: true,
+            outputPath: '/tmp/export-part-001.tiff',
+            outputPaths: [
+                '/tmp/export-part-001.tiff',
+                '/tmp/export-part-002.tiff',
+            ],
+        });
+    });
+
+    it('forwards multi-page TIFF progress to the requesting renderer', async () => {
+        const sender = createSender();
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/export.tiff',
+        });
+        mocks.exportPdfAsMultiPageTiff.mockImplementationOnce(async (
+            _sourcePath: string,
+            outputPath: string,
+            options: ITestProgressOptions,
+        ) => {
+            options.onProgress?.({
+                phase: 'rendering',
+                processed: 7,
+                total: 10,
+                percent: 63,
+            });
+            return [outputPath];
+        });
+
+        await expect(handlePdfExportMultiPageTiff(
+            { sender } as never,
+            '/tmp/working.pdf',
+            undefined,
+            'export-1',
+        )).resolves.toEqual({
+            success: true,
+            outputPath: '/tmp/export.tiff',
+            outputPaths: ['/tmp/export.tiff'],
+        });
+
+        expect(sender.send).toHaveBeenCalledWith('pdfExport:progress', {
+            requestId: 'export-1',
+            format: 'multipage-tiff',
+            phase: 'rendering',
+            processed: 7,
+            total: 10,
+            percent: 63,
+        });
     });
 });

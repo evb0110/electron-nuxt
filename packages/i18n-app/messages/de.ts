@@ -942,6 +942,7 @@ export default {
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
         },
+        'export': { 'multiPageTiff': 'TIFF-Export fehlgeschlagen' },
         'browser': { 'largeSaveHandleHint': 'Verwenden Sie einen Browser mit aktiviertem lokalem Dateisystemzugriff, um große Dokumente zu speichern.' },
         'search': {
             'browserTooLarge': 'Die Suche ist im Browser für sehr große Dokumente nicht verfügbar.',

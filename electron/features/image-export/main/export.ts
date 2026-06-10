@@ -24,15 +24,23 @@ import {
     sortBy,
     uniq,
 } from 'es-toolkit/array';
-import { range } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import type { TImageExportProgressPhase } from '@contracts/electronApiDocuments';
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
 import { clampDpi } from '@electron/ocr/worker/dpiDetection';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
-import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
+import {
+    combinePagesIntoMultiPageTiffLocal,
+    readTiffPageDescriptors,
+    splitTiffPageDescriptorsForClassicLimit,
+} from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -60,6 +68,14 @@ interface IRenderedPageFile {
 interface IExportPdfOptions {
     pageNumbers?: number[];
     signal?: AbortSignal;
+    onProgress?: (progress: IImageExportProgressUpdate) => void;
+}
+
+interface IImageExportProgressUpdate {
+    phase: TImageExportProgressPhase;
+    processed: number;
+    total: number;
+    percent?: number;
 }
 
 interface IPreparedSourcePdf {
@@ -470,6 +486,17 @@ function assertExportPageCountWithinLimit(pageCount: number) {
     }
 }
 
+function emitExportProgress(options: IExportPdfOptions, progress: IImageExportProgressUpdate) {
+    const total = Math.max(1, Math.trunc(progress.total));
+    const processed = clamp(Math.trunc(progress.processed), 0, total);
+    options.onProgress?.({
+        phase: progress.phase,
+        processed,
+        total,
+        percent: clamp(progress.percent ?? ((processed / total) * 100), 0, 100),
+    });
+}
+
 async function renderPdfToTempPages(
     pdfPath: string,
     format: TImageExportFormat,
@@ -698,6 +725,13 @@ export async function exportPdfPagesAsImages(
         }> = [];
         const exportedPaths: string[] = [];
         const isSinglePageExport = pageCount === 1;
+        let processedPages = 0;
+        emitExportProgress(options, {
+            phase: 'rendering',
+            processed: 0,
+            total: pageCount,
+        });
+
         try {
             for (const pageRange of createPageRanges(
                 pageCount,
@@ -725,6 +759,12 @@ export async function exportPdfPagesAsImages(
                             targetExisted: existsSync(targetPath),
                         });
                         exportedPaths.push(targetPath);
+                        processedPages += 1;
+                        emitExportProgress(options, {
+                            phase: 'rendering',
+                            processed: processedPages,
+                            total: pageCount,
+                        });
                     }
                 } finally {
                     const tempDir = dirname(pageFiles[0]!.path);
@@ -782,6 +822,23 @@ function getTiffCombineFallbackDisabledError() {
     const maxMb = Math.floor(TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
     return new Error(
         `TIFF combine worker unavailable and local fallback is disabled for exports larger than ${TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES} pages or ${maxMb}MB`,
+    );
+}
+
+function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
+    if (partCount <= 1) {
+        return [targetPath];
+    }
+
+    const outputDirectory = dirname(targetPath);
+    const outputExtension = extname(targetPath) || '.tiff';
+    const outputStem = basename(targetPath, outputExtension);
+
+    return range(1, partCount + 1).map(partNumber =>
+        join(
+            outputDirectory,
+            `${outputStem}-part-${String(partNumber).padStart(3, '0')}${outputExtension}`,
+        ),
     );
 }
 
@@ -890,24 +947,79 @@ export async function exportPdfAsMultiPageTiff(
             : await getPdfPageCount(preparedSourcePdf.pdfPath);
         assertExportPageCountWithinLimit(pageCount);
         const pageFiles: IRenderedPageFile[] = [];
+        let renderedPageCount = 0;
+        emitExportProgress(options, {
+            phase: 'rendering',
+            processed: 0,
+            total: pageCount,
+            percent: 0,
+        });
 
         try {
             for (const pageRange of createPageRanges(pageCount)) {
                 throwIfAborted(options.signal);
-                pageFiles.push(...await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff', pageRange, options.signal));
+                const renderedPageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff', pageRange, options.signal);
+                pageFiles.push(...renderedPageFiles);
+                renderedPageCount += renderedPageFiles.length;
+                emitExportProgress(options, {
+                    phase: 'rendering',
+                    processed: renderedPageCount,
+                    total: pageCount,
+                    percent: (renderedPageCount / pageCount) * 90,
+                });
             }
 
             const orderedPagePaths = pageFiles
                 .sort((left, right) => left.page - right.page)
                 .map(pageFile => pageFile.path);
+            const tiffPageDescriptors = await readTiffPageDescriptors(orderedPagePaths);
+            const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors)
+                .map(group => group.map(page => page.path));
+            const outputPaths = buildMultiPageTiffOutputPaths(targetPath, tiffPageGroups.length);
+            emitExportProgress(options, {
+                phase: 'combining',
+                processed: 0,
+                total: Math.max(1, tiffPageGroups.length),
+                percent: 90,
+            });
+            const stagedFiles: Array<{
+                stagedPath: string;
+                targetPath: string;
+                targetExisted: boolean;
+            }> = [];
 
-            await combinePagesIntoMultiPageTiff(orderedPagePaths, targetPath, options.signal);
-
-            if (!existsSync(targetPath)) {
-                throw new Error('Multi-page TIFF export did not produce an output file');
+            try {
+                for (let index = 0; index < tiffPageGroups.length; index += 1) {
+                    throwIfAborted(options.signal);
+                    const targetOutputPath = outputPaths[index]!;
+                    const stagedPath = makeSiblingTempPath(targetOutputPath);
+                    await combinePagesIntoMultiPageTiff(tiffPageGroups[index]!, stagedPath, options.signal);
+                    stagedFiles.push({
+                        stagedPath,
+                        targetPath: targetOutputPath,
+                        targetExisted: existsSync(targetOutputPath),
+                    });
+                    emitExportProgress(options, {
+                        phase: 'combining',
+                        processed: index + 1,
+                        total: tiffPageGroups.length,
+                        percent: 90 + (((index + 1) / tiffPageGroups.length) * 10),
+                    });
+                }
+                throwIfAborted(options.signal);
+                await promoteStagedFiles(stagedFiles);
+            } catch (error) {
+                await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
+                throw error;
             }
 
-            return targetPath;
+            for (const outputPath of outputPaths) {
+                if (!existsSync(outputPath)) {
+                    throw new Error('Multi-page TIFF export did not produce an output file');
+                }
+            }
+
+            return outputPaths;
         } finally {
             await Promise.all(uniq(pageFiles.map(pageFile => dirname(pageFile.path))).map(tempDir => rm(tempDir, {
                 recursive: true,

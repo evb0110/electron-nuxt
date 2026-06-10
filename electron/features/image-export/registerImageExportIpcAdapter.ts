@@ -11,12 +11,12 @@ export function registerImageExportIpcAdapter(
 ) {
     registrar.handle(
         IMAGE_EXPORT_CHANNELS.exportImages,
-        (event, workingCopyPath: string, pageNumbers?: number[]) =>
-            service.exportImages(event, workingCopyPath, pageNumbers),
+        (event, workingCopyPath: string, pageNumbers?: number[], requestId?: string) =>
+            service.exportImages(event, workingCopyPath, pageNumbers, requestId),
     );
     registrar.handle(
         IMAGE_EXPORT_CHANNELS.exportMultiPageTiff,
-        (event, workingCopyPath: string, pageNumbers?: number[]) =>
-            service.exportMultiPageTiff(event, workingCopyPath, pageNumbers),
+        (event, workingCopyPath: string, pageNumbers?: number[], requestId?: string) =>
+            service.exportMultiPageTiff(event, workingCopyPath, pageNumbers, requestId),
     );
 }

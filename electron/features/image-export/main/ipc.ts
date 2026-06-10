@@ -12,7 +12,18 @@ import {
     exportPdfPagesAsImages,
     normalizeImageExportPath,
 } from '@electron/features/image-export/main/export';
+import { IMAGE_EXPORT_EVENT_CHANNELS } from '@electron/features/image-export/contract';
 import { te } from '@electron/te';
+import type {
+    IImageExportProgress,
+    TImageExportProgressFormat,
+} from '@contracts/electronApiDocuments';
+import { clamp } from 'es-toolkit/math';
+import { createLogger } from '@electron/utils/createLogger';
+
+const logger = createLogger('image-export');
+
+type TImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'percent' | 'requestId'> & {percent?: number;};
 
 async function validateWorkingPdfPath(path: unknown, senderWebContentsId: number) {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -116,6 +127,42 @@ function isExportAborted(error: unknown) {
         );
 }
 
+function normalizeExportRequestId(requestId: unknown) {
+    return typeof requestId === 'string' ? requestId.trim() : '';
+}
+
+function sendImageExportProgress(event: Electron.IpcMainInvokeEvent, progress: IImageExportProgress) {
+    try {
+        event.sender.send(IMAGE_EXPORT_EVENT_CHANNELS.progress, progress);
+    } catch (error) {
+        logger.debug(`Failed to send image export progress update: ${String(error)}`);
+    }
+}
+
+function createImageExportProgressReporter(
+    event: Electron.IpcMainInvokeEvent,
+    format: TImageExportProgressFormat,
+    requestId?: string,
+) {
+    const normalizedRequestId = normalizeExportRequestId(requestId);
+    if (!normalizedRequestId) {
+        return undefined;
+    }
+
+    return (progress: TImageExportProgressPayload) => {
+        const total = Math.max(1, Math.trunc(progress.total));
+        const processed = clamp(Math.trunc(progress.processed), 0, total);
+        sendImageExportProgress(event, {
+            requestId: normalizedRequestId,
+            format,
+            phase: progress.phase,
+            processed,
+            total,
+            percent: clamp(progress.percent ?? ((processed / total) * 100), 0, 100),
+        });
+    };
+}
+
 async function showExportImageDialog(parentWindow: BrowserWindow | null, defaultName: string) {
     const dialogOptions = {
         title: te('dialogs.exportImages'),
@@ -169,6 +216,7 @@ export async function handlePdfExportImages(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pageNumbers?: number[],
+    requestId?: string,
 ): Promise<{
     success: boolean;
     canceled?: boolean;
@@ -189,9 +237,11 @@ export async function handlePdfExportImages(
         }
 
         const { normalizedPath } = normalizeImageExportPath(result.filePath, 'jpeg');
+        const onProgress = createImageExportProgressReporter(event, 'images', requestId);
         const outputPaths = await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,
+            ...(onProgress ? { onProgress } : {}),
         });
         if (lifecycle.signal.aborted) {
             return {
@@ -221,10 +271,12 @@ export async function handlePdfExportMultiPageTiff(
     event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pageNumbers?: number[],
+    requestId?: string,
 ): Promise<{
     success: boolean;
     canceled?: boolean;
     outputPath?: string;
+    outputPaths?: string[];
 }> {
     const normalizedWorkingCopyPath = await validateWorkingPdfPath(workingCopyPath, event.sender.id);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
@@ -240,9 +292,11 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
-        const outputPath = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
+        const onProgress = createImageExportProgressReporter(event, 'multipage-tiff', requestId);
+        const outputPaths = await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, {
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
             signal: lifecycle.signal,
+            ...(onProgress ? { onProgress } : {}),
         });
         if (lifecycle.signal.aborted) {
             return {
@@ -251,9 +305,15 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
+        const outputPath = outputPaths[0];
+        if (!outputPath) {
+            throw new Error('Multi-page TIFF export did not produce an output file');
+        }
+
         return {
             success: true,
             outputPath,
+            outputPaths,
         };
     } catch (error) {
         if (isExportAborted(error)) {

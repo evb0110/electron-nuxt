@@ -53,14 +53,16 @@ interface ITiffPageRgba {
     rgba: Uint8Array;
 }
 
-interface ITiffPageDescriptor {
-    path: string;
+interface ITiffImageDescriptor {
     width: number;
     height: number;
     dataLength: number;
 }
 
+export interface ITiffPageDescriptor extends ITiffImageDescriptor { path: string; }
+
 const UTIF = utifModule as IUtifModule as IUtifEncoderModule;
+export const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
 
 function toPositiveInteger(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -187,7 +189,7 @@ function alignOffset(offset: number, alignment: number) {
 }
 
 function resolvePageDataOffsets(
-    pages: Array<Pick<ITiffPageDescriptor, 'dataLength'>>,
+    pages: Array<Pick<ITiffImageDescriptor, 'dataLength'>>,
     firstDataOffset: number,
 ): number[] {
     const offsets: number[] = [];
@@ -199,6 +201,85 @@ function resolvePageDataOffsets(
     }
 
     return offsets;
+}
+
+function encodeMultiPageTiffHeader(pages: ITiffImageDescriptor[]) {
+    let firstDataOffset = 0;
+    let header = new Uint8Array();
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
+        const ifds = pages.map((page, index) => buildTiffImageIfd(page, pageOffsets[index]!));
+        header = encodeTiffIfds(ifds, UTIF);
+        const nextFirstDataOffset = alignOffset(header.length, 8);
+        if (nextFirstDataOffset === firstDataOffset) {
+            break;
+        }
+        firstDataOffset = nextFirstDataOffset;
+    }
+
+    return {
+        firstPageDataOffset: alignOffset(header.length, 8),
+        header,
+    };
+}
+
+export function estimateMultiPageTiffByteLength(pages: ITiffImageDescriptor[]) {
+    const { firstPageDataOffset } = encodeMultiPageTiffHeader(pages);
+
+    return firstPageDataOffset + sumBy(pages, page => page.dataLength);
+}
+
+export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImageDescriptor>(
+    pages: TPage[],
+    maxByteLength = CLASSIC_TIFF_MAX_BYTE_LENGTH,
+) {
+    if (pages.length === 0) {
+        return [];
+    }
+
+    const groups: TPage[][] = [];
+    let currentGroup: TPage[] = [];
+
+    for (const page of pages) {
+        if (estimateMultiPageTiffByteLength([page]) > maxByteLength) {
+            throw new Error('A single TIFF page exceeds the Classic TIFF 4GB limit');
+        }
+
+        const nextGroup = [
+            ...currentGroup,
+            page,
+        ];
+        if (currentGroup.length > 0 && estimateMultiPageTiffByteLength(nextGroup) > maxByteLength) {
+            groups.push(currentGroup);
+            currentGroup = [page];
+        } else {
+            currentGroup = nextGroup;
+        }
+    }
+
+    if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+    }
+
+    return groups;
+}
+
+export async function readTiffPageDescriptors(pagePaths: string[]) {
+    const pages: ITiffPageDescriptor[] = [];
+
+    for (const pagePath of pagePaths) {
+        const tiffBytes = await readFile(pagePath);
+        const metadata = decodeSinglePageTiffMetadata(tiffBytes);
+        pages.push({
+            path: pagePath,
+            width: metadata.width,
+            height: metadata.height,
+            dataLength: metadata.width * metadata.height * 4,
+        });
+    }
+
+    return pages;
 }
 
 async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array) {
@@ -250,39 +331,16 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
         return;
     }
 
-    const pages: ITiffPageDescriptor[] = [];
-
-    for (const pagePath of pagePaths) {
-        const tiffBytes = await readFile(pagePath);
-        const metadata = decodeSinglePageTiffMetadata(tiffBytes);
-        pages.push({
-            path: pagePath,
-            width: metadata.width,
-            height: metadata.height,
-            dataLength: metadata.width * metadata.height * 4,
-        });
-    }
-
-    let firstDataOffset = 0;
-    let header = new Uint8Array();
-
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-        const pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
-        const ifds = pages.map((page, index) => buildTiffImageIfd(page, pageOffsets[index]!));
-        header = encodeTiffIfds(ifds, UTIF);
-        const nextFirstDataOffset = alignOffset(header.length, 8);
-        if (nextFirstDataOffset === firstDataOffset) {
-            break;
-        }
-        firstDataOffset = nextFirstDataOffset;
-    }
-
-    const firstPageDataOffset = alignOffset(header.length, 8);
-    const totalByteLength = firstPageDataOffset + sumBy(pages, page => page.dataLength);
-    if (totalByteLength > 0xFFFFFFFF) {
+    const pages = await readTiffPageDescriptors(pagePaths);
+    const totalByteLength = estimateMultiPageTiffByteLength(pages);
+    if (totalByteLength > CLASSIC_TIFF_MAX_BYTE_LENGTH) {
         throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
     }
 
+    const {
+        firstPageDataOffset,
+        header,
+    } = encodeMultiPageTiffHeader(pages);
     const tempOutputPath = makeSiblingTempPath(outputPath);
     const stream = createWriteStream(tempOutputPath, { flags: 'w' });
     let replacedOutput = false;

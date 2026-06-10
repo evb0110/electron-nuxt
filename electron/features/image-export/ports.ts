@@ -9,6 +9,7 @@ export interface IImageExportService {
         event: IpcMainInvokeEvent,
         workingCopyPath: string,
         pageNumbers?: number[],
+        requestId?: string,
     ) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -18,9 +19,11 @@ export interface IImageExportService {
         event: IpcMainInvokeEvent,
         workingCopyPath: string,
         pageNumbers?: number[],
+        requestId?: string,
     ) => Promise<{
         success: boolean;
         canceled?: boolean;
         outputPath?: string;
+        outputPaths?: string[];
     }>;
 }

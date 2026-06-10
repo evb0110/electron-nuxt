@@ -52,6 +52,11 @@
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
             </div>
+            <AppProgressBar
+                v-if="isSearching"
+                :value="searchProgressPercent"
+                class="pdf-search-results-progress-bar"
+            />
             <div class="pdf-search-results-list app-scrollbar">
                 <section
                     v-for="group in groupedResults"
@@ -99,6 +104,7 @@
 import type { ComponentPublicInstance } from 'vue';
 import { groupBy } from 'es-toolkit/array';
 import type { IPdfSearchMatch } from '@app/types/pdf';
+import AppProgressBar from '@app/components/AppProgressBar.vue';
 import PdfPanelEmptyState from '@app/modules/pdf-viewer/components/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/modules/pdf-viewer/components/PdfSearchResultItem.vue';
 import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
@@ -186,6 +192,18 @@ const progressText = computed(() => {
         processed,
         total,
     });
+});
+
+const searchProgressPercent = computed(() => {
+    if (!searchProgress || !Number.isFinite(searchProgress.total) || searchProgress.total <= 0) {
+        return null;
+    }
+
+    const total = Math.max(1, Math.trunc(searchProgress.total));
+    const processed = Number.isFinite(searchProgress.processed)
+        ? Math.min(Math.max(Math.trunc(searchProgress.processed), 0), total)
+        : 0;
+    return (processed / total) * 100;
 });
 
 function isGroupExpanded(pageIndex: number) {
@@ -298,6 +316,11 @@ watch(
 
 .pdf-search-results-header-spinner:first-of-type {
     margin-left: auto;
+}
+
+.pdf-search-results-progress-bar {
+    height: 3px;
+    border-radius: 0;
 }
 
 .pdf-search-results-truncated {
