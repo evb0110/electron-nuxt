@@ -22,10 +22,6 @@ const QPDF_BINARY = process.platform === 'win32'
     ? join(process.cwd(), 'resources/qpdf/win32-x64/bin/qpdf.exe')
     : join(process.cwd(), `resources/qpdf/${process.platform}-${process.arch}/bin/qpdf`);
 const HAS_QPDF = existsSync(QPDF_BINARY);
-const ONE_PIXEL_PNG = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/atXxKAAAAAASUVORK5CYII=',
-    'base64',
-);
 
 async function createPdfWithText(filePath: string, text: string) {
     const pdf = await PDFDocument.create();
@@ -106,20 +102,15 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr.pdf');
-        const imagePath = join(tempDir, 'page.png');
         await createPdfWithText(originalPath, 'OLD TEXT');
         await createPdfWithText(ocrPath, 'NEW OCR');
-        await writeFile(imagePath, ONE_PIXEL_PNG);
         const ocrPages = new Map<number, string>();
         ocrPages.set(1, ocrPath);
-        const pageImages = new Map<number, string>();
-        pageImages.set(1, imagePath);
 
         const outputPath = await assembleSearchablePdf(
             QPDF_BINARY,
             originalPath,
             ocrPages,
-            pageImages,
             1,
             tempDir,
             'test-session',
@@ -138,14 +129,10 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         const originalPath = join(tempDir, 'original.pdf');
         const firstOcrPath = join(tempDir, 'ocr-first.pdf');
         const secondOcrPath = join(tempDir, 'ocr-second.pdf');
-        const imagePath = join(tempDir, 'page.png');
         await createPdfWithText(originalPath, 'ORIGINAL TEXT');
         await createPdfWithText(firstOcrPath, 'FIRST OCR');
         await createPdfWithText(secondOcrPath, 'SECOND OCR');
-        await writeFile(imagePath, ONE_PIXEL_PNG);
 
-        const pageImages = new Map<number, string>();
-        pageImages.set(1, imagePath);
         const firstOcrPages = new Map<number, string>();
         firstOcrPages.set(1, firstOcrPath);
         const secondOcrPages = new Map<number, string>();
@@ -154,7 +141,6 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
             QPDF_BINARY,
             originalPath,
             firstOcrPages,
-            pageImages,
             1,
             tempDir,
             'first-session',
@@ -165,7 +151,6 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
             QPDF_BINARY,
             firstOutputPath,
             secondOcrPages,
-            pageImages,
             1,
             tempDir,
             'second-session',
@@ -184,7 +169,6 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
         const originalPath = join(tempDir, 'original.pdf');
         const ocrPath = join(tempDir, 'ocr-page-2.pdf');
-        const imagePath = join(tempDir, 'page-2.png');
         await createPdfWithPages(originalPath, [
             {
                 text: 'ONE ORIGINAL',
@@ -215,18 +199,14 @@ describe.skipIf(!HAS_QPDF)('assembleSearchablePdf', () => {
                 180,
             ],
         }]);
-        await writeFile(imagePath, ONE_PIXEL_PNG);
 
         const ocrPages = new Map<number, string>();
         ocrPages.set(2, ocrPath);
-        const pageImages = new Map<number, string>();
-        pageImages.set(2, imagePath);
 
         const outputPath = await assembleSearchablePdf(
             QPDF_BINARY,
             originalPath,
             ocrPages,
-            pageImages,
             3,
             tempDir,
             'range-session',

@@ -31,10 +31,13 @@ export interface IOcrResourceRequest {
 interface IOcrResourceLease {
     token: string;
     jobId: string;
+    slotLimit: number;
 }
 
 interface IQueuedResourceRequest {
     request: IOcrResourceRequest;
+    effectiveDpi: number;
+    slotLimit: number;
     resolve: (lease: IOcrResourceLease & { effectiveDpi: number }) => void;
     reject: (error: Error) => void;
 }
@@ -120,12 +123,10 @@ class OcrResourceGovernor {
     private activeLeases = new Map<string, IOcrResourceLease>();
     private queue: IQueuedResourceRequest[] = [];
     private tokenCounter = 0;
-    private currentSlotLimit = NORMAL_PAGE_SLOTS;
 
     async acquire(request: IOcrResourceRequest) {
         const effectiveDpi = capDpiForPixelBudget(request);
-        const requestedSlots = getDefaultSlotCount(effectiveDpi, request);
-        this.currentSlotLimit = Math.min(this.currentSlotLimit, requestedSlots);
+        const slotLimit = getDefaultSlotCount(effectiveDpi, request);
 
         if (effectiveDpi < request.requestedDpi) {
             log.debug(
@@ -133,9 +134,9 @@ class OcrResourceGovernor {
             );
         }
 
-        if (this.activeLeases.size < this.currentSlotLimit) {
+        if (this.queue.length === 0 && this.canGrant(slotLimit)) {
             return {
-                ...this.createLease(request.jobId),
+                ...this.createLease(request.jobId, slotLimit),
                 effectiveDpi,
             };
         }
@@ -146,11 +147,13 @@ class OcrResourceGovernor {
                     ...request,
                     requestedDpi: effectiveDpi,
                 },
+                effectiveDpi,
+                slotLimit,
                 resolve,
                 reject,
             });
             log.debug(
-                `[${request.jobId}] Queued OCR resource request for page ${request.pageNumber}; active=${this.activeLeases.size}/${this.currentSlotLimit}, queued=${this.queue.length}`,
+                `[${request.jobId}] Queued OCR resource request for page ${request.pageNumber}; active=${this.activeLeases.size}/${this.getActiveSlotLimit()}, requestLimit=${slotLimit}, queued=${this.queue.length}`,
             );
         });
     }
@@ -179,35 +182,46 @@ class OcrResourceGovernor {
             () => true,
             'OCR resource governor reset',
         );
-        this.currentSlotLimit = NORMAL_PAGE_SLOTS;
     }
 
-    private createLease(jobId: string): IOcrResourceLease {
+    private createLease(jobId: string, slotLimit: number): IOcrResourceLease {
         const token = `${Date.now()}-${++this.tokenCounter}`;
         const lease = {
             token,
             jobId,
+            slotLimit,
         };
         this.activeLeases.set(token, lease);
-        log.debug(`Granted OCR resource slot to ${jobId}; active=${this.activeLeases.size}/${this.currentSlotLimit}`);
+        log.debug(`Granted OCR resource slot to ${jobId}; active=${this.activeLeases.size}/${this.getActiveSlotLimit()}`);
         return lease;
     }
 
     private dispatch() {
-        const availableSlots = Math.max(0, this.currentSlotLimit - this.activeLeases.size);
-        const dispatchable = this.queue.slice(0, availableSlots);
-        this.queue = this.queue.slice(availableSlots);
-
-        for (const next of dispatchable) {
+        while (this.queue.length > 0) {
+            const next = this.queue[0];
+            if (!next || !this.canGrant(next.slotLimit)) {
+                return;
+            }
+            this.queue.shift();
             next.resolve({
-                ...this.createLease(next.request.jobId),
-                effectiveDpi: next.request.requestedDpi,
+                ...this.createLease(next.request.jobId, next.slotLimit),
+                effectiveDpi: next.effectiveDpi,
             });
         }
+    }
 
-        if (this.activeLeases.size === 0 && this.queue.length === 0) {
-            this.currentSlotLimit = NORMAL_PAGE_SLOTS;
+    private canGrant(candidateSlotLimit: number) {
+        if (this.activeLeases.size === 0) {
+            return candidateSlotLimit > 0;
         }
+        return this.activeLeases.size < Math.min(candidateSlotLimit, this.getActiveSlotLimit());
+    }
+
+    private getActiveSlotLimit() {
+        if (this.activeLeases.size === 0) {
+            return NORMAL_PAGE_SLOTS;
+        }
+        return Math.min(...Array.from(this.activeLeases.values(), lease => lease.slotLimit));
     }
 
     private settleQueuedRequests(
