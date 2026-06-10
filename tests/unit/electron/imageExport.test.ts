@@ -46,6 +46,7 @@ const mocks = vi.hoisted(() => ({
     renderPageCount: 2,
     pdfPageCount: 2,
     nativeImageCombinePath: null as string | null,
+    pdfimagesPath: undefined as string | undefined,
 }));
 
 vi.mock('fs/promises', async () => {
@@ -66,6 +67,7 @@ vi.mock('fs/promises', async () => {
 vi.mock('@electron/native-tools/getNativeToolPaths', () => ({getNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
     qpdf: '/mock/qpdf',
+    pdfimages: mocks.pdfimagesPath,
 })}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
@@ -135,6 +137,7 @@ describe('image export', () => {
         mocks.renderPageCount = 2;
         mocks.pdfPageCount = 2;
         mocks.nativeImageCombinePath = null;
+        mocks.pdfimagesPath = undefined;
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -151,6 +154,29 @@ describe('image export', () => {
             if (command === '/mock/qpdf' && args[0] === '--show-npages') {
                 return {
                     stdout: String(mocks.pdfPageCount),
+                    stderr: '',
+                    exitCode: 0,
+                };
+            }
+
+            if (command === mocks.pdfimagesPath) {
+                const firstPageArgIndex = args.indexOf('-f');
+                const lastPageArgIndex = args.indexOf('-l');
+                const firstPage = firstPageArgIndex >= 0
+                    ? Number.parseInt(String(args[firstPageArgIndex + 1]), 10)
+                    : 1;
+                const lastPage = lastPageArgIndex >= 0
+                    ? Number.parseInt(String(args[lastPageArgIndex + 1]), 10)
+                    : mocks.pdfPageCount;
+
+                return {
+                    stdout: [
+                        'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
+                        ...Array.from({ length: lastPage - firstPage + 1 }, (_, index) => {
+                            const page = firstPage + index;
+                            return `${String(page).padStart(4, ' ')}     0 image     100   100  rgb     3   8  image  no         1  0   360   360 1.0K 1.0%`;
+                        }),
+                    ].join('\n'),
                     stderr: '',
                     exitCode: 0,
                 };
@@ -279,6 +305,68 @@ describe('image export', () => {
                 commandLabel: 'pdftoppm(export-tiff)',
             }),
         );
+    });
+
+    it('bounds export DPI probes to the current render chunk', async () => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.renderPageCount = 6;
+        mocks.pdfPageCount = 6;
+
+        const outputPath = join(tempDir, 'bounded.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(6);
+
+        const pdfimagesCalls = mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdfimages');
+        expect(pdfimagesCalls.map((call) => {
+            const args = call[1];
+            return [
+                args[args.indexOf('-f') + 1],
+                args[args.indexOf('-l') + 1],
+            ];
+        })).toEqual([
+            [
+                '1',
+                '5',
+            ],
+            [
+                '6',
+                '6',
+            ],
+        ]);
+
+        const pdftoppmCalls = mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdftoppm');
+        expect(pdftoppmCalls.map((call) => {
+            const args = call[1];
+            return args[args.indexOf('-r') + 1];
+        })).toEqual([
+            '360',
+            '360',
+        ]);
+    });
+
+    it('uses the default export DPI when the bounded DPI probe fails', async () => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+
+        mocks.runCommand.mockImplementation(async (command: string, args: string[]) => {
+            if (command === '/mock/pdfimages') {
+                throw new Error('probe timed out');
+            }
+            return defaultRunCommand(command, args);
+        });
+
+        const outputPath = join(tempDir, 'fallback.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
+        const pdftoppmArgs = pdftoppmCall?.[1];
+        expect(pdftoppmArgs?.[pdftoppmArgs.indexOf('-r') + 1]).toBe('300');
     });
 
     it('keeps the full TIFF directory chain intact well past the legacy UTIF header limit', async () => {
