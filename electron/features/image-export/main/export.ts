@@ -28,10 +28,7 @@ import { range } from 'es-toolkit/math';
 import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getNativeToolPaths } from '@electron/native-tools/getNativeToolPaths';
-import {
-    detectSourceDpi,
-    clampDpi,
-} from '@electron/ocr/worker/dpiDetection';
+import { clampDpi } from '@electron/ocr/worker/dpiDetection';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
@@ -70,8 +67,14 @@ interface IPreparedSourcePdf {
     cleanup: () => Promise<void>;
 }
 
+interface IPageRange {
+    firstPage: number;
+    lastPage: number;
+}
+
 const logger = createLogger('image-export');
 const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
+const PDFIMAGES_DPI_PROBE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
@@ -384,6 +387,65 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
+function parsePdfImagesListDpi(output: string) {
+    let detectedDpi = 0;
+    for (const line of output.split(/\r?\n/u)) {
+        const parts = line.trim().split(/\s+/u);
+        if (parts.length < 14) {
+            continue;
+        }
+
+        const xPpi = Number.parseInt(parts[12] ?? '', 10);
+        const yPpi = Number.parseInt(parts[13] ?? '', 10);
+        const dpi = Math.max(
+            Number.isFinite(xPpi) ? xPpi : 0,
+            Number.isFinite(yPpi) ? yPpi : 0,
+        );
+        if (dpi > 0) {
+            detectedDpi = Math.max(detectedDpi, dpi);
+        }
+    }
+
+    return detectedDpi > 0 ? detectedDpi : null;
+}
+
+async function detectExportDpi(
+    pdfPath: string,
+    pdfimagesBinary: string | undefined,
+    pageRange: IPageRange,
+    signal?: AbortSignal,
+) {
+    if (!pdfimagesBinary) {
+        return null;
+    }
+
+    throwIfAborted(signal);
+    try {
+        const result = await runNativeToolCommand(pdfimagesBinary, [
+            '-f',
+            String(pageRange.firstPage),
+            '-l',
+            String(pageRange.lastPage),
+            '-list',
+            pdfPath,
+        ], {
+            timeoutMs: PDFIMAGES_DPI_PROBE_TIMEOUT_MS,
+            commandLabel: 'pdfimages(export-dpi)',
+            ...(signal ? { signal } : {}),
+        });
+        return parsePdfImagesListDpi(result.stdout);
+    } catch (error) {
+        if (signal?.aborted) {
+            throw signal.reason instanceof Error ? signal.reason : error;
+        }
+
+        logger.debug(
+            `pdfimages export DPI probe failed for pages ${pageRange.firstPage}-${pageRange.lastPage}: ${getErrorMessage(error)}`,
+        );
+        return null;
+    }
+}
+
 async function getPdfPageCount(pdfPath: string) {
     const result = await runNativeToolCommand(getNativeToolPaths().qpdf, [
         '--show-npages',
@@ -411,10 +473,7 @@ function assertExportPageCountWithinLimit(pageCount: number) {
 async function renderPdfToTempPages(
     pdfPath: string,
     format: TImageExportFormat,
-    pageRange: {
-        firstPage: number;
-        lastPage: number;
-    },
+    pageRange: IPageRange,
     signal?: AbortSignal,
 ): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdfExport-'));
@@ -423,11 +482,10 @@ async function renderPdfToTempPages(
     throwIfAborted(signal);
 
     try {
-        const detectedDpi = await detectSourceDpi(
+        const detectedDpi = await detectExportDpi(
             pdfPath,
             paths.pdfimages,
-            (level, message) => logger[level === 'error' ? 'error' : 'debug'](message),
-            undefined,
+            pageRange,
             signal,
         );
         const renderDpi = clampDpi(detectedDpi ?? 300);
