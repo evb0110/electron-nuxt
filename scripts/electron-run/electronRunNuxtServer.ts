@@ -32,6 +32,7 @@ import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionP
 export const ELECTRON_SERVER_PATH = '/electron';
 
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const NUXT_HTTP_READINESS_TIMEOUT_MS = 1000;
 
 function formatElapsedMs(startedAt: number) {
     return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
@@ -61,11 +62,16 @@ export function getElectronAppUrl() {
     return `http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`;
 }
 
-async function isNuxtRunning() {
+export async function checkNuxtHttpReadiness(options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+} = {}) {
+    const fetchImpl = options.fetchImpl ?? fetch;
+    const timeoutMs = options.timeoutMs ?? NUXT_HTTP_READINESS_TIMEOUT_MS;
     try {
-        const res = await fetch(`http://127.0.0.1:${getNuxtPort()}`, {
-            method: 'HEAD',
-            signal: AbortSignal.timeout(500),
+        const res = await fetchImpl(getElectronAppUrl(), {
+            method: 'GET',
+            signal: AbortSignal.timeout(timeoutMs),
         });
         return res.ok;
     } catch {
@@ -74,9 +80,6 @@ async function isNuxtRunning() {
 }
 
 async function isReusableNuxtServerReady() {
-    if (!await isNuxtRunning()) {
-        return false;
-    }
     return isReusableNuxtServer();
 }
 
@@ -610,7 +613,7 @@ async function waitForNuxtStartupAttempt(
     let lastLog = 0;
 
     while (Date.now() - start < timeout) {
-        const serverUp = await isNuxtRunning();
+        const serverUp = await checkNuxtHttpReadiness();
         const buildsComplete = hasCompletedNuxtBuildMarkers(attempt);
         const warmupComplete = attempt.viteClientWarmed || (Date.now() - start > WARMUP_GRACE_MS);
         const elapsedMs = Date.now() - start;
