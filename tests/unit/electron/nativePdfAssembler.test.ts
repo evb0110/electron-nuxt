@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
     const runQpdfCommand = vi.fn(async () => undefined);
     const assertNonEmptyPdfOutput = vi.fn(async () => undefined);
     const getPdfPageCount = vi.fn(async (path: string) => path.includes('/image-chunk-') ? 3 : 1);
+    const getDjvuPageCount = vi.fn(async () => 2);
     const nativeWrite = vi.fn(async (
         inputPaths: string[],
         _outputPath: string,
@@ -64,6 +65,7 @@ const mocks = vi.hoisted(() => {
         runQpdfCommand,
         assertNonEmptyPdfOutput,
         getPdfPageCount,
+        getDjvuPageCount,
         nativeWrite,
         convertDjvuToPdfFile,
         warn,
@@ -89,6 +91,7 @@ vi.mock('@electron/features/page-ops/public', () => ({
 }));
 
 vi.mock('@electron/features/djvu/public', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
+vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
     isNativePdfImageCombineBitmapPath: (inputPath: string) => /\.(?:png|jpe?g|tiff?)$/iu.test(inputPath),
@@ -112,6 +115,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.stubEnv('VITEST', 'true');
+        mocks.getDjvuPageCount.mockResolvedValue(2);
     });
 
     afterEach(() => {
@@ -153,7 +157,10 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             '/tmp/scan.djvu',
             expect.stringMatching(/^\/tmp\/native-assembler\/djvu-chunk-.+\.pdf$/u),
             expect.stringMatching(/^pdf-native-assembler-djvu-/u),
-            {subsample: 1},
+            {
+                subsample: 1,
+                pageCount: 2,
+            },
         );
         expect(mocks.runQpdfCommand).toHaveBeenCalledWith([
             '--empty',

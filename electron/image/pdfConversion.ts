@@ -22,6 +22,7 @@ import {
     isImagePath,
 } from '@electron/image/pdfCombineShared';
 import { convertDjvuToPdfFile } from '@electron/features/djvu/public';
+import { getDjvuPageCount } from '@electron/djvu/metadata';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,
@@ -219,11 +220,15 @@ async function createPdfFromInputPathsLocal(
             const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
 
             try {
+                const pageCount = await getOptionalDjvuPageCount(sourcePath);
                 const result = await convertDjvuToPdfFile(
                     sourcePath,
                     tempPdfPath,
                     `pdf-combine-djvu-${randomUUID()}`,
-                    { subsample: 1 },
+                    {
+                        subsample: 1,
+                        ...(pageCount > 0 ? { pageCount } : {}),
+                    },
                 );
 
                 if (!result.success) {
@@ -245,6 +250,15 @@ async function createPdfFromInputPathsLocal(
             }
         },
     });
+}
+
+async function getOptionalDjvuPageCount(sourcePath: string) {
+    try {
+        return await getDjvuPageCount(sourcePath);
+    } catch (error) {
+        logger.debug(`Failed to read DjVu page count before combine conversion: ${getErrorMessage(error)}`);
+        return 0;
+    }
 }
 
 function canCombineInWorker(inputPaths: string[]) {
