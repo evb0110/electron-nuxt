@@ -809,6 +809,7 @@ describe('usePageAnnotationActions', () => {
                 2,
                 3,
             ]),
+            cleanupFile: vi.fn(async () => {}),
         };
 
         Object.defineProperty(globalThis, 'window', {
@@ -835,6 +836,7 @@ describe('usePageAnnotationActions', () => {
                 pageY: 0.5,
             },
         );
+        expect(documents.cleanupFile).not.toHaveBeenCalled();
     });
 
     it('finalizes a placed image by embedding it into the reloaded PDF', async () => {

@@ -1,7 +1,10 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TTranslateFn } from '@i18n-app';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {
+    getDocumentRefBaseName,
+    isBrowserDocumentRef,
+} from '@app/utils/documentRef';
 import { extractPdfText } from '@app/utils/ocr/extractPdfText';
 import { loadOcrText } from '@app/utils/ocr/loadOcrText';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
@@ -47,7 +50,9 @@ export async function exportTextAsDocx(params: {
             });
             return true;
         } finally {
-            await documents.cleanupFile(outPath).catch(() => {});
+            if (isBrowserDocumentRef(outPath)) {
+                await documents.cleanupFile(outPath).catch(() => {});
+            }
         }
     } catch (error) {
         params.setError(params.localizeError(error));

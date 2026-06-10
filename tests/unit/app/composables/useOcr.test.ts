@@ -224,7 +224,7 @@ describe('useOcr', () => {
                     9,
                 ]),
             );
-            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/export.docx');
+            expect(mockDocuments.cleanupFile).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'success',
                 title: expect.any(String),

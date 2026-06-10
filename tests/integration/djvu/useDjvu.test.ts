@@ -229,7 +229,7 @@ describe('useDjvu', () => {
     });
 
     describe('convertToPdf', () => {
-        it('shows a conversion error instead of failing silently', async () => {
+        it('shows a conversion error without cleaning filesystem save paths', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
                 pageCount: 1,
@@ -247,7 +247,28 @@ describe('useDjvu', () => {
 
             expect(djvu.viewingError.value).toBe('Windows converter failed');
             expect(djvu.conversionState.value.isConverting).toBe(false);
-            expect(mockElectronAPI.documents.cleanupFile).toHaveBeenCalledWith('/tmp/out.pdf');
+            expect(mockElectronAPI.documents.cleanupFile).not.toHaveBeenCalled();
+        });
+
+        it('cleans up browser conversion output refs after conversion errors', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockElectronAPI.documents.savePdfDialog.mockResolvedValue('browser://documents/output/out.pdf');
+            mockElectronAPI.djvu.convertToPdf.mockResolvedValue({
+                success: false,
+                error: 'Browser converter failed',
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+
+            expect(djvu.viewingError.value).toBe('Browser converter failed');
+            expect(mockElectronAPI.documents.cleanupFile)
+                .toHaveBeenCalledWith('browser://documents/output/out.pdf');
         });
     });
 

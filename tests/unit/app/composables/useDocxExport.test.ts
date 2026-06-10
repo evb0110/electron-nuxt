@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 describe('useDocxExport', () => {
-    it('uses the async docx builder and cleans up the output handle', async () => {
+    it('uses the async docx builder without cleaning filesystem output paths', async () => {
         const callOrder: string[] = [];
         electronApiMock.documents.saveDocxAs.mockImplementationOnce(async () => {
             callOrder.push('save');
@@ -76,7 +76,7 @@ describe('useDocxExport', () => {
                 3,
             ]),
         );
-        expect(electronApiMock.documents.cleanupFile).toHaveBeenCalledWith('/tmp/export.docx');
+        expect(electronApiMock.documents.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'success',
             title: expect.any(String),
@@ -90,7 +90,7 @@ describe('useDocxExport', () => {
         }));
     });
 
-    it('cleans up the reserved output when no DOCX text is available', async () => {
+    it('does not cleanup filesystem output paths when no DOCX text is available', async () => {
         electronApiMock.documents.saveDocxAs.mockResolvedValueOnce('/tmp/empty.docx');
         loadOcrTextMock.mockResolvedValueOnce(null);
         extractPdfTextMock.mockResolvedValueOnce(null);
@@ -106,7 +106,25 @@ describe('useDocxExport', () => {
         expect(result).toBe(false);
         expect(exportState.docxExportError.value).toBe('errors.ocr.noText');
         expect(electronApiMock.documents.writeDocxFile).not.toHaveBeenCalled();
-        expect(electronApiMock.documents.cleanupFile).toHaveBeenCalledWith('/tmp/empty.docx');
+        expect(electronApiMock.documents.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
+    it('cleans up browser output refs when no DOCX text is available', async () => {
+        electronApiMock.documents.saveDocxAs.mockResolvedValueOnce('browser://documents/output/empty.docx');
+        loadOcrTextMock.mockResolvedValueOnce(null);
+        extractPdfTextMock.mockResolvedValueOnce(null);
+
+        const { useDocxExport } = await import('@app/composables/useDocxExport');
+        const exportState = useDocxExport();
+
+        const result = await exportState.exportDocx({
+            workingCopyPath: 'browser://documents/working/work.pdf',
+            pdfDocument: {} as PDFDocumentProxy,
+        });
+
+        expect(result).toBe(false);
+        expect(electronApiMock.documents.writeDocxFile).not.toHaveBeenCalled();
+        expect(electronApiMock.documents.cleanupFile).toHaveBeenCalledWith('browser://documents/output/empty.docx');
     });
 });

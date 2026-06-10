@@ -1,7 +1,10 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {
+    getDocumentRefBaseName,
+    isBrowserDocumentRef,
+} from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 
@@ -401,7 +404,7 @@ export const useDjvu = () => {
                 phase: null,
                 percent: 0,
             };
-            if (shouldCleanupSavePath) {
+            if (shouldCleanupSavePath && isBrowserDocumentRef(savePath)) {
                 await documents.cleanupFile(savePath).catch((cleanupError: unknown) => {
                     logSuppressedError('Failed to cleanup DjVu browser output ref', cleanupError);
                 });
