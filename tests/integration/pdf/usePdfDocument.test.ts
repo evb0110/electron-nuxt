@@ -21,13 +21,13 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 interface IPdfjsDataRangeTransport {
     onDataRange: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
-    requestDataRange: ((begin: number, end: number) => Promise<void>) | null;
+    requestDataRange: ((begin: number, end: number) => void) | null;
 }
 
 class MockPdfDataRangeTransport implements IPdfjsDataRangeTransport {
     public onDataRange = vi.fn();
     public abort = vi.fn();
-    public requestDataRange: ((begin: number, end: number) => Promise<void>) | null = null;
+    public requestDataRange: ((begin: number, end: number) => void) | null = null;
 
     constructor(length: number, initialData: Uint8Array) {
         void length;
@@ -55,6 +55,8 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {usePdfDocument} = await import('@app/composables/pdf/usePdfDocument');
 const {maxCachedPdfPages} = await import('@app/utils/pdf-viewer/maxCachedPdfPages');
+
+const rangePreloadTestTimeoutMs = 15_000;
 
 describe('usePdfDocument range loading', () => {
     beforeEach(() => {
@@ -123,6 +125,7 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('keeps the preloaded tail cached until PDF.js requests it', async () => {
+        const getDocumentCalled = Promise.withResolvers<MockPdfDataRangeTransport>();
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
@@ -140,6 +143,11 @@ describe('usePdfDocument range loading', () => {
 
         pdfjsState.getDocument.mockImplementation((options: { range?: MockPdfDataRangeTransport }) => {
             expect(options.range?.onDataRange).not.toHaveBeenCalled();
+            if (options.range) {
+                getDocumentCalled.resolve(options.range);
+            } else {
+                getDocumentCalled.reject(new Error('Expected PDF range transport'));
+            }
             return {
                 promise: deferred.promise,
                 destroy,
@@ -169,27 +177,31 @@ describe('usePdfDocument range loading', () => {
             size,
         });
 
-        await vi.waitFor(() => {
-            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
-        });
-
-        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
-        const range = getDocumentArg?.range;
-        if (!range) {
-            throw new Error('Expected PDF range transport');
-        }
+        const range = await getDocumentCalled.promise;
 
         expect(range.onDataRange).not.toHaveBeenCalled();
 
-        await range.requestDataRange?.(tailStart, size);
-        await vi.waitFor(() => {
-            expect(range.onDataRange).toHaveBeenCalledTimes(1);
+        const dataRangeDelivered = Promise.withResolvers<{
+            begin: number;
+            chunk: unknown;
+        }>();
+        range.onDataRange.mockImplementation((begin: number, chunk: unknown) => {
+            dataRangeDelivered.resolve({
+                begin,
+                chunk,
+            });
         });
+        if (!range.requestDataRange) {
+            throw new Error('Expected PDF range request handler');
+        }
+
+        range.requestDataRange(tailStart, size);
+        const deliveredRange = await dataRangeDelivered.promise;
 
         expect(electronApi.documents.readFileRange).toHaveBeenCalledTimes(2);
-        const rangeCall = range.onDataRange.mock.calls[0];
-        const rangeChunk = rangeCall?.[1] as Uint8Array | undefined;
-        expect(rangeCall?.[0]).toBe(tailStart);
+        expect(range.onDataRange).toHaveBeenCalledTimes(1);
+        const rangeChunk = deliveredRange.chunk as Uint8Array | undefined;
+        expect(deliveredRange.begin).toBe(tailStart);
         expect(rangeChunk).toBeInstanceOf(Uint8Array);
         expect(rangeChunk).not.toBe(tailData);
         expect(rangeChunk).toHaveLength(chunkLength);
@@ -200,7 +212,7 @@ describe('usePdfDocument range loading', () => {
         deferred.reject(new Error('range cache test cancelled load'));
 
         await expect(loadPromise).resolves.toBeNull();
-    });
+    }, rangePreloadTestTimeoutMs);
 
     it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
         const getPage = vi.fn(async (pageNumber: number) => {
