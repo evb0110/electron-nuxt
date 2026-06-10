@@ -99,14 +99,14 @@ describe('useWorkspaceExport', () => {
             resolveExport({
                 success: true,
                 outputPaths: [
-                    '/tmp/page-1.png',
-                    '/tmp/page-2.png',
-                    '/tmp/page-3.png',
+                    '/Users/test/Desktop/document-page-001.png',
+                    '/Users/test/Desktop/document-page-002.png',
+                    '/Users/test/Desktop/document-page-003.png',
                 ],
             });
             await exportPromise;
 
-            expect(cleanupFileMock).toHaveBeenCalledTimes(3);
+            expect(cleanupFileMock).not.toHaveBeenCalled();
             expect(state.exportOverlay.value).toEqual({
                 kind: 'images',
                 pageCount: 3,
@@ -115,6 +115,39 @@ describe('useWorkspaceExport', () => {
 
             await vi.advanceTimersByTimeAsync(2200);
             expect(state.exportOverlay.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cleans up browser output refs after image export', async () => {
+        exportImagesMock.mockResolvedValueOnce({
+            success: true,
+            outputPaths: [
+                'browser://documents/output/page-1.png',
+                'browser://documents/output/page-2.png',
+            ],
+        });
+
+        const {
+            scope,
+            state,
+        } = createComposable();
+
+        try {
+            const exportPromise = state.handleExportImages([
+                1,
+                2,
+            ]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [
+                1,
+                2,
+            ]});
+            await exportPromise;
+
+            expect(cleanupFileMock).toHaveBeenCalledTimes(2);
+            expect(cleanupFileMock).toHaveBeenCalledWith('browser://documents/output/page-1.png');
+            expect(cleanupFileMock).toHaveBeenCalledWith('browser://documents/output/page-2.png');
         } finally {
             scope.stop();
         }
@@ -146,6 +179,56 @@ describe('useWorkspaceExport', () => {
 
             expect(state.exportOverlay.value).toBeNull();
             expect(cleanupFileMock).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('does not cleanup filesystem TIFF export outputs', async () => {
+        exportTiffMock.mockResolvedValueOnce({
+            success: true,
+            outputPath: '/Users/test/Desktop/document-pages.tiff',
+        });
+
+        const {
+            scope,
+            state,
+        } = createComposable();
+
+        try {
+            const exportPromise = state.handleExportMultiPageTiff([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await exportPromise;
+
+            expect(cleanupFileMock).not.toHaveBeenCalled();
+            expect(state.exportOverlay.value).toEqual({
+                kind: 'multipage-tiff',
+                pageCount: 1,
+                state: 'success',
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cleans up browser TIFF output refs', async () => {
+        exportTiffMock.mockResolvedValueOnce({
+            success: true,
+            outputPath: 'browser://documents/output/document-pages.tiff',
+        });
+
+        const {
+            scope,
+            state,
+        } = createComposable();
+
+        try {
+            const exportPromise = state.handleExportMultiPageTiff([1]);
+            state.handleExportScopeDialogSubmit({pageNumbers: [1]});
+            await exportPromise;
+
+            expect(cleanupFileMock).toHaveBeenCalledOnce();
+            expect(cleanupFileMock).toHaveBeenCalledWith('browser://documents/output/document-pages.tiff');
         } finally {
             scope.stop();
         }

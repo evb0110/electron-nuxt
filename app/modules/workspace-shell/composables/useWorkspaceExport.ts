@@ -7,6 +7,7 @@ import {
     getDocumentsCapability,
     getImageExportCapability,
 } from '@app/utils/platformDocuments';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 type TExportOverlayKind = 'images' | 'multipage-tiff';
@@ -104,15 +105,31 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         });
     }
 
-    async function cleanupExportedImages(
+    async function cleanupExportedOutputRefs(
         documents: ReturnType<typeof getDocumentsCapability>,
         outputPaths: string[],
     ) {
+        const cleanupPaths = outputPaths.filter(isBrowserDocumentRef);
+        if (cleanupPaths.length === 0) {
+            return;
+        }
+
         await Promise.allSettled(
-            outputPaths.map(async (path) => {
+            cleanupPaths.map(async (path) => {
                 await documents.cleanupFile(path);
             }),
         );
+    }
+
+    async function cleanupExportedOutputRef(
+        documents: ReturnType<typeof getDocumentsCapability>,
+        outputPath: string,
+    ) {
+        if (!isBrowserDocumentRef(outputPath)) {
+            return;
+        }
+
+        await documents.cleanupFile(outputPath).catch(() => {});
     }
 
     async function handleImageExportResult(
@@ -126,7 +143,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         }
 
         if (result.outputPaths) {
-            await cleanupExportedImages(documents, result.outputPaths);
+            await cleanupExportedOutputRefs(documents, result.outputPaths);
             showExportSuccess('images', result.outputPaths.length || selectedPageCount);
             return;
         }
@@ -244,7 +261,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 });
             }
             if (result.success && result.outputPath) {
-                await documents.cleanupFile(result.outputPath).catch(() => {});
+                await cleanupExportedOutputRef(documents, result.outputPath);
                 showExportSuccess('multipage-tiff', selectedPageCount);
             } else {
                 setExportOverlay(null);
