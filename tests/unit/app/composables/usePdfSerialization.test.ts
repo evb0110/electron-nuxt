@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -19,22 +20,34 @@ import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
+import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
+import { readDocumentBytes } from '@app/utils/documentBytes';
 
 vi.mock('@app/utils/pdf-viewer/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
+vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: vi.fn() }));
+
+const platformMocks = vi.hoisted(() => ({documentsCapability: {}}));
+
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => platformMocks.documentsCapability}));
 
 const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=',
     'base64',
 ));
 
-function createSerializationHarness() {
+beforeEach(() => {
+    platformMocks.documentsCapability = {};
+    vi.mocked(readDocumentBytes).mockReset();
+});
+
+function createSerializationHarness(options: {workingCopyPath?: string | null;} = {}) {
     return usePdfSerialization({
         pdfData: ref(null),
-        workingCopyPath: ref(null),
+        workingCopyPath: ref(options.workingCopyPath ?? null),
         annotationComments: ref([]),
         totalPages: ref(1),
         pageLabelsDirty: ref(false),
@@ -256,6 +269,127 @@ describe('usePdfSerialization FreeText note comments', () => {
 });
 
 describe('usePdfSerialization embedPlacedImageToPage', () => {
+    it('uses the native working-copy path for JPEG placed images when available', async () => {
+        const baseBytes = new Uint8Array([1]);
+        const nativeBytes = new Uint8Array([
+            37,
+            80,
+            68,
+            70,
+        ]);
+        const nativeApply = deferred<Awaited<ReturnType<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>>>();
+        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => nativeApply.promise);
+        platformMocks.documentsCapability = {applyPdfNativeMutationsToWorkingCopy};
+        vi.mocked(readDocumentBytes)
+            .mockResolvedValueOnce(nativeBytes);
+        const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
+        const imageBytes = new Uint8Array([
+            0xFF,
+            0xD8,
+            0xFF,
+        ]);
+
+        const resultPromise = serializer.embedPlacedImageToPage(
+            baseBytes,
+            {
+                pageNumber: 2,
+                x: 0.1,
+                y: 0.25,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 12,
+                fileName: 'photo.jpg',
+                mimeType: 'image/jpeg',
+                bytes: imageBytes,
+                targetPixelWidth: 180,
+                targetPixelHeight: 160,
+            },
+        );
+        await vi.waitFor(() => {
+            expect(applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledTimes(1);
+        });
+        expect(readDocumentBytes).not.toHaveBeenCalled();
+
+        nativeApply.resolve({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+        });
+        const result = await resultPromise;
+        expect(result).toEqual(nativeBytes);
+        expect(applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            {placedImages: [expect.objectContaining({
+                pageIndex: 1,
+                x: 0.1,
+                y: 0.25,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 12,
+                mimeType: 'image/jpeg',
+                bytes: imageBytes,
+            })]},
+            expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            {
+                byteLength: baseBytes.byteLength,
+                sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+            },
+        );
+        expect(applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1].placedImages?.[0]?.bytes).toBeInstanceOf(Uint8Array);
+        expect(readDocumentBytes).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
+        expect(readDocumentBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back when the main-process working-copy expectation declines the native mutation', async () => {
+        const sourceDoc = await PDFDocument.create();
+        sourceDoc.addPage([
+            600,
+            800,
+        ]);
+        const baseBytes = await sourceDoc.save();
+        const applyPdfNativeMutationsToWorkingCopy = vi.fn<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>(async () => ({
+            applied: false,
+            validation: null,
+        }));
+        platformMocks.documentsCapability = {applyPdfNativeMutationsToWorkingCopy};
+        const serializer = createSerializationHarness({workingCopyPath: '/tmp/work.pdf'});
+
+        await expect(serializer.embedPlacedImageToPage(
+            baseBytes,
+            {
+                pageNumber: 1,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 0,
+                fileName: 'photo.jpg',
+                mimeType: 'image/jpeg',
+                bytes: new Uint8Array([
+                    0xFF,
+                    0xD8,
+                    0xFF,
+                ]),
+                targetPixelWidth: 100,
+                targetPixelHeight: 80,
+            },
+        )).rejects.toThrow();
+        expect(applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            expect.objectContaining({placedImages: expect.any(Array)}),
+            expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            {
+                byteLength: baseBytes.byteLength,
+                sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+            },
+        );
+        expect(readDocumentBytes).not.toHaveBeenCalled();
+    });
+
     it('persists a placed image as a stamp annotation with an appearance stream', async () => {
         const serializer = createSerializationHarness();
         const sourceDoc = await PDFDocument.create();
@@ -847,3 +981,18 @@ describe('usePdfSerialization embedded shapes', () => {
         });
     });
 });
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}

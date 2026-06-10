@@ -292,6 +292,46 @@ function postSearchComplete(
     });
 }
 
+function isNativeSearchAttemptDisabledForRuntime() {
+    return process.env.EVB_PDF_SEARCH_DISABLE === '1'
+        || (process.env.VITEST === 'true' && process.env.EVB_PDF_SEARCH_ENABLE !== '1');
+}
+
+async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
+    if (context.shouldWarmup || isNativeSearchAttemptDisabledForRuntime()) {
+        return false;
+    }
+
+    try {
+        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+        const nativeResult = await tryRunNativeSearch({
+            pdfPath: context.pdfPath,
+            query: context.normalizedQuery,
+            matchCase: context.matchCase,
+            wholeWord: context.wholeWord,
+            useRegex: context.useRegex,
+            signal: context.signal,
+            ...(context.pageCount !== undefined ? { pageCount: context.pageCount } : {}),
+        });
+        throwIfCancelled(context.requestId, context.signal);
+        if (!nativeResult) {
+            return false;
+        }
+
+        indexCache.delete(context.pdfPath);
+        sendProgress(context.requestId, 0, nativeResult.totalPages, true);
+        sendProgress(context.requestId, nativeResult.totalPages, nativeResult.totalPages, true, nativeResult.response);
+        postSearchComplete(context.requestId, nativeResult.response);
+        return true;
+    } catch (error) {
+        if (isAbortError(error) || isCancelled(context.requestId)) {
+            throw error;
+        }
+        log.debug(`Native search unavailable, falling back to JS search: ${getErrorMessage(error)}`);
+        return false;
+    }
+}
+
 function postSearchCancelled(requestId: string) {
     postMessage({
         type: 'cancelled',
@@ -577,6 +617,10 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
         if (context.normalizedQuery.length === 0 && !context.shouldWarmup) {
             throwIfCancelled(context.requestId, context.signal);
             postEmptySearchComplete(context.requestId);
+            return;
+        }
+
+        if (await tryCompleteWithNativeSearch(context)) {
             return;
         }
 

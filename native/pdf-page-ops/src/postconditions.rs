@@ -167,6 +167,93 @@ fn validate_annotation_delete_document_postconditions(
     Ok(())
 }
 
+fn validate_placed_image_document_postconditions(
+    document: &Document,
+    images: &[PlacedImage],
+    modified_at: &str,
+) -> Result<()> {
+    if images.is_empty() {
+        return Ok(());
+    }
+
+    let page_map = document.get_pages();
+    for (index, image) in images.iter().enumerate() {
+        let page_number = image
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid placed image page index")?;
+        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_view = resolve_page_view(document, page_id)?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
+        let expected_geometry = placed_image_geometry(image, page_view, page_rotation)?;
+        let expected_name = placed_image_annotation_name(image, index, modified_at);
+        let found = get_page_annots(document, page_id)?
+            .iter()
+            .filter_map(|object| object.as_reference().ok())
+            .any(|object_id| {
+                validate_placed_image_annotation(
+                    document,
+                    object_id,
+                    &expected_name,
+                    expected_geometry.rect,
+                    modified_at,
+                )
+                .is_ok()
+            });
+        if !found {
+            return Err("Placed image stamp annotation was not found".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_placed_image_annotation(
+    document: &Document,
+    object_id: ObjectId,
+    expected_name: &str,
+    expected_rect: PdfRect,
+    modified_at: &str,
+) -> Result<()> {
+    let dict = document.get_dictionary(object_id)?;
+    if annotation_subtype(dict) != "stamp" {
+        return Err("Placed image annotation has the wrong subtype".into());
+    }
+    let actual_name = dict
+        .get(b"NM")
+        .ok()
+        .and_then(pdf_string_to_text)
+        .ok_or("Placed image annotation is missing NM")?;
+    if actual_name != expected_name {
+        return Err("Placed image annotation NM did not match requested name".into());
+    }
+    let modified = dict
+        .get(b"M")
+        .ok()
+        .and_then(pdf_string_to_text)
+        .ok_or("Placed image annotation is missing modification timestamp")?;
+    if modified != modified_at {
+        return Err("Placed image annotation modification timestamp did not match".into());
+    }
+    let actual_rect = parse_rect(dict.get(b"Rect")?)?;
+    validate_rect_approximately(actual_rect, expected_rect, "Placed image annotation Rect")?;
+    validate_placed_image_appearance(document, dict)?;
+    Ok(())
+}
+
+fn validate_placed_image_appearance(document: &Document, dict: &Dictionary) -> Result<()> {
+    let ap_dict = match dict.get(b"AP")? {
+        Object::Dictionary(dictionary) => dictionary,
+        Object::Reference(reference) => document.get_dictionary(*reference)?,
+        _ => return Err("Placed image annotation AP must be a dictionary".into()),
+    };
+    let normal_ref = ap_dict.get(b"N")?.as_reference()?;
+    let appearance = document.get_object(normal_ref)?;
+    if !matches!(appearance, Object::Stream(_)) {
+        return Err("Placed image appearance must be a stream".into());
+    }
+    Ok(())
+}
+
 fn validate_annotation_text_fields(
     dict: &Dictionary,
     expected_text: &str,

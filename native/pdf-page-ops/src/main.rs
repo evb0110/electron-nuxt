@@ -1,6 +1,10 @@
+#![allow(dead_code)]
+
 mod page_sizes;
 
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream, StringFormat};
+use lopdf::{
+    dictionary, Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream, StringFormat,
+};
 use page_sizes::write_page_sizes_json;
 use serde::Deserialize;
 use std::{
@@ -19,11 +23,13 @@ include!("dispatcher.rs");
 include!("incremental.rs");
 include!("postconditions.rs");
 include!("annotations.rs");
+include!("placed_images.rs");
 include!("catalog.rs");
 include!("shapes.rs");
 include!("markup_hints.rs");
 include!("markup.rs");
 include!("page_geometry.rs");
+include!("page_tree_ops.rs");
 
 #[cfg(test)]
 mod tests {
@@ -37,6 +43,8 @@ mod tests {
     include!("tests/support.rs");
     include!("tests/crop.rs");
     include!("tests/notes.rs");
+    include!("tests/placed_images.rs");
     include!("tests/markup_shapes.rs");
     include!("tests/catalog.rs");
+    include!("tests/page_tree_ops.rs");
 }

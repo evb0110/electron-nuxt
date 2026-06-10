@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
     lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean }>>(),
     readFile: vi.fn<(path: string, encoding: string) => Promise<string>>(),
     realpath: vi.fn<(path: string) => Promise<string>>(),
+    stat: vi.fn<(path: string) => Promise<{ mtimeMs: number }>>(),
     writeFile: vi.fn<(path: string, data: string, encoding: string) => Promise<void>>(),
+    loadCompactSearchIndex: vi.fn(),
+    persistCompactSearchIndex: vi.fn(),
 }));
 
 function createStat(isSymlink: boolean) {
@@ -21,9 +24,16 @@ vi.mock('fs/promises', () => ({
     lstat: (path: string) => mocks.lstat(path),
     readFile: (path: string, encoding: string) => mocks.readFile(path, encoding),
     realpath: (path: string) => mocks.realpath(path),
+    stat: (path: string) => mocks.stat(path),
     mkdir: vi.fn(),
     rename: vi.fn(),
     writeFile: (path: string, data: string, encoding: string) => mocks.writeFile(path, data, encoding),
+}));
+
+vi.mock('@electron/search/searchIndexSidecar', () => ({
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
+    loadCompactSearchIndex: mocks.loadCompactSearchIndex,
+    persistCompactSearchIndex: mocks.persistCompactSearchIndex,
 }));
 
 const {
@@ -81,7 +91,10 @@ describe('writeOcrIndexV2', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.readFile.mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+        mocks.stat.mockResolvedValue({mtimeMs: 1});
         mocks.writeFile.mockResolvedValue();
+        mocks.loadCompactSearchIndex.mockResolvedValue(null);
+        mocks.persistCompactSearchIndex.mockResolvedValue(undefined);
     });
 
     it('preserves existing page mappings when writing a partial OCR run', async () => {

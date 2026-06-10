@@ -40,6 +40,13 @@ class FakeMessagePort {
     }
 }
 
+type TNativeMutationInvokePayload = {placedImages: Array<{bytes: unknown}>};
+
+interface IWorkingCopyExpectationInvokePayload {
+    byteLength: number;
+    sha256: string;
+}
+
 describe('createDocumentsPreloadFileClient', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -207,7 +214,7 @@ describe('createDocumentsPreloadFileClient', () => {
 
     it('invokes the native note text update channel with validated updates', async () => {
         const ipcRenderer = {
-            invoke: vi.fn(async () => ({
+            invoke: vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>(async () => ({
                 applied: true,
                 validation: {
                     isValid: true,
@@ -465,6 +472,73 @@ describe('createDocumentsPreloadFileClient', () => {
             },
             'D:20260609133855+03\'00\'',
         );
+    });
+
+    it('validates native working-copy placed image mutations before IPC', async () => {
+        const invoke = vi.fn<(
+            channel: string,
+            path: string,
+            mutations: TNativeMutationInvokePayload,
+            modifiedAt: string,
+            expectedBase: IWorkingCopyExpectationInvokePayload,
+        ) => Promise<unknown>>(async () => ({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+        }));
+        const ipcRenderer = {
+            invoke,
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const expectedBase = {
+            byteLength: 3,
+            sha256: 'a'.repeat(64),
+        };
+        const imageBytes = new Uint8Array([
+            0xFF,
+            0xD8,
+            0xFF,
+        ]);
+
+        await expect(client.applyPdfNativeMutationsToWorkingCopy!(
+            '/tmp/working.pdf',
+            {placedImages: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 15,
+                mimeType: 'image/jpeg',
+                bytes: imageBytes,
+            }]},
+            'D:20260609133855+03\'00\'',
+            expectedBase,
+        )).resolves.toMatchObject({applied: true});
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy,
+            '/tmp/working.pdf',
+            {placedImages: [expect.objectContaining({
+                pageIndex: 0,
+                mimeType: 'image/jpeg',
+                bytes: imageBytes,
+            })]},
+            'D:20260609133855+03\'00\'',
+            expectedBase,
+        );
+        const firstCall = invoke.mock.calls[0];
+        expect(firstCall).toBeDefined();
+        if (!firstCall) {
+            throw new Error('Expected native mutation IPC call');
+        }
+        const mutations = firstCall[2];
+        expect(mutations.placedImages[0]?.bytes).toBeInstanceOf(Uint8Array);
     });
 });
 

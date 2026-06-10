@@ -124,6 +124,7 @@ export async function getPdfPageCount(pdfPath: string) {
         pdfPath,
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
+        allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(page-count)',
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);

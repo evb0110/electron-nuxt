@@ -9,6 +9,7 @@ import {
     resolveAllowedWritePath,
 } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
 import {
     copyFileAtomic,
@@ -43,19 +44,24 @@ export async function handleFileWrite(
     if (!await ensureWorkingCopyDirectory(resolvedPath, event.sender?.id)) {
         throw new Error('Invalid file path: writes require a managed working copy');
     }
-    try {
-        await writeFileAtomic(resolvedPath, payload);
-    } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-            throw error;
-        }
+    return enqueueWorkingCopyMutation(resolvedPath, async () => {
         if (!await ensureWorkingCopyDirectory(resolvedPath, event.sender?.id)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
-        await writeFileAtomic(resolvedPath, payload);
-    }
-    return true;
+        try {
+            await writeFileAtomic(resolvedPath, payload);
+        } catch (error) {
+            const code = isErrnoException(error) ? error.code : undefined;
+            if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+                throw error;
+            }
+            if (!await ensureWorkingCopyDirectory(resolvedPath, event.sender?.id)) {
+                throw new Error('Invalid file path: writes require a managed working copy');
+            }
+            await writeFileAtomic(resolvedPath, payload);
+        }
+        return true;
+    });
 }
 
 export async function handleReplaceWorkingCopyFromPath(
@@ -80,19 +86,24 @@ export async function handleReplaceWorkingCopyFromPath(
     }
     assertOcrPdfResultSourcePath(resolvedSourcePath);
 
-    try {
-        await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
-    } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-            throw error;
-        }
+    return enqueueWorkingCopyMutation(resolvedWorkingCopyPath, async () => {
         if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, event.sender?.id)) {
             throw new Error('Invalid file path: writes require a managed working copy');
         }
-        await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
-    }
-    return true;
+        try {
+            await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+        } catch (error) {
+            const code = isErrnoException(error) ? error.code : undefined;
+            if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+                throw error;
+            }
+            if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, event.sender?.id)) {
+                throw new Error('Invalid file path: writes require a managed working copy');
+            }
+            await copyFileAtomic(resolvedSourcePath, resolvedWorkingCopyPath);
+        }
+        return true;
+    });
 }
 
 export async function handleFileWriteDocx(

@@ -320,6 +320,33 @@ fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
     Ok(())
 }
 
+fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
+    if images.len() > 16 {
+        return Err("Too many placed image mutations".into());
+    }
+    for image in images {
+        if !image.mime_type.eq_ignore_ascii_case("image/jpeg") {
+            return Err("Native placed images only support JPEG payloads".into());
+        }
+        validate_marker_rect(MarkerRect {
+            left: image.x,
+            top: image.y,
+            width: image.width,
+            height: image.height,
+        })?;
+        if image
+            .rotation_degrees
+            .is_some_and(|rotation| !rotation.is_finite())
+        {
+            return Err("Invalid placed image rotation".into());
+        }
+        if image.bytes.is_empty() || image.bytes.len() > 128 * 1024 * 1024 {
+            return Err("Invalid placed image byte length".into());
+        }
+    }
+    Ok(())
+}
+
 fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFile> {
     let contents = fs::read_to_string(path)?;
     let parsed: NativeMutationsFile = serde_json::from_str(&contents)?;
@@ -330,6 +357,7 @@ fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFile> {
         && parsed.bookmarks.is_none()
         && parsed.shapes.is_none()
         && parsed.markup.is_none()
+        && parsed.placed_images.is_empty()
     {
         return Err("At least one native PDF mutation is required".into());
     }
@@ -352,5 +380,6 @@ fn read_native_mutations(path: &PathBuf) -> Result<NativeMutationsFile> {
     if let Some(markup) = &parsed.markup {
         validate_markup_mutation(markup)?;
     }
+    validate_placed_images(&parsed.placed_images)?;
     Ok(parsed)
 }

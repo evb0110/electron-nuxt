@@ -142,6 +142,9 @@ fn apply_native_mutations(
     if let Some(markup) = &mutations.markup {
         apply_markup_mutations(document, markup)?;
     }
+    if !mutations.placed_images.is_empty() {
+        apply_placed_images(document, &mutations.placed_images, modified_at)?;
+    }
     Ok(())
 }
 
@@ -170,6 +173,9 @@ fn apply_native_mutations_incremental(
     }
     if let Some(markup) = &mutations.markup {
         apply_markup_mutations_incremental(incremental, markup)?;
+    }
+    if !mutations.placed_images.is_empty() {
+        apply_placed_images_incremental(incremental, &mutations.placed_images, modified_at)?;
     }
     Ok(())
 }
@@ -224,6 +230,11 @@ fn append_native_mutations(
     if let Some(markup) = &mutations.markup {
         validate_markup_document_postconditions(&output_document, markup)?;
     }
+    validate_placed_image_document_postconditions(
+        &output_document,
+        &mutations.placed_images,
+        modified_at,
+    )?;
     Ok(())
 }
 

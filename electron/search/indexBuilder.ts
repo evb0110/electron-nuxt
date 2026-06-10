@@ -34,6 +34,12 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
+import {
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+    loadCompactSearchIndex,
+    persistCompactSearchIndexBestEffort,
+} from '@electron/search/searchIndexSidecar';
+import { ensureNativeSearchIndexBestEffort } from '@electron/search/nativeSearchIndex';
 
 export interface IPageIndex {
     pageNumber: number;
@@ -135,6 +141,15 @@ function ocrWordsOrUndefined(value: unknown) {
         : undefined;
 }
 
+async function statMtimeMs(filePath: string) {
+    try {
+        const fileStat = await stat(filePath);
+        return finiteNumberOrUndefined(fileStat.mtimeMs);
+    } catch {
+        return undefined;
+    }
+}
+
 function resolveManifestPagePath(
     ocrDir: string,
     relativePath: unknown,
@@ -232,6 +247,77 @@ function parseOcrPagePayload(payload: unknown): IOcrIndexV2Page | null {
     return page;
 }
 
+function getManifestPageNumbers(
+    manifest: IOcrIndexV2Manifest,
+    expectedCount: number | undefined,
+) {
+    return Object.keys(manifest.pages)
+        .map(rawPageNumber => Number.parseInt(rawPageNumber, 10))
+        .filter(pageNumber => (
+            Number.isInteger(pageNumber)
+            && isExpectedPageNumber(pageNumber, expectedCount)
+        ))
+        .sort((a, b) => a - b);
+}
+
+async function loadCompactOcrIndexText(
+    pdfPath: string,
+    manifest: IOcrIndexV2Manifest,
+    manifestMtimeMs: number | undefined,
+    expectedCount: number | undefined,
+    onPageIndexed?: (page: IPageIndex) => void,
+    signal?: AbortSignal,
+) {
+    const manifestPageNumbers = getManifestPageNumbers(manifest, expectedCount);
+    if (manifestPageNumbers.length === 0) {
+        return null;
+    }
+
+    const expectedPageCount = isPositiveInteger(expectedCount)
+        ? expectedCount
+        : manifest.pageCount;
+    const loadOptions: Parameters<typeof loadCompactSearchIndex>[1] = { expectedPageCount };
+    if (manifestMtimeMs !== undefined) {
+        loadOptions.minSourceMtimeMs = manifestMtimeMs;
+    }
+    loadOptions.requiredTextSource = {
+        kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+        version: OCR_TEXT_LAYER_INDEX_VERSION,
+    };
+    if (signal !== undefined) {
+        loadOptions.signal = signal;
+    }
+
+    const compactIndex = await loadCompactSearchIndex(pdfPath, loadOptions);
+    if (!compactIndex || compactIndex.pageCount !== manifest.pageCount) {
+        return null;
+    }
+
+    const expectedPageSet = new Set(manifestPageNumbers);
+    const pageTexts = new Map<number, string>();
+    for (const page of compactIndex.pages) {
+        throwIfAborted(signal);
+        if (expectedPageSet.has(page.pageNumber)) {
+            pageTexts.set(page.pageNumber, page.text);
+        }
+    }
+
+    if (pageTexts.size !== manifestPageNumbers.length) {
+        return null;
+    }
+
+    for (const pageNumber of manifestPageNumbers) {
+        const text = pageTexts.get(pageNumber) ?? '';
+        onPageIndexed?.({
+            pageNumber,
+            text,
+        });
+    }
+
+    log.debug(`Loaded compact OCR search index with ${pageTexts.size} pages for ${pdfPath}`);
+    return pageTexts;
+}
+
 /**
  * Load OCR v2 index text for all pages.
  * Returns a Map of pageNumber -> text, or null if no v2 index exists.
@@ -259,6 +345,18 @@ async function loadOcrIndexText(
         if (!manifest) {
             log.debug('OCR v2 manifest is invalid, skipping');
             return null;
+        }
+
+        const compactPageTexts = await loadCompactOcrIndexText(
+            pdfPath,
+            manifest,
+            await statMtimeMs(manifestPath),
+            expectedCount,
+            onPageIndexed,
+            signal,
+        );
+        if (compactPageTexts) {
+            return compactPageTexts;
         }
 
         const pageTexts = new Map<number, string>();
@@ -491,6 +589,14 @@ async function buildIndexFromOcrTexts(
     };
 
     await persistIndexBestEffort(pdfPath, index, signal);
+    await persistCompactSearchIndexBestEffort(pdfPath, {
+        pageCount: index.pageCount ?? pages.length,
+        pages,
+        textSource: {
+            kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
+            version: OCR_TEXT_LAYER_INDEX_VERSION,
+        },
+    }, signal);
     return index;
 }
 
@@ -820,6 +926,7 @@ export async function buildSearchIndex(
     log.debug(`Saving index to ${getIndexPath(pdfPath)}`);
     try {
         await persistIndex(pdfPath, index, signal);
+        await ensureNativeSearchIndexBestEffort(pdfPath, index, signal);
         return index;
     } catch (err) {
         if (isAbortError(err)) {

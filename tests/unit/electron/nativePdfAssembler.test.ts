@@ -31,8 +31,10 @@ const mocks = vi.hoisted(() => {
             8,
         ]));
     const rm = vi.fn(async () => undefined);
+    const stat = vi.fn(async () => ({size: 3}));
     const runQpdfCommand = vi.fn(async () => undefined);
     const assertNonEmptyPdfOutput = vi.fn(async () => undefined);
+    const getPdfPageCount = vi.fn(async (path: string) => path.includes('/image-chunk-') ? 3 : 1);
     const nativeWrite = vi.fn(async (
         inputPaths: string[],
         _outputPath: string,
@@ -58,8 +60,10 @@ const mocks = vi.hoisted(() => {
         mkdtemp,
         readFile,
         rm,
+        stat,
         runQpdfCommand,
         assertNonEmptyPdfOutput,
+        getPdfPageCount,
         nativeWrite,
         convertDjvuToPdfFile,
         warn,
@@ -70,10 +74,12 @@ vi.mock('fs/promises', () => ({
     mkdtemp: mocks.mkdtemp,
     readFile: mocks.readFile,
     rm: mocks.rm,
+    stat: mocks.stat,
 }));
 
 vi.mock('@electron/features/page-ops/public', () => ({
     assertNonEmptyPdfOutput: mocks.assertNonEmptyPdfOutput,
+    getPdfPageCount: mocks.getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
         0,
         3,
@@ -128,6 +134,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             '/tmp/a.pdf',
             '/tmp/one.png',
             '/tmp/two.jpg',
+            '/tmp/three.tiff',
             '/tmp/scan.djvu',
             '/tmp/b.pdf',
         ], {onProgress: progress});
@@ -140,6 +147,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.nativeWrite).toHaveBeenCalledWith([
             '/tmp/one.png',
             '/tmp/two.jpg',
+            '/tmp/three.tiff',
         ], expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u), expect.any(Object));
         expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
             '/tmp/scan.djvu',
@@ -170,8 +178,8 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             force: true,
         });
         expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
-            processed: 5,
-            total: 5,
+            processed: 6,
+            total: 6,
             percent: 100,
         }));
     });
@@ -191,5 +199,93 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             recursive: true,
             force: true,
         });
+    });
+
+    it('keeps pure image jobs on the native image combiner without qpdf page counting', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+
+        const result = await tryCreatePdfFromInputPathsNative([
+            '/tmp/one.png',
+            '/tmp/two.jpg',
+            '/tmp/three.tiff',
+        ]);
+
+        expect(Array.from(result ?? [])).toEqual([
+            8,
+            8,
+            8,
+        ]);
+        expect(mocks.nativeWrite).toHaveBeenCalledWith([
+            '/tmp/one.png',
+            '/tmp/two.jpg',
+            '/tmp/three.tiff',
+        ], expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u), expect.any(Object));
+        expect(mocks.getPdfPageCount).not.toHaveBeenCalled();
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+    });
+
+    it('falls back before creating temp files for image formats outside the native assembler boundary', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+
+        const result = await tryCreatePdfFromInputPathsNative([
+            '/tmp/a.pdf',
+            '/tmp/poster.bmp',
+        ]);
+
+        expect(result).toBeNull();
+        expect(mocks.mkdtemp).not.toHaveBeenCalled();
+        expect(mocks.nativeWrite).not.toHaveBeenCalled();
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+    });
+
+    it('falls back when mixed inputs exceed the shared PDF page cap', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        vi.stubEnv('EVB_PDF_COMBINE_MAX_PAGES', '3');
+
+        const result = await tryCreatePdfFromInputPathsNative([
+            '/tmp/a.pdf',
+            '/tmp/three.tiff',
+        ]);
+
+        expect(result).toBeNull();
+        expect(mocks.nativeWrite).toHaveBeenCalledWith(
+            ['/tmp/three.tiff'],
+            expect.any(String),
+            expect.any(Object),
+        );
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+        expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF is capped at 3 pages'));
+    });
+
+    it('preserves the shared page cap precheck for pure image native jobs', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        vi.stubEnv('EVB_PDF_COMBINE_MAX_PAGES', '2');
+
+        const result = await tryCreatePdfFromInputPathsNative([
+            '/tmp/one.png',
+            '/tmp/two.jpg',
+            '/tmp/three.tiff',
+        ]);
+
+        expect(result).toBeNull();
+        expect(mocks.nativeWrite).not.toHaveBeenCalled();
+        expect(mocks.getPdfPageCount).not.toHaveBeenCalled();
+        expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF is capped at 2 pages'));
+    });
+
+    it('falls back when native assembler output exceeds the shared output byte cap', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+        vi.stubEnv('EVB_PDF_COMBINE_MAX_OUTPUT_MB', '1');
+        mocks.stat.mockResolvedValueOnce({size: (1024 * 1024) + 1});
+
+        const result = await tryCreatePdfFromInputPathsNative([
+            '/tmp/a.pdf',
+            '/tmp/one.png',
+        ]);
+
+        expect(result).toBeNull();
+        expect(mocks.runQpdfCommand).toHaveBeenCalledTimes(1);
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('Combined PDF output is too large to return safely'));
     });
 });

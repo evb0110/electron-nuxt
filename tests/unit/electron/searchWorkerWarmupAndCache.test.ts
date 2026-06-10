@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
         stat: vi.fn(),
         loadSearchIndex: vi.fn(),
         buildSearchIndex: vi.fn(),
+        tryRunNativeSearch: vi.fn(),
     };
 });
 
@@ -34,6 +35,7 @@ vi.mock('@electron/search/indexBuilder', () => ({
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
+vi.mock('@electron/search/nativeSearch', () => ({tryRunNativeSearch: mocks.tryRunNativeSearch}));
 vi.mock('@electron/config/constants', () => ({
     EXCERPT_CONTEXT_CHARS: 32,
     SEARCH_RESULT_LIMIT: 100,
@@ -59,6 +61,8 @@ describe('search worker warmup and cache behavior', () => {
         vi.clearAllMocks();
         mocks.postedMessages.length = 0;
         mocks.messageHandlers.clear();
+        delete process.env.EVB_PDF_SEARCH_ENABLE;
+        delete process.env.EVB_PDF_SEARCH_DISABLE;
 
         mocks.stat.mockImplementation(async (path: string) => {
             if (path.endsWith('.pdf')) {
@@ -71,6 +75,7 @@ describe('search worker warmup and cache behavior', () => {
         });
 
         mocks.loadSearchIndex.mockResolvedValue(null);
+        mocks.tryRunNativeSearch.mockResolvedValue(null);
         mocks.buildSearchIndex.mockResolvedValue({
             schemaVersion: 4,
             pdfPath: TEST_PDF_PATH,
@@ -81,6 +86,63 @@ describe('search worker warmup and cache behavior', () => {
                 text: PAGE_TEXT,
             }],
         });
+    });
+
+    it('uses native sidecar search before loading the JS search index when available', async () => {
+        process.env.EVB_PDF_SEARCH_ENABLE = '1';
+        const nativeResponse = {
+            results: [{
+                pageNumber: 1,
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 2,
+                endOffset: 8,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: 'xx',
+                    match: 'needle',
+                    after: 'yy',
+                },
+            }],
+            truncated: false,
+        };
+        mocks.tryRunNativeSearch.mockResolvedValue({
+            response: nativeResponse,
+            totalPages: 3,
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'native-1',
+                pdfPath: TEST_PDF_PATH,
+                query: ' needle ',
+                pageCount: 3,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual({
+                type: 'complete',
+                requestId: 'native-1',
+                response: nativeResponse,
+            });
+        });
+        expect(mocks.tryRunNativeSearch).toHaveBeenCalledWith(expect.objectContaining({
+            matchCase: false,
+            pageCount: 3,
+            pdfPath: TEST_PDF_PATH,
+            query: 'needle',
+            useRegex: false,
+            wholeWord: false,
+        }));
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+        expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
     });
 
     it('builds and warms index on explicit warmup requests', async () => {

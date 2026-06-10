@@ -89,6 +89,8 @@ struct NativeMutationsFile {
     bookmarks: Option<BookmarksMutation>,
     shapes: Option<ShapesMutation>,
     markup: Option<MarkupMutation>,
+    #[serde(default)]
+    placed_images: Vec<PlacedImage>,
 }
 
 #[derive(Deserialize)]
@@ -182,6 +184,19 @@ struct MarkupMutation {
     overrides: Vec<(String, String)>,
     #[serde(default)]
     hints: Vec<MarkupSubtypeHint>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlacedImage {
+    page_index: u32,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    rotation_degrees: Option<f64>,
+    mime_type: String,
+    bytes: Vec<u8>,
 }
 
 #[derive(Clone, Deserialize)]

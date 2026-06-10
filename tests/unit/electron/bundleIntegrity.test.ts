@@ -50,7 +50,12 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'METERS_PER_INCH',
     ],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
-    search: ['SEARCH_INDEX_CACHE_MAX_ENTRIES'],
+    search: [
+        'SEARCH_INDEX_CACHE_MAX_ENTRIES',
+        'tryRunNativeSearch',
+        'evb-pdf-search(search)',
+        'EVBSIDX1',
+    ],
 };
 
 const BUNDLE_CHECKS: IBundleCheck[] = WORKER_BUNDLES.map(bundle => ({

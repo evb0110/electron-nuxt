@@ -5,6 +5,7 @@ import {
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { getCompactSearchIndexPath } from '@electron/search/searchIndexSidecar';
 
 const log = createLogger('workingCopyMutationQueue');
 const workingCopyMutationQueue = new Map<string, Promise<void>>();
@@ -48,5 +49,6 @@ export async function clearWorkingCopyOcrArtifacts(workingCopyPath: string) {
             log.debug(`Failed to remove OCR sidecar for page-op mutation: ${getErrorMessage(error)}`);
         }),
         unlinkIfPresent(`${workingCopyPath}.index.json`),
+        unlinkIfPresent(getCompactSearchIndexPath(workingCopyPath)),
     ]);
 }

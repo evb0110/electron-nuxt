@@ -7,8 +7,10 @@ import type {
     IPdfNativeMarkupMarkerRect,
     IPdfNativeMarkupSubtypeHint,
     IPdfNativePageLabelRange,
+    IPdfNativePlacedImage,
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
+    IPdfNativeWorkingCopyExpectation,
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -42,7 +44,10 @@ const PDF_NATIVE_SHAPE_MAX_POINTS = 20_000;
 const PDF_NATIVE_SHAPE_MAX_TEXT_LENGTH = 2_048;
 const PDF_NATIVE_MARKUP_MAX_ITEMS = 4_096;
 const PDF_NATIVE_MARKUP_MAX_TEXT_LENGTH = 2_048;
+const PDF_NATIVE_PLACED_IMAGE_MAX_ITEMS = 16;
+const PDF_NATIVE_PLACED_IMAGE_MAX_BYTES = 128 * 1024 * 1024;
 const PDF_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/iu;
 const PDF_NATIVE_PAGE_LABEL_STYLES = new Set([
     'D',
     'R',
@@ -704,6 +709,79 @@ function assertPdfNativeMarkupMutation(value: unknown, label: string) {
     };
 }
 
+function assertPdfNativePlacedImage(value: unknown, label: string): IPdfNativePlacedImage {
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    const pageIndex = value.pageIndex;
+    if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+        throw new TypeError(`${label}.pageIndex must be a non-negative safe integer`);
+    }
+    const x = assertFiniteUnitNumber(value.x, `${label}.x`);
+    const y = assertFiniteUnitNumber(value.y, `${label}.y`);
+    const width = assertFiniteUnitNumber(value.width, `${label}.width`);
+    const height = assertFiniteUnitNumber(value.height, `${label}.height`);
+    if (width <= 0 || height <= 0 || x + width > 1 || y + height > 1) {
+        throw new TypeError(`${label} must fit inside the normalized page bounds`);
+    }
+    const rotationDegrees = value.rotationDegrees === undefined || value.rotationDegrees === null
+        ? null
+        : value.rotationDegrees;
+    if (
+        rotationDegrees !== null
+        && (typeof rotationDegrees !== 'number' || !Number.isFinite(rotationDegrees))
+    ) {
+        throw new TypeError(`${label}.rotationDegrees must be a finite number or null`);
+    }
+    if (value.mimeType !== 'image/jpeg') {
+        throw new TypeError(`${label}.mimeType must be image/jpeg`);
+    }
+    if (!(value.bytes instanceof Uint8Array) || value.bytes.byteLength === 0 || value.bytes.byteLength > PDF_NATIVE_PLACED_IMAGE_MAX_BYTES) {
+        throw new TypeError(`${label}.bytes must be a non-empty Uint8Array`);
+    }
+    return {
+        pageIndex,
+        x,
+        y,
+        width,
+        height,
+        rotationDegrees,
+        mimeType: 'image/jpeg',
+        bytes: value.bytes,
+    };
+}
+
+function assertPdfNativePlacedImages(value: unknown, label: string) {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_PLACED_IMAGE_MAX_ITEMS) {
+        throw new TypeError(`${label} must be an array with at most ${PDF_NATIVE_PLACED_IMAGE_MAX_ITEMS} images`);
+    }
+    return value.map((image, index) => assertPdfNativePlacedImage(image, `${label}[${index}]`));
+}
+
+function assertPdfNativeWorkingCopyExpectation(value: unknown, label: string): IPdfNativeWorkingCopyExpectation {
+    if (value === undefined || value === null) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    const byteLength = value.byteLength;
+    const sha256 = value.sha256;
+    if (typeof byteLength !== 'number' || !Number.isSafeInteger(byteLength) || byteLength <= 0) {
+        throw new TypeError(`${label}.byteLength must be a positive safe integer`);
+    }
+    if (typeof sha256 !== 'string' || !SHA256_HEX_PATTERN.test(sha256)) {
+        throw new TypeError(`${label}.sha256 must be a SHA-256 hex digest`);
+    }
+    return {
+        byteLength,
+        sha256: sha256.toLowerCase(),
+    };
+}
+
 function assertPdfNativeShapesMutation(value: unknown, label: string) {
     if (!isRecord(value)) {
         throw new TypeError(`${label} must be an object`);
@@ -754,12 +832,14 @@ function assertPdfNativeMutationSet(
     const markup = value.markup === undefined
         ? null
         : assertPdfNativeMarkupMutation(value.markup, `${label}.markup`);
+    const placedImages = assertPdfNativePlacedImages(value.placedImages, `${label}.placedImages`);
     if (
         updates.length + freeTextNotes.length + deletes.length === 0
         && !pageLabels
         && !bookmarks
         && !shapes
         && !markup
+        && placedImages.length === 0
     ) {
         throw new TypeError(`${label} must include at least one native PDF mutation`);
     }
@@ -774,6 +854,7 @@ function assertPdfNativeMutationSet(
         ...(bookmarks ? {bookmarks} : {}),
         ...(shapes ? {shapes} : {}),
         ...(markup ? {markup} : {}),
+        ...(placedImages.length > 0 ? {placedImages} : {}),
     };
 }
 
@@ -1108,6 +1189,14 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'savePdfNativeMutations.path'),
                 assertPdfNativeMutationSet(mutations, 'savePdfNativeMutations.mutations'),
                 assertPdfDateString(modifiedAt, 'savePdfNativeMutations.modifiedAt'),
+            ),
+        applyPdfNativeMutationsToWorkingCopy: (path, mutations, modifiedAt, expectedBase) =>
+            invoke(
+                DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy,
+                assertAbsolutePath(path, 'applyPdfNativeMutationsToWorkingCopy.path'),
+                assertPdfNativeMutationSet(mutations, 'applyPdfNativeMutationsToWorkingCopy.mutations'),
+                assertPdfDateString(modifiedAt, 'applyPdfNativeMutationsToWorkingCopy.modifiedAt'),
+                assertPdfNativeWorkingCopyExpectation(expectedBase, 'applyPdfNativeMutationsToWorkingCopy.expectedBase'),
             ),
         cleanupFile: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
         cleanupOcrTemp: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
