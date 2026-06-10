@@ -28,6 +28,7 @@ import {
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
+import { tryCreatePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -462,6 +463,10 @@ export async function createPdfFromInputPaths(
     }
 
     const resourceUsage = await enforceInputResourceLimits(normalizedPaths);
+    const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);
+    if (nativePdf) {
+        return nativePdf;
+    }
 
     if (!canCombineInWorker(normalizedPaths)) {
         return createPdfFromInputPathsLocal(normalizedPaths, options);

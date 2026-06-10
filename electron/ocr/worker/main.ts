@@ -18,7 +18,9 @@ import {
 } from 'worker_threads';
 import { randomUUID } from 'node:crypto';
 import {
+    mkdtemp,
     readFile,
+    rm,
     stat,
     unlink,
 } from 'fs/promises';
@@ -54,6 +56,7 @@ import {
     assembleSearchablePdf,
     getPageCount,
 } from '@electron/ocr/worker/pdfAssembler';
+import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
 import {
     resolveSafeOcrIndexBasePath,
     writeOcrIndexV1,
@@ -71,6 +74,7 @@ import { getErrorMessage } from '@electron/utils/error';
 
 const paths = resolveWorkerPaths(workerData);
 const activeJobControllers = new Map<string, AbortController>();
+const OCR_PAGE_SIZES_TIMEOUT_MS = 30_000;
 type TOcrResourceLease = {
     token: string;
     effectiveDpi: number;
@@ -448,7 +452,89 @@ function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
     }
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseNativePageSizesPayload(payload: unknown) {
+    if (!isObjectRecord(payload) || !Array.isArray(payload.pages)) {
+        return null;
+    }
+
+    const pageSizes = new Map<number, IOcrPageSizeInches>();
+    for (const page of payload.pages) {
+        if (!isObjectRecord(page)) {
+            return null;
+        }
+
+        const {
+            pageNumber,
+            widthInches,
+            heightInches,
+        } = page;
+        if (
+            typeof pageNumber !== 'number'
+            || !Number.isSafeInteger(pageNumber)
+            || pageNumber < 1
+            || typeof widthInches !== 'number'
+            || !Number.isFinite(widthInches)
+            || widthInches <= 0
+            || typeof heightInches !== 'number'
+            || !Number.isFinite(heightInches)
+            || heightInches <= 0
+        ) {
+            return null;
+        }
+
+        pageSizes.set(pageNumber, {
+            width: widthInches,
+            height: heightInches,
+        });
+    }
+
+    return pageSizes;
+}
+
+async function readPdfPageSizesInchesNative(pdfPath: string) {
+    if (!paths.pdfPageOpsBinary) {
+        return null;
+    }
+
+    let tempDir: string | null = null;
+    try {
+        tempDir = await mkdtemp(join(paths.tempDir, 'ocr-page-sizes-'));
+        const outputPath = join(tempDir, 'page-sizes.json');
+        await runOcrCommand(paths.pdfPageOpsBinary, [
+            'page-sizes',
+            '--input',
+            pdfPath,
+            '--output',
+            outputPath,
+        ], {
+            timeoutMs: OCR_PAGE_SIZES_TIMEOUT_MS,
+            commandLabel: 'evb-pdf-page-ops(page-sizes)',
+        });
+        const payload = JSON.parse(await readFile(outputPath, 'utf8'));
+        return parseNativePageSizesPayload(payload);
+    } catch (error) {
+        log('debug', `Native PDF page-size inspection failed for OCR resource budgeting; falling back to pdf-lib: ${getErrorMessage(error)}`);
+        return null;
+    } finally {
+        if (tempDir) {
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
+    }
+}
+
 async function readPdfPageSizesInches(pdfPath: string) {
+    const nativePageSizes = await readPdfPageSizesInchesNative(pdfPath);
+    if (nativePageSizes) {
+        return nativePageSizes;
+    }
+
     try {
         const pdfBytes = await readFile(pdfPath);
         const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });

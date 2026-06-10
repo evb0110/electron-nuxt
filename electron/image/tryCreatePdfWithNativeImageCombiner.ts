@@ -59,7 +59,7 @@ function getBinaryName() {
         : 'evb-pdf-image-combine';
 }
 
-function isNativeImageCombineDisabled() {
+export function isNativePdfImageCombineDisabled() {
     return process.env.EVB_PDF_IMAGE_COMBINE_DISABLE === '1'
         || (process.env.VITEST === 'true' && process.env.EVB_PDF_IMAGE_COMBINE_ENABLE !== '1');
 }
@@ -82,9 +82,13 @@ export function resolveNativePdfImageCombinePath() {
 }
 
 function canUseNativePdfImageCombine(inputPaths: string[], supportedExtensions: Set<string>) {
-    return !isNativeImageCombineDisabled()
+    return !isNativePdfImageCombineDisabled()
         && inputPaths.length > 0
         && inputPaths.every(path => supportedExtensions.has(extname(path).toLowerCase()));
+}
+
+export function isNativePdfImageCombineBitmapPath(inputPath: string) {
+    return SUPPORTED_NATIVE_BITMAP_EXTENSIONS.has(extname(inputPath).toLowerCase());
 }
 
 function parseProgressPayload(value: unknown): TNativeProgressPayload | null {
@@ -125,6 +129,18 @@ export async function tryCreatePdfWithNativeImageCombiner(
     }
 
     return createPdfWithNativeImageCombiner(inputPaths, options);
+}
+
+export async function tryWritePdfWithNativeImageCombiner(
+    inputPaths: string[],
+    outputPath: string,
+    options?: INativePdfImageCombineOptions,
+): Promise<boolean> {
+    if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
+        return false;
+    }
+
+    return writePdfWithNativeImageCombiner(inputPaths, outputPath, options);
 }
 
 export async function tryBuildOptimizedPdfWithNativeImageCombiner(
@@ -169,6 +185,33 @@ async function createPdfWithNativeImageCombiner(
             return null;
         }
         return new Uint8Array(await readFile(outputPath));
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+    }
+}
+
+async function writePdfWithNativeImageCombiner(
+    inputPaths: string[],
+    outputPath: string,
+    options?: INativePdfImageCombineOptions,
+) {
+    const binaryPath = resolveNativePdfImageCombinePath();
+    if (!binaryPath) {
+        return false;
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-image-combine-'));
+    const inputsPath = join(tempDir, 'inputs.txt');
+
+    try {
+        await writeFile(inputsPath, `${inputPaths.join('\n')}\n`, 'utf8');
+        return await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
+            '--inputs-file',
+            inputsPath,
+        ]);
     } finally {
         await rm(tempDir, {
             recursive: true,

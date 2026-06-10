@@ -43,6 +43,10 @@ export function resolveWorkerPaths(rawWorkerData: unknown): IWorkerPaths {
     if (pdfimagesBinary !== undefined) {
         paths.pdfimagesBinary = pdfimagesBinary;
     }
+    const pdfPageOpsBinary = readOptionalPath(rawWorkerData, 'pdfPageOpsBinary');
+    if (pdfPageOpsBinary !== undefined) {
+        paths.pdfPageOpsBinary = pdfPageOpsBinary;
+    }
     const popplerDataDir = readOptionalPath(rawWorkerData, 'popplerDataDir');
     if (popplerDataDir !== undefined) {
         paths.popplerDataDir = popplerDataDir;

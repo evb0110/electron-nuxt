@@ -21,12 +21,14 @@ describe('resolveWorkerPaths', () => {
             pdfimagesBinary: '/bin/pdfimages',
             popplerDataDir: '/share/poppler',
             popplerFontConfigDir: '/share/fontconfig',
+            pdfPageOpsBinary: '/bin/evb-pdf-page-ops',
             unpaperBinary: '/bin/unpaper',
         })).toEqual({
             ...requiredWorkerPaths,
             pdfimagesBinary: '/bin/pdfimages',
             popplerDataDir: '/share/poppler',
             popplerFontConfigDir: '/share/fontconfig',
+            pdfPageOpsBinary: '/bin/evb-pdf-page-ops',
             unpaperBinary: '/bin/unpaper',
         });
     });
@@ -35,6 +37,7 @@ describe('resolveWorkerPaths', () => {
         expect(resolveWorkerPaths({
             ...requiredWorkerPaths,
             pdfimagesBinary: '',
+            pdfPageOpsBinary: '',
             popplerDataDir: '   ',
         })).toEqual(requiredWorkerPaths);
     });

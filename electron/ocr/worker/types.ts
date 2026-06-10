@@ -9,6 +9,7 @@ export interface IWorkerPaths {
     popplerDataDir?: string;
     popplerFontConfigDir?: string;
     qpdfBinary: string;
+    pdfPageOpsBinary?: string;
     unpaperBinary?: string;
     tempDir: string;
 }

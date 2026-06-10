@@ -11,6 +11,7 @@ import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { resolveUnpackedWorkerPath } from '@electron/utils/workerTask';
+import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,6 +59,7 @@ export function createOcrWorker(): Worker {
         popplerDataDir: paths.popplerDataDir,
         popplerFontConfigDir: paths.popplerFontConfigDir,
         qpdfBinary: paths.qpdf,
+        pdfPageOpsBinary: resolveNativePageOpsPath() ?? undefined,
         unpaperBinary: paths.unpaper,
         tempDir: getAppTempDir(),
     }});
