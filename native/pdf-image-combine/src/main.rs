@@ -1,35 +1,20 @@
-mod binary;
-mod flate;
-mod image;
-mod jpeg;
-mod netpbm;
-mod pdf;
-mod png;
-mod png_encode;
-mod tiff_io;
-
 use std::{
     env,
-    error::Error,
     fs,
     io::Write,
     path::{Path, PathBuf},
     time::Instant,
 };
 
-use crate::{
-    image::read_image_pages,
-    pdf::build_pdf,
-    png_encode::encode_netpbm_file_as_png,
-    tiff_io::combine_tiff_pages,
+use evb_pdf_image_combine::{
+    build_pdf_from_image_paths_with_progress,
+    combine_tiff_paths,
+    encode_netpbm_path_as_png,
+    PdfBuildOptions,
+    Result,
 };
 
-pub(crate) const DEFAULT_DPI: u32 = 72;
-pub(crate) const METERS_PER_INCH: f64 = 0.0254;
-pub(crate) const CM_PER_INCH: f64 = 2.54;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-pub(crate) type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 struct Config {
     output_path: PathBuf,
@@ -68,7 +53,7 @@ fn run() -> Result<()> {
     );
 
     if config.output_format == OutputFormat::Tiff {
-        combine_tiff_pages(
+        combine_tiff_paths(
             &config.input_paths,
             &config.output_path,
             max_pixels,
@@ -80,28 +65,28 @@ fn run() -> Result<()> {
         if config.input_paths.len() != 1 {
             return Err("PNG output requires exactly one Netpbm input".into());
         }
-        encode_netpbm_file_as_png(&config.input_paths[0], &config.output_path)?;
+        encode_netpbm_path_as_png(&config.input_paths[0], &config.output_path)?;
         return Ok(());
     }
 
-    let max_pages = read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize;
-    let max_tiff_frames = read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize;
     let started_at = Instant::now();
     let total = config.input_paths.len();
-    let mut pages = Vec::with_capacity(total);
+    let pdf = build_pdf_from_image_paths_with_progress(
+        &config.input_paths,
+        &PdfBuildOptions {
+            default_dpi: config.dpi,
+            max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
+            max_pixels,
+            max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
+                as usize,
+        },
+        |processed| {
+            if config.json_progress {
+                print_progress(processed, total, started_at);
+            }
+        },
+    )?;
 
-    for (index, input_path) in config.input_paths.iter().enumerate() {
-        let input_pages = read_image_pages(input_path, max_pixels, config.dpi, max_tiff_frames)?;
-        if pages.len() + input_pages.len() > max_pages {
-            return Err(format!("Combined PDF is capped at {max_pages} pages").into());
-        }
-        pages.extend(input_pages);
-        if config.json_progress {
-            print_progress(index + 1, total, started_at);
-        }
-    }
-
-    let pdf = build_pdf(&pages)?;
     fs::write(&config.output_path, pdf)?;
     Ok(())
 }
