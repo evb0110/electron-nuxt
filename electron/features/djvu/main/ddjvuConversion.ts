@@ -17,10 +17,7 @@ import {
 import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
-import {
-    clamp,
-    range,
-} from 'es-toolkit/math';
+import { clamp } from 'es-toolkit/math';
 import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
@@ -95,7 +92,15 @@ const DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES = (() => {
 })();
 
 const activeProcesses = new Map<string, ChildProcess>();
+const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');
+
+interface IDjvuPageRangeChunk {
+    index: number;
+    startPage: number;
+    endPage: number;
+    outputPath: string;
+}
 
 async function cleanupPartialOutput(outputPath: string) {
     try {
@@ -126,29 +131,29 @@ async function _convertDjvuToPdfWithRanges(
     }
 
     const tempDir = await mkdtemp(join(tmpdir(), 'djvu-pages-'));
-    const pageNumbers = range(1, totalPages + 1);
-    const chunkPaths = pageNumbers.map(pageNumber => join(tempDir, `page-${pageNumber}.pdf`));
+    const chunks = createPageRangeChunks(totalPages, workerCount, tempDir);
+    const chunkPaths = chunks.map(chunk => chunk.outputPath);
     let completedPageCount = 0;
     let firstError: string | null = null;
 
     try {
-        const convertPageWithLimit = limitAsync(async (pageNum: number, index: number) => {
+        const convertChunkWithLimit = limitAsync(async (chunk: IDjvuPageRangeChunk) => {
             if (firstError) {
                 return firstError;
             }
 
-            const pageOutputPath = chunkPaths[pageNum - 1]!;
-            const pageResult = await convertPageToPdf(
+            const pageResult = await convertPageRangeToPdf(
                 inputPath,
-                pageOutputPath,
-                `${jobId}-range-${index + 1}-page-${pageNum}`,
-                pageNum,
+                chunk.outputPath,
+                `${jobId}-range-${chunk.index + 1}-pages-${chunk.startPage}-${chunk.endPage}`,
+                chunk.startPage,
+                chunk.endPage,
                 options.subsample,
             );
 
             if (!pageResult.success) {
                 await cancelConversion(jobId);
-                firstError = pageResult.error ?? `Failed to convert page ${pageNum}`;
+                firstError = pageResult.error ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
                 return firstError;
             }
 
@@ -156,7 +161,7 @@ async function _convertDjvuToPdfWithRanges(
                 return firstError;
             }
 
-            completedPageCount += 1;
+            completedPageCount += chunk.endPage - chunk.startPage + 1;
             if (options.onProgress) {
                 const percent = Math.min(
                     PROGRESS_CAP,
@@ -167,7 +172,7 @@ async function _convertDjvuToPdfWithRanges(
             return null;
         }, workerCount);
 
-        const conversionErrors = await Promise.all(pageNumbers.map(convertPageWithLimit));
+        const conversionErrors = await Promise.all(chunks.map(convertChunkWithLimit));
         firstError = firstError ?? conversionErrors.find((error): error is string => error !== null) ?? null;
 
         if (firstError) {
@@ -291,6 +296,23 @@ export async function convertDjvuToPdfFile(
     options: IDjvuConvertOptions = {},
 ): Promise<IDjvuConvertResult> {
     const totalPages = options.pageCount ?? 0;
+    if (_shouldUseParallelRangeConversion(options)) {
+        const parallelResult = await _convertDjvuToPdfWithRanges(
+            inputPath,
+            outputPath,
+            jobId,
+            options,
+        );
+        if (parallelResult.success || shouldSkipSingleProcessFallback(parallelResult.error)) {
+            return parallelResult;
+        }
+
+        logger.warn(
+            `[${jobId}] Parallel DjVu range conversion failed, falling back to single process: ${parallelResult.error}`,
+        );
+        await cleanupPartialOutput(outputPath);
+    }
+
     return _convertDjvuToPdfSingleProcess(
         inputPath,
         outputPath,
@@ -300,18 +322,22 @@ export async function convertDjvuToPdfFile(
     );
 }
 
-async function convertPageToPdf(
+async function convertPageRangeToPdf(
     inputPath: string,
     outputPath: string,
     pageJobId: string,
-    page: number,
+    startPage: number,
+    endPage: number,
     subsample: number | undefined,
 ) {
+    const pages = startPage === endPage
+        ? String(startPage)
+        : `${startPage}-${endPage}`;
     const args = buildPdfArgs(
         inputPath,
         outputPath,
         subsample,
-        String(page),
+        pages,
     );
     const result = await runProcess(
         pageJobId,
@@ -323,7 +349,7 @@ async function convertPageToPdf(
     if (!result.success) {
         return {
             success: false,
-            error: result.error ?? `Failed to convert page ${page}`,
+            error: result.error ?? `Failed to convert pages ${pages}`,
         };
     }
 
@@ -483,6 +509,7 @@ export async function cancelConversion(jobId: string) {
     // Cancel the exact job ID
     const proc = activeProcesses.get(jobId);
     if (proc) {
+        canceledProcessIds.add(jobId);
         terminations.push(killProcess(proc));
         activeProcesses.delete(jobId);
         canceled = true;
@@ -494,6 +521,7 @@ export async function cancelConversion(jobId: string) {
         childProc,
     ] of activeProcesses) {
         if (id.startsWith(`${jobId}-`)) {
+            canceledProcessIds.add(id);
             terminations.push(killProcess(childProc));
             activeProcesses.delete(id);
             canceled = true;
@@ -591,6 +619,7 @@ async function runProcess(
             }
             settled = true;
             activeProcesses.delete(processId);
+            canceledProcessIds.delete(processId);
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
@@ -646,6 +675,13 @@ async function runProcess(
         }
 
         proc.on('error', (err) => {
+            if (canceledProcessIds.has(processId)) {
+                finalize({
+                    success: false,
+                    error: 'DjVu conversion canceled',
+                });
+                return;
+            }
             finalize({
                 success: false,
                 error: err.message,
@@ -654,6 +690,13 @@ async function runProcess(
 
         proc.on('close', (code) => {
             const exitCode = typeof code === 'number' ? code : -1;
+            if (canceledProcessIds.has(processId)) {
+                finalize({
+                    success: false,
+                    error: 'DjVu conversion canceled',
+                });
+                return;
+            }
             if (timedOut) {
                 finalize({
                     success: false,
@@ -676,6 +719,13 @@ async function runProcess(
     });
 }
 
+function shouldSkipSingleProcessFallback(error: string | undefined) {
+    if (!error) {
+        return false;
+    }
+    return error.includes('DjVu conversion canceled') || error.includes('timed out after');
+}
+
 function _shouldUseParallelRangeConversion(options: IDjvuConvertOptions) {
     const totalPages = options.pageCount ?? 0;
     if (options.pages) {
@@ -685,6 +735,32 @@ function _shouldUseParallelRangeConversion(options: IDjvuConvertOptions) {
         return false;
     }
     return getRangeWorkerCount(totalPages) > 1;
+}
+
+function createPageRangeChunks(
+    totalPages: number,
+    workerCount: number,
+    tempDir: string,
+) {
+    const chunkCount = Math.min(totalPages, workerCount);
+    const baseChunkSize = Math.floor(totalPages / chunkCount);
+    const remainder = totalPages % chunkCount;
+    const chunks: IDjvuPageRangeChunk[] = [];
+    let startPage = 1;
+
+    for (let index = 0; index < chunkCount; index += 1) {
+        const pageCount = baseChunkSize + (index < remainder ? 1 : 0);
+        const endPage = startPage + pageCount - 1;
+        chunks.push({
+            index,
+            startPage,
+            endPage,
+            outputPath: join(tempDir, `pages-${startPage}-${endPage}.pdf`),
+        });
+        startPage = endPage + 1;
+    }
+
+    return chunks;
 }
 
 function getLogicalCpuCount() {

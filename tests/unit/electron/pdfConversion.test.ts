@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
         _inputPaths: string[],
         _options?: unknown,
     ) => null as Uint8Array | null);
+    const getDjvuPageCount = vi.fn(async () => 2);
     const convertDjvuToPdfFile = vi.fn(async () => ({
         success: true,
         outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
@@ -56,6 +57,7 @@ const mocks = vi.hoisted(() => {
         rm,
         stat,
         nativeAssembler,
+        getDjvuPageCount,
         convertDjvuToPdfFile,
         create,
         load,
@@ -170,6 +172,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
+vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
 vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({tryCreatePdfFromInputPathsNative: (
     inputPaths: string[],
@@ -190,6 +193,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
             outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
             fileSize: 1024,
         });
+        mocks.getDjvuPageCount.mockResolvedValue(2);
         mocks.stat.mockResolvedValue({
             isFile: () => true,
             size: 1024,
@@ -322,7 +326,10 @@ describe('createPdfFromInputPaths worker fallback', () => {
             '/tmp/scan.djvu',
             expect.stringMatching(/^\/tmp\/pdf-combine-djvu-test\/.+\.pdf$/u),
             expect.stringMatching(/^pdf-combine-djvu-/u),
-            { subsample: 1 },
+            {
+                subsample: 1,
+                pageCount: 2,
+            },
         );
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-djvu-test', {
             recursive: true,

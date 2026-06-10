@@ -11,6 +11,7 @@ import {
     join,
 } from 'path';
 import { convertDjvuToPdfFile } from '@electron/features/djvu/public';
+import { getDjvuPageCount } from '@electron/djvu/metadata';
 import {
     assertNonEmptyPdfOutput,
     getPdfPageCount,
@@ -169,11 +170,15 @@ async function convertDjvuChunk(
     tempDir: string,
 ) {
     const outputPath = join(tempDir, `djvu-chunk-${randomUUID()}.pdf`);
+    const pageCount = await getOptionalDjvuPageCount(inputPath);
     const result = await convertDjvuToPdfFile(
         inputPath,
         outputPath,
         `pdf-native-assembler-djvu-${randomUUID()}`,
-        {subsample: 1},
+        {
+            subsample: 1,
+            ...(pageCount > 0 ? {pageCount} : {}),
+        },
     );
     if (!result.success) {
         throw new Error(result.error ?? `Failed to convert DjVu file: ${inputPath}`);
@@ -181,6 +186,15 @@ async function convertDjvuChunk(
 
     await assertNonEmptyPdfOutput(outputPath, 'Converting DjVu input');
     return outputPath;
+}
+
+async function getOptionalDjvuPageCount(inputPath: string) {
+    try {
+        return await getDjvuPageCount(inputPath);
+    } catch (error) {
+        log.debug(`Failed to read DjVu page count before native assemble conversion: ${getErrorMessage(error)}`);
+        return 0;
+    }
 }
 
 async function mergePdfChunks(chunkPaths: string[], outputPath: string) {
