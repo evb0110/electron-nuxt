@@ -62,6 +62,7 @@ type TSharedSaveOperationDeps = Pick<
     | 'validatePdfPath'
     | 'saveFile'
     | 'saveWorkingCopy'
+    | 'trySavePdfNativeMutations'
     | 'trySaveEmbeddedNoteTextUpdates'
     | 'saveWorkingCopyAs'
 >;
@@ -147,6 +148,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         validatePdfPath,
         saveFile,
         saveWorkingCopy,
+        trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         persistAllAnnotationNotes,
@@ -201,14 +203,19 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         originalPath,
         annotationDirty,
         annotationComments,
+        totalPages,
         pageLabelsDirty,
+        pageLabelRanges,
         bookmarksDirty,
+        bookmarkItems,
+        untitledBookmarkLabel: t('bookmarks.untitled'),
         pdfDocument,
         saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
         getSourcePdfData,
         validatePdfPath,
         saveFile,
         saveWorkingCopy,
+        ...(trySavePdfNativeMutations !== undefined ? { trySavePdfNativeMutations } : {}),
         ...(trySaveEmbeddedNoteTextUpdates !== undefined ? { trySaveEmbeddedNoteTextUpdates } : {}),
         saveWorkingCopyAs,
         markAnnotationSaved,
@@ -222,6 +229,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         ...(markNativeFreeTextNotesDeleted ? { markNativeFreeTextNotesDeleted } : {}),
         hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
         hasManagedShapes: () => (pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
+        getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
+        getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
+        getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+        getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
+        getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
         getAnnotationCommentsSnapshot: () => pdfViewerRef.value?.getAnnotationCommentsSnapshot?.(),
         serializePdfForSave,
         persistAllAnnotationNotes,

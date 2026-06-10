@@ -4,7 +4,9 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import type {
+    IPdfNativeMutationSet,
     IPdfNativeNoteChanges,
+    IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
@@ -96,6 +98,12 @@ export interface IDocumentsService {
         changes: IPdfNativeNoteChanges,
         modifiedAt: string,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
+    savePdfNativeMutations: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        mutations: IPdfNativeMutationSet,
+        modifiedAt: string,
+    ) => Promise<IPdfNativeSaveResult>;
     beginSavePdfData: (
         event: IpcMainInvokeEvent,
         workingPath: string,

@@ -539,6 +539,13 @@
     /* stylelint-enable declaration-no-important */
 }
 
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Sticky-note anchor FreeText editors are hidden persistence anchors; the Vue marker owns interaction. */
+    pointer-events: none !important;
+    /* stylelint-enable declaration-no-important */
+}
+
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers,
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor > .resizers,
 .pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor > .resizers > .resizer,
@@ -547,5 +554,16 @@
 .pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor .overlay {
     /* stylelint-disable declaration-no-important -- css-important-allow: FreeText child controls must stay interactive inside PDF.js disabled layers. */
     pointer-events: auto !important;
+    /* stylelint-enable declaration-no-important */
+}
+
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor > .resizers,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor > .resizers,
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor > .resizers > .resizer,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor > .resizers > .resizer,
+.pdfViewer .annotationEditorLayer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor .overlay,
+.pdfViewer .annotation-editor-layer.disabled.nonEditing .freeTextEditor.pdf-comment-marker-anchor-editor .overlay {
+    /* stylelint-disable declaration-no-important -- css-important-allow: Keep hidden sticky-note anchors from catching marker drags. */
+    pointer-events: none !important;
     /* stylelint-enable declaration-no-important */
 }

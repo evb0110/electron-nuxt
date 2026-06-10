@@ -224,6 +224,177 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native note changes');
     });
 
+    it('runs the generic native mutation append command for metadata changes', async () => {
+        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
+        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
+        const originalPath = join(tempRoot, 'original.pdf');
+        const tempPath = `${originalPath}.tmp`;
+        writeFileSync(requestedWorkingPath, 'working-before');
+        writeFileSync(latestWorkingPath, 'latest-before');
+        writeFileSync(originalPath, 'original-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            expect(args[0]).toBe('save-mutations');
+            const mutationsFilePath = args[args.indexOf('--mutations-file') + 1];
+            if (!mutationsFilePath) {
+                throw new Error('Missing mutations file path');
+            }
+            const mutationsPayload = JSON.parse(readFileSync(mutationsFilePath, 'utf8')) as {
+                pageLabels?: unknown;
+                bookmarks?: unknown;
+                shapes?: {
+                    shapes?: unknown[];
+                    deletedAnnotationIds?: string[];
+                    deletedStableKeys?: string[];
+                };
+                markup?: {
+                    overrides?: unknown[];
+                    hints?: unknown[];
+                };
+            };
+            expect(mutationsPayload.pageLabels).toMatchObject({
+                totalPages: 3,
+                ranges: [{
+                    startPage: 1,
+                    style: 'r',
+                    prefix: 'intro-',
+                    startNumber: 2,
+                }],
+            });
+            expect(mutationsPayload.bookmarks).toMatchObject({
+                totalPages: 3,
+                untitledLabel: 'Untitled',
+                items: [{
+                    title: 'Chapter 1',
+                    pageIndex: 0,
+                }],
+            });
+            expect(mutationsPayload.shapes).toMatchObject({
+                totalPages: 3,
+                rewriteShapeState: true,
+                shapes: [{
+                    type: 'rectangle',
+                    pageIndex: 0,
+                    stableKey: 'evb-shape:shape-1',
+                }],
+                deletedAnnotationIds: ['44R'],
+                deletedStableKeys: ['evb-shape:deleted'],
+            });
+            expect(mutationsPayload.markup).toMatchObject({
+                overrides: [[
+                    '44R',
+                    'Squiggly',
+                ]],
+                hints: [expect.objectContaining({
+                    subtype: 'Squiggly',
+                    annotationId: '44R',
+                    color: '#22c55e',
+                })],
+            });
+            expect(args).toEqual(expect.arrayContaining([
+                '--mutations-file',
+                expect.stringMatching(/mutations\.json$/u),
+                '--append',
+            ]));
+            await appendFile(tempPath, '\n% native metadata changes');
+        });
+        const { handleNativePdfMutationsSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+
+        const result = await handleNativePdfMutationsSave(
+            event,
+            requestedWorkingPath,
+            {
+                pageLabels: {
+                    totalPages: 3,
+                    ranges: [{
+                        startPage: 1,
+                        style: 'r',
+                        prefix: 'intro-',
+                        startNumber: 2,
+                    }],
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: [{
+                        title: 'Chapter 1',
+                        pageIndex: 0,
+                        namedDest: null,
+                        bold: true,
+                        italic: false,
+                        color: '#336699',
+                        items: [],
+                    }],
+                },
+                shapes: {
+                    totalPages: 3,
+                    rewriteShapeState: true,
+                    shapes: [{
+                        id: 'shape-1',
+                        type: 'rectangle',
+                        pageIndex: 0,
+                        x: 0.1,
+                        y: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                        color: '#336699',
+                        fillColor: '#abcdef',
+                        opacity: 0.5,
+                        strokeWidth: 3,
+                        stableKey: 'evb-shape:shape-1',
+                    }],
+                    deletedAnnotationIds: ['44R'],
+                    deletedStableKeys: ['evb-shape:deleted'],
+                },
+                markup: {
+                    overrides: [[
+                        '44R',
+                        'Squiggly',
+                    ]],
+                    hints: [{
+                        subtype: 'Squiggly',
+                        pageIndex: 0,
+                        markerRect: {
+                            left: 0.1,
+                            top: 0.2,
+                            width: 0.3,
+                            height: 0.2,
+                        },
+                        annotationId: '44R',
+                        color: '#22c55e',
+                        id: 'markup-1',
+                        pageMarkupIndex: 0,
+                        source: 'editor-live',
+                    }],
+                },
+            },
+            'D:20260609133855+03\'00\'',
+        );
+
+        expect(result).toMatchObject({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+            },
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/evb-pdf-page-ops',
+            expect.arrayContaining([
+                'save-mutations',
+                '--input',
+                tempPath,
+                '--output',
+                tempPath,
+            ]),
+            expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-mutations)'}),
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, latestWorkingPath);
+        expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native metadata changes');
+    });
+
     it('queues refreshed working-copy sync behind that working copy mutation queue', async () => {
         const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
         const latestWorkingPath = join(tempRoot, 'latest-working.pdf');

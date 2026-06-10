@@ -40,6 +40,14 @@ interface IPdfRenderTraceEntry {
     payload: Record<string, unknown>;
 }
 
+interface IWorkspaceToolbarSnapshot {
+    isAnySaving?: boolean;
+    isSaving?: boolean;
+    isSavingAs?: boolean;
+}
+
+interface IWorkspaceToolbarSnapshotProvider { getToolbarSnapshot?: () => IWorkspaceToolbarSnapshot; }
+
 async function enableDebugBrowserLogging(page: Page) {
     await page.evaluate(() => {
         window.localStorage.setItem('evb-viewer:log-level', 'debug');
@@ -181,7 +189,37 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
     }, label);
 
     if (!clicked) {
-        throw new Error(`Enabled toolbar action not found: ${label}`);
+        const state = await evaluateInPage(page, () => {
+            const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+                .map(button => ({
+                    label: button.getAttribute('aria-label')?.trim() ?? '',
+                    disabled: button.disabled || button.getAttribute('aria-disabled') === 'true',
+                    className: button.className,
+                }))
+                .filter(button => button.label === 'Undo' || button.label === 'Redo');
+
+            const candidates = [
+                ...Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active, .workspace-host')),
+                ...Array.from(document.querySelectorAll<HTMLElement>('*')),
+            ];
+            const isWorkspaceToolbarSnapshotProvider = (
+                value: unknown,
+            ): value is IWorkspaceToolbarSnapshotProvider => Boolean(
+                value
+                && typeof value === 'object'
+                && typeof (value as Partial<IWorkspaceToolbarSnapshotProvider>).getToolbarSnapshot === 'function',
+            );
+            const workspaceInstance = candidates
+                .map(element => (element as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed)
+                .find(isWorkspaceToolbarSnapshotProvider) ?? null;
+
+            const toolbarSnapshot = workspaceInstance?.getToolbarSnapshot?.() ?? null;
+            return {
+                buttons,
+                toolbarSnapshot,
+            };
+        });
+        throw new Error(`Enabled toolbar action not found: ${label}. State: ${JSON.stringify(state)}`);
     }
 }
 
@@ -673,8 +711,37 @@ async function saveViaToolbarButton(page: Page) {
     }
 
     await page.waitForFunction(() => {
-        const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading');
+        const isWorkspaceToolbarSnapshotProvider = (
+            value: unknown,
+        ): value is IWorkspaceToolbarSnapshotProvider => Boolean(
+            value
+            && typeof value === 'object'
+            && typeof (value as Partial<IWorkspaceToolbarSnapshotProvider>).getToolbarSnapshot === 'function',
+        );
+        let workspaceInstance: IWorkspaceToolbarSnapshotProvider | null = null;
+        let currentElement = document.querySelector<HTMLElement>('.editor-pane.is-active');
+        while (currentElement) {
+            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed;
+            if (isWorkspaceToolbarSnapshotProvider(exposed)) {
+                workspaceInstance = exposed;
+                break;
+            }
+            currentElement = currentElement.parentElement;
+        }
+
+        const toolbarSnapshot = workspaceInstance?.getToolbarSnapshot?.() ?? null;
+        const hasPendingWorkspaceSave = Boolean(
+            toolbarSnapshot?.isAnySaving
+            || toolbarSnapshot?.isSaving
+            || toolbarSnapshot?.isSavingAs,
+        );
+        // The save split button has its own classes, so wait on the workspace
+        // snapshot as well as visible toolbar loading chrome.
+        const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading, .save-split-primary.is-loading');
         if (hasPendingToolbarLoading) {
+            return false;
+        }
+        if (hasPendingWorkspaceSave) {
             return false;
         }
 

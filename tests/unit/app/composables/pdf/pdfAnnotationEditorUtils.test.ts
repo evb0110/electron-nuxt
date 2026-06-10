@@ -6,6 +6,11 @@ import {
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
 import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
+import {
+    COMMENT_MARKER_ANCHOR_EDITOR_ATTRIBUTE,
+    COMMENT_MARKER_ANCHOR_EDITOR_CLASS,
+    syncCommentMarkerAnchorEditor,
+} from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
@@ -59,6 +64,29 @@ function createDiv(options: IFakeDivOptions) {
 
 function createPageContainer(rect: IFakeRect) {
     return cast<HTMLElement>({getBoundingClientRect: vi.fn(() => toDomRect(rect))});
+}
+
+function createCommentMarkerAnchorDiv() {
+    const classNames = new Set<string>();
+    const internalSetAttribute = vi.fn();
+    const setAttribute = vi.fn();
+    const style: Record<string, string> = {};
+    const internal = cast<HTMLElement>({setAttribute: internalSetAttribute});
+    const div = cast<HTMLElement>({
+        classList: {add: (className: string) => classNames.add(className)},
+        querySelector: vi.fn((selector: string) => selector === '[contenteditable], .internal'
+            ? internal
+            : null),
+        setAttribute,
+        style,
+    });
+    return {
+        classNames,
+        div,
+        internalSetAttribute,
+        setAttribute,
+        style,
+    };
 }
 
 function expectMarkerRectClose(
@@ -447,5 +475,81 @@ describe('toMarkerRectFromEditor', () => {
             width: 0.2,
             height: 0.3,
         });
+    });
+});
+
+describe('comment marker anchor editor', () => {
+    it('marks a PDF.js FreeText editor as a hidden sticky-note anchor and syncs its rect', () => {
+        const {
+            classNames,
+            div,
+            internalSetAttribute,
+            setAttribute,
+            style,
+        } = createCommentMarkerAnchorDiv();
+        const setDims = vi.fn();
+        const fixAndSetPosition = vi.fn();
+        const editor: IPdfjsEditor = {
+            div,
+            setDims,
+            fixAndSetPosition,
+        };
+
+        const synced = syncCommentMarkerAnchorEditor(editor, {
+            left: 0.25,
+            top: 0.4,
+            width: 0.015,
+            height: 0.018,
+        });
+
+        expect(synced).toBe(true);
+        expect(editor.__evbCommentMarkerAnchor).toBe(true);
+        expect(editor.__evbPendingAnchorRect).toEqual({
+            left: 0.25,
+            top: 0.4,
+            width: 0.015,
+            height: 0.018,
+        });
+        expect(editor).toMatchObject({
+            x: 0.25,
+            y: 0.4,
+            width: 0.015,
+            height: 0.018,
+        });
+        expect(classNames.has(COMMENT_MARKER_ANCHOR_EDITOR_CLASS)).toBe(true);
+        expect(setAttribute).toHaveBeenCalledWith(COMMENT_MARKER_ANCHOR_EDITOR_ATTRIBUTE, 'true');
+        expect(setAttribute).toHaveBeenCalledWith('aria-hidden', 'true');
+        expect(internalSetAttribute).toHaveBeenCalledWith('aria-hidden', 'true');
+        expect(setDims).toHaveBeenCalledTimes(1);
+        expect(fixAndSetPosition).toHaveBeenCalledTimes(1);
+        expect(style).toMatchObject({
+            left: '25.00%',
+            top: '40.00%',
+            width: '1.50%',
+            height: '1.80%',
+        });
+    });
+
+    it('keeps the hidden sticky-note anchor tag when the incoming rect is invalid', () => {
+        const {
+            classNames,
+            div,
+        } = createCommentMarkerAnchorDiv();
+        const editor: IPdfjsEditor = {
+            div,
+            __evbPendingAnchorRect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.02,
+                height: 0.02,
+            },
+        };
+
+        const synced = syncCommentMarkerAnchorEditor(editor, null);
+
+        expect(synced).toBe(false);
+        expect(editor.__evbCommentMarkerAnchor).toBe(true);
+        expect(editor.__evbPendingAnchorRect).toBeNull();
+        expect(classNames.has(COMMENT_MARKER_ANCHOR_EDITOR_CLASS)).toBe(true);
     });
 });

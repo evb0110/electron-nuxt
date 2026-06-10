@@ -73,6 +73,7 @@ export interface IPdfjsEditor {
         rebuild?: (editor: IPdfjsEditor) => unknown;
     };
     __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
+    __evbCommentMarkerAnchor?: boolean;
     __evbResolvedPageIndex?: number;
     __evbPlacementAttemptId?: string | null;
     __evbCreationHistoryRegistered?: boolean;

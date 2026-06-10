@@ -82,7 +82,12 @@ export function usePdfViewerPublicApiController(options: IUsePdfViewerPublicApiC
         saveDocument: options.saveViewerDocument,
         clearAnnotationHistory: () => options.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
-        markSavedShapeState: shapeComposable.markSavedShapeState,
+        markSavedShapeState: () => {
+            shapeComposable.markSavedShapeState();
+            // Saving changes the clean shape baseline but must not collapse the
+            // app-managed undo/redo stack; re-emit so toolbar state stays current.
+            options.appAnnotationHistory.emitCombinedState();
+        },
         highlightSelection: annotationRuntime.highlightComposable.highlightSelection,
         commentSelection: annotationRuntime.highlightComposable.commentSelection,
         createTextMarkupFromText: async (target) => {

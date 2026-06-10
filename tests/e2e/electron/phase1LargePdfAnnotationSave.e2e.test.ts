@@ -81,28 +81,43 @@ async function saveLargePdfViaAgentAction(page: Page) {
                 ? (value as { value?: unknown }).value
                 : value
         );
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as IVueWorkspaceHost).__vueParentComponent;
-            const candidates = [
-                maybeRefValue(component?.setupState?.mountedWorkspace),
-                maybeRefValue(component?.setupState?.workspaceRef),
-                component?.exposed,
-            ];
-            for (const candidate of candidates) {
-                if (
-                    candidate
-                    && typeof candidate === 'object'
-                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
-                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
-                ) {
-                    workspace = candidate as IAgentWorkspaceSurface;
-                    break;
+        const isVisibleHost = (host: HTMLElement) => {
+            const rect = host.getBoundingClientRect();
+            const style = window.getComputedStyle(host);
+            return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        const scanWorkspaceSurface = (elements: HTMLElement[]) => {
+            for (const element of elements) {
+                const component = (element as IVueWorkspaceHost).__vueParentComponent;
+                const candidates = [
+                    maybeRefValue(component?.setupState?.mountedWorkspace),
+                    maybeRefValue(component?.setupState?.workspaceRef),
+                    component?.exposed,
+                ];
+                for (const candidate of candidates) {
+                    if (
+                        candidate
+                        && typeof candidate === 'object'
+                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
+                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
+                    ) {
+                        return candidate as IAgentWorkspaceSurface;
+                    }
                 }
             }
-            if (workspace) {
-                break;
-            }
-        }
+            return null;
+        };
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+        const preferredWorkspaceElements = [
+            ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
+            ...visibleHosts.filter(host => host !== activeHost),
+        ];
+
+        // Prefer the active visible workspace; global component order can include
+        // deferred or hidden panes whose agent actions target a different document.
+        workspace = scanWorkspaceSurface(preferredWorkspaceElements)
+            ?? scanWorkspaceSurface(Array.from(document.querySelectorAll<HTMLElement>('*')));
         if (!workspace) {
             return null;
         }
@@ -268,28 +283,43 @@ async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
                 ? (value as { value?: unknown }).value
                 : value
         );
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as IVueWorkspaceHost).__vueParentComponent;
-            const candidates = [
-                maybeRefValue(component?.setupState?.mountedWorkspace),
-                maybeRefValue(component?.setupState?.workspaceRef),
-                component?.exposed,
-            ];
-            for (const candidate of candidates) {
-                if (
-                    candidate
-                    && typeof candidate === 'object'
-                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
-                    && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
-                ) {
-                    workspace = candidate as IAgentWorkspaceSurface;
-                    break;
+        const isVisibleHost = (host: HTMLElement) => {
+            const rect = host.getBoundingClientRect();
+            const style = window.getComputedStyle(host);
+            return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+        const scanWorkspaceSurface = (elements: HTMLElement[]) => {
+            for (const element of elements) {
+                const component = (element as IVueWorkspaceHost).__vueParentComponent;
+                const candidates = [
+                    maybeRefValue(component?.setupState?.mountedWorkspace),
+                    maybeRefValue(component?.setupState?.workspaceRef),
+                    component?.exposed,
+                ];
+                for (const candidate of candidates) {
+                    if (
+                        candidate
+                        && typeof candidate === 'object'
+                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
+                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
+                    ) {
+                        return candidate as IAgentWorkspaceSurface;
+                    }
                 }
             }
-            if (workspace) {
-                break;
-            }
-        }
+            return null;
+        };
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+        const preferredWorkspaceElements = [
+            ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
+            ...visibleHosts.filter(host => host !== activeHost),
+        ];
+
+        // Prefer the active visible workspace; global component order can include
+        // deferred or hidden panes whose agent actions target a different document.
+        workspace = scanWorkspaceSurface(preferredWorkspaceElements)
+            ?? scanWorkspaceSurface(Array.from(document.querySelectorAll<HTMLElement>('*')));
         if (!workspace) {
             return null;
         }
@@ -447,16 +477,50 @@ async function placePageNote(page: Page, text: string) {
                     break;
                 }
             }
-            const rect = pageElement.getBoundingClientRect();
             const pageNumber = Number(pageElement.dataset.page ?? '1');
-            const visibleX = Math.min(
-                Math.max(rect.left + 24, rect.left + rect.width * 0.72),
-                window.innerWidth - 96,
-            );
-            const visibleY = Math.min(
-                Math.max(rect.top + 24, rect.top + rect.height * 0.24),
-                window.innerHeight - 96,
-            );
+            const waitForAnimationFrames = () => new Promise<void>((resolve) => {
+                window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+            });
+            const clampCoordinate = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+            const getVisiblePagePlacementPoint = async () => {
+                let rect = pageElement.getBoundingClientRect();
+                let hostRect = (host ?? pageElement).getBoundingClientRect();
+                const getUsableBounds = () => {
+                    const left = Math.max(rect.left, hostRect.left, 0) + 24;
+                    const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+                    const top = Math.max(rect.top, hostRect.top, 0) + 24;
+                    const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+                    return {
+                        left,
+                        right,
+                        top,
+                        bottom,
+                    };
+                };
+                let bounds = getUsableBounds();
+                if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+                    pageElement.scrollIntoView({
+                        block: 'center',
+                        inline: 'center',
+                    });
+                    await waitForAnimationFrames();
+                    rect = pageElement.getBoundingClientRect();
+                    hostRect = (host ?? pageElement).getBoundingClientRect();
+                    bounds = getUsableBounds();
+                }
+
+                // Large PDFs can leave most of the page outside the viewport after open/restore.
+                // Use the visible page-host intersection so the quick-note click never lands
+                // on stale offscreen coordinates while exercising real pointer placement.
+                return {
+                    x: clampCoordinate(rect.left + rect.width * 0.72, bounds.left, bounds.right),
+                    y: clampCoordinate(rect.top + rect.height * 0.24, bounds.top, bounds.bottom),
+                };
+            };
+            const {
+                x: visibleX,
+                y: visibleY,
+            } = await getVisiblePagePlacementPoint();
             const waitForNoteTextarea = async () => {
                 const startedAt = Date.now();
                 while (Date.now() - startedAt < 2_000) {
@@ -580,10 +644,6 @@ async function placePageNote(page: Page, text: string) {
                 ) {
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
-                const visibleY = Math.min(
-                    Math.max(rect.top + 24, rect.top + rect.height * 0.06),
-                    window.innerHeight - 96,
-                );
                 return {
                     x: visibleX,
                     y: visibleY,
@@ -624,7 +684,7 @@ async function placePageNote(page: Page, text: string) {
         value: string | null;
     } | null = null;
     while (Date.now() - startedAt < NOTE_TEXT_ENTRY_TIMEOUT_MS) {
-        typedState = await page.evaluate((noteText: string) => {
+        typedState = await page.evaluate(async (noteText: string) => {
             const textareas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'));
             const textarea = textareas.at(-1) ?? null;
             const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
@@ -649,76 +709,67 @@ async function placePageNote(page: Page, text: string) {
                 inputType: 'insertText',
             }));
             textarea.dispatchEvent(new Event('change', { bubbles: true }));
-            let setupState: {
-                sortedAnnotationNoteWindows?: { value?: Array<{
-                    comment: { stableKey: string };
-                    order: number;
-                    text: string;
-                }> } | Array<{
-                    comment: { stableKey: string };
-                    order: number;
-                    text: string;
-                }>;
-                updateAnnotationNoteText?: (stableKey: string, text: string) => void;
-            } | null = null;
-            for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-                const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                const candidates = [
-                    component?.setupState,
-                    component?.setupState?.mountedWorkspace?.value,
-                    component?.setupState?.workspaceRef?.value,
-                    component?.exposed,
-                ];
-                for (const candidate of candidates) {
-                    const candidateSetup = ((
-                        candidate
-                        && typeof candidate === 'object'
-                        && 'updateAnnotationNoteText' in candidate
-                            ? candidate
-                            : (
+            textarea.dispatchEvent(new Event('blur', { bubbles: true }));
+            const stableKey = textarea.closest<HTMLElement>('.note-window')?.dataset.stableKey ?? null;
+            let updatedText: string | null = null;
+            if (stableKey) {
+                const maybeRefValue = (value: unknown) => (
+                    value
+                    && typeof value === 'object'
+                    && 'value' in value
+                        ? (value as { value?: unknown }).value
+                        : value
+                );
+                const isVisibleHost = (host: HTMLElement) => {
+                    const rect = host.getBoundingClientRect();
+                    const style = window.getComputedStyle(host);
+                    return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
+                };
+                const scanWorkspaceSurface = (elements: HTMLElement[]) => {
+                    for (const element of elements) {
+                        const component = (element as IVueWorkspaceHost).__vueParentComponent;
+                        const candidates = [
+                            maybeRefValue(component?.setupState?.mountedWorkspace),
+                            maybeRefValue(component?.setupState?.workspaceRef),
+                            component?.exposed,
+                        ];
+                        for (const candidate of candidates) {
+                            if (
                                 candidate
                                 && typeof candidate === 'object'
-                                && '$' in candidate
-                                    ? (candidate as { $?: { setupState?: unknown } }).$?.setupState
-                                    : null
-                            )
-                    )) as {
-                        sortedAnnotationNoteWindows?: { value?: Array<{
-                            comment: { stableKey: string };
-                            order: number;
-                            text: string;
-                        }> } | Array<{
-                            comment: { stableKey: string };
-                            order: number;
-                            text: string;
-                        }>;
-                        updateAnnotationNoteText?: (stableKey: string, text: string) => void;
-                    } | null;
-                    if (typeof candidateSetup?.updateAnnotationNoteText === 'function') {
-                        setupState = candidateSetup;
-                        break;
+                                && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
+                            ) {
+                                return candidate as IAgentWorkspaceSurface;
+                            }
+                        }
                     }
-                }
-                if (setupState) {
-                    break;
-                }
+                    return null;
+                };
+                const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+                const preferredWorkspaceElements = [
+                    ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
+                    ...visibleHosts.filter(host => host !== activeHost),
+                ];
+                const workspace = scanWorkspaceSurface(preferredWorkspaceElements)
+                    ?? scanWorkspaceSurface(Array.from(document.querySelectorAll<HTMLElement>('*')));
+                const updateResult = await workspace?.runAgentAction('annotation.update_note', {
+                    stableKey,
+                    text: noteText,
+                });
+                const updatedComment = updateResult?.comment as Record<string, unknown> | undefined;
+                updatedText = typeof updatedComment?.text === 'string'
+                    ? updatedComment.text
+                    : null;
             }
-            const noteWindows = Array.isArray(setupState?.sortedAnnotationNoteWindows)
-                ? setupState.sortedAnnotationNoteWindows
-                : setupState?.sortedAnnotationNoteWindows?.value;
-            const targetNote = [...(noteWindows ?? [])].sort((left, right) => left.order - right.order).at(-1);
-            if (targetNote && typeof setupState?.updateAnnotationNoteText === 'function') {
-                setupState.updateAnnotationNoteText(targetNote.comment.stableKey, noteText);
-            }
-            const updatedNote = [...(noteWindows ?? [])]
-                .find(note => note.comment.stableKey === targetNote?.comment.stableKey) ?? null;
+
             return {
                 value: textarea.value,
-                includesText: updatedNote?.text === noteText,
-                noteText: updatedNote?.text ?? null,
+                includesText: updatedText === noteText,
+                noteText: updatedText,
                 noteWindowCount: document.querySelectorAll('.note-window').length,
                 saveLabel: saveDot?.getAttribute('aria-label') ?? null,
-                stableKey: targetNote?.comment.stableKey ?? null,
+                stableKey,
             };
         }, text);
         if (typedState.includesText) {

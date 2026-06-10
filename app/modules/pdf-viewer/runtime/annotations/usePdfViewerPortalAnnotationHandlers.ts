@@ -4,6 +4,7 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annotationContextMenuPayload';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { syncCommentMarkerAnchorEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 
 interface IUsePdfViewerPortalAnnotationHandlersOptions {
     activeCommentStableKey: { value: string | null };
@@ -65,7 +66,7 @@ export function usePdfViewerPortalAnnotationHandlers(options: IUsePdfViewerPorta
                 if (!editor) {
                     return;
                 }
-                editor.__evbPendingAnchorRect = pendingMarkerRect;
+                syncCommentMarkerAnchorEditor(editor, pendingMarkerRect);
                 options.addPendingCommentEditorKey(
                     options.getEditorPendingKey(editor, updated.pageIndex),
                 );

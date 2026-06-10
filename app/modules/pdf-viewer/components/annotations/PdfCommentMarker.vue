@@ -1,9 +1,11 @@
 <template>
     <AppTooltip
-        v-if="!shouldSuppressTooltip"
         :text="preview"
         :delay-duration="200"
+        :disabled="shouldSuppressTooltip"
+        :open="controlledTooltipOpen"
         usefulness="always"
+        @update:open="handleTooltipOpenUpdate"
     >
         <button
             ref="buttonRef"
@@ -18,9 +20,10 @@
             :aria-label="labelText"
             :data-stable-key="annotation.stableKey"
             :data-comment-count="clustered.length > 1 ? String(clustered.length) : undefined"
-            @click.stop="handleClick"
+            @click.prevent.stop="handleClick"
             @contextmenu.prevent="handleContextMenu"
-            @pointerdown.stop="handlePointerDown"
+            @mousedown.prevent.stop
+            @pointerdown.prevent.stop="handlePointerDown"
             @pointerenter="handlePointerEnter"
             @pointerleave="handlePointerLeave"
         >
@@ -33,34 +36,6 @@
             </span>
         </button>
     </AppTooltip>
-    <button
-        v-else
-        ref="buttonRef"
-        type="button"
-        class="pdf-comment-marker-button"
-        :class="{
-            'is-active': isActive,
-            'is-cluster': clustered.length > 1,
-            'is-dragging': isDragging,
-        }"
-        :style="dragStyle"
-        :aria-label="labelText"
-        :data-stable-key="annotation.stableKey"
-        :data-comment-count="clustered.length > 1 ? String(clustered.length) : undefined"
-        @click.stop="handleClick"
-        @contextmenu.prevent="handleContextMenu"
-        @pointerdown.stop="handlePointerDown"
-        @pointerenter="handlePointerEnter"
-        @pointerleave="handlePointerLeave"
-    >
-        <UIcon name="i-ph-chat" class="pdf-comment-marker-icon" />
-        <span
-            v-if="clustered.length > 1"
-            class="pdf-comment-marker-badge"
-        >
-            {{ clustered.length }}
-        </span>
-    </button>
 </template>
 
 <script setup lang="ts">
@@ -76,6 +51,7 @@ const DEFAULT_POINT_MARKER_SIZE = 0.0016;
 
 const {
     annotation,
+    isActive,
     leftPercent,
     topPercent,
 } = defineProps<{
@@ -98,6 +74,7 @@ const buttonRef = ref<HTMLButtonElement | null>(null);
 const activePointerTarget = ref<HTMLButtonElement | null>(null);
 const isDragging = ref(false);
 const isTooltipSuppressed = ref(false);
+const isTooltipOpen = ref(false);
 const isPointerOver = ref(false);
 const dragOffsetX = ref(0);
 const dragOffsetY = ref(0);
@@ -119,6 +96,8 @@ const hasDragOffset = computed(() =>
     dragOffsetX.value !== 0 || dragOffsetY.value !== 0);
 const shouldSuppressTooltip = computed(() =>
     isTooltipSuppressed.value || isDragging.value || hasDragOffset.value);
+const controlledTooltipOpen = computed(() =>
+    shouldSuppressTooltip.value ? false : isTooltipOpen.value);
 
 const dragStyle = computed(() => {
     if (!isDragging.value && !hasDragOffset.value) {
@@ -150,6 +129,20 @@ function dispatchMarkerDragState(active: boolean) {
         stableKey: annotation.stableKey,
     };
     window.dispatchEvent(new CustomEvent('pdf-comment-marker-drag-state', {detail}));
+}
+
+function clearPdfjsAnnotationFocusLeak() {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) {
+        return;
+    }
+    if (!activeElement.closest('.annotationLayer, .annotation-layer, .annotationEditorLayer, .annotation-editor-layer')) {
+        return;
+    }
+
+    // PDF.js can focus its native annotation trigger underneath our Vue marker
+    // before the note window opens, leaving a stale rectangle over the marker.
+    activeElement.blur();
 }
 
 function isLastPointerWithinMarker() {
@@ -188,6 +181,18 @@ function scheduleDragSettledCleanup() {
     });
 }
 
+function suppressTooltipUntilPointerExit() {
+    // Reka keeps an already-open hover tooltip alive until hover state changes.
+    // Own its open state here so the portal closes as soon as the note opens.
+    suppressTooltipUntilPointerLeave = true;
+    isTooltipSuppressed.value = true;
+    isTooltipOpen.value = false;
+}
+
+function handleTooltipOpenUpdate(open: boolean) {
+    isTooltipOpen.value = shouldSuppressTooltip.value ? false : open;
+}
+
 watch([
     () => leftPercent,
     () => topPercent,
@@ -200,11 +205,24 @@ watch([
     }
 });
 
+watch(() => isActive, (active) => {
+    if (active && (isPointerOver.value || isLastPointerWithinMarker())) {
+        suppressTooltipUntilPointerExit();
+        return;
+    }
+
+    if (!isPointerOver.value && !isLastPointerWithinMarker()) {
+        releaseTooltipAfterPointerLeave();
+    }
+});
+
 function handleClick() {
+    clearPdfjsAnnotationFocusLeak();
     if (suppressClick) {
         suppressClick = false;
         return;
     }
+    suppressTooltipUntilPointerExit();
     emit('openNote', annotation);
 }
 
@@ -234,6 +252,7 @@ function handlePointerDown(event: PointerEvent) {
     if (event.button !== 0) {
         return;
     }
+    clearPdfjsAnnotationFocusLeak();
 
     const button = buttonRef.value;
     if (!button) {
@@ -269,8 +288,7 @@ function handlePointerMove(event: PointerEvent) {
         }
         dragActivated = true;
         isDragging.value = true;
-        isTooltipSuppressed.value = true;
-        suppressTooltipUntilPointerLeave = true;
+        suppressTooltipUntilPointerExit();
         dispatchMarkerDragState(true);
         document.body.style.cursor = 'grabbing';
         document.body.style.userSelect = 'none';

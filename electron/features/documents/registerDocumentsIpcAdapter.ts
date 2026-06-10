@@ -148,6 +148,8 @@ export function registerDocumentsIpcAdapter(
         service.savePdfNoteTextUpdates(event, workingPath, updates, modifiedAt));
     register(DOCUMENTS_CHANNELS.fileSavePdfNoteChanges, (event, workingPath, changes, modifiedAt) =>
         service.savePdfNoteChanges(event, workingPath, changes, modifiedAt));
+    register(DOCUMENTS_CHANNELS.fileSavePdfNativeMutations, (event, workingPath, mutations, modifiedAt) =>
+        service.savePdfNativeMutations(event, workingPath, mutations, modifiedAt));
     register(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, (event, workingPath, totalBytes) =>
         service.beginSavePdfData(event, workingPath, totalBytes));
     register(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, (event, filePath) => service.cleanupOcrTemp(event, filePath));

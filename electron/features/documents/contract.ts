@@ -48,6 +48,7 @@ export const DOCUMENTS_CHANNELS = {
     fileSavePdfDataPort: 'file:savePdfData:port',
     fileSavePdfNoteTextUpdates: 'file:savePdfNoteTextUpdates',
     fileSavePdfNoteChanges: 'file:savePdfNoteChanges',
+    fileSavePdfNativeMutations: 'file:savePdfNativeMutations',
     fileCleanup: 'file:cleanup',
     fileCleanupOcrTemp: 'file:cleanupOcrTemp',
     windowSetTitle: 'window:setTitle',
@@ -245,6 +246,14 @@ export interface IDocumentsInvokeMap {
             modifiedAt: string,
         ];
         result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>>;
+    };
+    [DOCUMENTS_CHANNELS.fileSavePdfNativeMutations]: {
+        args: [
+            path: string,
+            mutations: Parameters<NonNullable<IDocumentsFileCapability['savePdfNativeMutations']>>[1],
+            modifiedAt: string,
+        ];
+        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNativeMutations']>>>;
     };
     [DOCUMENTS_CHANNELS.fileCleanup]: {
         args: [path: string];

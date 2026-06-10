@@ -42,6 +42,10 @@ import type { INotePlacementDiagnosticsContext } from '@app/utils/pdf-viewer/ann
 import { buildRangeFromPagePoint } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
 import { buildRangeFromPageText } from '@app/utils/pdf-viewer/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/utils/pdf-viewer/annotations/annotation-dom-removal/resolveCommentWithRenderedTextMarkupColorAtPoint';
+import {
+    markCommentMarkerAnchorEditor,
+    syncCommentMarkerAnchorEditor,
+} from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 
 interface IHighlightIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -763,6 +767,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         pageIndex: number,
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
+        markCommentMarkerAnchorEditor(editor);
         keepFreeTextEditorAlive(editor);
         enforceMinimumNoteEditorSize(editor);
         editor.__evbResolvedPageIndex = pageIndex;
@@ -1176,7 +1181,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             await preparePointNoteEditor(resolvedEditor, pageIndex, diagnosticsContext);
 
             const clickMarkerRect = markerRectFromPoint(pageX, pageY);
-            resolvedEditor.__evbPendingAnchorRect = clickMarkerRect;
+            syncCommentMarkerAnchorEditor(resolvedEditor, clickMarkerRect);
             commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(resolvedEditor, pageIndex));
 
             const summary = commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));

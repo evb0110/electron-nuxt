@@ -9,12 +9,22 @@ import { performance } from 'perf_hooks';
 import { join } from 'path';
 import type {
     IPdfNativeAnnotationDelete,
+    IPdfNativeBookmarksMutation,
     IPdfNativeFreeTextNote,
     IPdfNativeFreeTextNoteMarkerRect,
+    IPdfNativeMarkupMarkerRect,
+    IPdfNativeMarkupSubtypeHint,
+    IPdfNativeMutationSet,
     IPdfNativeNoteChanges,
+    IPdfNativePageLabelRange,
+    IPdfNativePageLabelsMutation,
     IPdfNativeNoteTextSaveResult,
+    IPdfNativeShapeAnnotation,
+    IPdfNativeShapePoint,
+    IPdfNativeShapesMutation,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -40,12 +50,55 @@ import { getErrorMessage } from '@electron/utils/error';
 const NATIVE_NOTE_TEXT_TIMEOUT_MS = 2 * 60 * 1000;
 const MAX_NATIVE_NOTE_TEXT_UPDATES = 256;
 const MAX_NATIVE_NOTE_CHANGES = 256;
+const MAX_NATIVE_PAGE_LABEL_RANGES = 2_048;
+const MAX_NATIVE_BOOKMARK_ITEMS = 5_000;
+const MAX_NATIVE_BOOKMARK_DEPTH = 64;
+const MAX_NATIVE_SHAPES = 4_096;
+const MAX_NATIVE_SHAPE_DELETED_ITEMS = 4_096;
+const MAX_NATIVE_SHAPE_POINTS = 20_000;
+const MAX_NATIVE_SHAPE_TEXT_LENGTH = 2_048;
+const MAX_NATIVE_MARKUP_ITEMS = 4_096;
+const MAX_NATIVE_MARKUP_TEXT_LENGTH = 2_048;
+const PDF_NATIVE_PAGE_LABEL_STYLES = new Set([
+    'D',
+    'R',
+    'r',
+    'A',
+    'a',
+]);
+const PDF_NATIVE_SHAPE_TYPES = new Set([
+    'rectangle',
+    'circle',
+    'line',
+    'arrow',
+    'polyline',
+    'polygon',
+]);
+const PDF_NATIVE_SHAPE_SUBTYPES = new Set([
+    'Square',
+    'Circle',
+    'Line',
+    'PolyLine',
+    'Polygon',
+    'Ink',
+]);
+const PDF_NATIVE_SHAPE_LINE_END_STYLES = new Set([
+    'none',
+    'openArrow',
+    'closedArrow',
+]);
+const PDF_NATIVE_MARKUP_SUBTYPES = new Set([
+    'Highlight',
+    'Underline',
+    'StrikeOut',
+    'Squiggly',
+]);
 const log = createLogger('native-note-text-save');
 
 interface INativeNoteCommandOptions {
-    command: 'update-note-text' | 'save-note-changes';
+    command: 'update-note-text' | 'save-note-changes' | 'save-mutations';
     payloadFileName: string;
-    payloadFlag: '--updates-file' | '--changes-file';
+    payloadFlag: '--updates-file' | '--changes-file' | '--mutations-file';
     payload: unknown;
     commandLabel: string;
 }
@@ -139,6 +192,10 @@ function normalizeNoteTextUpdateArray(updates: unknown[]) {
 }
 
 function normalizeFreeTextNoteMarkerRect(value: unknown, label: string): IPdfNativeFreeTextNoteMarkerRect {
+    return normalizeNativeMarkerRect(value, label);
+}
+
+function normalizeNativeMarkerRect(value: unknown, label: string): IPdfNativeFreeTextNoteMarkerRect {
     if (!value || typeof value !== 'object') {
         throw new Error(`${label} must be an object`);
     }
@@ -179,6 +236,10 @@ function normalizeFreeTextNoteMarkerRect(value: unknown, label: string): IPdfNat
     };
 }
 
+function normalizeMarkupMarkerRect(value: unknown, label: string): IPdfNativeMarkupMarkerRect {
+    return normalizeNativeMarkerRect(value, label);
+}
+
 function normalizeOptionalString(value: unknown) {
     if (value === undefined || value === null) {
         return null;
@@ -197,6 +258,53 @@ function normalizeOptionalTimestamp(value: unknown) {
         throw new Error('Expected finite timestamp or null');
     }
     return Math.trunc(value);
+}
+
+function normalizeFiniteUnitNumber(value: unknown, label: string) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`${label} must be a finite number from 0 to 1`);
+    }
+    return value;
+}
+
+function normalizeOptionalFiniteUnitNumber(value: unknown, label: string) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    return normalizeFiniteUnitNumber(value, label);
+}
+
+function normalizeFiniteNonNegativeNumber(value: unknown, label: string) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        throw new Error(`${label} must be a finite non-negative number`);
+    }
+    return value;
+}
+
+function normalizeNativeShapeOptionalString(value: unknown, label: string) {
+    const normalized = normalizeOptionalString(value);
+    if (normalized !== null && normalized.length > MAX_NATIVE_SHAPE_TEXT_LENGTH) {
+        throw new Error(`${label} is too long`);
+    }
+    return normalized;
+}
+
+function normalizeNativeShapeEnum(
+    value: unknown,
+    label: string,
+    allowed: Set<string>,
+    options: {optional?: boolean} = {},
+) {
+    if (value === undefined || value === null) {
+        if (options.optional) {
+            return null;
+        }
+        throw new Error(`${label} is required`);
+    }
+    if (typeof value !== 'string' || !allowed.has(value)) {
+        throw new Error(`${label} is not supported`);
+    }
+    return value;
 }
 
 function normalizeFreeTextNotes(notes: unknown) {
@@ -305,6 +413,442 @@ function normalizeNoteChanges(rawChanges: unknown): IPdfNativeNoteChanges {
         ...(updates.length > 0 ? {updates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
         ...(deletes.length > 0 ? {deletes} : {}),
+    };
+}
+
+function normalizePageLabelRange(value: unknown, index: number): IPdfNativePageLabelRange {
+    if (!value || typeof value !== 'object') {
+        throw new Error(`Invalid page label range at index ${index}`);
+    }
+    const candidate = value as Partial<IPdfNativePageLabelRange>;
+    if (
+        typeof candidate.startPage !== 'number'
+        || !Number.isSafeInteger(candidate.startPage)
+        || candidate.startPage < 1
+        || (candidate.style !== null && (
+            typeof candidate.style !== 'string'
+            || !PDF_NATIVE_PAGE_LABEL_STYLES.has(candidate.style)
+        ))
+        || typeof candidate.prefix !== 'string'
+        || typeof candidate.startNumber !== 'number'
+        || !Number.isSafeInteger(candidate.startNumber)
+        || candidate.startNumber < 1
+    ) {
+        throw new Error(`Invalid page label range at index ${index}`);
+    }
+    return {
+        startPage: candidate.startPage,
+        style: candidate.style,
+        prefix: candidate.prefix,
+        startNumber: candidate.startNumber,
+    };
+}
+
+function normalizePageLabelsMutation(rawPageLabels: unknown): IPdfNativePageLabelsMutation | null {
+    if (rawPageLabels === undefined) {
+        return null;
+    }
+    if (!rawPageLabels || typeof rawPageLabels !== 'object') {
+        throw new Error('Invalid native page-label mutation');
+    }
+    const candidate = rawPageLabels as Partial<IPdfNativePageLabelsMutation>;
+    if (
+        typeof candidate.totalPages !== 'number'
+        || !Number.isSafeInteger(candidate.totalPages)
+        || candidate.totalPages < 1
+        || !Array.isArray(candidate.ranges)
+        || candidate.ranges.length > MAX_NATIVE_PAGE_LABEL_RANGES
+    ) {
+        throw new Error('Invalid native page-label mutation');
+    }
+    return {
+        totalPages: candidate.totalPages,
+        ranges: candidate.ranges.map(normalizePageLabelRange),
+    };
+}
+
+function normalizeBookmarkColor(value: unknown) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/iu.test(value)) {
+        throw new Error('Invalid bookmark color');
+    }
+    return value.toLowerCase();
+}
+
+function countBookmarkItems(items: IPdfBookmarkEntry[]) {
+    let count = 0;
+    const visit = (children: IPdfBookmarkEntry[]) => {
+        for (const child of children) {
+            count += 1;
+            visit(child.items);
+        }
+    };
+    visit(items);
+    return count;
+}
+
+function normalizeBookmarkItems(
+    rawItems: unknown,
+    label: string,
+    depth = 0,
+): IPdfBookmarkEntry[] {
+    if (!Array.isArray(rawItems)) {
+        throw new Error(`${label} must be an array`);
+    }
+    if (depth > MAX_NATIVE_BOOKMARK_DEPTH) {
+        throw new Error('Native bookmark mutation is too deeply nested');
+    }
+    return rawItems.map((item, index): IPdfBookmarkEntry => {
+        if (!item || typeof item !== 'object') {
+            throw new Error(`Invalid bookmark item at ${label}[${index}]`);
+        }
+        const candidate = item as Partial<IPdfBookmarkEntry>;
+        if (
+            typeof candidate.title !== 'string'
+            || (
+                candidate.pageIndex !== null
+                && (
+                    typeof candidate.pageIndex !== 'number'
+                    || !Number.isSafeInteger(candidate.pageIndex)
+                    || candidate.pageIndex < 0
+                )
+            )
+            || (candidate.namedDest !== null && typeof candidate.namedDest !== 'string')
+        ) {
+            throw new Error(`Invalid bookmark item at ${label}[${index}]`);
+        }
+        return {
+            title: candidate.title,
+            pageIndex: candidate.pageIndex,
+            namedDest: candidate.namedDest,
+            bold: candidate.bold === true,
+            italic: candidate.italic === true,
+            color: normalizeBookmarkColor(candidate.color),
+            items: normalizeBookmarkItems(candidate.items, `${label}[${index}].items`, depth + 1),
+        };
+    });
+}
+
+function normalizeBookmarksMutation(rawBookmarks: unknown): IPdfNativeBookmarksMutation | null {
+    if (rawBookmarks === undefined) {
+        return null;
+    }
+    if (!rawBookmarks || typeof rawBookmarks !== 'object') {
+        throw new Error('Invalid native bookmark mutation');
+    }
+    const candidate = rawBookmarks as Partial<IPdfNativeBookmarksMutation>;
+    if (
+        typeof candidate.totalPages !== 'number'
+        || !Number.isSafeInteger(candidate.totalPages)
+        || candidate.totalPages < 1
+    ) {
+        throw new Error('Invalid native bookmark mutation');
+    }
+    const items = normalizeBookmarkItems(candidate.items, 'bookmarks.items');
+    if (countBookmarkItems(items) > MAX_NATIVE_BOOKMARK_ITEMS) {
+        throw new Error('Too many native bookmark items');
+    }
+    return {
+        totalPages: candidate.totalPages,
+        untitledLabel: typeof candidate.untitledLabel === 'string'
+            ? candidate.untitledLabel
+            : '',
+        items,
+    };
+}
+
+function normalizeNativeShapePoint(value: unknown, label: string): IPdfNativeShapePoint {
+    if (!value || typeof value !== 'object') {
+        throw new Error(`${label} must be an object`);
+    }
+    const candidate = value as Partial<IPdfNativeShapePoint>;
+    return {
+        x: normalizeFiniteUnitNumber(candidate.x, `${label}.x`),
+        y: normalizeFiniteUnitNumber(candidate.y, `${label}.y`),
+    };
+}
+
+function normalizeNativeShapePoints(
+    rawPoints: unknown,
+    label: string,
+    state: {pointCount: number},
+) {
+    if (rawPoints === undefined) {
+        return undefined;
+    }
+    if (!Array.isArray(rawPoints)) {
+        throw new Error(`${label} must be an array`);
+    }
+    state.pointCount += rawPoints.length;
+    if (state.pointCount > MAX_NATIVE_SHAPE_POINTS) {
+        throw new Error('Too many native shape points');
+    }
+    return rawPoints.map((point, index) => normalizeNativeShapePoint(point, `${label}[${index}]`));
+}
+
+function normalizeNativeShapeStrokes(
+    rawStrokes: unknown,
+    label: string,
+    state: {pointCount: number},
+) {
+    if (rawStrokes === undefined) {
+        return undefined;
+    }
+    if (!Array.isArray(rawStrokes)) {
+        throw new Error(`${label} must be an array`);
+    }
+    return rawStrokes.map((stroke, index) =>
+        normalizeNativeShapePoints(stroke, `${label}[${index}]`, state) ?? []);
+}
+
+function normalizeNativeShapeAnnotation(
+    rawShape: unknown,
+    index: number,
+    state: {pointCount: number},
+): IPdfNativeShapeAnnotation {
+    if (!rawShape || typeof rawShape !== 'object') {
+        throw new Error(`Invalid native shape at index ${index}`);
+    }
+    const candidate = rawShape as Partial<IPdfNativeShapeAnnotation>;
+    const pageIndex = candidate.pageIndex;
+    if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+        throw new Error(`Invalid native shape page index at index ${index}`);
+    }
+    if (typeof candidate.color !== 'string' || candidate.color.length > MAX_NATIVE_SHAPE_TEXT_LENGTH) {
+        throw new Error(`Invalid native shape color at index ${index}`);
+    }
+    if (
+        typeof candidate.opacity !== 'number'
+        || !Number.isFinite(candidate.opacity)
+        || candidate.opacity < 0
+        || candidate.opacity > 1
+    ) {
+        throw new Error(`Invalid native shape opacity at index ${index}`);
+    }
+    const id = normalizeNativeShapeOptionalString(candidate.id, `shape ${index} id`);
+    const points = normalizeNativeShapePoints(candidate.points, `shape ${index} points`, state);
+    const strokes = normalizeNativeShapeStrokes(candidate.strokes, `shape ${index} strokes`, state);
+    const shape: IPdfNativeShapeAnnotation = {
+        type: normalizeNativeShapeEnum(candidate.type, `shape ${index} type`, PDF_NATIVE_SHAPE_TYPES) as IPdfNativeShapeAnnotation['type'],
+        pageIndex,
+        x: normalizeFiniteUnitNumber(candidate.x, `shape ${index} x`),
+        y: normalizeFiniteUnitNumber(candidate.y, `shape ${index} y`),
+        width: normalizeFiniteNonNegativeNumber(candidate.width, `shape ${index} width`),
+        height: normalizeFiniteNonNegativeNumber(candidate.height, `shape ${index} height`),
+        x2: normalizeOptionalFiniteUnitNumber(candidate.x2, `shape ${index} x2`),
+        y2: normalizeOptionalFiniteUnitNumber(candidate.y2, `shape ${index} y2`),
+        color: candidate.color,
+        fillColor: normalizeNativeShapeOptionalString(candidate.fillColor, `shape ${index} fillColor`),
+        opacity: candidate.opacity,
+        strokeWidth: normalizeFiniteNonNegativeNumber(candidate.strokeWidth, `shape ${index} strokeWidth`),
+        annotationId: normalizeNativeShapeOptionalString(candidate.annotationId, `shape ${index} annotationId`),
+        stableKey: normalizeNativeShapeOptionalString(candidate.stableKey, `shape ${index} stableKey`),
+        pdfSubtype: normalizeNativeShapeEnum(
+            candidate.pdfSubtype,
+            `shape ${index} pdfSubtype`,
+            PDF_NATIVE_SHAPE_SUBTYPES,
+            {optional: true},
+        ) as NonNullable<IPdfNativeShapeAnnotation['pdfSubtype']> | null,
+        lineStartStyle: normalizeNativeShapeEnum(
+            candidate.lineStartStyle,
+            `shape ${index} lineStartStyle`,
+            PDF_NATIVE_SHAPE_LINE_END_STYLES,
+            {optional: true},
+        ) as NonNullable<IPdfNativeShapeAnnotation['lineStartStyle']> | null,
+        lineEndStyle: normalizeNativeShapeEnum(
+            candidate.lineEndStyle,
+            `shape ${index} lineEndStyle`,
+            PDF_NATIVE_SHAPE_LINE_END_STYLES,
+            {optional: true},
+        ) as NonNullable<IPdfNativeShapeAnnotation['lineEndStyle']> | null,
+        createdAt: normalizeOptionalTimestamp(candidate.createdAt),
+        modifiedAt: normalizeOptionalTimestamp(candidate.modifiedAt),
+    };
+    if (id !== null) {
+        shape.id = id;
+    }
+    if (points !== undefined) {
+        shape.points = points;
+    }
+    if (strokes !== undefined) {
+        shape.strokes = strokes;
+    }
+    return shape;
+}
+
+function normalizeNativeShapeStringArray(rawItems: unknown, label: string) {
+    if (rawItems === undefined) {
+        return [];
+    }
+    if (!Array.isArray(rawItems) || rawItems.length > MAX_NATIVE_SHAPE_DELETED_ITEMS) {
+        throw new Error(`${label} must be a bounded array`);
+    }
+    return rawItems.map((item, index) => {
+        if (typeof item !== 'string' || item.length > MAX_NATIVE_SHAPE_TEXT_LENGTH) {
+            throw new Error(`Invalid ${label} item at index ${index}`);
+        }
+        return item.trim();
+    }).filter(Boolean);
+}
+
+function normalizeNativeMarkupSubtype(value: unknown, label: string) {
+    if (typeof value !== 'string' || !PDF_NATIVE_MARKUP_SUBTYPES.has(value)) {
+        throw new Error(`${label} is not supported`);
+    }
+    return value as NonNullable<IPdfNativeMarkupSubtypeHint['subtype']>;
+}
+
+function normalizeNativeMarkupOptionalString(value: unknown, label: string) {
+    const normalized = normalizeOptionalString(value);
+    if (normalized !== null && normalized.length > MAX_NATIVE_MARKUP_TEXT_LENGTH) {
+        throw new Error(`${label} is too long`);
+    }
+    return normalized;
+}
+
+function normalizeNativeMarkupOptionalIndex(value: unknown, label: string) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`${label} must be a non-negative safe integer or null`);
+    }
+    return value;
+}
+
+function normalizeNativeMarkupOverride(value: unknown, index: number) {
+    if (!Array.isArray(value) || value.length !== 2) {
+        throw new Error(`Invalid native markup override at index ${index}`);
+    }
+    const [
+        annotationId,
+        subtype,
+    ] = value;
+    if (
+        typeof annotationId !== 'string'
+        || annotationId.trim().length === 0
+        || annotationId.length > MAX_NATIVE_MARKUP_TEXT_LENGTH
+    ) {
+        throw new Error(`Invalid native markup override id at index ${index}`);
+    }
+    return [
+        annotationId.trim(),
+        normalizeNativeMarkupSubtype(subtype, `markup override ${index} subtype`),
+    ] as const;
+}
+
+function normalizeNativeMarkupHint(rawHint: unknown, index: number): IPdfNativeMarkupSubtypeHint {
+    if (!rawHint || typeof rawHint !== 'object') {
+        throw new Error(`Invalid native markup hint at index ${index}`);
+    }
+    const candidate = rawHint as Partial<IPdfNativeMarkupSubtypeHint>;
+    if (
+        typeof candidate.pageIndex !== 'number'
+        || !Number.isSafeInteger(candidate.pageIndex)
+        || candidate.pageIndex < 0
+    ) {
+        throw new Error(`Invalid native markup hint page index at index ${index}`);
+    }
+    return {
+        subtype: normalizeNativeMarkupSubtype(candidate.subtype, `markup hint ${index} subtype`),
+        pageIndex: candidate.pageIndex,
+        markerRect: normalizeMarkupMarkerRect(candidate.markerRect, `Markup hint ${index} markerRect`),
+        annotationId: normalizeNativeMarkupOptionalString(candidate.annotationId, `markup hint ${index} annotationId`),
+        color: normalizeNativeMarkupOptionalString(candidate.color, `markup hint ${index} color`),
+        id: normalizeNativeMarkupOptionalString(candidate.id, `markup hint ${index} id`),
+        pageMarkupIndex: normalizeNativeMarkupOptionalIndex(candidate.pageMarkupIndex, `markup hint ${index} pageMarkupIndex`),
+        source: normalizeNativeMarkupOptionalString(candidate.source, `markup hint ${index} source`),
+    };
+}
+
+function normalizeMarkupMutation(rawMarkup: unknown): IPdfNativeMutationSet['markup'] | null {
+    if (rawMarkup === undefined) {
+        return null;
+    }
+    if (!rawMarkup || typeof rawMarkup !== 'object') {
+        throw new Error('Invalid native text-markup mutation');
+    }
+    const candidate = rawMarkup as Partial<NonNullable<IPdfNativeMutationSet['markup']>>;
+    if (
+        !Array.isArray(candidate.overrides)
+        || candidate.overrides.length > MAX_NATIVE_MARKUP_ITEMS
+        || !Array.isArray(candidate.hints)
+        || candidate.hints.length > MAX_NATIVE_MARKUP_ITEMS
+    ) {
+        throw new Error('Invalid native text-markup mutation');
+    }
+    const overrides = candidate.overrides.map(normalizeNativeMarkupOverride);
+    const hints = candidate.hints.map(normalizeNativeMarkupHint);
+    if (overrides.length + hints.length === 0) {
+        throw new Error('Native text-markup mutation must include at least one rewrite');
+    }
+    return {
+        overrides,
+        hints,
+    };
+}
+
+function normalizeShapesMutation(rawShapes: unknown): IPdfNativeShapesMutation | null {
+    if (rawShapes === undefined) {
+        return null;
+    }
+    if (!rawShapes || typeof rawShapes !== 'object') {
+        throw new Error('Invalid native shape mutation');
+    }
+    const candidate = rawShapes as Partial<IPdfNativeShapesMutation>;
+    if (
+        typeof candidate.totalPages !== 'number'
+        || !Number.isSafeInteger(candidate.totalPages)
+        || candidate.totalPages < 1
+        || !Array.isArray(candidate.shapes)
+        || candidate.shapes.length > MAX_NATIVE_SHAPES
+    ) {
+        throw new Error('Invalid native shape mutation');
+    }
+    const pointState = {pointCount: 0};
+    return {
+        totalPages: candidate.totalPages,
+        rewriteShapeState: candidate.rewriteShapeState === true,
+        shapes: candidate.shapes.map((shape, index) => normalizeNativeShapeAnnotation(shape, index, pointState)),
+        deletedAnnotationIds: normalizeNativeShapeStringArray(candidate.deletedAnnotationIds, 'deleted shape annotation ids'),
+        deletedStableKeys: normalizeNativeShapeStringArray(candidate.deletedStableKeys, 'deleted shape stable keys'),
+    };
+}
+
+function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSet {
+    if (!rawMutations || typeof rawMutations !== 'object') {
+        throw new Error('Invalid native PDF mutations');
+    }
+    const candidate = rawMutations as Partial<IPdfNativeMutationSet>;
+    const updates = normalizeOptionalNoteTextUpdates(candidate.updates);
+    const freeTextNotes = normalizeFreeTextNotes(candidate.freeTextNotes);
+    const deletes = normalizeAnnotationDeletes(candidate.deletes);
+    const pageLabels = normalizePageLabelsMutation(candidate.pageLabels);
+    const bookmarks = normalizeBookmarksMutation(candidate.bookmarks);
+    const shapes = normalizeShapesMutation(candidate.shapes);
+    const markup = normalizeMarkupMutation(candidate.markup);
+    if (
+        updates.length + freeTextNotes.length + deletes.length === 0
+        && !pageLabels
+        && !bookmarks
+        && !shapes
+        && !markup
+    ) {
+        throw new Error('At least one native PDF mutation is required');
+    }
+    if (updates.length + freeTextNotes.length + deletes.length > MAX_NATIVE_NOTE_CHANGES) {
+        throw new Error('Too many native note changes');
+    }
+    return {
+        ...(updates.length > 0 ? {updates} : {}),
+        ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+        ...(deletes.length > 0 ? {deletes} : {}),
+        ...(pageLabels ? {pageLabels} : {}),
+        ...(bookmarks ? {bookmarks} : {}),
+        ...(shapes ? {shapes} : {}),
+        ...(markup ? {markup} : {}),
     };
 }
 
@@ -490,5 +1034,21 @@ export async function handleNativeNoteChangesSave(
         payloadFlag: '--changes-file',
         payload: changes,
         commandLabel: 'evb-pdf-page-ops(save-note-changes)',
+    });
+}
+
+export async function handleNativePdfMutationsSave(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: unknown,
+    rawMutations: unknown,
+    rawModifiedAt: unknown,
+): Promise<IPdfNativeNoteTextSaveResult> {
+    const mutations = normalizeNativeMutationSet(rawMutations);
+    return runNativeNoteCommand(event, workingPath, rawModifiedAt, {
+        command: 'save-mutations',
+        payloadFileName: 'mutations.json',
+        payloadFlag: '--mutations-file',
+        payload: mutations,
+        commandLabel: 'evb-pdf-page-ops(save-mutations)',
     });
 }
