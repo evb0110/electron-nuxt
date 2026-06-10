@@ -110,7 +110,6 @@ export async function assembleSearchablePdf(
     qpdfBinary: string,
     originalPdfPath: string,
     ocrPdfMap: Map<number, string>,
-    pageImageMap: Map<number, string>,
     pageCount: number,
     tempDir: string,
     sessionId: string,
@@ -119,7 +118,7 @@ export async function assembleSearchablePdf(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    log('debug', `Replacing ${ocrPdfMap.size} page(s) with qpdf page splicing (${pageImageMap.size} rendered image(s) produced)`);
+    log('debug', `Replacing ${ocrPdfMap.size} page(s) with qpdf page splicing`);
     await assertNonEmptyFile(originalPdfPath, 'Original PDF');
     await Promise.all(Array.from(ocrPdfMap.entries()).map(
         ([

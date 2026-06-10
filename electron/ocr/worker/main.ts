@@ -49,7 +49,7 @@ import {
     detectSourceDpiDetails,
 } from '@electron/ocr/worker/dpiDetection';
 import {
-    getPngDimensions,
+    getPngDimensionsFromFile,
     runOcrFileBased,
 } from '@electron/ocr/worker/tesseractRunner';
 import {
@@ -197,8 +197,8 @@ async function unlinkIfPresent(filePath: string) {
     }
 }
 
-function readPngDimensions(imageBuffer: Buffer) {
-    const dims = getPngDimensions(imageBuffer);
+async function readPngDimensions(imagePath: string) {
+    const dims = await getPngDimensionsFromFile(imagePath);
     if (!dims) {
         throw new Error('Failed to determine PNG dimensions from pdftoppm output');
     }
@@ -264,8 +264,7 @@ async function processOcrPage(
             context.signal,
         );
 
-        const imageBuffer = await readFile(pageImagePath);
-        const dims = readPngDimensions(imageBuffer);
+        const dims = await readPngDimensions(pageImagePath);
         const ocrResult = await runOcrFileBased(
             pageImagePath,
             page.languages,
@@ -301,7 +300,6 @@ async function processOcrPage(
         return {
             pageData,
             pdfPath: ocrResult.pdfPath,
-            pageImagePath,
             effectiveDpi,
         };
     } catch (err) {
@@ -363,17 +361,6 @@ async function processOcrPages(
                 ? [[
                     pageNumber,
                     result.pdfPath,
-                ] as const]
-                : []
-        ))),
-        pageImageMap: new Map(pageResults.flatMap(({
-            pageNumber,
-            result,
-        }) => (
-            result.pageImagePath
-                ? [[
-                    pageNumber,
-                    result.pageImagePath,
                 ] as const]
                 : []
         ))),
@@ -612,7 +599,6 @@ async function assembleMergedOcrPdf(
     jobId: string,
     sourcePdfPath: string,
     ocrPdfMap: Map<number, string>,
-    pageImageMap: Map<number, string>,
     pageCount: number,
     sessionId: string,
     trackTempFile: (path: string) => string,
@@ -624,7 +610,6 @@ async function assembleMergedOcrPdf(
             paths.qpdfBinary,
             sourcePdfPath,
             ocrPdfMap,
-            pageImageMap,
             pageCount,
             paths.tempDir,
             sessionId,
@@ -705,7 +690,6 @@ async function processOcrJob(
             errors,
             ocrPageData,
             ocrPdfMap,
-            pageImageMap,
             effectiveRenderDpi: actualRenderDpi,
         } = await processOcrPages(jobId, targetPages, concurrency, pageContext);
 
@@ -731,7 +715,6 @@ async function processOcrJob(
             jobId,
             sourcePdfPath,
             ocrPdfMap,
-            pageImageMap,
             pageCount,
             sessionId,
             trackTempFile,

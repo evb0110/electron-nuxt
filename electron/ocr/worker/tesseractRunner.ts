@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import {
+    open,
     readFile,
     stat,
     unlink,
@@ -51,6 +52,20 @@ export function getPngDimensions(imageBuffer: Buffer): {
         width,
         height,
     };
+}
+
+export async function getPngDimensionsFromFile(imagePath: string) {
+    const file = await open(imagePath, 'r');
+    try {
+        const header = Buffer.alloc(24);
+        const { bytesRead } = await file.read(header, 0, header.length, 0);
+        if (bytesRead < header.length) {
+            return null;
+        }
+        return getPngDimensions(header);
+    } finally {
+        await file.close();
+    }
 }
 
 async function safeUnlink(path: string) {
@@ -160,8 +175,9 @@ export async function runOcrFileBased(
         const handleSuccessfulClose = async () => {
             try {
                 const tsvContent = await readFile(tsvPath, 'utf-8');
-                const words = parseTsvOutput(tsvContent.trim());
-                let pageText = parseTsvText(tsvContent.trim());
+                const parsedTsv = parseTsvOcrData(tsvContent.trim());
+                const { words } = parsedTsv;
+                let pageText = parsedTsv.text;
 
                 if (languages.includes('ell')) {
                     for (const word of words) {
@@ -269,64 +285,85 @@ interface ITsvLineBox {
     height: number;
 }
 
+interface IParsedTsvWordRow {
+    parts: string[];
+    text: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
 function parsePositiveTsvInt(value: string | undefined) {
     const parsed = parseInt(value ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function parseTsvLineBoxes(tsvContent: string): Map<string, ITsvLineBox> {
+export function parseTsvOcrData(tsvContent: string): {
+    words: IOcrWord[];
+    text: string;
+} {
+    const acceptedWordRows: IParsedTsvWordRow[] = [];
     const lineBoxes = new Map<string, ITsvLineBox>();
+    const textState: ITsvTextState = {
+        currentLineKey: null,
+        currentWords: [],
+        outputLines: [],
+    };
 
     for (const row of iterateTsvRows(tsvContent)) {
         const level = parseInt(row.parts[0]!, 10);
-        if (level !== 4) {
+        if (level === 4) {
+            const top = parsePositiveTsvInt(row.parts[7]);
+            const height = parsePositiveTsvInt(row.parts[9]);
+            if (top !== null && height !== null) {
+                lineBoxes.set(getTsvLineKey(row.parts), {
+                    top,
+                    height,
+                });
+            }
             continue;
         }
+        if (level !== 5) continue;
 
-        const top = parsePositiveTsvInt(row.parts[7]);
-        const height = parsePositiveTsvInt(row.parts[9]);
-        if (top === null || height === null) {
-            continue;
-        }
+        appendTsvTextRow(textState, row);
+        const left = parseInt(row.parts[6]!, 10);
+        const top = parseInt(row.parts[7]!, 10);
+        const width = parseInt(row.parts[8]!, 10);
+        const height = parseInt(row.parts[9]!, 10);
+        const confidence = parseInt(row.parts[10]!, 10);
+        if (confidence < 20) continue;
+        if (width <= 0 || height <= 0) continue;
 
-        lineBoxes.set(getTsvLineKey(row.parts), {
+        acceptedWordRows.push({
+            parts: row.parts,
+            text: row.text,
+            left,
             top,
+            width,
             height,
         });
     }
 
-    return lineBoxes;
+    flushTsvTextLine(textState.outputLines, textState.currentWords);
+
+    return {
+        words: acceptedWordRows.map((row) => {
+            const lineBox = lineBoxes.get(getTsvLineKey(row.parts));
+            return {
+                text: row.text,
+                x: row.left,
+                y: lineBox?.top ?? row.top,
+                width: row.width,
+                height: lineBox?.height ?? row.height,
+            };
+        }),
+        text: textState.outputLines.join('\n').trim(),
+    };
 }
 
 export function parseTsvOutput(tsvContent: string): IOcrWord[] {
-    const words: IOcrWord[] = [];
-    const lineBoxes = parseTsvLineBoxes(tsvContent);
-
-    for (const {
-        parts,
-        text,
-    } of iterateTsvWordRows(tsvContent)) {
-        const left = parseInt(parts[6]!, 10);
-        const top = parseInt(parts[7]!, 10);
-        const width = parseInt(parts[8]!, 10);
-        const height = parseInt(parts[9]!, 10);
-        const confidence = parseInt(parts[10]!, 10);
-
-        if (confidence < 20) continue;
-        if (width <= 0 || height <= 0) continue;
-
-        const lineBox = lineBoxes.get(getTsvLineKey(parts));
-
-        words.push({
-            text,
-            x: left,
-            y: lineBox?.top ?? top,
-            width,
-            height: lineBox?.height ?? height,
-        });
-    }
-
-    return words;
+    return parseTsvOcrData(tsvContent).words;
 }
 
 function getTsvLineKey(parts: string[]) {
@@ -369,22 +406,6 @@ function appendTsvTextRow(
     state.currentWords.push(row.text);
 }
 
-function parseTsvText(tsvContent: string) {
-    const state: ITsvTextState = {
-        currentLineKey: null,
-        currentWords: [],
-        outputLines: [],
-    };
-
-    for (const row of iterateTsvWordRows(tsvContent)) {
-        appendTsvTextRow(state, row);
-    }
-
-    flushTsvTextLine(state.outputLines, state.currentWords);
-
-    return state.outputLines.join('\n').trim();
-}
-
 function* iterateTsvRows(tsvContent: string): Generator<{
     parts: string[];
     text: string;
@@ -405,19 +426,5 @@ function* iterateTsvRows(tsvContent: string): Generator<{
             parts,
             text: (parts[11] || '').trim(),
         };
-    }
-}
-
-function* iterateTsvWordRows(tsvContent: string): Generator<{
-    parts: string[];
-    text: string;
-}> {
-    for (const row of iterateTsvRows(tsvContent)) {
-        const { parts } = row;
-
-        const level = parseInt(parts[0]!, 10);
-        if (level !== 5) continue;
-
-        yield row;
     }
 }
