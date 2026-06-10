@@ -25,6 +25,9 @@ import {
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { measureDevPerfAsync } from '@app/utils/devPerf';
 import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
+import { getDocumentsCapability } from '@app/utils/platformDocuments';
+import { toPdfDateString } from '@app/utils/pdfDate';
+import { getErrorMessage } from '@app/utils/error';
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 
@@ -182,6 +185,96 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             bytes: rasterizedBytes,
             mimeType: 'image/png',
         };
+    }
+
+    function toNativePlacedImagePayload(payload: IPdfSerializedPlacedImagePayload) {
+        if (
+            payload.mimeType !== 'image/jpeg'
+            || payload.bytes.length === 0
+            || !Number.isSafeInteger(payload.pageNumber)
+            || payload.pageNumber < 1
+        ) {
+            return null;
+        }
+
+        return {
+            pageIndex: payload.pageNumber - 1,
+            x: payload.x,
+            y: payload.y,
+            width: payload.width,
+            height: payload.height,
+            rotationDegrees: payload.rotationDegrees,
+            mimeType: 'image/jpeg' as const,
+            bytes: payload.bytes,
+        };
+    }
+
+    function bytesToHex(bytes: Uint8Array) {
+        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function createWorkingCopyExpectation(baseData: Uint8Array) {
+        if (typeof crypto === 'undefined' || !crypto.subtle) {
+            return null;
+        }
+        const hashInput = new Uint8Array(baseData.byteLength);
+        hashInput.set(baseData);
+        const digest = await crypto.subtle.digest('SHA-256', hashInput);
+        return {
+            byteLength: baseData.byteLength,
+            sha256: bytesToHex(new Uint8Array(digest)),
+        };
+    }
+
+    async function tryEmbedPlacedImageNative(
+        baseData: Uint8Array,
+        payload: IPdfSerializedPlacedImagePayload,
+    ) {
+        const workingPath = workingCopyPath.value;
+        const nativeImage = toNativePlacedImagePayload(payload);
+        const documents = getDocumentsCapability();
+        if (
+            !workingPath
+            || !nativeImage
+            || typeof documents.applyPdfNativeMutationsToWorkingCopy !== 'function'
+        ) {
+            return null;
+        }
+
+        try {
+            const expectedBase = await createWorkingCopyExpectation(baseData);
+            if (!expectedBase) {
+                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation skipped because base hashing is unavailable', {pageNumber: payload.pageNumber});
+                return null;
+            }
+            const result = await documents.applyPdfNativeMutationsToWorkingCopy(
+                workingPath,
+                {placedImages: [nativeImage]},
+                toPdfDateString(),
+                expectedBase,
+            );
+            if (!result.applied || !result.validation?.isValid) {
+                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation was not applied', {
+                    pageNumber: payload.pageNumber,
+                    validation: result.validation,
+                });
+                return null;
+            }
+            if (workingCopyPath.value !== workingPath) {
+                BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Skipped stale native placed image result', {
+                    workingPath,
+                    currentWorkingPath: workingCopyPath.value,
+                });
+                return null;
+            }
+            return toTransferableUint8Array(await readDocumentBytes(workingPath));
+        } catch (error) {
+            BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Native placed image mutation failed; falling back to pdf-lib', {
+                pageNumber: payload.pageNumber,
+                error: getErrorMessage(error),
+            });
+            return null;
+        }
     }
 
     function getFreeTextNoteComments(
@@ -378,8 +471,15 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         data: Uint8Array,
         placement: IPdfPlacedImageFinalizePayload,
     ) {
+        const serializedPlacement = await toSerializedPlacedImagePayload(placement);
+        if (serializedPlacement) {
+            const nativeResult = await tryEmbedPlacedImageNative(data, serializedPlacement);
+            if (nativeResult) {
+                return nativeResult;
+            }
+        }
         const payload = createEmptySavePayload();
-        payload.placedImage = await toSerializedPlacedImagePayload(placement);
+        payload.placedImage = serializedPlacement;
         return runSerializedEdit(data, payload);
     }
 

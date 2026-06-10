@@ -231,6 +231,29 @@ describe('page-ops qpdf working-copy mutations', () => {
         }
     });
 
+    it('accepts warning-only qpdf page counts', async () => {
+        runNativeToolCommandMock.mockResolvedValueOnce({
+            exitCode: 3,
+            stdout: '4\n',
+            stderr: 'WARNING: xref entry for the xref stream itself is missing\nqpdf: operation succeeded with warnings',
+        });
+
+        const { getPdfPageCount } = await import('@electron/features/page-ops/main/qpdf');
+
+        await expect(getPdfPageCount('/tmp/warn.pdf')).resolves.toBe(4);
+        expect(runNativeToolCommandMock).toHaveBeenCalledWith('/mock/qpdf', [
+            '--show-npages',
+            '/tmp/warn.pdf',
+        ], expect.objectContaining({
+            allowedExitCodes: [
+                0,
+                3,
+            ],
+            commandLabel: 'qpdf(page-count)',
+            timeoutMs: 120_000,
+        }));
+    });
+
     it('formats delete complements as compact qpdf ranges without prebuilding every page index', async () => {
         const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
         const workingCopyPath = join(workDir, 'work.pdf');

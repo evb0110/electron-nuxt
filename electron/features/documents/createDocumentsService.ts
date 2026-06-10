@@ -52,6 +52,7 @@ import {
     handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
 import {
+    handleNativePdfMutationsApplyToWorkingCopy,
     handleNativeNoteChangesSave,
     handleNativeNoteTextSave,
     handleNativePdfMutationsSave,
@@ -122,6 +123,8 @@ export function createDocumentsService(): IDocumentsService {
             handleNativeNoteChangesSave(event, workingPath, changes, modifiedAt),
         savePdfNativeMutations: (event, workingPath, mutations, modifiedAt) =>
             handleNativePdfMutationsSave(event, workingPath, mutations, modifiedAt),
+        applyPdfNativeMutationsToWorkingCopy: (event, workingPath, mutations, modifiedAt, expectedBase) =>
+            handleNativePdfMutationsApplyToWorkingCopy(event, workingPath, mutations, modifiedAt, expectedBase),
         beginSavePdfData: (event, workingPath, totalBytes) =>
             beginSerializedPdfSaveToOriginal(event, workingPath, totalBytes),
         cleanupFile: (event, workingPath) => {

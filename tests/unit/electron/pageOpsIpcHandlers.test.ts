@@ -601,5 +601,6 @@ describe('registerPageOpsHandlers', () => {
             force: true,
         });
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/a.pdf.index.json');
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/a.pdf.index.evb-search-v1.bin');
     });
 });

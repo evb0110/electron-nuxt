@@ -67,6 +67,8 @@ mac:
       to: pdf-image-combine/darwin-${arch}
     - from: .tmp/pdf-page-ops/darwin-${arch}
       to: pdf-page-ops/darwin-${arch}
+    - from: .tmp/pdf-search/darwin-${arch}
+      to: pdf-search/darwin-${arch}
 
 win:
   icon: resources/icon.ico
@@ -93,6 +95,8 @@ win:
       to: pdf-image-combine/win32-${arch}
     - from: .tmp/pdf-page-ops/win32-${arch}
       to: pdf-page-ops/win32-${arch}
+    - from: .tmp/pdf-search/win32-${arch}
+      to: pdf-search/win32-${arch}
 
 linux:
   icon: resources/icon.png
@@ -121,6 +125,8 @@ linux:
       to: pdf-image-combine/linux-${arch}
     - from: .tmp/pdf-page-ops/linux-${arch}
       to: pdf-page-ops/linux-${arch}
+    - from: .tmp/pdf-search/linux-${arch}
+      to: pdf-search/linux-${arch}
 
 nsis:
   oneClick: false

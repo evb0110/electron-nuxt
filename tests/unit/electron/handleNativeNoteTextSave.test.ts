@@ -13,6 +13,7 @@ import {
     rmSync,
     writeFileSync,
 } from 'fs';
+import { createHash } from 'crypto';
 import {
     appendFile,
     copyFile,
@@ -429,6 +430,78 @@ describe('handleNativeNoteTextSave', () => {
         await expect(savePromise).resolves.toMatchObject({applied: true});
         expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(originalPath, latestWorkingPath);
         expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native incremental update');
+    });
+
+    it('skips working-copy native mutations when the queued base expectation changes', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        writeFileSync(workingPath, 'base-before');
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockedMutation = deferred<undefined>();
+        const queuedMutation = enqueueWorkingCopyMutation(workingPath, async () => {
+            await blockedMutation.promise;
+            writeFileSync(workingPath, 'changed-before-native');
+        });
+        const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+
+        const savePromise = handleNativePdfMutationsApplyToWorkingCopy(
+            event,
+            workingPath,
+            {placedImages: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 0,
+                mimeType: 'image/jpeg',
+                bytes: new Uint8Array([
+                    0xFF,
+                    0xD8,
+                    0xFF,
+                ]),
+            }]},
+            'D:20260609133855+03\'00\'',
+            {
+                byteLength: Buffer.byteLength('base-before'),
+                sha256: createHash('sha256')
+                    .update('base-before')
+                    .digest('hex'),
+            },
+        );
+        await waitForSettledQueueTurn();
+
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+        blockedMutation.resolve(undefined);
+        await queuedMutation;
+        await expect(savePromise).resolves.toMatchObject({applied: false});
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+        expect(readFileSyncUtf8(workingPath)).toBe('changed-before-native');
+    });
+
+    it('rejects working-copy native mutations without a base expectation', async () => {
+        const { handleNativePdfMutationsApplyToWorkingCopy } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+
+        await expect(handleNativePdfMutationsApplyToWorkingCopy(
+            event,
+            join(tempRoot, 'working.pdf'),
+            {placedImages: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                rotationDegrees: 0,
+                mimeType: 'image/jpeg',
+                bytes: new Uint8Array([
+                    0xFF,
+                    0xD8,
+                    0xFF,
+                ]),
+            }]},
+            'D:20260609133855+03\'00\'',
+            undefined,
+        )).rejects.toThrow('Invalid native working-copy expectation');
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 });
 

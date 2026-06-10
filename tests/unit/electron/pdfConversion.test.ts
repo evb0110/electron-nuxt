@@ -21,6 +21,10 @@ const mocks = vi.hoisted(() => {
         isFile: () => true,
         size: 1024,
     }));
+    const nativeAssembler = vi.fn(async (
+        _inputPaths: string[],
+        _options?: unknown,
+    ) => null as Uint8Array | null);
     const convertDjvuToPdfFile = vi.fn(async () => ({
         success: true,
         outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
@@ -51,6 +55,7 @@ const mocks = vi.hoisted(() => {
         mkdtemp,
         rm,
         stat,
+        nativeAssembler,
         convertDjvuToPdfFile,
         create,
         load,
@@ -166,6 +171,11 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
 
+vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({tryCreatePdfFromInputPathsNative: (
+    inputPaths: string[],
+    options?: unknown,
+) => mocks.nativeAssembler(inputPaths, options)}));
+
 const { createPdfFromInputPaths } =
     await import('@electron/image/pdfConversion');
 
@@ -184,6 +194,31 @@ describe('createPdfFromInputPaths worker fallback', () => {
             isFile: () => true,
             size: 1024,
         });
+        mocks.nativeAssembler.mockResolvedValue(null);
+    });
+
+    it('uses the native assembler before spawning the pdf-lib worker for mixed PDF and image inputs', async () => {
+        const progress = vi.fn();
+        const nativeBytes = new Uint8Array([
+            6,
+            6,
+            6,
+        ]);
+        mocks.nativeAssembler.mockResolvedValueOnce(nativeBytes);
+
+        const inputPaths = [
+            '/tmp/input.pdf',
+            '/tmp/photo.png',
+            '/tmp/photo.jpg',
+            '/tmp/scan.tiff',
+        ];
+        const result = await createPdfFromInputPaths(inputPaths, {onProgress: progress});
+
+        expect(result).toBe(nativeBytes);
+        expect(mocks.nativeAssembler).toHaveBeenCalledWith(inputPaths, {onProgress: progress});
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
     });
 
     it('falls back to in-process conversion when worker startup fails', async () => {

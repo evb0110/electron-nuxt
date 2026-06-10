@@ -36,6 +36,7 @@
                         source: Some("editor-live".to_string()),
                     }],
                 }),
+                placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
         )
@@ -101,6 +102,7 @@
                         source: Some("pdf".to_string()),
                     }],
                 }),
+                placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
         )
@@ -144,6 +146,7 @@
                     deleted_stable_keys: Vec::new(),
                 }),
                 markup: None,
+                placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
         )
@@ -207,6 +210,7 @@
                     deleted_stable_keys: Vec::new(),
                 }),
                 markup: None,
+                placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
         )
@@ -232,6 +236,7 @@
                     deleted_stable_keys: vec!["evb-shape:delete".to_string()],
                 }),
                 markup: None,
+                placed_images: Vec::new(),
             },
             "D:20260609123500+03'00'",
         )

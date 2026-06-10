@@ -1307,6 +1307,8 @@ export const usePdfFile = () => {
         const hasBookmarks = mutations.bookmarks !== undefined;
         const hasShapes = mutations.shapes !== undefined;
         const hasMarkup = mutations.markup !== undefined;
+        const placedImages = mutations.placedImages ?? [];
+        const hasPlacedImages = placedImages.length > 0;
         if (
             freeTextNotes.length === 0
             && updates.length === 0
@@ -1315,6 +1317,7 @@ export const usePdfFile = () => {
             && !hasBookmarks
             && !hasShapes
             && !hasMarkup
+            && !hasPlacedImages
         ) {
             return null;
         }
@@ -1324,6 +1327,7 @@ export const usePdfFile = () => {
             && !hasBookmarks
             && !hasShapes
             && !hasMarkup
+            && !hasPlacedImages
             && freeTextNotes.length === 0
             && deletes.length === 0
             && updates.length > 0
@@ -1334,6 +1338,7 @@ export const usePdfFile = () => {
             && !hasBookmarks
             && !hasShapes
             && !hasMarkup
+            && !hasPlacedImages
             && (freeTextNotes.length > 0 || deletes.length > 0)
             && typeof documents.savePdfNoteChanges === 'function'
         );
@@ -1369,6 +1374,7 @@ export const usePdfFile = () => {
                 bookmarks: hasBookmarks,
                 shapes: hasShapes,
                 markup: hasMarkup,
+                placedImageCount: placedImages.length,
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,
                 ...extra,
@@ -1465,6 +1471,7 @@ export const usePdfFile = () => {
                 bookmarks: hasBookmarks,
                 shapes: hasShapes,
                 markup: hasMarkup,
+                placedImageCount: placedImages.length,
                 saveMode: requestedSaveMode,
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,

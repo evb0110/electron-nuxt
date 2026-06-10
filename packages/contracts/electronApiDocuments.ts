@@ -160,11 +160,23 @@ export interface IPdfNativeMarkupMutation {
     hints: IPdfNativeMarkupSubtypeHint[];
 }
 
+export interface IPdfNativePlacedImage {
+    pageIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotationDegrees?: number | null;
+    mimeType: 'image/jpeg';
+    bytes: Uint8Array;
+}
+
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
     pageLabels?: IPdfNativePageLabelsMutation;
     bookmarks?: IPdfNativeBookmarksMutation;
     shapes?: IPdfNativeShapesMutation;
     markup?: IPdfNativeMarkupMutation;
+    placedImages?: IPdfNativePlacedImage[];
 }
 
 export interface IPdfNativeNoteTextSaveResult {
@@ -173,6 +185,11 @@ export interface IPdfNativeNoteTextSaveResult {
 }
 
 export interface IPdfNativeSaveResult extends IPdfNativeNoteTextSaveResult {}
+
+export interface IPdfNativeWorkingCopyExpectation {
+    byteLength: number;
+    sha256: string;
+}
 
 export interface IImageExportCapability {
     exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
@@ -287,6 +304,12 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
+    ) => Promise<IPdfNativeSaveResult>;
+    applyPdfNativeMutationsToWorkingCopy?: (
+        path: TDocumentRef,
+        mutations: IPdfNativeMutationSet,
+        modifiedAt: string,
+        expectedBase: IPdfNativeWorkingCopyExpectation,
     ) => Promise<IPdfNativeSaveResult>;
     savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array) => Promise<{
         path: TDocumentRef | null;

@@ -8,6 +8,7 @@ import type {
     IPdfNativeNoteChanges,
     IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
+    IPdfNativeWorkingCopyExpectation,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
@@ -103,6 +104,13 @@ export interface IDocumentsService {
         workingPath: string,
         mutations: IPdfNativeMutationSet,
         modifiedAt: string,
+    ) => Promise<IPdfNativeSaveResult>;
+    applyPdfNativeMutationsToWorkingCopy: (
+        event: IpcMainInvokeEvent,
+        workingPath: string,
+        mutations: IPdfNativeMutationSet,
+        modifiedAt: string,
+        expectedBase: IPdfNativeWorkingCopyExpectation,
     ) => Promise<IPdfNativeSaveResult>;
     beginSavePdfData: (
         event: IpcMainInvokeEvent,

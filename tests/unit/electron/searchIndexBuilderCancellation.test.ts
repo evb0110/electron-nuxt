@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     extractTextFromPdf: vi.fn(),
     extractTextWithPdfjs: vi.fn(),
+    loadCompactSearchIndex: vi.fn(),
+    persistCompactSearchIndex: vi.fn(),
+    persistCompactSearchIndexBestEffort: vi.fn(),
 }));
 
 vi.mock('fs', () => ({existsSync: mocks.existsSync}));
@@ -33,6 +36,16 @@ vi.mock('@electron/search/extractTextWithPdfjs', () => ({extractTextWithPdfjs: m
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
     makeSiblingTempPath: (targetPath: string) => `${targetPath}.tmp`,
+}));
+
+vi.mock('@electron/search/searchIndexSidecar', () => ({
+    COMPACT_SEARCH_INDEX_MAGIC: 'EVBSIDX1',
+    COMPACT_SEARCH_INDEX_SCHEMA_VERSION: 1,
+    COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER: 1,
+    getCompactSearchIndexPath: (pdfPath: string) => `${pdfPath}.index.evb-search-v1.bin`,
+    loadCompactSearchIndex: mocks.loadCompactSearchIndex,
+    persistCompactSearchIndex: mocks.persistCompactSearchIndex,
+    persistCompactSearchIndexBestEffort: mocks.persistCompactSearchIndexBestEffort,
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -62,6 +75,9 @@ describe('buildSearchIndex cancellation', () => {
         mocks.stat.mockResolvedValue({ size: 0 });
         mocks.atomicReplace.mockResolvedValue(undefined);
         mocks.writeFile.mockResolvedValue(undefined);
+        mocks.loadCompactSearchIndex.mockResolvedValue(null);
+        mocks.persistCompactSearchIndex.mockResolvedValue(undefined);
+        mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
     });
 
     it('forwards signal to PDF text extractors', async () => {
@@ -134,6 +150,8 @@ describe('buildSearchIndex assembly', () => {
         mocks.readFile.mockRejectedValue(new Error('ENOENT'));
         mocks.stat.mockResolvedValue({ size: 0 });
         mocks.writeFile.mockResolvedValue(undefined);
+        mocks.loadCompactSearchIndex.mockResolvedValue(null);
+        mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
     });
 
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
@@ -374,6 +392,103 @@ describe('buildSearchIndex assembly', () => {
         expect(result.textSource).toEqual({
             kind: 'ocr-v2-text-layer',
             version: 1,
+        });
+        expect(mocks.persistCompactSearchIndexBestEffort).toHaveBeenCalledWith('/tmp/file.pdf', {
+            pageCount: 2,
+            pages: [
+                expect.objectContaining({
+                    pageNumber: 1,
+                    text: 'alpha beta \n',
+                }),
+                expect.objectContaining({
+                    pageNumber: 2,
+                    text: 'line \ntwo \n',
+                }),
+            ],
+            textSource: {
+                kind: 1,
+                version: 1,
+            },
+        }, undefined);
+    });
+
+    it('uses a fresh compact OCR search sidecar before reading page JSON', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        mocks.existsSync.mockReturnValue(true);
+        const manifest = {
+            version: 2,
+            createdAt: 1,
+            source: { pdfPath: '/tmp/file.pdf' },
+            pageCount: 2,
+            pageBox: 'cropped',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: { path: 'page-1.json' },
+                2: { path: 'page-2.json' },
+            },
+        };
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify(manifest);
+            }
+            throw new Error(`Unexpected page JSON read: ${path}`);
+        });
+        mocks.stat.mockResolvedValue({
+            size: 0,
+            mtimeMs: 10,
+        });
+        mocks.loadCompactSearchIndex.mockResolvedValue({
+            pageCount: 2,
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: 'compact one',
+                },
+                {
+                    pageNumber: 2,
+                    text: 'compact two',
+                },
+            ],
+        });
+
+        const onPageIndexed = vi.fn();
+        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            pageCount: 2,
+            onPageIndexed,
+        });
+
+        expect(mocks.loadCompactSearchIndex).toHaveBeenCalledWith('/tmp/file.pdf', {
+            expectedPageCount: 2,
+            minSourceMtimeMs: 10,
+            requiredTextSource: {
+                kind: 1,
+                version: 1,
+            },
+        });
+        expect(mocks.readFile).toHaveBeenCalledOnce();
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'compact one',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'compact two',
+            }),
+        ]);
+        expect(onPageIndexed).toHaveBeenCalledWith({
+            pageNumber: 1,
+            text: 'compact one',
+        });
+        expect(onPageIndexed).toHaveBeenCalledWith({
+            pageNumber: 2,
+            text: 'compact two',
         });
     });
 

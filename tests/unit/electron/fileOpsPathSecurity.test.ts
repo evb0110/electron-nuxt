@@ -80,6 +80,7 @@ const {
     handleReplaceWorkingCopyFromPath,
 } = await import('@electron/features/documents/main/documentFileWriteHandlers');
 const { handleAnalyzePdfConformance } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
+const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
 
 describe('fileOps path security', () => {
     const event = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
@@ -173,6 +174,24 @@ describe('fileOps path security', () => {
         );
     });
 
+    it('queues managed working copy writes behind pending mutations', async () => {
+        const blockedMutation = deferred<undefined>();
+        const queuedMutation = enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', () => blockedMutation.promise);
+
+        const writePromise = handleFileWrite(
+            {} as never,
+            '/tmp/electron-test/safe.pdf',
+            new Uint8Array([9]),
+        );
+        await waitForSettledQueueTurn();
+
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+        blockedMutation.resolve(undefined);
+        await queuedMutation;
+        await writePromise;
+        expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
+    });
+
     it('allows writes through standard macOS temp path aliases', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/var/folders/evb/safe.pdf');
         mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === '/var'}));
@@ -234,7 +253,7 @@ describe('fileOps path security', () => {
             new Uint8Array([9]),
         );
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(2);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(3);
         expect(mocks.writeFile).toHaveBeenCalledTimes(2);
     });
 
@@ -483,3 +502,23 @@ describe('fileOps path security', () => {
         );
     });
 });
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
+
+async function waitForSettledQueueTurn() {
+    await Promise.resolve();
+    await Promise.resolve();
+}

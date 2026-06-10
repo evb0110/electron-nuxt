@@ -179,6 +179,7 @@ function resignBundledNativeToolPayloads(appPath, identity) {
         path.join(resourcesDir, 'poppler'),
         path.join(resourcesDir, 'pdf-image-combine'),
         path.join(resourcesDir, 'pdf-page-ops'),
+        path.join(resourcesDir, 'pdf-search'),
         path.join(resourcesDir, 'qpdf'),
         path.join(resourcesDir, 'tesseract'),
     ];

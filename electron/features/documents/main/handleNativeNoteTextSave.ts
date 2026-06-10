@@ -1,5 +1,7 @@
+import { createHash } from 'crypto';
 import {
     mkdtemp,
+    readFile,
     rm,
     stat,
     writeFile,
@@ -22,6 +24,7 @@ import type {
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeShapesMutation,
+    IPdfNativeWorkingCopyExpectation,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
@@ -59,6 +62,8 @@ const MAX_NATIVE_SHAPE_POINTS = 20_000;
 const MAX_NATIVE_SHAPE_TEXT_LENGTH = 2_048;
 const MAX_NATIVE_MARKUP_ITEMS = 4_096;
 const MAX_NATIVE_MARKUP_TEXT_LENGTH = 2_048;
+const MAX_NATIVE_PLACED_IMAGES = 16;
+const MAX_NATIVE_PLACED_IMAGE_BYTES = 128 * 1024 * 1024;
 const PDF_NATIVE_PAGE_LABEL_STYLES = new Set([
     'D',
     'R',
@@ -93,6 +98,7 @@ const PDF_NATIVE_MARKUP_SUBTYPES = new Set([
     'StrikeOut',
     'Squiggly',
 ]);
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/iu;
 const log = createLogger('native-note-text-save');
 
 interface INativeNoteCommandOptions {
@@ -102,6 +108,19 @@ interface INativeNoteCommandOptions {
     payload: unknown;
     commandLabel: string;
 }
+
+interface INativePlacedImagePayload {
+    pageIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotationDegrees: number | null;
+    mimeType: 'image/jpeg';
+    bytes: number[];
+}
+
+type TNativePdfMutationPayload = Omit<IPdfNativeMutationSet, 'placedImages'> & { placedImages?: INativePlacedImagePayload[]; };
 
 interface INativeNotePhaseTiming {
     phase: string;
@@ -139,6 +158,43 @@ function normalizeModifiedAt(modifiedAt: unknown) {
         throw new Error('Invalid PDF modification timestamp');
     }
     return normalized;
+}
+
+function normalizeWorkingCopyExpectation(rawExpectedBase: unknown): IPdfNativeWorkingCopyExpectation {
+    if (rawExpectedBase === undefined || rawExpectedBase === null) {
+        throw new Error('Invalid native working-copy expectation');
+    }
+    if (!rawExpectedBase || typeof rawExpectedBase !== 'object') {
+        throw new Error('Invalid native working-copy expectation');
+    }
+    const candidate = rawExpectedBase as Partial<IPdfNativeWorkingCopyExpectation>;
+    if (
+        typeof candidate.byteLength !== 'number'
+        || !Number.isSafeInteger(candidate.byteLength)
+        || candidate.byteLength <= 0
+        || typeof candidate.sha256 !== 'string'
+        || !SHA256_HEX_PATTERN.test(candidate.sha256)
+    ) {
+        throw new Error('Invalid native working-copy expectation');
+    }
+    return {
+        byteLength: candidate.byteLength,
+        sha256: candidate.sha256.toLowerCase(),
+    };
+}
+
+async function workingCopyMatchesExpectation(
+    workingPath: string,
+    expectedBase: IPdfNativeWorkingCopyExpectation,
+) {
+    const bytes = await readFile(workingPath);
+    if (bytes.byteLength !== expectedBase.byteLength) {
+        return false;
+    }
+    const sha256 = createHash('sha256')
+        .update(bytes)
+        .digest('hex');
+    return sha256 === expectedBase.sha256;
 }
 
 function normalizeNoteTextUpdates(updates: unknown) {
@@ -790,6 +846,77 @@ function normalizeMarkupMutation(rawMarkup: unknown): IPdfNativeMutationSet['mar
     };
 }
 
+function normalizeNativePlacedImageBytes(rawBytes: unknown, label: string) {
+    if (rawBytes instanceof Uint8Array) {
+        if (rawBytes.byteLength === 0 || rawBytes.byteLength > MAX_NATIVE_PLACED_IMAGE_BYTES) {
+            throw new Error(`Invalid native placed image bytes at ${label}`);
+        }
+        return Array.from(rawBytes);
+    }
+    if (Array.isArray(rawBytes)) {
+        if (rawBytes.length === 0 || rawBytes.length > MAX_NATIVE_PLACED_IMAGE_BYTES) {
+            throw new Error(`Invalid native placed image bytes at ${label}`);
+        }
+        return rawBytes.map((byte, byteIndex) => {
+            if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 255) {
+                throw new Error(`Invalid native placed image byte at ${label}.${byteIndex}`);
+            }
+            return byte;
+        });
+    }
+    throw new Error(`Invalid native placed image bytes at ${label}`);
+}
+
+function normalizeNativePlacedImages(rawPlacedImages: unknown) {
+    if (rawPlacedImages === undefined) {
+        return [];
+    }
+    if (!Array.isArray(rawPlacedImages) || rawPlacedImages.length > MAX_NATIVE_PLACED_IMAGES) {
+        throw new Error('Invalid native placed image list');
+    }
+
+    return rawPlacedImages.map((image, index): INativePlacedImagePayload => {
+        if (!image || typeof image !== 'object') {
+            throw new Error(`Invalid native placed image at index ${index}`);
+        }
+        const candidate = image as Record<string, unknown>;
+        if (
+            typeof candidate.pageIndex !== 'number'
+            || !Number.isSafeInteger(candidate.pageIndex)
+            || candidate.pageIndex < 0
+            || candidate.mimeType !== 'image/jpeg'
+        ) {
+            throw new Error(`Invalid native placed image at index ${index}`);
+        }
+        const bounds = normalizeNativeMarkerRect({
+            left: candidate.x,
+            top: candidate.y,
+            width: candidate.width,
+            height: candidate.height,
+        }, `Native placed image ${index}`);
+        const rotationDegrees = candidate.rotationDegrees === undefined || candidate.rotationDegrees === null
+            ? null
+            : candidate.rotationDegrees;
+        if (
+            rotationDegrees !== null
+            && (typeof rotationDegrees !== 'number' || !Number.isFinite(rotationDegrees))
+        ) {
+            throw new Error(`Invalid native placed image rotation at index ${index}`);
+        }
+        const bytes = normalizeNativePlacedImageBytes(candidate.bytes, `index ${index}`);
+        return {
+            pageIndex: candidate.pageIndex,
+            x: bounds.left,
+            y: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+            rotationDegrees,
+            mimeType: 'image/jpeg',
+            bytes,
+        };
+    });
+}
+
 function normalizeShapesMutation(rawShapes: unknown): IPdfNativeShapesMutation | null {
     if (rawShapes === undefined) {
         return null;
@@ -817,7 +944,7 @@ function normalizeShapesMutation(rawShapes: unknown): IPdfNativeShapesMutation |
     };
 }
 
-function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSet {
+function normalizeNativeMutationSet(rawMutations: unknown): TNativePdfMutationPayload {
     if (!rawMutations || typeof rawMutations !== 'object') {
         throw new Error('Invalid native PDF mutations');
     }
@@ -829,12 +956,14 @@ function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSe
     const bookmarks = normalizeBookmarksMutation(candidate.bookmarks);
     const shapes = normalizeShapesMutation(candidate.shapes);
     const markup = normalizeMarkupMutation(candidate.markup);
+    const placedImages = normalizeNativePlacedImages(candidate.placedImages);
     if (
         updates.length + freeTextNotes.length + deletes.length === 0
         && !pageLabels
         && !bookmarks
         && !shapes
         && !markup
+        && placedImages.length === 0
     ) {
         throw new Error('At least one native PDF mutation is required');
     }
@@ -849,6 +978,7 @@ function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSe
         ...(bookmarks ? {bookmarks} : {}),
         ...(shapes ? {shapes} : {}),
         ...(markup ? {markup} : {}),
+        ...(placedImages.length > 0 ? {placedImages} : {}),
     };
 }
 
@@ -1005,6 +1135,101 @@ async function runNativeNoteCommand(
     });
 }
 
+async function runNativeWorkingCopyCommand(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: unknown,
+    rawModifiedAt: unknown,
+    rawExpectedBase: unknown,
+    options: INativeNoteCommandOptions,
+): Promise<IPdfNativeNoteTextSaveResult> {
+    const normalizedWorkingPath = normalizeWorkingPath(workingPath);
+    const modifiedAt = normalizeModifiedAt(rawModifiedAt);
+    const expectedBase = normalizeWorkingCopyExpectation(rawExpectedBase);
+
+    if (isNativePageOpsDisabled()) {
+        return createNotAppliedResult();
+    }
+
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) {
+        return createNotAppliedResult();
+    }
+
+    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+        throw new Error('Working copy path is not managed');
+    }
+
+    return enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        const phaseTimings: INativeNotePhaseTiming[] = [];
+        const operationStart = performance.now();
+        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, event.sender.id)) {
+            throw new Error('Working copy path is not managed');
+        }
+        if (!await workingCopyMatchesExpectation(normalizedWorkingPath, expectedBase)) {
+            log.debug(`Native working-copy mutation skipped because base expectation no longer matches: ${JSON.stringify({
+                command: options.command,
+                totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
+            })}`);
+            return createNotAppliedResult();
+        }
+
+        const tempPath = makeSiblingTempPath(normalizedWorkingPath);
+        const tempDir = await mkdtemp(join(tmpdir(), 'pdf-working-copy-mutation-'));
+        const payloadFilePath = join(tempDir, options.payloadFileName);
+        try {
+            await measureNativeNotePhase(phaseTimings, 'write-payload', () =>
+                writeFile(payloadFilePath, JSON.stringify(options.payload)));
+            await measureNativeNotePhase(phaseTimings, 'clone-working-to-temp', () =>
+                copyFileCopyOnWrite(normalizedWorkingPath, tempPath));
+            await measureNativeNotePhase(phaseTimings, 'native-command', () =>
+                runNativeToolCommand(binaryPath, [
+                    options.command,
+                    '--input',
+                    tempPath,
+                    '--output',
+                    tempPath,
+                    options.payloadFlag,
+                    payloadFilePath,
+                    '--modified-at',
+                    modifiedAt,
+                    '--append',
+                ], {
+                    timeoutMs: NATIVE_NOTE_TEXT_TIMEOUT_MS,
+                    commandLabel: options.commandLabel,
+                }));
+            await measureNativeNotePhase(phaseTimings, 'assert-output', () =>
+                assertNativeOutputReady(tempPath));
+            const validation = createNativeValidationResult();
+
+            await measureNativeNotePhase(phaseTimings, 'atomic-replace-working-copy', () =>
+                atomicReplace(tempPath, normalizedWorkingPath));
+            log.debug(`Native working-copy mutation phase timings: ${JSON.stringify({
+                command: options.command,
+                totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
+                phases: phaseTimings,
+            })}`);
+            return {
+                applied: true,
+                validation,
+            };
+        } catch (error) {
+            log.debug(`Native working-copy mutation failed, falling back to pdf-lib: ${JSON.stringify({
+                command: options.command,
+                totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
+                phases: phaseTimings,
+                error: getErrorMessage(error),
+            })}`);
+            return createNotAppliedResult();
+        } finally {
+            await cleanupTempPath(tempPath);
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            }).catch(() => undefined);
+        }
+    });
+}
+
 export async function handleNativeNoteTextSave(
     event: Electron.IpcMainInvokeEvent,
     workingPath: unknown,
@@ -1050,5 +1275,22 @@ export async function handleNativePdfMutationsSave(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations)',
+    });
+}
+
+export async function handleNativePdfMutationsApplyToWorkingCopy(
+    event: Electron.IpcMainInvokeEvent,
+    workingPath: unknown,
+    rawMutations: unknown,
+    rawModifiedAt: unknown,
+    rawExpectedBase: unknown,
+): Promise<IPdfNativeNoteTextSaveResult> {
+    const mutations = normalizeNativeMutationSet(rawMutations);
+    return runNativeWorkingCopyCommand(event, workingPath, rawModifiedAt, rawExpectedBase, {
+        command: 'save-mutations',
+        payloadFileName: 'mutations.json',
+        payloadFlag: '--mutations-file',
+        payload: mutations,
+        commandLabel: 'evb-pdf-page-ops(save-mutations-working-copy)',
     });
 }

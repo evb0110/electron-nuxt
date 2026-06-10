@@ -39,6 +39,7 @@
                 }),
                 shapes: None,
                 markup: None,
+                placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
         )
@@ -149,6 +150,7 @@
                 }),
                 shapes: None,
                 markup: None,
+                placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
         )

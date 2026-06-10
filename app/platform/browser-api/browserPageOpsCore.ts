@@ -12,6 +12,7 @@ import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
 } from '@pdf-core';
+import { tryRunBrowserPageOpsWithWasm } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
 function toSavedPdfResult(
     pdfDocument: PDFDocument,
@@ -178,6 +179,14 @@ export async function deletePdfPages(
     data: Uint8Array,
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('deletePages', {
+        data,
+        pages,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     const sourcePdf = await PDFDocument.load(data);
     const removePages = validatePageNumbers(pages, 'deletePages', {
         pageCount: sourcePdf.getPageCount(),
@@ -195,6 +204,14 @@ export async function extractPdfPages(
     data: Uint8Array,
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('extractPages', {
+        data,
+        pages,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     const sourcePdf = await PDFDocument.load(data);
     validatePageNumbers(pages, 'extractPages', {
         pageCount: sourcePdf.getPageCount(),
@@ -212,6 +229,14 @@ export async function reorderPdfPages(
     data: Uint8Array,
     newOrder: number[],
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('reorderPages', {
+        data,
+        newOrder,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     const sourcePdf = await PDFDocument.load(data);
     validatePageNumbers(newOrder, 'reorderPages', {
         pageCount: sourcePdf.getPageCount(),
@@ -231,6 +256,15 @@ export async function insertPdfPages(
     insertionData: Uint8Array,
     afterPage: number,
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('insertPages', {
+        data,
+        insertionData,
+        afterPage,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     const destinationPdf = await PDFDocument.load(data);
     const insertionPdf = await PDFDocument.load(insertionData);
     if (!Number.isInteger(afterPage) || afterPage < 0 || afterPage > destinationPdf.getPageCount()) {
@@ -264,6 +298,15 @@ export async function rotatePdfBytes(
     pages: number[],
     angle: 90 | 180 | 270,
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('rotate', {
+        data,
+        pages,
+        angle,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     return mutateValidatedPdfPages(data, pages, 'rotatePages', (page) => {
         const currentRotation = page.getRotation().angle;
         page.setRotation(
@@ -277,6 +320,15 @@ export async function cropPdfBytes(
     pages: number[],
     margins: ICropMargins,
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('crop', {
+        data,
+        pages,
+        margins,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     return mutateValidatedPdfPages(data, pages, 'cropPages', (page) => {
         const cropBox = getCropBoxFromMargins(resolvePdfLibMediaBox(page), margins);
         if (cropBox.width <= 0 || cropBox.height <= 0) {
@@ -296,6 +348,14 @@ export async function removeCropPdfBytes(
     data: Uint8Array,
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('removeCrop', {
+        data,
+        pages,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     return mutateValidatedPdfPages(data, pages, 'removeCrop', (page) => {
         const mediaBox = resolvePdfLibMediaBox(page);
         page.setCropBox(
@@ -311,6 +371,14 @@ export async function getPageGeometryFromPdfBytes(
     data: Uint8Array,
     pageNumber: number,
 ): Promise<IPageGeometry> {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('getPageGeometry', {
+        data,
+        pageNumber,
+    });
+    if (wasmResult) {
+        return wasmResult;
+    }
+
     const pdfDocument = await PDFDocument.load(data);
     const page = pdfDocument.getPage(pageNumber - 1);
     if (!page) {

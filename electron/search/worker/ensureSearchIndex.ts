@@ -206,6 +206,30 @@ function shouldRebuildCachedIndex(
     return inRangeCount < expectedCount;
 }
 
+function isNativeSearchSidecarDisabledForRuntime() {
+    return process.env.EVB_PDF_SEARCH_DISABLE === '1'
+        || (process.env.VITEST === 'true' && process.env.EVB_PDF_SEARCH_ENABLE !== '1');
+}
+
+async function ensureNativeSearchSidecar(
+    pdfPath: string,
+    entry: ICachedIndex,
+    signal?: AbortSignal,
+) {
+    if (isNativeSearchSidecarDisabledForRuntime()) {
+        return;
+    }
+
+    try {
+        const { ensureNativeSearchIndexBestEffort } = await import('@electron/search/nativeSearchIndex');
+        await ensureNativeSearchIndexBestEffort(pdfPath, entry.index, signal);
+    } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+            throw error;
+        }
+    }
+}
+
 export async function ensureSearchIndex(
     indexCache: Map<string, ICachedIndex>,
     pdfPath: string,
@@ -236,6 +260,7 @@ export async function ensureSearchIndex(
             await buildSearchIndex(pdfPath, [], buildOptions),
             cacheOptions,
         );
+        await ensureNativeSearchSidecar(pdfPath, entry, signal);
         return entry;
     }
 
@@ -244,5 +269,6 @@ export async function ensureSearchIndex(
         entry.validatedTextBudget = true;
     }
 
+    await ensureNativeSearchSidecar(pdfPath, entry, signal);
     return entry;
 }
