@@ -16,6 +16,7 @@ import {
     shouldDisableAutomationSandbox,
     shouldUseMacOSHiddenAppLauncher,
 } from '@scripts/electron-run/electronRunLaunchConfig';
+import { checkNuxtHttpReadiness } from '@scripts/electron-run/electronRunNuxtServer';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
     hasOtherAliveSessionUsingNuxt,
@@ -278,6 +279,36 @@ describe('sessionManager automation launch args', () => {
             poweredBy: 'Nuxt',
             body: '<main>unrelated app</main>',
         })).toBe(false);
+    });
+
+    it('checks the Electron route for Nuxt HTTP readiness', async () => {
+        const calls: Array<Parameters<typeof fetch>> = [];
+        const fetchImpl = (async (...args: Parameters<typeof fetch>) => {
+            calls.push(args);
+            return {ok: true} as Response;
+        }) as typeof fetch;
+
+        await expect(checkNuxtHttpReadiness({
+            fetchImpl,
+            timeoutMs: 1234,
+        })).resolves.toBe(true);
+
+        expect(calls).toHaveLength(1);
+        const [
+            url,
+            init,
+        ] = calls[0] ?? [];
+        expect(url).toBe('http://127.0.0.1:3235/electron');
+        expect(init).toMatchObject({method: 'GET'});
+        expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('treats failed Nuxt HTTP readiness probes as not ready', async () => {
+        const fetchImpl = (async () => {
+            throw new Error('connection refused');
+        }) as typeof fetch;
+
+        await expect(checkNuxtHttpReadiness({fetchImpl})).resolves.toBe(false);
     });
 
     it('cleans only stale session-owned Nuxt port owners', () => {
