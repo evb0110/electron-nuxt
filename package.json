@@ -27,6 +27,7 @@
     "build:icons": "bash scripts/build-icons.sh",
     "build:electron": "node scripts/build-electron.mjs",
     "build:pdf-image-combine": "node scripts/build-pdf-image-combine.mjs",
+    "build:pdf-image-combine-wasm": "node scripts/build-pdf-image-combine-wasm.mjs",
     "build:pdf-page-ops": "node scripts/build-pdf-page-ops.mjs",
     "preview": "pnpm exec nuxi preview",
     "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs",

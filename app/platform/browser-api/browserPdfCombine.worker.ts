@@ -11,6 +11,7 @@ import {
     getBrowserFileExtension,
     toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
+import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -132,6 +133,11 @@ async function appendInputToPdfDocument(
 async function handleCombinePdfsRequest(
     request: IBrowserPdfCombineWorkerRequest<'combinePdfs'>,
 ) {
+    const wasmResult = await tryCombineImageInputsWithWasm(request.payload.inputs);
+    if (wasmResult) {
+        return {data: wasmResult};
+    }
+
     const pdfDocument = await PDFDocument.create();
 
     for (const input of request.payload.inputs) {

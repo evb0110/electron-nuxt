@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Read, Seek},
+    io::{BufReader, BufWriter, Cursor, Read, Seek},
     path::{Path, PathBuf},
 };
 
@@ -25,14 +25,45 @@ pub(crate) fn read_tiff_pdf_pages(
     max_tiff_frames: usize,
 ) -> Result<Vec<ImagePage>> {
     let file = File::open(path)?;
-    let mut decoder = Decoder::new(BufReader::new(file))?;
+    read_tiff_pdf_pages_from_reader(
+        file,
+        &path.display().to_string(),
+        max_pixels,
+        default_dpi,
+        max_tiff_frames,
+    )
+}
+
+pub(crate) fn read_tiff_pdf_pages_from_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+) -> Result<Vec<ImagePage>> {
+    read_tiff_pdf_pages_from_reader(
+        Cursor::new(bytes),
+        "in-memory TIFF",
+        max_pixels,
+        default_dpi,
+        max_tiff_frames,
+    )
+}
+
+fn read_tiff_pdf_pages_from_reader<R: Read + Seek>(
+    reader: R,
+    source_label: &str,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+) -> Result<Vec<ImagePage>> {
+    let mut decoder = Decoder::new(BufReader::new(reader))?;
     let mut pages = Vec::new();
 
     loop {
         if pages.len() >= max_tiff_frames {
             return Err(format!(
                 "TIFF frame count is capped at {max_tiff_frames}: {}",
-                path.display()
+                source_label,
             )
             .into());
         }
@@ -55,7 +86,7 @@ pub(crate) fn read_tiff_pdf_pages(
     }
 
     if pages.is_empty() {
-        return Err(format!("No decodable TIFF pages found in {}", path.display()).into());
+        return Err(format!("No decodable TIFF pages found in {source_label}").into());
     }
 
     Ok(pages)

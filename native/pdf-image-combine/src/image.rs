@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::BufReader,
+    io::{BufReader, Cursor},
     path::Path,
 };
 
@@ -10,7 +10,7 @@ use crate::{
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
     pdf::{ImagePage, ImagePayload},
     png::parse_png_reader,
-    tiff_io::read_tiff_pdf_pages,
+    tiff_io::{read_tiff_pdf_pages, read_tiff_pdf_pages_from_bytes},
     Result, DEFAULT_DPI,
 };
 
@@ -43,9 +43,43 @@ pub(crate) fn read_image_pages(
     Ok(vec![page])
 }
 
+pub(crate) fn read_image_pages_from_bytes(
+    file_name: &str,
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+) -> Result<Vec<ImagePage>> {
+    let extension = file_name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if extension == "tif" || extension == "tiff" {
+        return read_tiff_pdf_pages_from_bytes(bytes, max_pixels, default_dpi, max_tiff_frames);
+    }
+
+    let page = match extension.as_str() {
+        "png" => read_png_page_from_reader(Cursor::new(bytes), max_pixels, default_dpi)?,
+        "jpg" | "jpeg" => read_jpeg_page(bytes.to_vec(), max_pixels, default_dpi)?,
+        "pgm" | "ppm" => read_netpbm_page(bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?,
+        _ => return Err(format!("Unsupported image extension: {file_name}").into()),
+    };
+
+    Ok(vec![page])
+}
+
 fn read_png_page(path: &Path, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
     let file = File::open(path)?;
-    let png = parse_png_reader(BufReader::new(file))?;
+    read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi)
+}
+
+fn read_png_page_from_reader<R: std::io::Read>(
+    reader: R,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+) -> Result<ImagePage> {
+    let png = parse_png_reader(reader)?;
     assert_pixel_limit(png.width, png.height, max_pixels)?;
 
     let (colors, color_space) = match png.color_type {
