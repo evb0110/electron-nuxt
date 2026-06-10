@@ -351,10 +351,10 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
 }
 
 export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
-    const clicked = await evaluateInPage(page, (args: {
+    const tryClickInlineButton = () => evaluateInPage(page, (args: {
         label: string;
         iconHints: string[];
-    }) => {
+    }): 'clicked' | 'disabled' | 'not-found' => {
         const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
             const ariaLabel = element.getAttribute('aria-label')?.trim() ?? '';
             if (ariaLabel === label || ariaLabel.startsWith(`${label} (`)) {
@@ -364,9 +364,8 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         };
 
         const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'));
-        const target = buttons.find((button) => {
-            const isDisabled = button.disabled || button.getAttribute('aria-disabled') === 'true';
-            if (!matchesToolbarAction(button, args.label, args.iconHints) || isDisabled) {
+        const candidates = buttons.filter((button) => {
+            if (!matchesToolbarAction(button, args.label, args.iconHints)) {
                 return false;
             }
             const rect = button.getBoundingClientRect();
@@ -379,19 +378,43 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
                 && Number(style.opacity || '1') > 0
             );
         });
+        const target = candidates.find(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
 
         if (!target) {
-            return false;
+            return candidates.length > 0 ? 'disabled' : 'not-found';
         }
 
         target.click();
-        return true;
+        return 'clicked';
     }, {
         label: ariaLabel,
         iconHints: getToolbarActionIconHints(ariaLabel),
     });
 
+    let clicked = false;
+    const inlineButtonDeadline = Date.now() + 4_000;
+    while (Date.now() < inlineButtonDeadline) {
+        const result = await tryClickInlineButton();
+        if (result === 'clicked') {
+            clicked = true;
+            break;
+        }
+        if (result === 'not-found') {
+            break;
+        }
+
+        await delay(50);
+    }
+
     if (!clicked) {
+        const finalInlineAttempt = await tryClickInlineButton();
+        if (finalInlineAttempt === 'clicked') {
+            return;
+        }
+        if (finalInlineAttempt === 'disabled') {
+            throw new Error(`Visible toolbar button stayed disabled: ${ariaLabel}`);
+        }
+
         const overflowPoint = await evaluateInPage(page, () => {
             const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], .toolbar-icon-button'))
                 .find((candidate) => {

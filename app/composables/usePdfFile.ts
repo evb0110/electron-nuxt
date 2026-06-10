@@ -13,6 +13,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
+    IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
@@ -715,13 +716,17 @@ export const usePdfFile = () => {
         };
     }
 
-    function markCurrentHistoryEntryClean(snapshot: Uint8Array | null) {
+    function markCurrentHistoryEntryClean(
+        snapshot: Uint8Array | null,
+        options?: { recordSnapshotChange?: boolean },
+    ) {
         BrowserLogger.debug('workspace', 'Marking file history clean', () => ({
             hasSnapshot: Boolean(snapshot),
             historyLength: history.value.length,
             historyIndex: historyIndex.value,
             historyCleanIndex: historyCleanIndex.value,
             isDirty: isDirty.value,
+            recordSnapshotChange: options?.recordSnapshotChange !== false,
         }));
         if (!snapshot) {
             if (history.value.length === 0) {
@@ -736,7 +741,16 @@ export const usePdfFile = () => {
 
         const currentEntry = history.value[historyIndex.value] ?? null;
         if (currentEntry?.kind === 'bytes' && !areByteArraysEqual(currentEntry.snapshot, snapshot)) {
-            pushHistorySnapshot(snapshot, { reuseSnapshot: true });
+            if (options?.recordSnapshotChange === false) {
+                // Annotation-only preserved-source saves update the clean file
+                // baseline; they must not become file undo entries and steal
+                // undo/redo from app-managed annotation history.
+                const nextHistory = history.value.slice();
+                nextHistory[historyIndex.value] = createByteHistoryEntry(snapshot, { reuseSnapshot: true });
+                replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
+            } else {
+                pushHistorySnapshot(snapshot, { reuseSnapshot: true });
+            }
         } else if (!currentEntry) {
             resetHistory(snapshot, { reuseSnapshot: true });
         }
@@ -785,14 +799,14 @@ export const usePdfFile = () => {
                     return false;
                 }
                 pdfData.value = snapshot;
-                markCurrentHistoryEntryClean(snapshot);
+                markCurrentHistoryEntryClean(snapshot, { recordSnapshotChange: false });
             } else {
                 const nextState = await readPdfStateFromPath(path);
                 if (!isActiveWorkingCopy(path)) {
                     return false;
                 }
                 pdfData.value = nextState.pdfData;
-                markCurrentHistoryEntryClean(nextState.pdfData);
+                markCurrentHistoryEntryClean(nextState.pdfData, { recordSnapshotChange: false });
             }
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
@@ -1269,27 +1283,61 @@ export const usePdfFile = () => {
             deletes?: IPdfNativeAnnotationDelete[];
         },
     ): Promise<IPdfPersistResult | null> {
+        return trySavePdfNativeMutations({
+            ...(updates.length > 0 ? {updates} : {}),
+            ...((opts.freeTextNotes?.length ?? 0) > 0 ? {freeTextNotes: opts.freeTextNotes} : {}),
+            ...((opts.deletes?.length ?? 0) > 0 ? {deletes: opts.deletes} : {}),
+        }, opts);
+    }
+
+    async function trySavePdfNativeMutations(
+        mutations: IPdfNativeMutationSet,
+        opts: {
+            saveMode: TPdfSaveMode;
+            preserveLoadedSource?: boolean;
+            expectedWorkingPath?: TDocumentRef | null;
+            modifiedAt: string;
+        },
+    ): Promise<IPdfPersistResult | null> {
         const documents = getDocumentsCapability();
-        const freeTextNotes = opts.freeTextNotes ?? [];
-        const deletes = opts.deletes ?? [];
+        const updates = mutations.updates ?? [];
+        const freeTextNotes = mutations.freeTextNotes ?? [];
+        const deletes = mutations.deletes ?? [];
+        const hasPageLabels = mutations.pageLabels !== undefined;
+        const hasBookmarks = mutations.bookmarks !== undefined;
+        const hasShapes = mutations.shapes !== undefined;
+        const hasMarkup = mutations.markup !== undefined;
         if (
             freeTextNotes.length === 0
             && updates.length === 0
             && deletes.length === 0
+            && !hasPageLabels
+            && !hasBookmarks
+            && !hasShapes
+            && !hasMarkup
         ) {
             return null;
         }
-        if (
-            freeTextNotes.length === 0
+        const canUseGenericNativeMutations = typeof documents.savePdfNativeMutations === 'function';
+        const canUseLegacyNativeNoteText = (
+            !hasPageLabels
+            && !hasBookmarks
+            && !hasShapes
+            && !hasMarkup
+            && freeTextNotes.length === 0
             && deletes.length === 0
-            && typeof documents.savePdfNoteTextUpdates !== 'function'
-        ) {
-            return null;
-        }
-        if (
-            (freeTextNotes.length > 0 || deletes.length > 0)
-            && typeof documents.savePdfNoteChanges !== 'function'
-        ) {
+            && updates.length > 0
+            && typeof documents.savePdfNoteTextUpdates === 'function'
+        );
+        const canUseLegacyNativeNoteChanges = (
+            !hasPageLabels
+            && !hasBookmarks
+            && !hasShapes
+            && !hasMarkup
+            && (freeTextNotes.length > 0 || deletes.length > 0)
+            && typeof documents.savePdfNoteChanges === 'function'
+        );
+        if (!canUseGenericNativeMutations && !canUseLegacyNativeNoteText && !canUseLegacyNativeNoteChanges) {
             return null;
         }
 
@@ -1311,12 +1359,16 @@ export const usePdfFile = () => {
         const phaseTimings: IPdfPersistPhaseTiming[] = [];
         const operationStart = performance.now();
         const logRendererTimings = (status: string, extra?: Record<string, unknown>) => {
-            BrowserLogger.debug('workspace', 'Native note-text save renderer timings', {
+            BrowserLogger.debug('workspace', 'Native PDF mutation save renderer timings', {
                 status,
                 saveMode: requestedSaveMode,
                 updateCount: updates.length,
                 freeTextNoteCount: freeTextNotes.length,
                 deleteCount: deletes.length,
+                pageLabels: hasPageLabels,
+                bookmarks: hasBookmarks,
+                shapes: hasShapes,
+                markup: hasMarkup,
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,
                 ...extra,
@@ -1330,7 +1382,7 @@ export const usePdfFile = () => {
                 () => shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath),
             );
             if (!isActiveWorkingCopy(workingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale native note-text save before write', {
+                BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save before write', {
                     workingPath,
                     currentWorkingPath: workingCopyPath.value,
                     saveMode: requestedSaveMode,
@@ -1346,13 +1398,19 @@ export const usePdfFile = () => {
             const result = await measurePdfPersistPhase(
                 phaseTimings,
                 'native-ipc',
-                () => freeTextNotes.length > 0 || deletes.length > 0
-                    ? documents.savePdfNoteChanges!(workingPath, {
-                        ...(updates.length > 0 ? {updates} : {}),
-                        ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-                        ...(deletes.length > 0 ? {deletes} : {}),
-                    }, opts.modifiedAt)
-                    : documents.savePdfNoteTextUpdates!(workingPath, updates, opts.modifiedAt),
+                () => {
+                    if (canUseGenericNativeMutations) {
+                        return documents.savePdfNativeMutations!(workingPath, mutations, opts.modifiedAt);
+                    }
+                    if (canUseLegacyNativeNoteChanges) {
+                        return documents.savePdfNoteChanges!(workingPath, {
+                            ...(updates.length > 0 ? {updates} : {}),
+                            ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+                            ...(deletes.length > 0 ? {deletes} : {}),
+                        }, opts.modifiedAt);
+                    }
+                    return documents.savePdfNoteTextUpdates!(workingPath, updates, opts.modifiedAt);
+                },
             );
             if (!result.applied || !result.validation?.isValid) {
                 logRendererTimings('not-applied', {validation: result.validation});
@@ -1360,7 +1418,7 @@ export const usePdfFile = () => {
             }
             const commitWorkingPath = workingCopyPath.value;
             if (!commitWorkingPath || originalPath.value !== expectedOriginalPath) {
-                BrowserLogger.debug('workspace', 'Skipped stale native note-text save completion', {
+                BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save completion', {
                     workingPath,
                     expectedOriginalPath,
                     currentOriginalPath: originalPath.value,
@@ -1371,7 +1429,7 @@ export const usePdfFile = () => {
                 return createStalePersistResult(requestedSaveMode, false);
             }
             if (commitWorkingPath !== workingPath) {
-                BrowserLogger.debug('workspace', 'Using refreshed working copy after native note-text save', {
+                BrowserLogger.debug('workspace', 'Using refreshed working copy after native PDF mutation save', {
                     workingPath,
                     refreshedWorkingPath: commitWorkingPath,
                     currentWorkingPath: workingCopyPath.value,
@@ -1398,9 +1456,15 @@ export const usePdfFile = () => {
             logRendererTimings('applied');
             return createPersistResult(true, requestedSaveMode, false);
         } catch (saveError) {
-            BrowserLogger.debug('workspace', 'Native note-text save unavailable; falling back to serialized PDF save', {
+            BrowserLogger.debug('workspace', 'Native PDF mutation save unavailable; falling back to serialized PDF save', {
                 error: getErrorMessage(saveError),
                 updateCount: updates.length,
+                freeTextNoteCount: freeTextNotes.length,
+                deleteCount: deletes.length,
+                pageLabels: hasPageLabels,
+                bookmarks: hasBookmarks,
+                shapes: hasShapes,
+                markup: hasMarkup,
                 saveMode: requestedSaveMode,
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,
@@ -1635,6 +1699,7 @@ export const usePdfFile = () => {
         readWorkingCopyBytes,
         saveFile,
         saveWorkingCopy,
+        trySavePdfNativeMutations,
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         closeFile,

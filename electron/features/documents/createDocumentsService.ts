@@ -54,6 +54,7 @@ import {
 import {
     handleNativeNoteChangesSave,
     handleNativeNoteTextSave,
+    handleNativePdfMutationsSave,
 } from '@electron/features/documents/main/handleNativeNoteTextSave';
 import { beginSerializedPdfSaveToOriginal } from '@electron/features/documents/main/serializedPdfPersistence';
 import {
@@ -119,6 +120,8 @@ export function createDocumentsService(): IDocumentsService {
             handleNativeNoteTextSave(event, workingPath, updates, modifiedAt),
         savePdfNoteChanges: (event, workingPath, changes, modifiedAt) =>
             handleNativeNoteChangesSave(event, workingPath, changes, modifiedAt),
+        savePdfNativeMutations: (event, workingPath, mutations, modifiedAt) =>
+            handleNativePdfMutationsSave(event, workingPath, mutations, modifiedAt),
         beginSavePdfData: (event, workingPath, totalBytes) =>
             beginSerializedPdfSaveToOriginal(event, workingPath, totalBytes),
         cleanupFile: (event, workingPath) => {

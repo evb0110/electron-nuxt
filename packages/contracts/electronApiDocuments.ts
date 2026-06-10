@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IRecentFile } from '@contracts/shared';
 import type {
     IPdfConformanceProfile,
@@ -72,10 +73,106 @@ export interface IPdfNativeNoteChanges {
     deletes?: IPdfNativeAnnotationDelete[];
 }
 
+export type TPdfNativePageLabelStyle = 'D' | 'R' | 'r' | 'A' | 'a' | null;
+
+export interface IPdfNativePageLabelRange {
+    startPage: number;
+    style: TPdfNativePageLabelStyle;
+    prefix: string;
+    startNumber: number;
+}
+
+export interface IPdfNativePageLabelsMutation {
+    totalPages: number;
+    ranges: IPdfNativePageLabelRange[];
+}
+
+export interface IPdfNativeBookmarksMutation {
+    totalPages: number;
+    untitledLabel: string;
+    items: IPdfBookmarkEntry[];
+}
+
+export type TPdfNativeShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' | 'polygon';
+export type TPdfNativeShapePdfSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon' | 'Ink';
+export type TPdfNativeShapeLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
+
+export interface IPdfNativeShapePoint {
+    x: number;
+    y: number;
+}
+
+export interface IPdfNativeShapeAnnotation {
+    id?: string;
+    type: TPdfNativeShapeType;
+    pageIndex: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    x2?: number | null;
+    y2?: number | null;
+    color: string;
+    fillColor?: string | null;
+    opacity: number;
+    strokeWidth: number;
+    points?: IPdfNativeShapePoint[];
+    strokes?: IPdfNativeShapePoint[][];
+    annotationId?: string | null;
+    stableKey?: string | null;
+    pdfSubtype?: TPdfNativeShapePdfSubtype | null;
+    lineStartStyle?: TPdfNativeShapeLineEndStyle | null;
+    lineEndStyle?: TPdfNativeShapeLineEndStyle | null;
+    createdAt?: number | null;
+    modifiedAt?: number | null;
+}
+
+export interface IPdfNativeShapesMutation {
+    totalPages: number;
+    rewriteShapeState: boolean;
+    shapes: IPdfNativeShapeAnnotation[];
+    deletedAnnotationIds: string[];
+    deletedStableKeys: string[];
+}
+
+export type TPdfNativeMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
+
+export interface IPdfNativeMarkupMarkerRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+export interface IPdfNativeMarkupSubtypeHint {
+    subtype: TPdfNativeMarkupSubtype;
+    pageIndex: number;
+    markerRect: IPdfNativeMarkupMarkerRect;
+    annotationId?: string | null;
+    color?: string | null;
+    id?: string | null;
+    pageMarkupIndex?: number | null;
+    source?: string | null;
+}
+
+export interface IPdfNativeMarkupMutation {
+    overrides: Array<readonly [string, TPdfNativeMarkupSubtype]>;
+    hints: IPdfNativeMarkupSubtypeHint[];
+}
+
+export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
+    pageLabels?: IPdfNativePageLabelsMutation;
+    bookmarks?: IPdfNativeBookmarksMutation;
+    shapes?: IPdfNativeShapesMutation;
+    markup?: IPdfNativeMarkupMutation;
+}
+
 export interface IPdfNativeNoteTextSaveResult {
     applied: boolean;
     validation: IPdfValidationResult | null;
 }
+
+export interface IPdfNativeSaveResult extends IPdfNativeNoteTextSaveResult {}
 
 export interface IImageExportCapability {
     exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
@@ -186,6 +283,11 @@ export interface IDocumentsFileCapability {
         changes: IPdfNativeNoteChanges,
         modifiedAt: string,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
+    savePdfNativeMutations?: (
+        path: TDocumentRef,
+        mutations: IPdfNativeMutationSet,
+        modifiedAt: string,
+    ) => Promise<IPdfNativeSaveResult>;
     savePdfDataAs: (workingCopyPath: TDocumentRef, data: Uint8Array) => Promise<{
         path: TDocumentRef | null;
         validation: IPdfValidationResult | null;

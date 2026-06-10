@@ -326,6 +326,146 @@ describe('createDocumentsPreloadFileClient', () => {
             'D:20260609133855+03\'00\'',
         );
     });
+
+    it('validates native PDF metadata mutation requests before IPC', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => ({
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'native' as const,
+                    errors: [],
+                    warnings: [],
+                },
+            })),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.savePdfNativeMutations!(
+            '/tmp/working.pdf',
+            {
+                pageLabels: {
+                    totalPages: 3,
+                    ranges: [{
+                        startPage: 1,
+                        style: 'r',
+                        prefix: 'intro-',
+                        startNumber: 2,
+                    }],
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: [{
+                        title: 'Chapter 1',
+                        pageIndex: 0,
+                        namedDest: null,
+                        bold: true,
+                        italic: false,
+                        color: '#336699',
+                        items: [],
+                    }],
+                },
+                shapes: {
+                    totalPages: 3,
+                    rewriteShapeState: true,
+                    shapes: [{
+                        id: 'shape-1',
+                        type: 'rectangle',
+                        pageIndex: 0,
+                        x: 0.1,
+                        y: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                        color: '#336699',
+                        fillColor: '#abcdef',
+                        opacity: 0.5,
+                        strokeWidth: 3,
+                        stableKey: 'evb-shape:shape-1',
+                        createdAt: 1781009077000,
+                        modifiedAt: 1781009087000,
+                    }],
+                    deletedAnnotationIds: ['44R'],
+                    deletedStableKeys: ['evb-shape:deleted'],
+                },
+                markup: {
+                    overrides: [[
+                        '44R',
+                        'Squiggly',
+                    ]],
+                    hints: [{
+                        subtype: 'Squiggly',
+                        pageIndex: 0,
+                        markerRect: {
+                            left: 0.1,
+                            top: 0.2,
+                            width: 0.3,
+                            height: 0.2,
+                        },
+                        annotationId: '44R',
+                        color: '#22c55e',
+                        id: 'markup-1',
+                        pageMarkupIndex: 0,
+                        source: 'editor-live',
+                    }],
+                },
+            },
+            'D:20260609133855+03\'00\'',
+        )).resolves.toMatchObject({applied: true});
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileSavePdfNativeMutations,
+            '/tmp/working.pdf',
+            {
+                pageLabels: {
+                    totalPages: 3,
+                    ranges: [{
+                        startPage: 1,
+                        style: 'r',
+                        prefix: 'intro-',
+                        startNumber: 2,
+                    }],
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: [{
+                        title: 'Chapter 1',
+                        pageIndex: 0,
+                        namedDest: null,
+                        bold: true,
+                        italic: false,
+                        color: '#336699',
+                        items: [],
+                    }],
+                },
+                shapes: {
+                    totalPages: 3,
+                    rewriteShapeState: true,
+                    shapes: [expect.objectContaining({
+                        id: 'shape-1',
+                        type: 'rectangle',
+                        stableKey: 'evb-shape:shape-1',
+                    })],
+                    deletedAnnotationIds: ['44R'],
+                    deletedStableKeys: ['evb-shape:deleted'],
+                },
+                markup: {
+                    overrides: [[
+                        '44R',
+                        'Squiggly',
+                    ]],
+                    hints: [expect.objectContaining({
+                        subtype: 'Squiggly',
+                        annotationId: '44R',
+                        color: '#22c55e',
+                    })],
+                },
+            },
+            'D:20260609133855+03\'00\'',
+        );
+    });
 });
 
 function isChunkMessage(message: unknown): message is {

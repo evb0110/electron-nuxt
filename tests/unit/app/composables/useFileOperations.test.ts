@@ -10,12 +10,17 @@ import {
     shallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IShapeAnnotation,
+} from '@app/types/annotations';
+import type { IFileOperationsDeps } from '@app/composables/useFileOperations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperations } from '@app/composables/useFileOperations';
 import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
+type TPdfNativeMutationSave = NonNullable<IFileOperationsDeps['trySavePdfNativeMutations']>;
 
 vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
@@ -131,6 +136,34 @@ function createPdfNoteComment(overrides: Partial<IAnnotationCommentSummary> = {}
     };
 }
 
+function createMarkupComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
+    return {
+        id: overrides.id ?? '44R',
+        stableKey: overrides.stableKey ?? 'ann:0:44R',
+        sortIndex: null,
+        pageIndex: 0,
+        pageNumber: 1,
+        text: '',
+        kindLabel: 'Highlight',
+        subtype: overrides.subtype ?? 'Highlight',
+        author: null,
+        modifiedAt: null,
+        color: overrides.color ?? '#22c55e',
+        colorEdited: overrides.colorEdited ?? true,
+        uid: null,
+        annotationId: overrides.annotationId ?? '44R',
+        source: overrides.source ?? 'pdf',
+        hasNote: false,
+        markerRect: overrides.markerRect ?? {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.2,
+        },
+        ...overrides,
+    };
+}
+
 function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'pdfjs_internal_editor_0',
@@ -155,6 +188,27 @@ function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSummary> 
             width: 0.0016,
             height: 0.0016,
         },
+        ...overrides,
+    };
+}
+
+function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {
+    return {
+        id: overrides.id ?? 'shape-1',
+        type: overrides.type ?? 'rectangle',
+        pageIndex: overrides.pageIndex ?? 0,
+        x: overrides.x ?? 0.1,
+        y: overrides.y ?? 0.2,
+        width: overrides.width ?? 0.3,
+        height: overrides.height ?? 0.2,
+        color: overrides.color ?? '#336699',
+        fillColor: overrides.fillColor ?? '#abcdef',
+        opacity: overrides.opacity ?? 0.5,
+        strokeWidth: overrides.strokeWidth ?? 3,
+        source: overrides.source ?? 'local',
+        stableKey: overrides.stableKey ?? 'evb-shape:shape-1',
+        createdAt: overrides.createdAt ?? 1781009077000,
+        modifiedAt: overrides.modifiedAt ?? 1781009087000,
         ...overrides,
     };
 }
@@ -427,6 +481,389 @@ describe('useFileOperations', () => {
         expect(saveFile).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
+    });
+
+    it('uses the native PDF mutation path for page labels and bookmarks', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(3),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'r',
+                prefix: 'intro-',
+                startNumber: 2,
+            }]),
+            bookmarksDirty: ref(true),
+            bookmarkItems: ref([{
+                title: 'Chapter 1',
+                pageIndex: 0,
+                namedDest: null,
+                bold: true,
+                italic: false,
+                color: '#336699',
+                items: [],
+            }]),
+            untitledBookmarkLabel: 'Untitled',
+            trySavePdfNativeMutations,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            {
+                pageLabels: {
+                    totalPages: 3,
+                    ranges: [{
+                        startPage: 1,
+                        style: 'r',
+                        prefix: 'intro-',
+                        startNumber: 2,
+                    }],
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: [expect.objectContaining({
+                        title: 'Chapter 1',
+                        pageIndex: 0,
+                    })],
+                },
+            },
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            }),
+        );
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
+        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+    });
+
+    it('uses the native PDF mutation path for text-markup rewrites', async () => {
+        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createMarkupComment({
+                subtype: 'Squiggly',
+                color: '#22c55e',
+                colorEdited: true,
+            })]),
+            getMarkupSubtypeOverrides: vi.fn(() => new Map([[
+                '44R',
+                'Squiggly' as const,
+            ]])),
+            getMarkupSubtypeHints: vi.fn(() => []),
+            hasLivePdfJsAnnotationChanges: vi.fn(() => false),
+            hasPreservedAnnotationSourceChanges: vi.fn(() => true),
+            trySavePdfNativeMutations,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(trySavePdfNativeMutations.mock.calls[0]?.[0].markup).toMatchObject({
+            overrides: [[
+                '44R',
+                'Squiggly',
+            ]],
+            hints: [expect.objectContaining({
+                subtype: 'Squiggly',
+                annotationId: '44R',
+                color: '#22c55e',
+            })],
+        });
+        expect(trySavePdfNativeMutations.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/work.pdf',
+            preserveLoadedSource: true,
+            modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+        }));
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+    });
+
+    it('materializes through PDF.js when a preserved live markup baseline changed without native note work', async () => {
+        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createMarkupComment()]),
+            getMarkupSubtypeHints: vi.fn(() => [{
+                subtype: 'Highlight' as const,
+                pageIndex: 0,
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.2,
+                },
+                consumed: false,
+                annotationId: '44R',
+                color: '#22c55e',
+                id: '44R',
+                pageMarkupIndex: null,
+                source: 'pdf' as const,
+            }]),
+            hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
+            trySavePdfNativeMutations,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).not.toHaveBeenCalled();
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('combines note updates and metadata in one native PDF mutation save', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            totalPages: ref(2),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'D',
+                prefix: 'p.',
+                startNumber: 1,
+            }]),
+            trySavePdfNativeMutations,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            expect.objectContaining({
+                updates: [{
+                    objectNumber: 3856,
+                    generationNumber: 0,
+                    text: 'Updated note',
+                }],
+                pageLabels: {
+                    totalPages: 2,
+                    ranges: [{
+                        startPage: 1,
+                        style: 'D',
+                        prefix: 'p.',
+                        startNumber: 1,
+                    }],
+                },
+            }),
+            expect.any(Object),
+        );
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+    });
+
+    it('uses the native PDF mutation path for dirty managed shapes', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const savedBytes = new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(2),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+            getDeletedEmbeddedShapeAnnotationIds: vi.fn(() => ['44R']),
+            getDeletedEmbeddedShapeStableKeys: vi.fn(() => ['evb-shape:deleted']),
+            trySavePdfNativeMutations,
+            getSourcePdfData: vi.fn(async () => savedBytes),
+            preparePersistedShapeStateForSave: vi.fn(async () => ({snapshot: true})),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            {shapes: {
+                totalPages: 2,
+                rewriteShapeState: true,
+                shapes: [expect.objectContaining({
+                    id: 'shape-1',
+                    type: 'rectangle',
+                    pageIndex: 0,
+                    stableKey: 'evb-shape:shape-1',
+                    color: '#336699',
+                    fillColor: '#abcdef',
+                })],
+                deletedAnnotationIds: ['44R'],
+                deletedStableKeys: ['evb-shape:deleted'],
+            }},
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+            }),
+        );
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.preparePersistedShapeStateForSave).toHaveBeenCalledWith(savedBytes);
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+    });
+
+    it('combines native note updates and dirty managed shapes in one mutation save', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            totalPages: ref(1),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+            trySavePdfNativeMutations,
+            getSourcePdfData: vi.fn(async () => new Uint8Array([7])),
+            preparePersistedShapeStateForSave: vi.fn(async () => ({snapshot: true})),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            expect.objectContaining({
+                updates: [{
+                    objectNumber: 3856,
+                    generationNumber: 0,
+                    text: 'Updated note',
+                }],
+                shapes: expect.objectContaining({
+                    totalPages: 1,
+                    shapes: [expect.objectContaining({stableKey: 'evb-shape:shape-1'})],
+                }),
+            }),
+            expect.any(Object),
+        );
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+    });
+
+    it('falls back to serialized save when dirty shapes are not native-eligible', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(1),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation({x: 1.2})]),
+            trySavePdfNativeMutations,
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('falls back to serialized save for metadata when generic native mutations are unavailable', async () => {
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(3),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            }]),
+            trySaveEmbeddedNoteTextUpdates: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(deps.trySaveEmbeddedNoteTextUpdates).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
     });
 
     it('uses the native note changes path for editor-only FreeText note upserts', async () => {
