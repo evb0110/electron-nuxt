@@ -1,17 +1,13 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     io::Write,
     path::{Path, PathBuf},
     time::Instant,
 };
 
 use evb_pdf_image_combine::{
-    build_pdf_from_image_paths_with_progress,
-    combine_tiff_paths,
-    encode_netpbm_path_as_png,
-    PdfBuildOptions,
-    Result,
+    combine_tiff_paths, encode_netpbm_path_as_png, write_pdf_from_image_paths_with_progress,
+    PdfBuildOptions, Result,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -71,14 +67,14 @@ fn run() -> Result<()> {
 
     let started_at = Instant::now();
     let total = config.input_paths.len();
-    let pdf = build_pdf_from_image_paths_with_progress(
+    write_pdf_from_image_paths_with_progress(
         &config.input_paths,
+        &config.output_path,
         &PdfBuildOptions {
             default_dpi: config.dpi,
             max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
             max_pixels,
-            max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
-                as usize,
+            max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
         },
         |processed| {
             if config.json_progress {
@@ -86,8 +82,6 @@ fn run() -> Result<()> {
             }
         },
     )?;
-
-    fs::write(&config.output_path, pdf)?;
     Ok(())
 }
 

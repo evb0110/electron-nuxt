@@ -13,12 +13,14 @@ mod wasm;
 
 use std::{
     error::Error,
+    fs::File,
+    io::BufWriter,
     path::{Path, PathBuf},
 };
 
 use crate::{
     image::{read_image_pages, read_image_pages_from_bytes},
-    pdf::build_pdf,
+    pdf::{build_pdf, write_pdf_to_writer},
     png_encode::encode_netpbm_file_as_png,
     tiff_io::combine_tiff_pages,
 };
@@ -79,6 +81,45 @@ pub fn build_pdf_from_image_paths_with_progress(
     build_pdf(&pages)
 }
 
+pub fn write_pdf_from_image_paths(
+    input_paths: &[PathBuf],
+    output_path: &Path,
+    options: &PdfBuildOptions,
+) -> Result<()> {
+    write_pdf_from_image_paths_with_progress(input_paths, output_path, options, |_| {})
+}
+
+pub fn write_pdf_from_image_paths_with_progress(
+    input_paths: &[PathBuf],
+    output_path: &Path,
+    options: &PdfBuildOptions,
+    mut on_processed: impl FnMut(usize),
+) -> Result<()> {
+    let output = File::create(output_path)?;
+    let writer = BufWriter::new(output);
+    let mut page_count = 0;
+
+    write_pdf_to_writer(writer, |pdf| {
+        for (index, input_path) in input_paths.iter().enumerate() {
+            let input_pages = read_image_pages(
+                input_path,
+                options.max_pixels,
+                options.default_dpi,
+                options.max_tiff_frames,
+            )?;
+            page_count =
+                next_page_count_with_limit(page_count, input_pages.len(), options.max_pages)?;
+            for page in &input_pages {
+                pdf.add_page(page)?;
+            }
+            on_processed(index + 1);
+        }
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
 pub fn build_pdf_from_image_bytes_inputs(
     inputs: &[ImageBytesInput<'_>],
     options: &PdfBuildOptions,
@@ -125,16 +166,32 @@ fn push_pages_with_limit(
     input_pages: Vec<pdf::ImagePage>,
     max_pages: usize,
 ) -> Result<()> {
-    if pages.len() + input_pages.len() > max_pages {
-        return Err(format!("Combined PDF is capped at {max_pages} pages").into());
-    }
+    next_page_count_with_limit(pages.len(), input_pages.len(), max_pages)?;
     pages.extend(input_pages);
     Ok(())
+}
+
+fn next_page_count_with_limit(
+    current_pages: usize,
+    added_pages: usize,
+    max_pages: usize,
+) -> Result<usize> {
+    let next_pages = current_pages
+        .checked_add(added_pages)
+        .ok_or("Combined PDF page count overflow")?;
+    if next_pages > max_pages {
+        return Err(format!("Combined PDF is capped at {max_pages} pages").into());
+    }
+    Ok(next_pages)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        env, fs, process,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn builds_pdf_from_png_bytes() {
@@ -161,7 +218,45 @@ mod tests {
         .unwrap();
 
         assert!(pdf.starts_with(b"%PDF-1.4"));
-        assert!(pdf.windows(b"/Subtype /Image".len()).any(|window| window == b"/Subtype /Image"));
+        assert!(pdf
+            .windows(b"/Subtype /Image".len())
+            .any(|window| window == b"/Subtype /Image"));
+    }
+
+    #[test]
+    fn writes_pdf_from_image_paths_to_output_file() {
+        let first_path = temp_path("stream-first").with_extension("ppm");
+        let second_path = temp_path("stream-second").with_extension("ppm");
+        let output_path = temp_path("stream-output").with_extension("pdf");
+
+        fs::write(&first_path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        fs::write(&second_path, b"P6\n1 1\n255\n\0\xff\0").unwrap();
+
+        let mut progress = Vec::new();
+        write_pdf_from_image_paths_with_progress(
+            &[first_path.clone(), second_path.clone()],
+            &output_path,
+            &PdfBuildOptions {
+                default_dpi: Some(72),
+                ..PdfBuildOptions::default()
+            },
+            |processed| progress.push(processed),
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf
+            .windows(b"/Count 2".len())
+            .any(|window| window == b"/Count 2"));
+        assert!(pdf
+            .windows(b"/XObject".len())
+            .any(|window| window == b"/XObject"));
+        assert_eq!(progress, vec![1, 2]);
+
+        let _ = fs::remove_file(first_path);
+        let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(output_path);
     }
 
     fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
@@ -171,5 +266,16 @@ mod tests {
         chunk.extend_from_slice(data);
         chunk.extend_from_slice(&[0, 0, 0, 0]);
         chunk
+    }
+
+    fn temp_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        env::temp_dir().join(format!(
+            "evb-pdf-image-combine-{label}-{}-{nanos}",
+            process::id()
+        ))
     }
 }
