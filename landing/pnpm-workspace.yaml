@@ -7,3 +7,5 @@ ignoredBuiltDependencies:
   - esbuild
   - unrs-resolver
   - vue-demi
+
+strictDepBuilds: true

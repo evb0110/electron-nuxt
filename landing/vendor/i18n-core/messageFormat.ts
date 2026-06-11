@@ -92,7 +92,7 @@ function fallbackForm(forms: string[], template: string, ...indices: number[]) {
     return template;
 }
 
-function getFirstDefinedForm(forms: IPluralForms<string>): string {
+function getFirstDefinedForm(forms: IPluralForms<string>) {
     return forms.zero
         ?? forms.one
         ?? forms.two
@@ -101,7 +101,7 @@ function getFirstDefinedForm(forms: IPluralForms<string>): string {
         ?? forms.other;
 }
 
-function selectPluralMessageForm(message: IPluralMessage, count: number | null, locale: string): string {
+function selectPluralMessageForm(message: IPluralMessage, count: number | null, locale: string) {
     if (count === null) {
         return message.forms.other ?? getFirstDefinedForm(message.forms);
     }
@@ -116,7 +116,7 @@ function selectPluralMessageForm(message: IPluralMessage, count: number | null, 
         ?? getFirstDefinedForm(message.forms);
 }
 
-function selectLegacyPipeForm(template: string, count: number, locale: string): string {
+function selectLegacyPipeForm(template: string, count: number, locale: string) {
     const forms = template.split('|').map(part => part.trim());
     if (forms.length === 1) {
         return forms[0] ?? template;
@@ -150,7 +150,7 @@ export function formatTranslationLeaf(
     leaf: TTranslationLeaf | string,
     params?: TMessageParams,
     locale = 'en',
-): string {
+) {
     const count = typeof params?.count === 'number'
         ? params.count
         : null;

@@ -85,7 +85,7 @@ const INSTALLER_ARCH_ORDER: Record<TReleaseArch, number> = {
     unknown: 3,
 };
 
-export function getAssetExtension(assetName: string): string {
+export function getAssetExtension(assetName: string) {
     const lowerName = assetName.toLowerCase();
 
     if (lowerName.endsWith('.tar.gz')) {
@@ -100,7 +100,7 @@ export function getAssetExtension(assetName: string): string {
     return lowerName.slice(lastDot + 1);
 }
 
-export function isInstallerAsset(assetName: string): boolean {
+export function isInstallerAsset(assetName: string) {
     const lowerName = assetName.toLowerCase();
 
     if (NON_INSTALLER_SUFFIXES.some(suffix => lowerName.endsWith(suffix))) {
@@ -114,7 +114,7 @@ export function isInstallerAsset(assetName: string): boolean {
     return INSTALLER_EXTENSIONS.has(getAssetExtension(assetName));
 }
 
-export function isLegacyInstallerAsset(assetName: string): boolean {
+export function isLegacyInstallerAsset(assetName: string) {
     return assetName.toLowerCase().includes('legacy');
 }
 
@@ -259,7 +259,7 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     return sorted[0] || null;
 }
 
-function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TReleaseArch): boolean {
+function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TReleaseArch) {
     if (profileArch === 'unknown') {
         return true;
     }
@@ -312,7 +312,7 @@ export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstal
     ));
 }
 
-function extensionRank(extension: string, preferenceOrder: string[]): number {
+function extensionRank(extension: string, preferenceOrder: string[]) {
     const index = preferenceOrder.indexOf(extension);
     if (index !== -1) {
         return index;
@@ -321,7 +321,7 @@ function extensionRank(extension: string, preferenceOrder: string[]): number {
     return preferenceOrder.length + 4;
 }
 
-function architectureRank(assetArch: TReleaseArch, profileArch: TReleaseArch): number {
+function architectureRank(assetArch: TReleaseArch, profileArch: TReleaseArch) {
     if (profileArch === 'unknown') {
         if (assetArch === 'universal') {
             return 0;
@@ -349,11 +349,11 @@ function architectureRank(assetArch: TReleaseArch, profileArch: TReleaseArch): n
     return 3;
 }
 
-function knownPlatformRank(platform: TReleasePlatform): number {
+function knownPlatformRank(platform: TReleasePlatform) {
     return platform === 'unknown' ? 1 : 0;
 }
 
-export function formatPlatform(platform: TReleasePlatform): string {
+export function formatPlatform(platform: TReleasePlatform) {
     if (platform === 'macos') {
         return 'macOS';
     }
@@ -369,7 +369,7 @@ export function formatPlatform(platform: TReleasePlatform): string {
     return 'Unknown OS';
 }
 
-export function formatArch(arch: TReleaseArch): string {
+export function formatArch(arch: TReleaseArch) {
     if (arch === 'arm64') {
         return 'ARM64';
     }
@@ -385,11 +385,11 @@ export function formatArch(arch: TReleaseArch): string {
     return '';
 }
 
-export function formatExtension(extension: string): string {
+export function formatExtension(extension: string) {
     return EXTENSION_LABEL[extension] || extension.toUpperCase();
 }
 
-export function formatInstallerLabel(asset: IReleaseInstaller): string {
+export function formatInstallerLabel(asset: IReleaseInstaller) {
     const platform = formatPlatform(asset.platform);
     const arch = formatArch(asset.arch);
     const extension = formatExtension(asset.extension);
@@ -405,7 +405,7 @@ function effectiveArch(asset: IReleaseInstaller): TReleaseArch {
     return asset.arch === 'unknown' ? 'x64' : asset.arch;
 }
 
-export function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
+export function formatInstallerVariantLabel(asset: IReleaseInstaller) {
     const arch = formatArch(effectiveArch(asset));
     const extension = formatExtension(asset.extension);
 
@@ -416,7 +416,7 @@ export function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
     return extension;
 }
 
-export function formatInstallerArchLabel(asset: IReleaseInstaller): string {
+export function formatInstallerArchLabel(asset: IReleaseInstaller) {
     if (asset.platform === 'macos') {
         if (asset.arch === 'arm64') {
             return 'Apple Silicon';
@@ -430,7 +430,7 @@ export function formatInstallerArchLabel(asset: IReleaseInstaller): string {
     return formatArch(asset.arch) || formatExtension(asset.extension);
 }
 
-export function formatInstallerMeta(asset: IReleaseInstaller): string {
+export function formatInstallerMeta(asset: IReleaseInstaller) {
     const size = formatFileSize(asset.size);
 
     if (!formatArch(asset.arch)) {
@@ -458,7 +458,7 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
         .filter((asset): asset is IReleaseInstaller => Boolean(asset));
 }
 
-export function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller): number {
+export function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller) {
     const extensionPreference = PREFERRED_EXTENSION_ORDER[left.platform] || PREFERRED_EXTENSION_ORDER.unknown;
     const extensionDiff = extensionRank(left.extension, extensionPreference) - extensionRank(right.extension, extensionPreference);
     if (extensionDiff !== 0) {
@@ -475,7 +475,7 @@ export function compareInstallersForSelect(left: IReleaseInstaller, right: IRele
     return left.name.localeCompare(right.name);
 }
 
-export function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number) {
     if (!Number.isFinite(bytes) || bytes <= 0) {
         return 'Unknown size';
     }

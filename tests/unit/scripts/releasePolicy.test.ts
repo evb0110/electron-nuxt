@@ -21,6 +21,11 @@ const {
     runLocalReleaseChecks,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href);
 const {
+    assertReleaseVerifyDidNotMutateWorktree,
+    getLocalReleaseVerifyCommands,
+    runLocalReleaseVerify,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href);
+const {
     getLocalReleaseBuildCommand,
     getPackagingArgs,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
@@ -221,6 +226,23 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('build:strict');
     });
 
+    it('keeps standalone release verification composed from focused local gates', () => {
+        expect(getLocalReleaseVerifyCommands().map((command: { args: string[] }) => command.args)).toEqual([
+            [
+                'run',
+                'release:verify:checks',
+            ],
+            [
+                'run',
+                'release:verify:package:local',
+            ],
+            [
+                'run',
+                'check:resources:host',
+            ],
+        ]);
+    });
+
     it('can ignore landing-only worktree changes for main app releases', () => {
         expect(filterIgnoredFiles([
             'package.json',
@@ -258,6 +280,59 @@ describe('release policy', () => {
         expect(calls.every(call => call.command === 'pnpm')).toBe(true);
         expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
         expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);
+    });
+
+    it('fails standalone release verification when the worktree snapshot changes', () => {
+        expect(() => assertReleaseVerifyDidNotMutateWorktree({
+            stagedDiff: '',
+            trackedDiff: '',
+            untrackedFiles: [],
+        }, {
+            stagedDiff: '',
+            trackedDiff: 'diff --git a/package.json b/package.json',
+            untrackedFiles: [],
+        })).toThrow('tracked diff');
+    });
+
+    it('checks standalone release verification mutations after successful commands', () => {
+        const calls: Array<{
+            args: string[];
+            command: string;
+        }> = [];
+        let snapshotCount = 0;
+
+        expect(() => runLocalReleaseVerify({
+            runCommand: (command: string, args: string[]) => {
+                calls.push({
+                    args,
+                    command,
+                });
+                return '';
+            },
+            snapshotGetter: () => {
+                snapshotCount += 1;
+                return {
+                    stagedDiff: '',
+                    trackedDiff: snapshotCount === 1 ? '' : 'changed',
+                    untrackedFiles: [],
+                };
+            },
+        })).toThrow('tracked diff');
+
+        expect(calls.map(call => call.args)).toEqual([
+            [
+                'run',
+                'release:verify:checks',
+            ],
+            [
+                'run',
+                'release:verify:package:local',
+            ],
+            [
+                'run',
+                'check:resources:host',
+            ],
+        ]);
     });
 
     it('keeps build-warning enforcement in the local packaging phase', () => {
