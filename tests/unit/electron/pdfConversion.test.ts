@@ -299,6 +299,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
             '/tmp/output.pdf',
             undefined,
         );
+        expect(mocks.stat).toHaveBeenCalledTimes(1);
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
         expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/output.pdf', new Uint8Array([
             9,

@@ -340,12 +340,6 @@ function assertMemoryCombineInputResourceLimits(resourceUsage: ICombineInputReso
     }
 }
 
-async function enforceInputResourceLimits(inputPaths: string[]) {
-    const resourceUsage = await inspectInputResourceUsage(inputPaths);
-    assertMemoryCombineInputResourceLimits(resourceUsage);
-    return { totalBytes: resourceUsage.totalBytes };
-}
-
 function canUseLocalWorkerStartupFallback(totalBytes: number) {
     return totalBytes <= PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES;
 }
@@ -523,25 +517,21 @@ export async function createPdfFileFromInputPaths(
         return normalizedOutputPath;
     }
 
-    assertMemoryCombineInputResourceLimits(resourceUsage);
-    const pdfBytes = await createPdfFromInputPaths(normalizedPaths, options);
+    const pdfBytes = await createPdfFromNormalizedInputPaths(
+        normalizedPaths,
+        resourceUsage,
+        options,
+    );
     await writeFile(normalizedOutputPath, pdfBytes);
     return normalizedOutputPath;
 }
 
-export async function createPdfFromInputPaths(
-    inputPaths: string[],
+async function createPdfFromNormalizedInputPaths(
+    normalizedPaths: string[],
+    resourceUsage: ICombineInputResourceUsage,
     options?: ICreatePdfFromInputPathsOptions,
-): Promise<Uint8Array> {
-    const normalizedPaths = inputPaths
-        .map((path) => path.trim())
-        .filter((path) => path.length > 0);
-
-    if (normalizedPaths.length === 0) {
-        throw new Error('No input files were provided');
-    }
-
-    const resourceUsage = await enforceInputResourceLimits(normalizedPaths);
+) {
+    assertMemoryCombineInputResourceLimits(resourceUsage);
     const nativePdf = await tryCreatePdfFromInputPathsNative(normalizedPaths, options);
     if (nativePdf) {
         return nativePdf;
@@ -571,4 +561,20 @@ export async function createPdfFromInputPaths(
         }
         return createPdfFromInputPathsLocal(normalizedPaths, options);
     }
+}
+
+export async function createPdfFromInputPaths(
+    inputPaths: string[],
+    options?: ICreatePdfFromInputPathsOptions,
+): Promise<Uint8Array> {
+    const normalizedPaths = inputPaths
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0);
+
+    if (normalizedPaths.length === 0) {
+        throw new Error('No input files were provided');
+    }
+
+    const resourceUsage = await inspectInputResourceUsage(normalizedPaths);
+    return createPdfFromNormalizedInputPaths(normalizedPaths, resourceUsage, options);
 }

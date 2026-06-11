@@ -27,6 +27,10 @@ import {
     isNativePdfImageCombineBitmapPath,
     tryWritePdfWithNativeImageCombiner,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 interface INativePdfAssemblerProgress {
     processed: number;
@@ -326,15 +330,23 @@ export async function tryWritePdfFromInputPathsNative(
     }
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
+    const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
 
     try {
-        return await writePdfFromInputPathsNativeWithTempDir(
+        const wrote = await writePdfFromInputPathsNativeWithTempDir(
             inputPaths,
-            normalizedOutputPath,
+            stagedOutputPath,
             tempDir,
             options,
         );
+        if (!wrote) {
+            return false;
+        }
+
+        await atomicReplace(stagedOutputPath, normalizedOutputPath);
+        return true;
     } finally {
+        await rm(stagedOutputPath, { force: true }).catch(() => undefined);
         await rm(tempDir, {
             recursive: true,
             force: true,
