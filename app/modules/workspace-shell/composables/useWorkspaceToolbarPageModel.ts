@@ -11,13 +11,30 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
     const optimisticPage = ref(toValue(options.sourcePage));
     let navigationBurstTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingNavigationPage: number | null = null;
+    let pendingNavigationSourcePage: number | null = null;
 
     watch(
         () => toValue(options.sourcePage),
         (page) => {
-            if (navigationBurstTimer !== null || pendingNavigationPage !== null) {
+            if (pendingNavigationPage !== null) {
+                if (page === pendingNavigationPage) {
+                    clearPendingNavigation();
+                    optimisticPage.value = page;
+                    return;
+                }
+
+                if (
+                    pendingNavigationSourcePage !== null
+                    && page !== pendingNavigationSourcePage
+                ) {
+                    clearPendingNavigation();
+                    optimisticPage.value = page;
+                    return;
+                }
+
                 return;
             }
+
             optimisticPage.value = page;
         },
     );
@@ -35,12 +52,19 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
         navigationBurstTimer = null;
     }
 
+    function clearPendingNavigation() {
+        clearNavigationBurstTimer();
+        pendingNavigationPage = null;
+        pendingNavigationSourcePage = null;
+    }
+
     function scheduleNavigationBurstSettle() {
         clearNavigationBurstTimer();
         navigationBurstTimer = setTimeout(() => {
             navigationBurstTimer = null;
             const page = pendingNavigationPage;
             pendingNavigationPage = null;
+            pendingNavigationSourcePage = null;
             if (page !== null) {
                 commitNavigation(page);
                 return;
@@ -50,8 +74,7 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
     }
 
     onScopeDispose(() => {
-        clearNavigationBurstTimer();
-        pendingNavigationPage = null;
+        clearPendingNavigation();
     });
 
     const currentPage = computed({
@@ -63,10 +86,8 @@ export function useWorkspaceToolbarPageModel(options: IUseWorkspaceToolbarPageMo
 
     function handleGoToPage(page: number) {
         optimisticPage.value = page;
-        if (navigationBurstTimer === null && pendingNavigationPage === null) {
-            commitNavigation(page);
-            scheduleNavigationBurstSettle();
-            return;
+        if (pendingNavigationPage === null) {
+            pendingNavigationSourcePage = toValue(options.sourcePage);
         }
 
         pendingNavigationPage = page;

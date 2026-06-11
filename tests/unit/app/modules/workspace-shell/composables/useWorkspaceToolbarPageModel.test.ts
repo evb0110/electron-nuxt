@@ -13,7 +13,7 @@ import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/compo
 import { workspaceToolbarPageNavigationCommitDelayMs } from '@app/modules/workspace-shell/toolbar/workspaceToolbarPageNavigationCommitDelayMs';
 
 describe('useWorkspaceToolbarPageModel', () => {
-    it('advances rapid next-page clicks optimistically while coalescing viewer navigation', () => {
+    it('advances rapid next-page clicks optimistically while committing only the settled target', () => {
         vi.useFakeTimers();
         try {
             const scope = effectScope();
@@ -37,20 +37,56 @@ describe('useWorkspaceToolbarPageModel', () => {
                 model.handleGoToPage(nextPage);
             }
 
-            expect(goToPage).toHaveBeenNthCalledWith(1, 2);
-            expect(updateCurrentPage).toHaveBeenNthCalledWith(1, 2);
-            expect(goToPage).toHaveBeenCalledTimes(1);
-            expect(updateCurrentPage).toHaveBeenCalledTimes(1);
+            expect(goToPage).not.toHaveBeenCalled();
+            expect(updateCurrentPage).not.toHaveBeenCalled();
             expect(sourcePage.value).toBe(1);
             expect(model.currentPage.value).toBe(4);
 
             vi.advanceTimersByTime(workspaceToolbarPageNavigationCommitDelayMs - 1);
-            expect(goToPage).toHaveBeenCalledTimes(1);
-            expect(updateCurrentPage).toHaveBeenCalledTimes(1);
+            expect(goToPage).not.toHaveBeenCalled();
+            expect(updateCurrentPage).not.toHaveBeenCalled();
 
             vi.advanceTimersByTime(1);
-            expect(goToPage).toHaveBeenNthCalledWith(2, 4);
-            expect(updateCurrentPage).toHaveBeenNthCalledWith(2, 4);
+            expect(goToPage).toHaveBeenCalledTimes(1);
+            expect(updateCurrentPage).toHaveBeenCalledTimes(1);
+            expect(goToPage).toHaveBeenCalledWith(4);
+            expect(updateCurrentPage).toHaveBeenCalledWith(4);
+
+            scope.stop();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels a pending toolbar navigation when another authoritative page arrives first', async () => {
+        vi.useFakeTimers();
+        try {
+            const scope = effectScope();
+            const sourcePage = ref(1);
+            const updateCurrentPage = vi.fn();
+            const goToPage = vi.fn();
+
+            const model = scope.run(() => useWorkspaceToolbarPageModel({
+                sourcePage,
+                updateCurrentPage,
+                goToPage,
+            }));
+
+            if (!model) {
+                throw new Error('Failed to create workspace toolbar page model');
+            }
+
+            model.currentPage.value = 2;
+            model.handleGoToPage(2);
+            sourcePage.value = 9;
+            await nextTick();
+
+            expect(model.currentPage.value).toBe(9);
+
+            vi.advanceTimersByTime(workspaceToolbarPageNavigationCommitDelayMs);
+
+            expect(goToPage).not.toHaveBeenCalled();
+            expect(updateCurrentPage).not.toHaveBeenCalled();
 
             scope.stop();
         } finally {
