@@ -80,6 +80,13 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         waitForDocumentOpenSettled: vi.fn(async () => {}),
         runAgentAction: vi.fn(async () => ({})),
         readAgentResource: vi.fn(async () => ({})),
+        workingCopyPath: ref(null),
+        originalPath: ref(null),
+        annotationComments: ref([]),
+        annotationCommentsStatus: ref('ready'),
+        annotationDirty: ref(false),
+        sortedAnnotationNoteWindows: ref([]),
+        handleOcrComplete: vi.fn(async () => {}),
         ...overrides,
     });
 }

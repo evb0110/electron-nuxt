@@ -1,106 +1,41 @@
+// @vitest-environment happy-dom
+
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { findAnnotationSummaryFromPoint } from '@app/utils/pdf-viewer/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
-interface IFakeRect {
+interface IRect {
     height: number;
     left: number;
     top: number;
     width: number;
 }
 
-class FakeDocument {
-    elementsAtPoint: FakeElement[] = [];
-
-    elementsFromPoint() {
-        return this.elementsAtPoint;
-    }
-}
-
-class FakeElement {
-    children: FakeElement[] = [];
-    dataset: Record<string, string> = {};
-    ownerDocument: FakeDocument;
-    parentElement: FakeElement | null = null;
-
-    constructor(
-        private readonly className: string,
-        private readonly rect: IFakeRect,
-        ownerDocument = new FakeDocument(),
-    ) {
-        this.ownerDocument = ownerDocument;
-    }
-
-    append(child: FakeElement) {
-        child.parentElement = this;
-        child.ownerDocument = this.ownerDocument;
-        this.children.push(child);
-    }
-
-    closest(selector: string) {
-        if (this.matches(selector)) {
-            return this;
-        }
-        let current = this.parentElement;
-        while (current) {
-            if (current.matches(selector)) {
-                return current;
-            }
-            current = current.parentElement;
-        }
-        return null;
-    }
-
-    getAttribute(name: string) {
-        return name === 'data-annotation-id'
-            ? this.dataset.annotationId ?? null
-            : null;
-    }
-
-    getBoundingClientRect() {
-        return {
-            ...this.rect,
-            bottom: this.rect.top + this.rect.height,
-            right: this.rect.left + this.rect.width,
-        } as DOMRect;
-    }
-
-    matches(selector: string) {
-        if (selector === '.page_container') {
-            return this.className === 'page_container';
-        }
-        if (selector === '.annotationLayer [data-annotation-id], .annotation-layer [data-annotation-id]') {
-            return Boolean(this.dataset.annotationId) && this.hasAnnotationLayerAncestor();
-        }
-        return false;
-    }
-
-    querySelectorAll(selector: string) {
-        const matches: FakeElement[] = [];
-        const visit = (element: FakeElement) => {
-            if (element.matches(selector)) {
-                matches.push(element);
-            }
-            element.children.forEach(visit);
-        };
-        this.children.forEach(visit);
-        return matches;
-    }
-
-    private hasAnnotationLayerAncestor() {
-        let current = this.parentElement;
-        while (current) {
-            if (current.className === 'annotationLayer' || current.className === 'annotation-layer') {
-                return true;
-            }
-            current = current.parentElement;
-        }
-        return false;
-    }
+function createElement(
+    className: string,
+    rect: IRect,
+) {
+    const element = document.createElement('div');
+    element.className = className;
+    Object.defineProperty(element, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+            ...rect,
+            bottom: rect.top + rect.height,
+            right: rect.left + rect.width,
+            x: rect.left,
+            y: rect.top,
+            toJSON: () => ({}),
+        }),
+    });
+    return element;
 }
 
 function createSummary(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
@@ -128,52 +63,60 @@ function createSummary(overrides: Partial<IAnnotationCommentSummary>): IAnnotati
     };
 }
 
-function createPage(document: FakeDocument) {
-    const page = new FakeElement('page_container', {
+function createPage() {
+    const page = createElement('page_container', {
         left: 0,
         top: 0,
         width: 1000,
         height: 1000,
-    }, document);
+    });
     page.dataset.page = '1';
     return page;
 }
 
-function toHTMLElement(element: FakeElement) {
-    return element as never;
-}
-
 describe('findAnnotationSummaryFromPoint', () => {
+    beforeEach(() => {
+        document.body.replaceChildren();
+        Object.defineProperty(document, 'elementsFromPoint', {
+            configurable: true,
+            value: vi.fn(() => []),
+        });
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('prefers the annotation layer element under the pointer', () => {
-        const document = new FakeDocument();
-        const page = createPage(document);
-        const annotationLayer = new FakeElement('annotationLayer', {
+        const page = createPage();
+        const annotationLayer = createElement('annotationLayer', {
             left: 0,
             top: 0,
             width: 1000,
             height: 1000,
-        }, document);
-        const older = new FakeElement('underlineAnnotation', {
+        });
+        const older = createElement('underlineAnnotation', {
             left: 100,
             top: 100,
             width: 300,
             height: 50,
-        }, document);
+        });
         older.dataset.annotationId = 'older';
-        const topmost = new FakeElement('underlineAnnotation', {
+        const topmost = createElement('underlineAnnotation', {
             left: 100,
             top: 100,
             width: 300,
             height: 50,
-        }, document);
+        });
         topmost.dataset.annotationId = 'topmost';
         page.append(annotationLayer);
         annotationLayer.append(older);
         annotationLayer.append(topmost);
-        document.elementsAtPoint = [topmost];
+        document.body.append(page);
+        vi.spyOn(document, 'elementsFromPoint').mockReturnValue([topmost]);
 
         const summary = findAnnotationSummaryFromPoint(
-            toHTMLElement(page),
+            page,
             150,
             120,
             1,
@@ -189,18 +132,18 @@ describe('findAnnotationSummaryFromPoint', () => {
                     annotationId: 'topmost',
                 }),
             ],
-            () => toHTMLElement(page),
+            () => page,
         );
 
         expect(summary?.annotationId).toBe('topmost');
     });
 
     it('breaks identical marker-rect ties toward the most recently modified summary', () => {
-        const document = new FakeDocument();
-        const page = createPage(document);
+        const page = createPage();
+        document.body.append(page);
 
         const summary = findAnnotationSummaryFromPoint(
-            toHTMLElement(page),
+            page,
             150,
             120,
             1,
@@ -218,7 +161,7 @@ describe('findAnnotationSummaryFromPoint', () => {
                     modifiedAt: 200,
                 }),
             ],
-            () => toHTMLElement(page),
+            () => page,
         );
 
         expect(summary?.annotationId).toBe('newer');

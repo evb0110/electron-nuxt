@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     afterEach,
     beforeEach,
@@ -97,63 +99,6 @@ vi.mock('@app/services/pdfjs/viewerRuntimeLib', () => ({
     EventBus: FakeEventBus,
     GenericL10n: FakeGenericL10n,
 }));
-
-class FakeElement {
-    tagName: string;
-    isContentEditable = false;
-    private readonly selectors = new Set<string>();
-
-    constructor(tagName: string, selectors: string[] = []) {
-        this.tagName = tagName.toUpperCase();
-        selectors.forEach(selector => this.selectors.add(selector));
-    }
-
-    closest(selector: string) {
-        return this.selectors.has(selector) ? this : null;
-    }
-}
-
-class FakeDomElement extends FakeElement {
-    className = '';
-    children: FakeDomElement[] = [];
-    style: Record<string, string> = {};
-    attributes = new Map<string, string>();
-    parent: FakeDomElement | null = null;
-    innerHTML = '';
-
-    append(...children: FakeDomElement[]) {
-        children.forEach((child) => {
-            child.parent = this;
-            this.children.push(child);
-        });
-    }
-
-    remove() {
-        if (!this.parent) {
-            return;
-        }
-        this.parent.children = this.parent.children.filter(child => child !== this);
-        this.parent = null;
-    }
-
-    setAttribute(name: string, value: string) {
-        this.attributes.set(name, value);
-    }
-
-    removeAttribute(name: string) {
-        this.attributes.delete(name);
-    }
-
-    contains(node: FakeDomElement | null): boolean {
-        if (!node) {
-            return false;
-        }
-        if (node === this) {
-            return true;
-        }
-        return this.children.some((child): boolean => child.contains(node));
-    }
-}
 
 function createAnnotationSettings(): IAnnotationSettings {
     return {
@@ -300,36 +245,33 @@ function createMarkupSubtypeHarness(overrides?: Partial<IMarkupSubtypeHarness>) 
 
 describe('shouldIgnoreEditorEvent', () => {
     beforeEach(() => {
-        vi.stubGlobal('HTMLElement', FakeElement);
+        document.body.replaceChildren();
         annotationUiManagerInstances.length = 0;
     });
 
     afterEach(() => {
-        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
     });
 
     it('ignores note-window key events when the active element is a textarea', () => {
-        const activeTextarea = new FakeElement('textarea', ['.note-window, .pdf-annotation-note-window']);
-        vi.stubGlobal('document', {
-            activeElement: activeTextarea,
-            getSelection: () => null,
-        });
+        const activeTextarea = document.createElement('textarea');
+        activeTextarea.classList.add('note-window');
+        document.body.append(activeTextarea);
+        activeTextarea.focus();
 
         const event = new Event('keydown');
         Object.defineProperty(event, 'target', {
             configurable: true,
-            value: new FakeElement('body'),
+            value: document.body,
         });
 
         expect(shouldIgnoreEditorEvent(event)).toBe(true);
     });
 
     it('does not ignore non-editing key events outside text entry surfaces', () => {
-        const activeButton = new FakeElement('button');
-        vi.stubGlobal('document', {
-            activeElement: activeButton,
-            getSelection: () => null,
-        });
+        const activeButton = document.createElement('button');
+        document.body.append(activeButton);
+        activeButton.focus();
 
         const event = new Event('keydown');
         Object.defineProperty(event, 'target', {
@@ -344,21 +286,15 @@ describe('shouldIgnoreEditorEvent', () => {
 describe('useAnnotationEditorBridge', () => {
     beforeEach(() => {
         annotationUiManagerInstances.length = 0;
-        vi.stubGlobal('HTMLElement', FakeDomElement);
-        vi.stubGlobal('window', { requestAnimationFrame: (callback: FrameRequestCallback) => {
+        document.body.replaceChildren();
+        vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
             callback(0);
             return 1;
-        } });
-        vi.stubGlobal('document', {
-            body: new FakeDomElement('body'),
-            createElement: (tagName: string) => new FakeDomElement(tagName),
-            getSelection: () => null,
         });
     });
 
     afterEach(() => {
         vi.restoreAllMocks();
-        vi.unstubAllGlobals();
     });
 
     it('clears selection after committing a new ink editor', async () => {

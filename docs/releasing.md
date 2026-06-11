@@ -14,9 +14,10 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow and includes current-platform build and packaging verification.
 - `release:verify:checks` forces `CI=1` during linting, typechecking, Electron install verification, and the fast release-critical test lane so the local gate stays closer to the GitHub release runner.
+- Direct pushes to `main` run `pnpm lint`, `pnpm typecheck`, and `pnpm run test:release` before the next release cut, with Rust, landing, and Python page-processor checks added when those paths change.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage`, `fallow`, and architecture graph checks) remain part of `pnpm validate` and pull-request CI, but they do not block every local release cut.
-- Release-critical tests should stay deterministic and fast. Long serial Electron E2E checks are available for manual diagnostics, but they no longer block release cutting.
+- Broad maintenance checks (`typecheck:coverage`, `fallow`, architecture graph checks, Rust tests, the coverage ratchet, OCR model registry, and Python page-processor smoke) remain part of scheduled nightly CI, but they do not block every local release cut.
+- Release-critical tests should stay deterministic and fast. Long serial Electron E2E and PDF tab diagnostics are available in nightly/manual diagnostics, but they do not block release cutting.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - `pnpm run release:verify:package:local` packages the current platform exactly as the release workflow would, then validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS.

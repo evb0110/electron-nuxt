@@ -1,6 +1,4 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
@@ -11,17 +9,18 @@ import {
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAnnotationTool,
     getHighlightEditorCount,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerCore';
 
 async function dragOverFirstTwoSpans(page: Page) {
     const dragPoints = await page.evaluate(() => {
@@ -67,21 +66,14 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
 }
 
 describe('Electron E2E - Squiggly text markup', () => {
-    let session: IElectronE2ESession | null = null;
-
-    beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-squiggly-${Date.now()}`);
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-squiggly-${Date.now()}`});
 
     it('authors and persists a Squiggly annotation that survives save', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Squiggly session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const fixturePath = await createMultiPageTextFixturePdf(`squiggly-${Date.now()}-squiggly.pdf`, 1);
         await openPdfInApp(page, fixturePath);

@@ -32,6 +32,7 @@ import {
     shouldUseMacOSHiddenAppLauncher,
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
+import { applyE2ESharedRendererPort } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import {
     ELECTRON_SERVER_PATH,
     cleanupOrphanedProjectNuxtRoots,
@@ -48,6 +49,7 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
+import { formatElectronStartupDiagnostics } from '@scripts/electron-run/electronRunStartupDiagnostics';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { parseElectronRunCommandRequest } from '@scripts/electron-run/electronRunProtocol';
 import {
@@ -195,9 +197,11 @@ function createElectronStartupLog() {
                 .join('\n')
                 .trim();
             const exitInfo = `code=${details.code ?? 'null'}, signal=${details.signal ?? 'null'}`;
-            return tail
+            const baseMessage = tail
                 ? `${reason} (${exitInfo})\n--- Electron output tail ---\n${tail}`
                 : `${reason} (${exitInfo})`;
+            const includeMacOSLog = details.signal === 'SIGKILL';
+            return `${baseMessage}\n${formatElectronStartupDiagnostics({ includeMacOSLog })}`;
         },
     };
 }
@@ -983,6 +987,7 @@ async function launchAutomationSessionWithRecovery(options: {
     cdpPort: number;
     nuxtProcess: ChildProcess | null;
     otherRunning: string[];
+    usesSharedRenderer: boolean;
     logTiming: (message: string) => void;
 }): Promise<IAutomationLaunchResult> {
     let cdpPort = options.cdpPort;
@@ -1024,6 +1029,9 @@ async function launchAutomationSessionWithRecovery(options: {
             }
 
             if (attempt === 0 && isViteOptimizeDepError(error)) {
+                if (options.usesSharedRenderer) {
+                    throw new Error('Detected Vite optimize-dep failure from the shared Electron E2E renderer. Restart the Vitest run so globalSetup can recreate the renderer.');
+                }
                 if (options.otherRunning.length > 0) {
                     throw new Error(`Detected Vite optimize-dep failure, but other sessions are active (${options.otherRunning.join(', ')}). Stop them and run cleanstart.`);
                 }
@@ -1305,11 +1313,21 @@ export async function startSession(forceClean = false) {
     console.log(`Starting Electron Puppeteer session '${getCurrentSessionName()}'...\n`);
 
     try {
-        const startupOptions = resolveForceCleanStart(forceClean);
-        const nuxtProcess = await startNuxtServer(startupOptions.forceClean);
-        logTiming('Nuxt startup phase complete');
+        const sharedRenderer = applyE2ESharedRendererPort(process.env);
+        const startupOptions = resolveForceCleanStart(sharedRenderer ? false : forceClean);
+        let nuxtProcess: ChildProcess | null = null;
+        if (sharedRenderer) {
+            console.log(`[Nuxt] Using shared Electron E2E renderer at http://127.0.0.1:${sharedRenderer.port}/electron`);
+            if (!await waitForReusableNuxtServer(30_000)) {
+                throw new Error(`Shared Electron E2E renderer on port ${sharedRenderer.port} did not become reusable`);
+            }
+            logTiming('Shared renderer reuse confirmed');
+        } else {
+            nuxtProcess = await startNuxtServer(startupOptions.forceClean);
+            logTiming('Nuxt startup phase complete');
+        }
 
-        if (startupOptions.forceClean) {
+        if (!sharedRenderer && startupOptions.forceClean) {
             clearElectronUserDataCache();
         }
 
@@ -1319,6 +1337,7 @@ export async function startSession(forceClean = false) {
             cdpPort: ports.cdpPort,
             nuxtProcess,
             otherRunning: startupOptions.otherRunning,
+            usesSharedRenderer: sharedRenderer !== null,
             logTiming,
         });
         const diagnostics = attachPageDiagnostics(launch.page);

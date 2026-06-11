@@ -16,7 +16,19 @@ import {
     shouldDisableAutomationSandbox,
     shouldUseMacOSHiddenAppLauncher,
 } from '@scripts/electron-run/electronRunLaunchConfig';
+import {
+    E2E_SHARED_RENDERER_ENABLED_ENV,
+    E2E_SHARED_RENDERER_PORT_ENV,
+    applyE2ESharedRendererPort,
+    buildE2ESharedRendererEnv,
+    readE2ESharedRendererConfig,
+} from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import { checkNuxtHttpReadiness } from '@scripts/electron-run/electronRunNuxtServer';
+import {
+    DEFAULT_NUXT_PORT,
+    getNuxtPort,
+    setNuxtPort,
+} from '@scripts/electron-run/electronRunPortConfig';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
     hasOtherAliveSessionUsingNuxt,
@@ -309,6 +321,45 @@ describe('sessionManager automation launch args', () => {
         }) as typeof fetch;
 
         await expect(checkNuxtHttpReadiness({fetchImpl})).resolves.toBe(false);
+    });
+
+    it('ignores shared renderer metadata unless the e2e signal is enabled', () => {
+        const env = { [E2E_SHARED_RENDERER_PORT_ENV]: '4123' };
+
+        expect(readE2ESharedRendererConfig(env)).toBeNull();
+    });
+
+    it('parses the shared e2e renderer port from explicit metadata', () => {
+        expect(readE2ESharedRendererConfig({
+            [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
+            [E2E_SHARED_RENDERER_PORT_ENV]: '4123',
+        })).toEqual({ port: 4123 });
+    });
+
+    it('rejects invalid shared e2e renderer ports', () => {
+        expect(() => readE2ESharedRendererConfig({
+            [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
+            [E2E_SHARED_RENDERER_PORT_ENV]: '70000',
+        })).toThrow(/requires a valid/);
+    });
+
+    it('applies the shared e2e renderer port for Electron launch metadata', () => {
+        try {
+            expect(applyE2ESharedRendererPort({
+                [E2E_SHARED_RENDERER_ENABLED_ENV]: 'true',
+                [E2E_SHARED_RENDERER_PORT_ENV]: '4234',
+            })).toEqual({ port: 4234 });
+            expect(getNuxtPort()).toBe(4234);
+        } finally {
+            setNuxtPort(DEFAULT_NUXT_PORT);
+        }
+    });
+
+    it('builds the shared e2e renderer environment for detached sessions', () => {
+        expect(buildE2ESharedRendererEnv(4345)).toEqual({
+            [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
+            [E2E_SHARED_RENDERER_PORT_ENV]: '4345',
+        });
     });
 
     it('cleans only stale session-owned Nuxt port owners', () => {

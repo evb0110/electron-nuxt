@@ -1417,6 +1417,32 @@ const workspaceExpose: IWorkspaceExpose = {
             error: 'Workspace is not available.',
         };
     },
+    getAutomationStateSnapshot: () => mountedWorkspace.value?.getAutomationStateSnapshot() ?? {
+        annotationComments: [],
+        annotationCommentsStatus: 'loading',
+        annotationDirty: false,
+        originalPath: null,
+        sortedAnnotationNoteWindows: [],
+        workingCopyPath: null,
+    },
+    handleOcrComplete: async (payload) => {
+        await withLoadedWorkspace('handleOcrComplete', workspace => workspace.handleOcrComplete?.(payload));
+    },
+    scrollToPage: (page: number) => {
+        void withLoadedWorkspace('scrollToPage', workspace => workspace.scrollToPage?.(page));
+    },
+    getAllShapes: () => mountedWorkspace.value?.getAllShapes?.() ?? [],
+    getDeletedEmbeddedShapeAnnotationIds: () => mountedWorkspace.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
+    getDeletedEmbeddedShapeStableKeys: () => mountedWorkspace.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+    highlightSelection: async () => (
+        await withLoadedWorkspace('highlightSelection', workspace => workspace.highlightSelection?.()) ?? false
+    ),
+    commentAtPoint: async (pageNumber, pageX, pageY, options) => (
+        await withLoadedWorkspace(
+            'commentAtPoint',
+            workspace => workspace.commentAtPoint?.(pageNumber, pageX, pageY, options),
+        ) ?? false
+    ),
     getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
 };
 

@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -7,56 +9,37 @@ import {
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { usePdfRendererSinglePageController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSinglePageController';
 
-class FakeElement {
-    public readonly children: unknown[] = [];
-    public readonly classList = {
-        add: vi.fn(),
-        remove: vi.fn(),
-    };
-    public readonly dataset: Record<string, string> = {};
-    public innerHTML = '';
-    public isConnected = true;
-    private readonly bySelector = new Map<string, FakeElement>();
-
-    public constructor(private readonly parent: FakeElement | null = null) {}
-
-    public append(...children: unknown[]) {
-        this.children.push(...children);
-    }
-
-    public closest(selector: string) {
-        return selector === '.page_container' ? this.parent : null;
-    }
-
-    public querySelector<T = FakeElement>(selector: string): T | null {
-        return (this.bySelector.get(selector) ?? null) as T | null;
-    }
-
-    public setQuery(selector: string, element: FakeElement) {
-        this.bySelector.set(selector, element);
-    }
-}
-
 function createPageRoot() {
-    const root = new FakeElement();
-    const page = new FakeElement(root);
+    document.body.replaceChildren();
+    const root = document.createElement('div');
+    const page = document.createElement('div');
+    page.classList.add('page_container');
     page.dataset.page = '1';
+    const pageClassAdd = vi.spyOn(page.classList, 'add');
 
-    const canvasHost = new FakeElement(page);
-    const textLayer = new FakeElement(page);
-    const annotationLayer = new FakeElement(page);
-    const annotationEditorLayer = new FakeElement(page);
+    const canvasHost = document.createElement('div');
+    canvasHost.classList.add('page_canvas');
+    const textLayer = document.createElement('div');
+    textLayer.classList.add('text-layer');
+    const annotationLayer = document.createElement('div');
+    annotationLayer.classList.add('annotation-layer');
+    const annotationEditorLayer = document.createElement('div');
+    annotationEditorLayer.classList.add('annotation-editor-layer');
 
-    root.setQuery('.page_container[data-page="1"]', page);
-    page.setQuery('.page_canvas', canvasHost);
-    page.setQuery('.text-layer', textLayer);
-    page.setQuery('.annotation-layer', annotationLayer);
-    page.setQuery('.annotation-editor-layer', annotationEditorLayer);
+    page.append(
+        canvasHost,
+        textLayer,
+        annotationLayer,
+        annotationEditorLayer,
+    );
+    root.append(page);
+    document.body.append(root);
 
     return {
-        root: root as FakeElement & HTMLElement,
+        root,
         page,
         canvasHost,
+        pageClassAdd,
     };
 }
 
@@ -64,13 +47,13 @@ describe('usePdfRendererSinglePageController', () => {
     it('cleans a mounted canvas when a later async text-layer stage goes stale', async () => {
         const {
             root,
-            page,
             canvasHost,
+            pageClassAdd,
         } = createPageRoot();
         let renderVersion = 1;
         const pdfPage = { cleanup: vi.fn() } as PDFPageProxy & {cleanup: ReturnType<typeof vi.fn>};
         const cleanupPageIfCurrentRender = vi.fn(() => {
-            canvasHost.children.length = 0;
+            canvasHost.replaceChildren();
         });
         const releasePageResources = vi.fn();
         const renderingPages = new Map<number, number>();
@@ -94,7 +77,7 @@ describe('usePdfRendererSinglePageController', () => {
             cleanupCanvasRenderResult: vi.fn(),
             releasePageResources,
             loadPageForRender: vi.fn(async () => pdfPage),
-            prepareCanvasForRender: vi.fn(async () => ({ canvas: { tagName: 'CANVAS' } })),
+            prepareCanvasForRender: vi.fn(async () => ({ canvas: document.createElement('canvas') })),
             mountRenderedCanvas: vi.fn((_pageNumber, _container, _host, renderResult) => {
                 canvasHost.append(renderResult.canvas);
             }),
@@ -127,7 +110,7 @@ describe('usePdfRendererSinglePageController', () => {
         );
 
         expect(canvasHost.children).toHaveLength(0);
-        expect(page.classList.add).not.toHaveBeenCalledWith('page_container--rendered');
+        expect(pageClassAdd).not.toHaveBeenCalledWith('page_container--rendered');
         expect(cleanupPageIfCurrentRender).toHaveBeenCalledWith(1, 1, 1);
         expect(releasePageResources).toHaveBeenCalledWith(1, pdfPage);
         expect(renderingPages.has(1)).toBe(false);

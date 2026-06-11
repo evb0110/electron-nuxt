@@ -13,6 +13,12 @@ import {
     startDiagnosticFrameCapture,
 } from '@scripts/diagnostics/diagnosticFrameCapture';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {
+    callWorkspaceCommand,
+    getWorkspaceToolbarSnapshot,
+    installWorkspaceExposeProbe,
+    waitForWorkspaceToolbarSnapshot,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH
     || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'navigation-source.pdf');
@@ -192,20 +198,20 @@ async function openPdfInApp(
 }
 
 async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+    await installWorkspaceExposeProbe(page);
     await page.evaluate(() => {
-        type TWorkspaceExpose = {getToolbarSnapshot?: () => {
-            currentPage?: number;
-            totalPages?: number;
-            fitMode?: string;
-            zoomMode?: string;
-            continuousScroll?: boolean;
-            effectiveZoom?: number;
-        };};
-        type TWorkspaceComponentElement = HTMLElement & {__vueParentComponent?: {
-            exposed?: TWorkspaceExpose;
-            parent?: TWorkspaceComponentElement['__vueParentComponent'];
-        };};
         type TBlinkTraceWindow = Window & {
+            __evbFindWorkspaceExpose?: (options?: {
+                requiredMethods?: string[];
+                requireVisible?: boolean;
+            }) => {getToolbarSnapshot?: () => {
+                currentPage?: number;
+                totalPages?: number;
+                fitMode?: string;
+                zoomMode?: string;
+                continuousScroll?: boolean;
+                effectiveZoom?: number;
+            };} | null;
             __pdfBlinkTrace?: {
                 events: unknown[];
                 samples: unknown[];
@@ -231,27 +237,6 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 && style.display !== 'none'
                 && style.visibility !== 'hidden'
                 && Number(style.opacity || '1') > 0;
-        }
-
-        function findWorkspaceExpose() {
-            const candidates = [
-                ...Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host')),
-                ...Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')),
-                ...Array.from(document.querySelectorAll<HTMLElement>('*')),
-            ];
-            for (const element of candidates) {
-                if (!isVisibleElement(element)) {
-                    continue;
-                }
-                let component = (element as TWorkspaceComponentElement).__vueParentComponent ?? null;
-                while (component) {
-                    if (typeof component.exposed?.getToolbarSnapshot === 'function') {
-                        return component.exposed;
-                    }
-                    component = component.parent ?? null;
-                }
-            }
-            return null;
         }
 
         function summarizeElement(element: Element | null) {
@@ -339,10 +324,14 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
                 .map(pageInfo => pageInfo.page);
             const centerX = Math.round(viewerRect.left + viewerRect.width / 2);
             const centerY = Math.round(viewerRect.top + viewerRect.height / 2);
+            const workspaceExpose = traceWindow.__evbFindWorkspaceExpose?.({
+                requiredMethods: ['getToolbarSnapshot'],
+                requireVisible: true,
+            }) ?? null;
 
             return {
                 atMs: nowMs(),
-                toolbarSnapshot: findWorkspaceExpose()?.getToolbarSnapshot?.() ?? null,
+                toolbarSnapshot: workspaceExpose?.getToolbarSnapshot?.() ?? null,
                 visibleCurrentPageLabels,
                 viewer: viewer
                     ? {
@@ -448,34 +437,11 @@ async function waitForWorkspaceReady(
     page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
     timeoutMs = 60_000,
 ) {
-    await page.waitForFunction(() => {
-        type TWorkspaceExpose = {getToolbarSnapshot?: () => {
-            hasPdf?: boolean;
-            totalPages?: number;
-            currentPage?: number;
-        };};
-        type TWorkspaceComponentElement = HTMLElement & {__vueParentComponent?: {
-            exposed?: TWorkspaceExpose;
-            parent?: TWorkspaceComponentElement['__vueParentComponent'];
-        };};
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            let component = (element as TWorkspaceComponentElement).__vueParentComponent ?? null;
-            while (component) {
-                const snapshot = component.exposed?.getToolbarSnapshot?.();
-                if (
-                    snapshot?.hasPdf === true
-                    && typeof snapshot.totalPages === 'number'
-                    && snapshot.totalPages > 1
-                    && typeof snapshot.currentPage === 'number'
-                    && document.querySelector('#pdf-viewer')
-                ) {
-                    return true;
-                }
-                component = component.parent ?? null;
-            }
-        }
-        return false;
-    }, { timeout: timeoutMs });
+    await waitForWorkspaceToolbarSnapshot(page, {
+        hasPdf: true,
+        minTotalPages: 2,
+    }, { timeoutMs });
+    await page.waitForSelector('#pdf-viewer', { timeout: timeoutMs });
 }
 
 async function recordTraceEvent(
@@ -496,48 +462,28 @@ async function recordTraceEvent(
 }
 
 async function configureFitHeightPagedMode(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    const configured = await page.evaluate(() => {
-        type TWorkspaceExpose = {
-            getToolbarSnapshot?: () => {continuousScroll?: boolean;};
-            handleFitHeight?: () => void;
-            handleToggleContinuousScroll?: () => void;
-            handleViewModeSingle?: () => void;
-        };
-        type TWorkspaceComponentElement = HTMLElement & {__vueParentComponent?: {
-            exposed?: TWorkspaceExpose;
-            parent?: TWorkspaceComponentElement['__vueParentComponent'];
-        };};
-        function findWorkspaceExpose() {
-            for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-                let component = (element as TWorkspaceComponentElement).__vueParentComponent ?? null;
-                while (component) {
-                    const exposed = component.exposed;
-                    if (
-                        typeof exposed?.getToolbarSnapshot === 'function'
-                        && typeof exposed.handleFitHeight === 'function'
-                        && typeof exposed.handleViewModeSingle === 'function'
-                    ) {
-                        return exposed;
-                    }
-                    component = component.parent ?? null;
-                }
-            }
-            return null;
-        }
+    const initialSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: [
+        'handleFitHeight',
+        'handleViewModeSingle',
+    ]});
 
-        const workspace = findWorkspaceExpose();
-        if (!workspace) {
-            return false;
-        }
-        workspace.handleViewModeSingle?.();
-        if (workspace.getToolbarSnapshot?.().continuousScroll === true) {
-            workspace.handleToggleContinuousScroll?.();
-        }
-        workspace.handleFitHeight?.();
-        return true;
-    });
+    if (!initialSnapshot) {
+        throw new Error('Unable to configure fit-height paged mode');
+    }
 
-    if (!configured) {
+    await callWorkspaceCommand(page, 'handleViewModeSingle', [], {requiredMethods: [
+        'getToolbarSnapshot',
+        'handleFitHeight',
+    ]});
+    if (initialSnapshot.continuousScroll === true) {
+        await callWorkspaceCommand(page, 'handleToggleContinuousScroll', [], {requiredMethods: [
+            'getToolbarSnapshot',
+            'handleFitHeight',
+        ]});
+    }
+    const fitHeightResult = await callWorkspaceCommand(page, 'handleFitHeight', [], {requiredMethods: ['getToolbarSnapshot']});
+
+    if (!fitHeightResult.called) {
         throw new Error('Unable to configure fit-height paged mode');
     }
     await delay(500);
@@ -547,33 +493,9 @@ async function goToPageViaWorkspace(
     page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
     pageNumber: number,
 ) {
-    const navigated = await page.evaluate((targetPage: number) => {
-        type TWorkspaceExpose = {
-            handleGoToPage?: (page: number) => void;
-            getToolbarSnapshot?: () => unknown;
-        };
-        type TWorkspaceComponentElement = HTMLElement & {__vueParentComponent?: {
-            exposed?: TWorkspaceExpose;
-            parent?: TWorkspaceComponentElement['__vueParentComponent'];
-        };};
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            let component = (element as TWorkspaceComponentElement).__vueParentComponent ?? null;
-            while (component) {
-                const exposed = component.exposed;
-                if (
-                    typeof exposed?.getToolbarSnapshot === 'function'
-                    && typeof exposed.handleGoToPage === 'function'
-                ) {
-                    exposed.handleGoToPage(targetPage);
-                    return true;
-                }
-                component = component.parent ?? null;
-            }
-        }
-        return false;
-    }, pageNumber);
+    const navigationResult = await callWorkspaceCommand(page, 'handleGoToPage', [pageNumber], {requiredMethods: ['getToolbarSnapshot']});
 
-    if (!navigated) {
+    if (!navigationResult.called) {
         throw new Error(`Unable to navigate workspace to page ${pageNumber}`);
     }
 }
@@ -582,24 +504,7 @@ async function waitForToolbarPage(
     page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
     pageNumber: number,
 ) {
-    await page.waitForFunction((targetPage: number) => {
-        type TWorkspaceExpose = {getToolbarSnapshot?: () => {currentPage?: number;};};
-        type TWorkspaceComponentElement = HTMLElement & {__vueParentComponent?: {
-            exposed?: TWorkspaceExpose;
-            parent?: TWorkspaceComponentElement['__vueParentComponent'];
-        };};
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            let component = (element as TWorkspaceComponentElement).__vueParentComponent ?? null;
-            while (component) {
-                const snapshot = component.exposed?.getToolbarSnapshot?.();
-                if (snapshot?.currentPage === targetPage) {
-                    return true;
-                }
-                component = component.parent ?? null;
-            }
-        }
-        return false;
-    }, { timeout: 20_000 }, pageNumber);
+    await waitForWorkspaceToolbarSnapshot(page, {currentPage: pageNumber}, {timeoutMs: 20_000});
 }
 
 async function waitForPageCanvas(

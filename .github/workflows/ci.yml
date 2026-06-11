@@ -1,11 +1,16 @@
 name: CI
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref || github.run_id }}
   cancel-in-progress: true
 
 on:
-  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,9 +21,69 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  quality:
-    name: Shared Quality Gates
+  changes:
+    name: Detect Changed Areas
+    if: ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-latest
+    outputs:
+      landing: ${{ steps.filter.outputs.landing }}
+      native: ${{ steps.filter.outputs.native }}
+      python_page_processor: ${{ steps.filter.outputs.python_page_processor }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed areas
+        id: filter
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "landing=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "python_page_processor=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$BEFORE_SHA"
+          if [ -z "$base_sha" ] || [[ "$base_sha" =~ ^0+$ ]] || ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            base_sha="$(git rev-list --max-parents=0 "$HEAD_SHA")"
+          fi
+
+          changed_files="$(git diff --name-only "$base_sha" "$HEAD_SHA")"
+          printf '%s\n' "$changed_files"
+
+          if printf '%s\n' "$changed_files" | grep -Eq '^landing/'; then
+            echo "landing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "landing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if printf '%s\n' "$changed_files" | grep -Eq '^native/'; then
+            echo "native=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "native=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if printf '%s\n' "$changed_files" | grep -Eq '^(python/page-processor/|scripts/check-page-processor-smoke.py|package.json|\.github/workflows/ci\.yml)'; then
+            echo "python_page_processor=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python_page_processor=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  push_quality:
+    name: Push Quality Gates
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -36,43 +101,52 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-      - name: Validate
-        run: pnpm run validate
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
 
       - name: Unit and integration tests
         run: pnpm run test:release
 
-  landing_quality:
-    name: Landing Quality Gates
+  native_push:
+    name: Native Rust Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.native == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Detect landing changes
-        id: changes
-        shell: bash
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-          if git diff --name-only "origin/$BASE_REF...HEAD" -- landing/ | grep -q .; then
-            echo "landing=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "landing=false" >> "$GITHUB_OUTPUT"
-            echo "No landing changes detected; skipping landing checks."
-          fi
 
       - name: Setup pnpm
-        if: steps.changes.outputs.landing == 'true'
         uses: pnpm/action-setup@v5
 
       - name: Setup Node.js
-        if: steps.changes.outputs.landing == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Rust tests
+        run: pnpm run test:rust
+
+  landing_push:
+    name: Landing Quality Gates
+    needs: changes
+    if: ${{ needs.changes.outputs.landing == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -80,13 +154,165 @@ jobs:
           cache-dependency-path: landing/pnpm-lock.yaml
 
       - name: Install landing dependencies
-        if: steps.changes.outputs.landing == 'true'
         run: pnpm --dir landing install --frozen-lockfile
 
       - name: Landing typecheck
-        if: steps.changes.outputs.landing == 'true'
         run: pnpm --dir landing run typecheck
 
       - name: Landing build
-        if: steps.changes.outputs.landing == 'true'
         run: pnpm --dir landing run build
+
+  python_page_processor_push:
+    name: Python Page Processor Smoke
+    needs: changes
+    if: ${{ needs.changes.outputs.python_page_processor == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install page processor smoke dependencies
+        run: python -m pip install 'numpy>=2.0.0' 'opencv-python-headless>=4.10.0'
+
+      - name: Page processor smoke
+        run: pnpm run test:python-page-processor
+
+  nightly_maintenance:
+    name: Nightly Maintenance Gates
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Install page processor smoke dependencies
+        run: python -m pip install 'numpy>=2.0.0' 'opencv-python-headless>=4.10.0'
+
+      - name: Validate
+        run: pnpm run validate
+
+      - name: Rust tests
+        run: pnpm run test:rust
+
+      - name: Coverage
+        run: pnpm run test:coverage
+
+      - name: OCR language model registry
+        run: pnpm run check:ocr-language-model-registry
+
+      - name: Page processor smoke
+        run: pnpm run test:python-page-processor
+
+  nightly_electron_e2e:
+    name: Nightly Electron E2E Smoke
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Electron E2E smoke
+        env:
+          EVB_E2E_REQUIRE_DJVU_FIXTURE: '1'
+        run: pnpm run test:e2e:electron
+
+  nightly_electron_e2e_quarantine:
+    name: Nightly Electron E2E Quarantine
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Electron E2E quarantine
+        run: pnpm run test:e2e:electron:quarantine
+
+  nightly_pdf_tabs_diagnostics:
+    name: Nightly PDF Tab Diagnostics
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: PDF tab diagnostics
+        run: pnpm run diag:pdf-tabs:ci

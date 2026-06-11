@@ -1,26 +1,23 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import { basename } from 'node:path';
-import { stopSingleSession } from '@scripts/electron-run/sessionManager';
 import {
     createMultiPageTextFixturePdf,
-    isDjvuFixtureRequired,
     resolveDjvuFixturePath,
+    selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     openDjvuInApp,
     openPdfInApp,
     waitForDjvuLoaded,
     waitForPdfLoaded,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -217,28 +214,25 @@ async function assertRecentPdfStaysLoaded(session: IElectronE2ESession, fileName
 }
 
 describe('Electron E2E - Recent Files', () => {
-    let session: IElectronE2ESession | null = null;
     const sessionName = `e2e-recent-files-${Date.now()}`;
-    let fixturePath = '';
 
-    beforeAll(async () => {
-        session = await startElectronE2ESession(sessionName);
-        fixturePath = await createMultiPageTextFixturePdf(`recent-file-${Date.now()}.pdf`, 2);
-        await openPdfInApp(session.page, fixturePath);
-        await waitForPdfLoaded(session.page);
-
-        session.browser.disconnect();
-        await stopSingleSession(sessionName, { keepNuxt: true });
-        session = await startElectronE2ESession(sessionName, { clean: false });
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
+    const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
     it('opens a persisted recent PDF after restarting Electron', async () => {
+        let session = sessionFixture.getSession();
         if (!session) {
-            throw new Error('Recent files session was not initialized');
+            return;
+        }
+
+        const fixturePath = await createMultiPageTextFixturePdf(`recent-file-${Date.now()}.pdf`, 2);
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        session = await sessionFixture.restart({
+            clean: false,
+            keepNuxt: true,
+        });
+        if (!session) {
+            return;
         }
 
         await assertRecentListStaysStableBeforeOpen(session, basename(fixturePath));
@@ -249,33 +243,30 @@ describe('Electron E2E - Recent Files', () => {
 });
 
 const djvuFixture = resolveDjvuFixturePath();
-const runDjvuRecentOrSkip = djvuFixture.path || isDjvuFixtureRequired() ? describe : describe.skip;
+const runDjvuRecentOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
 runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
-    let session: IElectronE2ESession | null = null;
     const sessionName = `e2e-recent-djvu-files-${Date.now()}`;
 
-    beforeAll(async () => {
+    const sessionFixture = createElectronE2ESessionFixture({sessionName});
+
+    it('opens a persisted recent DjVu after restarting Electron', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
 
-        session = await startElectronE2ESession(sessionName);
         await openDjvuInApp(session.page, djvuFixture.path, 90_000);
         await waitForDjvuLoaded(session.page, 90_000);
-
-        session.browser.disconnect();
-        await stopSingleSession(sessionName, { keepNuxt: true });
-        session = await startElectronE2ESession(sessionName, { clean: false });
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
-
-    it('opens a persisted recent DjVu after restarting Electron', async () => {
-        if (!session || !djvuFixture.path) {
-            throw new Error('Recent DjVu session was not initialized');
+        session = await sessionFixture.restart({
+            clean: false,
+            keepNuxt: true,
+        });
+        if (!session) {
+            return;
         }
 
         await assertRecentListStaysStableBeforeOpen(session, basename(djvuFixture.path));

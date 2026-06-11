@@ -1,6 +1,4 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
@@ -22,22 +20,29 @@ import {
 import type { Page } from 'puppeteer-core';
 import {
     copyLargePdfFixture,
-    resolveLargePdfFixturePath,
+    resolveLargePdfFixtureAvailability,
+    selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     openPdfInApp,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    callWorkspaceCommand,
+    collectWorkspaceExposeDebugState,
+    installWorkspaceExposeProbe,
+    readWorkspaceStateValues,
+    type IWorkspaceExpose,
+    type IWorkspaceExposeProbeWindow,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
-const runLargePdfE2E = process.env.EVB_E2E_LARGE_PDF === '1' && Boolean(resolveLargePdfFixturePath());
-const runLargePdfAnnotationSaveE2E = runLargePdfE2E && process.env.EVB_E2E_LARGE_PDF_ANNOTATION_SAVE === '1';
-const largePdfIt = runLargePdfAnnotationSaveE2E ? it : it.skip;
+const largePdfFixture = resolveLargePdfFixtureAvailability();
+const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
 
 interface ICommentAtPointViewer {commentAtPoint?: (
     pageNumber: number,
@@ -46,15 +51,6 @@ interface ICommentAtPointViewer {commentAtPoint?: (
     options?: { preferTextAnchor?: boolean },
 ) => Promise<boolean>;}
 
-interface IVueWorkspaceHost extends HTMLElement {__vueParentComponent?: {
-    exposed?: unknown;
-    setupState?: {
-        mountedWorkspace?: { value?: unknown };
-        workspaceRef?: { value?: unknown };
-        [key: string]: unknown;
-    };
-};}
-
 interface IPdfAnnotationModifiedIdsDebugState {ids?: Set<unknown>;}
 interface IPdfAnnotationSerializableDebugState {map?: Map<unknown, unknown>;}
 interface IPdfAnnotationStorageDebugState {
@@ -62,74 +58,31 @@ interface IPdfAnnotationStorageDebugState {
     serializable?: IPdfAnnotationSerializableDebugState;
 }
 interface IPdfDocumentDebugState {annotationStorage?: IPdfAnnotationStorageDebugState;}
-interface IAgentWorkspaceSurface {
-    readAgentResource: (uri: string) => Promise<Record<string, unknown>>;
-    runAgentAction: (
-        actionId: string,
-        input?: Record<string, unknown>,
-        options?: { dryRun?: boolean },
-    ) => Promise<Record<string, unknown>>;
+interface IAgentActionResult extends Record<string, unknown> {
+    comment?: Record<string, unknown>;
+    created?: boolean;
+    markerRect?: unknown;
+    tabId?: string;
 }
 
 async function saveLargePdfViaAgentAction(page: Page) {
-    return page.evaluate(async () => {
-        let workspace: IAgentWorkspaceSurface | null = null;
-        const maybeRefValue = (value: unknown) => (
-            value
-            && typeof value === 'object'
-            && 'value' in value
-                ? (value as { value?: unknown }).value
-                : value
-        );
-        const isVisibleHost = (host: HTMLElement) => {
-            const rect = host.getBoundingClientRect();
-            const style = window.getComputedStyle(host);
-            return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
-        };
-        const scanWorkspaceSurface = (elements: HTMLElement[]) => {
-            for (const element of elements) {
-                const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                const candidates = [
-                    maybeRefValue(component?.setupState?.mountedWorkspace),
-                    maybeRefValue(component?.setupState?.workspaceRef),
-                    component?.exposed,
-                ];
-                for (const candidate of candidates) {
-                    if (
-                        candidate
-                        && typeof candidate === 'object'
-                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
-                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
-                    ) {
-                        return candidate as IAgentWorkspaceSurface;
-                    }
-                }
-            }
-            return null;
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
-        const preferredWorkspaceElements = [
-            ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
-            ...visibleHosts.filter(host => host !== activeHost),
-        ];
+    const savedResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', ['file.save'], {requiredMethods: ['readAgentResource']});
+    const saved = savedResult.value;
+    if (!savedResult.called || !saved) {
+        return null;
+    }
 
-        // Prefer the active visible workspace; global component order can include
-        // deferred or hidden panes whose agent actions target a different document.
-        workspace = scanWorkspaceSurface(preferredWorkspaceElements)
-            ?? scanWorkspaceSurface(Array.from(document.querySelectorAll<HTMLElement>('*')));
-        if (!workspace) {
-            return null;
-        }
-
-        const saved = await workspace.runAgentAction('file.save');
-        const tabId = typeof saved.tabId === 'string' ? saved.tabId : '';
-        const status = await workspace.readAgentResource(`evb://document/${encodeURIComponent(tabId)}/status`);
-        return {
-            saved,
-            status,
-        };
-    });
+    const tabId = typeof saved.tabId === 'string' ? saved.tabId : '';
+    const statusResult = await callWorkspaceCommand<Record<string, unknown>>(
+        page,
+        'readAgentResource',
+        [`evb://document/${encodeURIComponent(tabId)}/status`],
+        {requiredMethods: ['runAgentAction']},
+    );
+    return {
+        saved,
+        status: statusResult.value ?? {},
+    };
 }
 
 function getPdfStringValue(value: unknown) {
@@ -267,119 +220,65 @@ async function tryCreatePageNoteViaAgentAction(page: Page, text: string) {
         return null;
     }
 
-    return page.evaluate(async (options: {
-        noteText: string;
-        pageNumber: number;
-        point: {
-            x: number;
-            y: number;
-        };
-    }) => {
-        let workspace: IAgentWorkspaceSurface | null = null;
-        const maybeRefValue = (value: unknown) => (
-            value
-            && typeof value === 'object'
-            && 'value' in value
-                ? (value as { value?: unknown }).value
-                : value
-        );
-        const isVisibleHost = (host: HTMLElement) => {
-            const rect = host.getBoundingClientRect();
-            const style = window.getComputedStyle(host);
-            return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
-        };
-        const scanWorkspaceSurface = (elements: HTMLElement[]) => {
-            for (const element of elements) {
-                const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                const candidates = [
-                    maybeRefValue(component?.setupState?.mountedWorkspace),
-                    maybeRefValue(component?.setupState?.workspaceRef),
-                    component?.exposed,
-                ];
-                for (const candidate of candidates) {
-                    if (
-                        candidate
-                        && typeof candidate === 'object'
-                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
-                        && typeof (candidate as Partial<IAgentWorkspaceSurface>).readAgentResource === 'function'
-                    ) {
-                        return candidate as IAgentWorkspaceSurface;
-                    }
-                }
-            }
-            return null;
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
-        const preferredWorkspaceElements = [
-            ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
-            ...visibleHosts.filter(host => host !== activeHost),
-        ];
-
-        // Prefer the active visible workspace; global component order can include
-        // deferred or hidden panes whose agent actions target a different document.
-        workspace = scanWorkspaceSurface(preferredWorkspaceElements)
-            ?? scanWorkspaceSurface(Array.from(document.querySelectorAll<HTMLElement>('*')));
-        if (!workspace) {
-            return null;
-        }
-
-        const created = await workspace.runAgentAction('annotation.create_note_at_point', {
-            page: options.pageNumber,
+    const createdResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
+        'annotation.create_note_at_point',
+        {
+            page: point.pageNumber,
             pageX: 0.72,
             pageY: 0.24,
             preferTextAnchor: false,
-        });
-        if (created.created !== true) {
-            return null;
-        }
+        },
+    ], {requiredMethods: ['readAgentResource']});
+    const created = createdResult.value;
+    if (!createdResult.called || created?.created !== true) {
+        return null;
+    }
 
-        const tabId = typeof created.tabId === 'string' ? created.tabId : '';
-        const notesUri = `evb://document/${encodeURIComponent(tabId)}/notes`;
-        let targetStableKey: string | null = null;
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-            const resource = await workspace.readAgentResource(notesUri);
-            const notes = Array.isArray(resource.notes) ? resource.notes : [];
-            const pageNotes = notes.filter((note): note is Record<string, unknown> => (
-                note !== null
-                && typeof note === 'object'
-                && Number((note as Record<string, unknown>).pageNumber) === options.pageNumber
-            ));
-            const targetNote = pageNotes.at(-1) ?? null;
-            if (typeof targetNote?.stableKey === 'string') {
-                targetStableKey = targetNote.stableKey;
-                break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
+    const tabId = typeof created.tabId === 'string' ? created.tabId : '';
+    const notesUri = `evb://document/${encodeURIComponent(tabId)}/notes`;
+    let targetStableKey: string | null = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        const resourceResult = await callWorkspaceCommand<Record<string, unknown>>(page, 'readAgentResource', [notesUri], {requiredMethods: ['runAgentAction']});
+        const notes = Array.isArray(resourceResult.value?.notes) ? resourceResult.value.notes : [];
+        const pageNotes = notes.filter((note): note is Record<string, unknown> => (
+            note !== null
+            && typeof note === 'object'
+            && Number((note as Record<string, unknown>).pageNumber) === point.pageNumber
+        ));
+        const targetNote = pageNotes.at(-1) ?? null;
+        if (typeof targetNote?.stableKey === 'string') {
+            targetStableKey = targetNote.stableKey;
+            break;
         }
-        if (!targetStableKey) {
-            return null;
-        }
+        await delay(100);
+    }
+    if (!targetStableKey) {
+        return null;
+    }
 
-        const updated = await workspace.runAgentAction('annotation.update_note', {
+    const updatedResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
+        'annotation.update_note',
+        {
             markerRect: created.markerRect,
             stableKey: targetStableKey,
-            text: options.noteText,
-        });
-        const updatedResource = await workspace.readAgentResource(notesUri);
-        const updatedNotes = Array.isArray(updatedResource.notes) ? updatedResource.notes : [];
+            text,
+        },
+    ], {requiredMethods: ['readAgentResource']});
+    const updatedResourceResult = await callWorkspaceCommand<Record<string, unknown>>(page, 'readAgentResource', [notesUri], {requiredMethods: ['runAgentAction']});
+    const updatedNotes = Array.isArray(updatedResourceResult.value?.notes) ? updatedResourceResult.value.notes : [];
 
-        return {
-            x: options.point.x,
-            y: options.point.y,
-            branch: 'agent-action-state',
-            notes: updatedNotes.slice(-4),
-            textApplied: true,
-            updated,
-        };
-    }, {
-        noteText: text,
-        pageNumber: point.pageNumber,
-        point,
-    });
+    return {
+        x: point.x,
+        y: point.y,
+        branch: 'agent-action-state',
+        notes: updatedNotes.slice(-4),
+        textApplied: true,
+        updated: updatedResult.value,
+    };
 }
 
 async function placePageNote(page: Page, text: string) {
+    await installWorkspaceExposeProbe(page);
     const point = await tryCreatePageNoteViaContextMenu(page)
         ?? await tryCreatePageNoteViaAgentAction(page, text)
         ?? await page.evaluate(async (noteText: string) => {
@@ -390,7 +289,7 @@ async function placePageNote(page: Page, text: string) {
                     return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const host: IVueWorkspaceHost | null = activeHost && visibleHosts.includes(activeHost)
+            const host = activeHost && visibleHosts.includes(activeHost)
                 ? activeHost
                 : (visibleHosts[0] ?? null);
             const pageElement = host?.querySelector<HTMLElement>('.page_container--rendered')
@@ -399,11 +298,16 @@ async function placePageNote(page: Page, text: string) {
             if (!pageElement) {
                 return null;
             }
-            let workspaceCommandSurface: {
+            const probeWindow = window as IWorkspaceExposeProbeWindow;
+            const workspaceCommandSurface = probeWindow.__evbFindWorkspaceExpose?.({ requiredMethods: ['handleQuickNote'] }) as {
                 getToolbarSnapshot?: () => { isPlacingPageNote?: boolean };
                 handleQuickNote?: () => unknown;
-            } | null = null;
-            let workspaceSetupState: {
+            } | null;
+            const workspaceSetupState = (
+                probeWindow.__evbFindWorkspaceExpose?.({ requiredProperties: ['pdfViewerRef'] })
+                ?? probeWindow.__evbFindWorkspaceExpose?.({ requiredProperties: ['annotationComments'] })
+                ?? probeWindow.__evbFindWorkspaceExpose?.({ requiredProperties: ['sortedAnnotationNoteWindows'] })
+            ) as {
                 annotationComments?: { value?: unknown[] } | unknown[];
                 annotationDirty?: { value?: boolean } | boolean;
                 pdfViewerRef?: { value?: ICommentAtPointViewer };
@@ -416,67 +320,7 @@ async function placePageNote(page: Page, text: string) {
                 }>;
                 updateAnnotationNoteText?: (stableKey: string, text: string) => void;
                 upsertAnnotationNoteWindow?: (comment: Record<string, unknown>) => void;
-            } | null = null;
-            for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-                const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                const candidates = [
-                    component?.setupState,
-                    component?.setupState?.mountedWorkspace?.value,
-                    component?.setupState?.workspaceRef?.value,
-                    component?.exposed,
-                ];
-                for (const candidate of candidates) {
-                    const commandCandidate = candidate as {
-                        getToolbarSnapshot?: unknown;
-                        handleQuickNote?: unknown;
-                    } | null | undefined;
-                    if (
-                        commandCandidate
-                    && typeof commandCandidate === 'object'
-                    && typeof commandCandidate.handleQuickNote === 'function'
-                    ) {
-                        workspaceCommandSurface = { handleQuickNote: commandCandidate.handleQuickNote as () => unknown };
-                        if (typeof commandCandidate.getToolbarSnapshot === 'function') {
-                            workspaceCommandSurface.getToolbarSnapshot = (
-                                commandCandidate.getToolbarSnapshot as () => { isPlacingPageNote?: boolean }
-                            );
-                        }
-                    }
-                    const setupState = ((
-                        candidate
-                    && typeof candidate === 'object'
-                    && 'pdfViewerRef' in candidate
-                            ? candidate
-                            : (
-                                candidate
-                            && typeof candidate === 'object'
-                            && '$' in candidate
-                                    ? (candidate as { $?: { setupState?: unknown } }).$?.setupState
-                                    : null
-                            )
-                    )) as {
-                        annotationComments?: { value?: unknown[] } | unknown[];
-                        annotationDirty?: { value?: boolean } | boolean;
-                        pdfViewerRef?: { value?: ICommentAtPointViewer };
-                        sortedAnnotationNoteWindows?: { value?: Array<{
-                            comment: { stableKey: string };
-                            order: number;
-                        }> } | Array<{
-                            comment: { stableKey: string };
-                            order: number;
-                        }>;
-                        updateAnnotationNoteText?: (stableKey: string, text: string) => void;
-                        upsertAnnotationNoteWindow?: (comment: Record<string, unknown>) => void;
-                    } | null;
-                    if (setupState?.pdfViewerRef?.value) {
-                        workspaceSetupState = setupState;
-                        break;
-                    }
-                }
-                if (workspaceSetupState) {
-                    break;
-                }
-            }
+            } | null;
             const pageNumber = Number(pageElement.dataset.page ?? '1');
             const waitForAnimationFrames = () => new Promise<void>((resolve) => {
                 window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
@@ -713,50 +557,14 @@ async function placePageNote(page: Page, text: string) {
             const stableKey = textarea.closest<HTMLElement>('.note-window')?.dataset.stableKey ?? null;
             let updatedText: string | null = null;
             if (stableKey) {
-                const maybeRefValue = (value: unknown) => (
-                    value
-                    && typeof value === 'object'
-                    && 'value' in value
-                        ? (value as { value?: unknown }).value
-                        : value
-                );
-                const isVisibleHost = (host: HTMLElement) => {
-                    const rect = host.getBoundingClientRect();
-                    const style = window.getComputedStyle(host);
-                    return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
-                };
-                const scanWorkspaceSurface = (elements: HTMLElement[]) => {
-                    for (const element of elements) {
-                        const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                        const candidates = [
-                            maybeRefValue(component?.setupState?.mountedWorkspace),
-                            maybeRefValue(component?.setupState?.workspaceRef),
-                            component?.exposed,
-                        ];
-                        for (const candidate of candidates) {
-                            if (
-                                candidate
-                                && typeof candidate === 'object'
-                                && typeof (candidate as Partial<IAgentWorkspaceSurface>).runAgentAction === 'function'
-                            ) {
-                                return candidate as IAgentWorkspaceSurface;
-                            }
-                        }
-                    }
-                    return null;
-                };
-                const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-                const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
-                const preferredWorkspaceElements = [
-                    ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
-                    ...visibleHosts.filter(host => host !== activeHost),
-                ];
-                const workspace = scanWorkspaceSurface(preferredWorkspaceElements)
-                    ?? scanWorkspaceSurface(Array.from(document.querySelectorAll<HTMLElement>('*')));
-                const updateResult = await workspace?.runAgentAction('annotation.update_note', {
-                    stableKey,
-                    text: noteText,
-                });
+                const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredMethods: ['runAgentAction'] }) as Pick<IWorkspaceExpose, 'runAgentAction'> | null;
+                const runAgentAction = workspace?.runAgentAction;
+                const updateResult = typeof runAgentAction === 'function'
+                    ? await runAgentAction('annotation.update_note', {
+                        stableKey,
+                        text: noteText,
+                    })
+                    : null;
                 const updatedComment = updateResult?.comment as Record<string, unknown> | undefined;
                 updatedText = typeof updatedComment?.text === 'string'
                     ? updatedComment.text
@@ -787,52 +595,16 @@ async function placePageNote(page: Page, text: string) {
 }
 
 async function waitForWorkspaceOpenSettled(page: Page) {
-    await page.evaluate(async () => {
-        const workspaces = Array.from(document.querySelectorAll<IVueWorkspaceHost>('.workspace-host'))
-            .flatMap((host) => {
-                const component = host.__vueParentComponent;
-                return [
-                    component?.exposed,
-                    component?.setupState?.mountedWorkspace?.value,
-                    component?.setupState?.workspaceRef?.value,
-                ];
-            })
-            .filter((candidate): candidate is { waitForDocumentOpenSettled: () => Promise<void>; } =>
-                typeof candidate === 'object'
-                && candidate !== null
-                && typeof (candidate as { waitForDocumentOpenSettled?: unknown }).waitForDocumentOpenSettled === 'function',
-            );
-        await Promise.all(workspaces.map(workspace => workspace.waitForDocumentOpenSettled()));
-    });
+    await callWorkspaceCommand(page, 'waitForDocumentOpenSettled');
 }
 
 async function collectLargePdfAnnotationDebugState(page: Page) {
-    return page.evaluate(() => {
-        let setupState: Record<string, unknown> | null = null;
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as IVueWorkspaceHost).__vueParentComponent;
-            const candidates = [
-                component?.setupState?.mountedWorkspace?.value,
-                component?.setupState?.workspaceRef?.value,
-                component?.exposed,
-            ];
-            for (const candidate of candidates) {
-                const candidateSetup = (
-                    candidate
-                    && typeof candidate === 'object'
-                    && '$' in candidate
-                        ? (candidate as { $?: { setupState?: unknown } }).$?.setupState
-                        : null
-                ) as Record<string, unknown> | null;
-                if (candidateSetup?.pdfViewerRef || candidateSetup?.annotationComments) {
-                    setupState = candidateSetup;
-                    break;
-                }
-            }
-            if (setupState) {
-                break;
-            }
-        }
+    const workspaceDebug = await collectWorkspaceExposeDebugState(page, { requiredProperties: ['annotationComments'] });
+    const annotationDebug = await page.evaluate(() => {
+        const setupState = (
+            (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredProperties: ['annotationComments'] })
+            ?? (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredProperties: ['pdfViewerRef'] })
+        ) as Record<string, unknown> | null;
         const unwrap = (value: unknown) => (
             value
             && typeof value === 'object'
@@ -858,57 +630,6 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
         const noteWindows = unwrap(setupState?.sortedAnnotationNoteWindows) ?? unwrap(setupState?.annotationNoteWindows);
         const pdfDocument = unwrap(setupState?.pdfDocument) as IPdfDocumentDebugState | null | undefined;
         const serializableMap = pdfDocument?.annotationStorage?.serializable?.map;
-        const componentSamples: Array<{
-            exposedKeys: string[];
-            setupKeys: string[];
-            tag: string;
-        }> = [];
-        const matchingComponentSamples: Array<{
-            exposedKeys: string[];
-            setupKeys: string[];
-            tag: string;
-        }> = [];
-        let componentCount = 0;
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as IVueWorkspaceHost).__vueParentComponent;
-            if (!component) {
-                continue;
-            }
-            componentCount += 1;
-            const exposedKeys = component.exposed && typeof component.exposed === 'object'
-                ? Object.keys(component.exposed)
-                : [];
-            const setupKeys = component.setupState && typeof component.setupState === 'object'
-                ? Object.keys(component.setupState)
-                : [];
-            if (componentSamples.length < 8) {
-                componentSamples.push({
-                    tag: element.tagName.toLowerCase(),
-                    exposedKeys: exposedKeys.slice(0, 12),
-                    setupKeys: setupKeys.slice(0, 12),
-                });
-            }
-            if (
-                matchingComponentSamples.length < 12
-                && [
-                    ...exposedKeys,
-                    ...setupKeys,
-                ].some(key => [
-                    'workspaceRef',
-                    'mountedWorkspace',
-                    'pdfViewerRef',
-                    'annotationComments',
-                    'handleSave',
-                    'handleQuickNote',
-                ].includes(key))
-            ) {
-                matchingComponentSamples.push({
-                    tag: element.tagName.toLowerCase(),
-                    exposedKeys: exposedKeys.slice(0, 20),
-                    setupKeys: setupKeys.slice(0, 20),
-                });
-            }
-        }
         const storageEntries = serializableMap instanceof Map
             ? Array.from(serializableMap.entries()).map(([
                 key,
@@ -954,36 +675,32 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
             annotationComments: Array.isArray(annotationComments)
                 ? annotationComments.slice(-5).map(summarizeComment)
                 : null,
-            componentCount,
-            componentSamples,
-            matchingComponentSamples,
             storage: {
                 modifiedIds: Array.from(pdfDocument?.annotationStorage?.modifiedIds?.ids ?? []).map(String),
                 serializableEntries: storageEntries,
             },
         };
     });
+    return {
+        ...annotationDebug,
+        componentCount: workspaceDebug.componentCount,
+        componentSamples: workspaceDebug.componentSamples,
+        matchingComponentSamples: workspaceDebug.matchingComponentSamples,
+    };
 }
 
-describe('Electron E2E - Large PDF Annotation Save', () => {
-    let session: IElectronE2ESession | null = null;
-
-    beforeAll(async () => {
-        if (!runLargePdfE2E) {
-            return;
-        }
-        session = await startElectronE2ESession(`e2e-large-pdf-${Date.now()}`);
-    }, LARGE_PDF_TIMEOUT_MS);
-
-    afterAll(async () => {
-        await session?.stop();
+largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-large-pdf-${Date.now()}`,
+        timeoutMs: LARGE_PDF_TIMEOUT_MS,
     });
 
-    largePdfIt('creates, saves, and reopens a FreeText popup note on a large PDF', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Large PDF session was not initialized');
+    it('creates, saves, and reopens a FreeText popup note on a large PDF', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `large pdf note ${Date.now()}`;
@@ -1000,53 +717,18 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
             await saveViaWindowHandle(page, LARGE_PDF_TIMEOUT_MS);
         }
 
-        const fallbackSavedPath = await page.evaluate((fallbackPath: string) => {
-            let setupState: {
-                workingCopyPath?: { value?: string | null; };
-                originalPath?: { value?: string | null; };
-            } | null = null;
-            const maybeRefValue = (value: unknown) => (
-                value
-                && typeof value === 'object'
-                && 'value' in value
-                    ? (value as { value?: unknown }).value
-                    : value
-            );
-            for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-                const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                const candidates = [
-                    maybeRefValue(component?.setupState?.mountedWorkspace),
-                    maybeRefValue(component?.setupState?.workspaceRef),
-                    component?.exposed,
-                ];
-                for (const candidate of candidates) {
-                    const candidateSetup = (
-                        candidate
-                        && typeof candidate === 'object'
-                        && '$' in candidate
-                            ? (candidate as { $?: { setupState?: unknown } }).$?.setupState
-                            : null
-                    ) as {
-                        workingCopyPath?: { value?: string | null; };
-                        originalPath?: { value?: string | null; };
-                    } | null;
-                    if (candidateSetup?.workingCopyPath || candidateSetup?.originalPath) {
-                        setupState = candidateSetup;
-                        break;
-                    }
-                }
-                if (setupState) {
-                    break;
-                }
-            }
-            const workingCopyPath = maybeRefValue(setupState?.workingCopyPath);
-            const originalPath = maybeRefValue(setupState?.originalPath);
-            return typeof workingCopyPath === 'string'
-                ? workingCopyPath
-                : typeof originalPath === 'string'
-                    ? originalPath
-                    : fallbackPath;
-        }, fixturePath);
+        const fallbackSavedState = await readWorkspaceStateValues<{
+            originalPath?: string | null;
+            workingCopyPath?: string | null;
+        }>(page, [
+            'workingCopyPath',
+            'originalPath',
+        ]);
+        const fallbackSavedPath = typeof fallbackSavedState.workingCopyPath === 'string'
+            ? fallbackSavedState.workingCopyPath
+            : typeof fallbackSavedState.originalPath === 'string'
+                ? fallbackSavedState.originalPath
+                : fixturePath;
         const savedPath = typeof agentSaveResult?.status?.originalPath === 'string'
             ? agentSaveResult.status.originalPath
             : typeof agentSaveResult?.status?.workingCopyPath === 'string'

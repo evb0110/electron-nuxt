@@ -1,10 +1,4 @@
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import assert from 'node:assert/strict';
 import {
     existsSync,
     mkdirSync,
@@ -14,14 +8,15 @@ import {
     dirname,
     resolve,
 } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type {
     ConsoleMessage,
     Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import { getWorkspaceToolbarSnapshot } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH
     || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'arnold-grammar.pdf');
@@ -128,6 +123,8 @@ interface IArnoldSnapshot {
     };
     pages: unknown[];
 }
+
+type TArnoldSnapshotWithoutToolbar = Omit<IArnoldSnapshot, 'workspace'> & {workspace: Omit<IArnoldSnapshot['workspace'], 'toolbarSnapshot'>;};
 
 function safeJson(value: unknown) {
     try {
@@ -367,7 +364,7 @@ async function collectPdfRenderTrace(page: Page) {
 }
 
 async function collectOpenSnapshot(page: Page, label: string, startedAtMs: number): Promise<IArnoldSnapshot> {
-    return evaluateInPage(page, (snapshotLabel: string, nodeStartedAtMs: number): IArnoldSnapshot => {
+    const snapshot = await evaluateInPage(page, (snapshotLabel: string, nodeStartedAtMs: number): TArnoldSnapshotWithoutToolbar => {
         const diagnosticWindow = window as Window & {__arnoldDiagnosticOpenResult?: unknown;};
 
         const rectSnapshot = (element: Element | null) => {
@@ -468,30 +465,6 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             return result;
         };
 
-        const findWorkspaceExpose = () => {
-            const hosts = [
-                ...Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host')),
-                ...Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')),
-            ];
-            for (const element of hosts) {
-                let component = (element as HTMLElement & {__vueParentComponent?: {
-                    exposed?: {getToolbarSnapshot?: () => unknown;};
-                    parent?: {
-                        exposed?: {getToolbarSnapshot?: () => unknown;};
-                        parent?: unknown;
-                    } | null;
-                };}).__vueParentComponent ?? null;
-                while (component) {
-                    const exposed = component.exposed;
-                    if (typeof exposed?.getToolbarSnapshot === 'function') {
-                        return exposed;
-                    }
-                    component = component.parent as typeof component;
-                }
-            }
-            return null;
-        };
-
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
             ?? Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleElement)
             ?? null;
@@ -510,7 +483,6 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             firstPage,
             ...visiblePages,
         ].filter((element): element is HTMLElement => Boolean(element)))).slice(0, 5);
-        const workspaceExpose = findWorkspaceExpose();
 
         return {
             label: snapshotLabel,
@@ -529,7 +501,6 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 errorStates: document.querySelectorAll('.pdf-error, .viewer-error, [data-error="true"]').length,
             },
             workspace: {
-                toolbarSnapshot: workspaceExpose?.getToolbarSnapshot?.() ?? null,
                 loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent?.trim() ?? null,
                 hostClassName: activeHost?.className ?? null,
                 hostRect: rectSnapshot(activeHost),
@@ -564,6 +535,14 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             }),
         };
     }, label, startedAtMs);
+    const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page, {requireVisible: true});
+    return {
+        ...snapshot,
+        workspace: {
+            ...snapshot.workspace,
+            toolbarSnapshot,
+        },
+    };
 }
 
 async function collectTimedSnapshots(page: Page, startedAtMs: number) {
@@ -610,27 +589,26 @@ async function scrollActiveViewer(page: Page) {
     });
 }
 
-const describeArnoldPdf = existsSync(TARGET_PDF_PATH) ? describe : describe.skip;
+function assertTargetPdfExists() {
+    if (existsSync(TARGET_PDF_PATH)) {
+        return;
+    }
 
-describeArnoldPdf('Electron E2E - Arnold PDF open diagnostics', () => {
-    let session: IElectronE2ESession | null = null;
-    let consoleCollector: IConsoleCollector | null = null;
+    throw new Error(
+        [
+            `Arnold PDF diagnostic fixture not found: ${TARGET_PDF_PATH}`,
+            'Set EVB_E2E_ARNOLD_PDF_PATH to a local Arnold lexicon PDF before running this diagnostic.',
+        ].join('\n'),
+    );
+}
 
-    beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-arnold-pdf-open-${Date.now()}`);
-        consoleCollector = installConsoleCollector(session.page);
+export async function runArnoldPdfOpenDiagnostics() {
+    assertTargetPdfExists();
+
+    const session = await startElectronE2ESession(`diagnostic-arnold-pdf-open-${Date.now()}`);
+    const consoleCollector = installConsoleCollector(session.page);
+    try {
         await enableDiagnosticLogging(session.page);
-    }, 120_000);
-
-    afterAll(async () => {
-        consoleCollector?.dispose();
-        await session?.stop();
-    });
-
-    it('dumps open lifecycle and visual state before and after scroll', async () => {
-        if (!session || !consoleCollector) {
-            throw new Error('Arnold diagnostic session was not initialized');
-        }
 
         const page = session.page;
         await waitForStableWorkspace(page);
@@ -670,9 +648,19 @@ describeArnoldPdf('Electron E2E - Arnold PDF open diagnostics', () => {
             }),
         }, consoleEntries);
 
-        expect(triggerResult.status).toBe('resolved');
-        expect(triggerResult.opened).toBe(true);
-        expect(existsSync(DIAGNOSTIC_OUTPUT_PATH)).toBe(true);
-        expect(existsSync(CONSOLE_OUTPUT_PATH)).toBe(true);
-    }, 90_000);
-});
+        assert.equal(triggerResult.status, 'resolved');
+        assert.equal(triggerResult.opened, true);
+        assert.equal(existsSync(DIAGNOSTIC_OUTPUT_PATH), true);
+        assert.equal(existsSync(CONSOLE_OUTPUT_PATH), true);
+    } finally {
+        consoleCollector.dispose();
+        await session.stop();
+    }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+    await runArnoldPdfOpenDiagnostics().catch((error: unknown) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    });
+}

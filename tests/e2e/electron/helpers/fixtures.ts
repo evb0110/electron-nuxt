@@ -28,6 +28,7 @@ const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 
 const LEGACY_PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
 const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
 const LARGE_PDF_FIXTURE_ENV_VAR = 'EVB_E2E_LARGE_PDF_FIXTURE';
+const LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE';
 const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DJVU_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_DJVU_FIXTURE';
@@ -44,6 +45,76 @@ export interface IPdfPageSnapshot {
     pageNumber: number;
     rotation: number;
     textSnippet: string;
+}
+
+export interface IFixtureAvailability {
+    path: string | null;
+    reason: string;
+    required: boolean;
+}
+
+export interface IFixtureDescribeSelector {
+    (name: string, fn: () => void): unknown;
+    skip: IFixtureDescribeSelector;
+}
+
+interface IPathFixtureAvailabilityOptions {
+    path: string;
+    label: string;
+    requiredEnvVar: string;
+}
+
+const reportedMissingFixtureReasons = new Set<string>();
+
+function isEnvFlagEnabled(envVar: string) {
+    return process.env[envVar] === '1';
+}
+
+export function resolvePathFixtureAvailability(options: IPathFixtureAvailabilityOptions): IFixtureAvailability {
+    const absolutePath = resolve(options.path);
+    const required = isEnvFlagEnabled(options.requiredEnvVar);
+
+    if (!existsSync(absolutePath)) {
+        return {
+            path: null,
+            reason: `${options.label} fixture does not exist: ${absolutePath}`,
+            required,
+        };
+    }
+
+    if (!statSync(absolutePath).isFile()) {
+        return {
+            path: null,
+            reason: `${options.label} fixture must point to a file: ${absolutePath}`,
+            required,
+        };
+    }
+
+    return {
+        path: absolutePath,
+        reason: `Using ${options.label} fixture: ${absolutePath}`,
+        required,
+    };
+}
+
+export function selectFixtureDescribe<TDescribe extends IFixtureDescribeSelector>(
+    describeFn: TDescribe,
+    fixture: IFixtureAvailability,
+) {
+    if (fixture.path) {
+        return describeFn;
+    }
+
+    if (fixture.required) {
+        throw new Error(`Required fixture missing: ${fixture.reason}`);
+    }
+
+    if (!reportedMissingFixtureReasons.has(fixture.reason)) {
+        reportedMissingFixtureReasons.add(fixture.reason);
+        console.info(`SKIPPED (fixture missing): ${fixture.reason}`);
+    }
+
+    return describeFn.skip;
 }
 
 function getFixtureDir(sessionName = getCurrentSessionName()) {
@@ -114,6 +185,29 @@ export function resolveLargePdfFixturePath() {
         return null;
     }
     return candidatePath;
+}
+
+export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
+    const fixturePath = resolveLargePdfFixturePath();
+    const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
+
+    if (fixturePath) {
+        return {
+            path: fixturePath,
+            reason: `Using large PDF fixture: ${fixturePath}`,
+            required,
+        };
+    }
+
+    const overridePath = process.env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
+    return {
+        path: null,
+        reason: overridePath
+            ? `${LARGE_PDF_FIXTURE_ENV_VAR} points to a missing fixture: ${resolve(overridePath)}`
+            : `Large PDF fixture is not available. Set ${LARGE_PDF_FIXTURE_ENV_VAR}`
+                + ` or place ${DEFAULT_LARGE_PDF_FIXTURE} under tests/fixtures/electron or .devkit.`,
+        required,
+    };
 }
 
 export function copyLargePdfFixture(targetFilename?: string) {
@@ -315,10 +409,11 @@ export function findDjvuFixturePath() {
 }
 
 export function isDjvuFixtureRequired() {
-    return process.env[DJVU_REQUIRE_ENV_VAR] === '1';
+    return isEnvFlagEnabled(DJVU_REQUIRE_ENV_VAR);
 }
 
 export function resolveDjvuFixturePath() {
+    const required = isDjvuFixtureRequired();
     const overridePath = process.env[DJVU_FIXTURE_ENV_VAR]?.trim();
     if (overridePath) {
         const absoluteOverridePath = resolve(overridePath);
@@ -326,23 +421,27 @@ export function resolveDjvuFixturePath() {
             return {
                 path: null,
                 reason: `${DJVU_FIXTURE_ENV_VAR} points to a missing path: ${absoluteOverridePath}`,
+                required,
             };
         }
         if (!statSync(absoluteOverridePath).isFile()) {
             return {
                 path: null,
                 reason: `${DJVU_FIXTURE_ENV_VAR} must point to a file: ${absoluteOverridePath}`,
+                required,
             };
         }
         if (!hasDjvuExtension(absoluteOverridePath)) {
             return {
                 path: null,
                 reason: `${DJVU_FIXTURE_ENV_VAR} must point to a .djvu or .djv file: ${absoluteOverridePath}`,
+                required,
             };
         }
         return {
             path: absoluteOverridePath,
             reason: `Using ${DJVU_FIXTURE_ENV_VAR}: ${absoluteOverridePath}`,
+            required,
         };
     }
 
@@ -351,6 +450,7 @@ export function resolveDjvuFixturePath() {
         return {
             path: null,
             reason: `DjVu fixture directory does not exist: ${fixtureDir}`,
+            required,
         };
     }
 
@@ -364,6 +464,7 @@ export function resolveDjvuFixturePath() {
             return {
                 path: candidatePath,
                 reason: `Using DjVu fixture: ${candidatePath}`,
+                required,
             };
         }
     }
@@ -371,6 +472,7 @@ export function resolveDjvuFixturePath() {
     return {
         path: null,
         reason: `No .djvu or .djv fixtures found in ${fixtureDir}`,
+        required,
     };
 }
 

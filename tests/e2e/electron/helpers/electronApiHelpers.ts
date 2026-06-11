@@ -1,5 +1,9 @@
 import type { Page } from 'puppeteer-core';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    callWorkspaceCommand,
+    readWorkspaceStateValues,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 export async function createWorkingCopyFromPath(page: Page, sourcePath: string, originalPath?: string) {
     return evaluateInPage(page, async ({
@@ -21,22 +25,12 @@ export async function createWorkingCopyFromPath(page: Page, sourcePath: string, 
 }
 
 export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
-    return evaluateInPage(page, () => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? document.querySelector<HTMLElement>('.workspace-host');
-        if (!host) {
-            throw new Error('Active workspace host not found');
-        }
+    const { workingCopyPath } = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
+    if (typeof workingCopyPath !== 'string' || workingCopyPath.trim().length === 0) {
+        throw new Error('workingCopyPath is unavailable on the active workspace');
+    }
 
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {workingCopyPath?: {value?: string | null;};};};};};};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-
-        const workingCopyPath = workspaceInstance?.$?.setupState?.workingCopyPath?.value;
-        if (typeof workingCopyPath !== 'string' || workingCopyPath.trim().length === 0) {
-            throw new Error('workingCopyPath is unavailable on the active workspace');
-        }
-
-        return workingCopyPath;
-    });
+    return workingCopyPath;
 }
 
 export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, requestId: string) {
@@ -172,92 +166,34 @@ export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPat
 }
 
 export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: string) {
-    return evaluateInPage(page, async (path: string) => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? document.querySelector<HTMLElement>('.workspace-host');
-        if (!host) {
-            throw new Error('Active workspace host not found');
-        }
-
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: {
-            handleOcrComplete?: (payload: {
-                requestId: string;
-                pdfPath: string;
-                requiresCleanupAck: boolean;
-                sourceWorkingCopyPath: string;
-            }) => Promise<void>;
-            workingCopyPath?: string | { value?: string | null } | null;
-        }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-        const setupState = workspaceInstance?.$?.setupState;
-        const handleOcrComplete = setupState?.handleOcrComplete;
-        if (typeof handleOcrComplete !== 'function') {
-            throw new Error('handleOcrComplete is unavailable on the active workspace');
-        }
-        const rawWorkingCopyPath = setupState?.workingCopyPath;
-        const workingCopyPath = typeof rawWorkingCopyPath === 'string'
-            ? rawWorkingCopyPath
-            : rawWorkingCopyPath?.value;
-        if (!workingCopyPath) {
-            throw new Error('workingCopyPath is unavailable on the active workspace');
-        }
-
-        await handleOcrComplete({
-            requestId: `e2e-ocr-${Date.now()}`,
-            pdfPath: path,
-            requiresCleanupAck: false,
-            sourceWorkingCopyPath: workingCopyPath,
-        });
-        return true;
-    }, pdfPath);
+    const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
+    const result = await callWorkspaceCommand(page, 'handleOcrComplete', [{
+        requestId: `e2e-ocr-${Date.now()}`,
+        pdfPath,
+        requiresCleanupAck: false,
+        sourceWorkingCopyPath: workingCopyPath,
+    }]);
+    if (!result.called) {
+        throw new Error('handleOcrComplete is unavailable on the active workspace');
+    }
+    return true;
 }
 
 export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId: string, pdfPath: string) {
-    return evaluateInPage(page, async ({
-        id,
-        path,
-    }) => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? document.querySelector<HTMLElement>('.workspace-host');
-        if (!host) {
-            throw new Error('Active workspace host not found');
-        }
-
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: {
-            handleOcrComplete?: (payload: {
-                requestId: string;
-                pdfPath: string;
-                requiresCleanupAck: boolean;
-                sourceWorkingCopyPath: string;
-            }) => Promise<void>;
-            workingCopyPath?: string | { value?: string | null } | null;
-        }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-        const setupState = workspaceInstance?.$?.setupState;
-        const handleOcrComplete = setupState?.handleOcrComplete;
-        if (typeof handleOcrComplete !== 'function') {
-            throw new Error('handleOcrComplete is unavailable on the active workspace');
-        }
-        const rawWorkingCopyPath = setupState?.workingCopyPath;
-        const workingCopyPath = typeof rawWorkingCopyPath === 'string'
-            ? rawWorkingCopyPath
-            : rawWorkingCopyPath?.value;
-        if (!workingCopyPath) {
-            throw new Error('workingCopyPath is unavailable on the active workspace');
-        }
-
-        await handleOcrComplete({
-            requestId: id,
-            pdfPath: path,
-            requiresCleanupAck: true,
-            sourceWorkingCopyPath: workingCopyPath,
-        });
-        return {
-            applied: true,
-            cleaned: true,
-        };
-    }, {
-        id: requestId,
-        path: pdfPath,
-    });
+    const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
+    const result = await callWorkspaceCommand(page, 'handleOcrComplete', [{
+        requestId,
+        pdfPath,
+        requiresCleanupAck: true,
+        sourceWorkingCopyPath: workingCopyPath,
+    }]);
+    if (!result.called) {
+        throw new Error('handleOcrComplete is unavailable on the active workspace');
+    }
+    return {
+        applied: true,
+        cleaned: true,
+    };
 }
 
 export async function rotatePages(page: Page, workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) {

@@ -41,6 +41,37 @@ function createComment(stableKey: string): IAnnotationCommentSummary {
     };
 }
 
+function createPdfFreeTextComment(
+    overrides: Partial<IAnnotationCommentSummary> = {},
+): IAnnotationCommentSummary {
+    return {
+        ...createComment('ann:504:12R0'),
+        source: 'pdf',
+        annotationId: '12R',
+        subtype: 'FreeText',
+        hasNote: true,
+        text: 'note text',
+        pageIndex: 504,
+        pageNumber: 505,
+        ...overrides,
+    };
+}
+
+function createEditorOpenNote(
+    baseComment: IAnnotationCommentSummary,
+    overrides: Partial<IAnnotationCommentSummary> = {},
+): IAnnotationCommentSummary {
+    return {
+        ...baseComment,
+        stableKey: 'uid:504:open-note',
+        id: 'open-note',
+        source: 'editor',
+        annotationId: null,
+        uid: 'open-note',
+        ...overrides,
+    };
+}
+
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
     const promise = new Promise<T>((res) => {
@@ -1059,34 +1090,21 @@ describe('usePageAnnotationActions', () => {
             deps,
             actions,
         } = createHarness();
-        const comment = createComment('ann:504:12R0');
-        comment.source = 'pdf';
-        comment.annotationId = '12R';
-        comment.subtype = 'FreeText';
-        comment.hasNote = true;
-        comment.text = 'orphan note text';
-        comment.pageIndex = 504;
-        comment.pageNumber = 505;
-        comment.markerRect = {
-            left: 0.1,
-            top: 0.1,
-            width: 0.01,
-            height: 0.01,
-        };
-        const openNote = {
-            ...comment,
-            stableKey: 'uid:504:open-note',
-            id: 'open-note',
-            source: 'editor' as const,
-            annotationId: null,
-            uid: 'open-note',
+        const comment = createPdfFreeTextComment({
+            text: 'orphan note text',
             markerRect: {
-                left: 0.8,
-                top: 0.8,
+                left: 0.1,
+                top: 0.1,
                 width: 0.01,
                 height: 0.01,
             },
-        };
+        });
+        const openNote = createEditorOpenNote(comment, {markerRect: {
+            left: 0.8,
+            top: 0.8,
+            width: 0.01,
+            height: 0.01,
+        }});
         let comments = [comment];
         deps.getAnnotationCommentsSnapshot.mockImplementation(() => comments);
         deps.removeAnnotationFromCache.mockImplementation((stableKey: string) => {
@@ -1107,22 +1125,8 @@ describe('usePageAnnotationActions', () => {
             deps,
             actions,
         } = createHarness();
-        const comment = createComment('ann:504:12R0');
-        comment.source = 'pdf';
-        comment.annotationId = '12R';
-        comment.subtype = 'FreeText';
-        comment.hasNote = true;
-        comment.text = 'stale note text';
-        comment.pageIndex = 504;
-        comment.pageNumber = 505;
-        const openNote = {
-            ...comment,
-            stableKey: 'uid:504:open-note',
-            id: 'open-note',
-            source: 'editor' as const,
-            annotationId: null,
-            uid: 'open-note',
-        };
+        const comment = createPdfFreeTextComment({ text: 'stale note text' });
+        const openNote = createEditorOpenNote(comment);
         deps.getAnnotationCommentsSnapshot.mockReturnValue([]);
         deps.getAnnotationCommentsStatusSnapshot.mockReturnValue('ready');
         deps.annotationNoteWindows.value = [{ comment: openNote }];
@@ -1138,19 +1142,8 @@ describe('usePageAnnotationActions', () => {
             deps,
             actions,
         } = createHarness();
-        const comment = createComment('ann:504:12R0');
-        comment.source = 'pdf';
-        comment.annotationId = '12R';
-        comment.subtype = 'FreeText';
-        comment.hasNote = true;
-        const openNote = {
-            ...comment,
-            stableKey: 'uid:504:open-note',
-            id: 'open-note',
-            source: 'editor' as const,
-            annotationId: null,
-            uid: 'open-note',
-        };
+        const comment = createPdfFreeTextComment();
+        const openNote = createEditorOpenNote(comment);
         deps.getAnnotationCommentsSnapshot.mockReturnValue([]);
         deps.getAnnotationCommentsStatusSnapshot.mockReturnValue('loading');
         deps.annotationNoteWindows.value = [{ comment: openNote }];

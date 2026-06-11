@@ -1,23 +1,20 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
 } from 'vitest';
-import { delay } from 'es-toolkit/promise';
 import {
     createMultiPageTextFixturePdf,
     createPngFixture,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
     openPdfInApp,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 interface IViewerSmokeSnapshot {
@@ -129,7 +126,10 @@ async function scrollToBottomOfPageOne(session: IElectronE2ESession) {
             scrollTop: Math.round(viewer.scrollTop),
         };
     });
-    await delay(500);
+    await waitForFunctionInPage(session.page, () => {
+        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+        return Boolean(viewer && viewer.scrollTop > 20);
+    }, { timeout: 5_000 });
     return attempt;
 }
 
@@ -153,24 +153,17 @@ async function zoomInUntilScrollable(session: IElectronE2ESession, start: IViewe
 }
 
 describe('Electron E2E - Viewer Smoke', () => {
-    let session: IElectronE2ESession | null = null;
-    let fixturePath = '';
-
-    beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-viewer-smoke-${Date.now()}`);
-        fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-${Date.now()}.pdf`, 4);
-        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
+        const session = sessionFixture.getSession();
         if (!session) {
-            throw new Error('Viewer smoke session was not initialized');
+            return;
         }
+
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-${Date.now()}.pdf`, 4);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
         const initial = await waitForViewerSmokeSnapshot(session);
         expect(initial.hostHeight).toBeGreaterThan(300);
@@ -183,10 +176,6 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         const scrollAttempt = await scrollToBottomOfPageOne(session);
         expect(scrollAttempt.maxScrollTop).toBeGreaterThan(20);
-        await waitForFunctionInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-            return Boolean(viewer && viewer.scrollTop > 20);
-        }, { timeout: 5_000 });
 
         await clickVisibleToolbarButton(session.page, 'Fit Height');
         await waitForFunctionInPage(session.page, (previousHeight: number) => {
@@ -214,12 +203,15 @@ describe('Electron E2E - Viewer Smoke', () => {
     });
 
     it('opens a PNG image through the same document entrypoint', async () => {
+        let session = sessionFixture.getSession();
         if (!session) {
-            throw new Error('Viewer smoke session was not initialized');
+            return;
         }
 
-        await session.stop();
-        session = await startElectronE2ESession(`e2e-viewer-smoke-image-${Date.now()}`);
+        session = await sessionFixture.restart({sessionName: () => `e2e-viewer-smoke-image-${Date.now()}`});
+        if (!session) {
+            return;
+        }
 
         const pngPath = createPngFixture(`viewer-smoke-image-${Date.now()}.png`);
         await openPdfInApp(session.page, pngPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);

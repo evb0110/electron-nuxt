@@ -581,6 +581,38 @@ mod tests {
         }
     }
 
+    fn serialized_index(pages: &[(u32, &str)]) -> Vec<u8> {
+        let header_size = HEADER_SIZE;
+        let table_size = pages.len() * PAGE_RECORD_SIZE;
+        let mut text_offset = header_size + table_size;
+        let mut page_text = Vec::new();
+        let mut records = Vec::new();
+
+        for (page_number, text) in pages {
+            let bytes = text.as_bytes();
+            records.push((*page_number, text_offset, bytes.len()));
+            page_text.extend_from_slice(bytes);
+            text_offset += bytes.len();
+        }
+
+        let mut data = Vec::with_capacity(header_size + table_size + page_text.len());
+        data.extend_from_slice(MAGIC);
+        data.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
+        data.extend_from_slice(&(pages.len() as u32).to_le_bytes());
+        data.extend_from_slice(&(pages.len() as u32).to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+
+        for (page_number, offset, byte_len) in records {
+            data.extend_from_slice(&page_number.to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.extend_from_slice(&(offset as u64).to_le_bytes());
+            data.extend_from_slice(&(byte_len as u64).to_le_bytes());
+        }
+
+        data.extend_from_slice(&page_text);
+        data
+    }
+
     fn options(query: &str) -> SearchOptions {
         SearchOptions {
             index_path: PathBuf::new(),
@@ -590,6 +622,42 @@ mod tests {
             match_case: false,
             page_count: None,
         }
+    }
+
+    #[test]
+    fn loads_native_index_file_and_emits_stable_json_response() {
+        let path = env::temp_dir().join(format!("evb-pdf-search-golden-{}", process::id()));
+        fs::write(
+            &path,
+            serialized_index(&[
+                (1, "one Alpha two"),
+                (2, "zero alpha one alpha"),
+                (3, "hidden alpha"),
+            ]),
+        )
+        .expect("write temp native search index");
+
+        let index = load_index(&path).expect("load native search index");
+        fs::remove_file(&path).ok();
+
+        let mut search_options = options("alpha");
+        search_options.context_chars = 4;
+        search_options.page_count = Some(2);
+        let response = search_index(&index, &search_options).expect("search should succeed");
+
+        assert_eq!(
+            serde_json::to_string(&response).unwrap(),
+            concat!(
+                r#"{"results":["#,
+                r#"{"pageNumber":1,"pageMatchIndex":0,"matchIndex":0,"startOffset":4,"endOffset":9,"#,
+                r#""excerpt":{"prefix":false,"suffix":false,"before":"one ","match":"Alpha","after":" two"}}"#,
+                r#",{"pageNumber":2,"pageMatchIndex":0,"matchIndex":1,"startOffset":5,"endOffset":10,"#,
+                r#""excerpt":{"prefix":true,"suffix":true,"before":"ero ","match":"alpha","after":" one"}}"#,
+                r#",{"pageNumber":2,"pageMatchIndex":1,"matchIndex":2,"startOffset":15,"endOffset":20,"#,
+                r#""excerpt":{"prefix":true,"suffix":false,"before":"one ","match":"alpha","after":""}}"#,
+                r#"],"truncated":false,"pageCount":2}"#,
+            ),
+        );
     }
 
     #[test]

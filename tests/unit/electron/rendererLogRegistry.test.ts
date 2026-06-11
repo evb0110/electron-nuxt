@@ -13,6 +13,8 @@ interface IRegisteredEvent {
 
 type TRegisteredHandler = (event: IRegisteredEvent, ...args: unknown[]) => unknown;
 
+const rendererLogRegistryImportTimeoutMs = 10_000;
+
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
     logger: {
@@ -137,7 +139,7 @@ describe('renderer log registry', () => {
         } finally {
             vi.useRealTimers();
         }
-    });
+    }, rendererLogRegistryImportTimeoutMs);
 
     it('removes the counterpart cleanup listener when a sender lifecycle event fires', async () => {
         const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');

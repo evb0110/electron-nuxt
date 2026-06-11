@@ -1,26 +1,24 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
 } from 'vitest';
 import {
     createMultiPageTextFixturePdf,
-    isDjvuFixtureRequired,
     resolveDjvuFixturePath,
+    selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/viewerPressure';
 import {
-    assertInactiveDocumentPressureReleased,
     openDjvuInApp,
     openPdfInApp,
     setTabMemoryPolicyForE2E,
     waitForDjvuLoaded,
     waitForPdfLoaded,
-    waitForTabCount,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerCore';
+import {waitForTabCount} from '@tests/e2e/electron/helpers/viewerTabs';
 
 interface IWorkspaceDjvuPressure {
     index: number;
@@ -137,31 +135,24 @@ async function waitForInactiveDjvuImagesToRelease(session: IElectronE2ESession) 
 }
 
 const djvuFixture = resolveDjvuFixturePath();
-const runOrSkip = djvuFixture.path || isDjvuFixtureRequired() ? describe : describe.skip;
+const runOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
 runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
-    let session: IElectronE2ESession | null = null;
     let pdfFixturePath = '';
 
-    beforeAll(async () => {
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-inactive-djvu-tabs-${Date.now()}`});
+
+    it('releases hidden DjVu page images and restores previews on activation', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
 
-        session = await startElectronE2ESession(`e2e-inactive-djvu-tabs-${Date.now()}`);
         await setTabMemoryPolicyForE2E(session.page, 'aggressive', DJVU_E2E_TIMEOUT_MS);
         pdfFixturePath = await createMultiPageTextFixturePdf(`inactive-djvu-other-tab-${Date.now()}.pdf`, 3);
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
-
-    it('releases hidden DjVu page images and restores previews on activation', async () => {
-        if (!session || !djvuFixture.path) {
-            throw new Error('Inactive DjVu tabs session was not initialized');
-        }
-
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForActiveDjvuImages(session);
@@ -192,8 +183,12 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
     });
 
     it('keeps copied visible split-pane DjVu documents rendered', async () => {
-        if (!session || !djvuFixture.path) {
-            throw new Error('Inactive DjVu tabs session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         await activateTab(session, 0);
