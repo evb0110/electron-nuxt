@@ -26,6 +26,7 @@
 - Desktop release artifacts are intentionally written to `release/`, not `dist/`, so they cannot be mistaken for web output during Vercel deploys.
 - Local Vercel link metadata lives in `.vercel/` and is gitignored.
 - Vercel only needs the root workspace package; the separate `landing/` app has its own package manager files and deploy path.
+- `pnpm run check:web-deploy-source` verifies the local deploy source stays below Vercel upload limits and that Electron, native, fixture, coverage, and other local-only paths remain excluded.
 
 ## Suggested Dashboard Settings
 
@@ -44,6 +45,9 @@
 
 - Keep Git commits authored with the GitHub no-reply address to avoid leaking a personal email in public repositories.
 - Use `vc-private --prod` instead of `vercel --prod` for local CLI deploys. The global wrapper copies the source tree into a temporary directory without `.git`, preserves `.vercel/project.json`, and runs a normal remote `vercel deploy` from that clean source tree.
+- The wrapper passes `--archive=tgz` by default so Vercel receives a tarball upload instead of counting each source file against the direct upload item limit.
+- The wrapper's temporary source copy omits local-only directories before upload and removes `.vercelignore` entries that point at omitted paths, which avoids Vercel archive-mode `ENOENT` failures.
+- The local `vp` alias already expands to `vc-private --prod --logs`; use plain `vp` for the normal production deploy.
 - This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator.
 - Because Vercel still performs the build remotely, Production/Preview environment variables and normal alias behavior match dashboard or Git-backed deploys.
 - Use `vc-private` for a preview deployment.

@@ -6,13 +6,13 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 1. Run `pnpm run release:patch`, `pnpm run release:minor`, or `pnpm run release:major`.
    The release script now fails before the version bump unless it is running under the Node major pinned in `package.json` `engines.node`, which is the project's current latest-LTS baseline (currently `24.x`).
-2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: linting, typechecking, Electron install verification, fast release-critical tests, strict current-platform build and packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
+2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: linting, typechecking, Electron install verification, fast release-critical tests, strict current-platform build and packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and host native-resource verification.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, creates the matching `v*` tag, and pushes the branch update and tag atomically.
 4. The tag push triggers the GitHub [`Release`](../.github/workflows/release.yml) workflow, which reruns the focused release checks, packages the main artifacts, and publishes the release in one run.
 
 ## Local guardrails
 
-- `pnpm run release:verify` mirrors the local parts of the release workflow and includes current-platform build and packaging verification.
+- `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
 - `release:verify:checks` forces `CI=1` during linting, typechecking, Electron install verification, and the fast release-critical test lane so the local gate stays closer to the GitHub release runner.
 - Direct pushes to `main` run `pnpm lint`, `pnpm typecheck`, and `pnpm run test:release` before the next release cut, with Rust, landing, and Python page-processor checks added when those paths change.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
@@ -41,7 +41,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 - If GitHub Actions flakes during packaging or publishing, rerun the failed `Release` workflow for the same tag in GitHub Actions.
 - If you need to retry from scratch, use the workflow's manual dispatch and provide the existing tag.
-- If local `release:verify` changes any tracked file besides `package.json`, treat that as a release-script regression and fix it before retrying. The cutter now refuses to auto-stage those extra changes.
+- If local `release:verify` changes any tracked, staged, or untracked file, treat that as a release-script regression and fix it before retrying. The cutter also refuses to auto-stage unexpected release changes.
 
 ## Release command behavior
 

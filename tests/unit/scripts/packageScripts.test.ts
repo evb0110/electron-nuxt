@@ -72,6 +72,7 @@ describe('package scripts', () => {
         const packageJson = await readPackageJson();
 
         expect(scriptRunTargets(packageJson, 'lint')).toEqual(expect.arrayContaining([
+            'check:web-deploy-source',
             'check:dependency-lockstep',
             'check:naming',
         ]));
@@ -82,6 +83,7 @@ describe('package scripts', () => {
         const packageJson = await readPackageJson();
 
         expect(packageJson.scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage-ratchet');
+        expect(packageJson.scripts['release:verify']).toBe('node scripts/release/verify-local.mjs');
         expect(packageJson.scripts.test).toBe('vitest run --project unit');
         expect(packageJson.scripts['test:unit']).toBe('vitest run --project unit');
         expect(packageJson.scripts['test:coverage:run']).toBe('vitest run --coverage --project unit');

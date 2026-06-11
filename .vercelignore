@@ -4,11 +4,20 @@ dist-electron/
 release/
 
 # Native resources (Electron-only)
+native/
 resources/
 python/
 
 # Nuxt build cache (root app, not landing)
+.angular/
+.next/
 .nuxt/
+.output/
+.parcel-cache/
+.svelte-kit/
+.turbo/
+.vercel/
+.vite/
 nuxt-output/
 
 # Electron-only source and tooling
@@ -20,16 +29,24 @@ landing/
 
 # IDE / tooling
 .cache/
-.idea/
-.vscode/
 .claude/
 .codex/
 .devkit/
+.fallow/
+.git/
+.github/
+.husky/
+.idea/
+.playwright-cli/
 .playwright-mcp/
 .tmp/
-.github/
+.vscode/
+coverage/
 docs/
+node_modules/
 
 # Build-time config not needed for the web deployment
+.DS_Store
 electron-builder.yml
 eslint-plugin-custom.mjs
+*.log

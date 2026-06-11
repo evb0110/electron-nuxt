@@ -1,13 +1,14 @@
 import {
-    cpSync,
     existsSync,
     mkdirSync,
     readdirSync,
     readFileSync,
+    writeFileSync,
 } from 'node:fs';
 import {
     dirname,
     join,
+    resolve,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,38 +34,60 @@ for (const pkg of ['i18n-core', 'release-selection']) {
     }
 }
 
-const check = process.argv.includes('--check');
-const drifted = [];
-
-function transformVendoredSource(source) {
+export function transformVendoredSource(source) {
     return source
         .replaceAll('@evb/i18n-core/', './')
         .replaceAll('@evb/releaseSelection/releaseSelection', './releaseSelection');
 }
 
-for (const { src, dest } of manifest) {
-    const source = transformVendoredSource(readFileSync(src, 'utf8'));
+function formatDriftError(drifted) {
+    return [
+        'landing/vendor is out of sync with ../packages:',
+        ...drifted.map(file => `  ${file}`),
+        'Run `pnpm sync:vendor` from landing/ and commit the result.',
+    ].join('\n');
+}
 
-    if (check) {
-        if (!existsSync(dest) || readFileSync(dest, 'utf8') !== source) {
-            drifted.push(dest);
+export function syncVendor({check = false} = {}) {
+    const drifted = [];
+
+    for (const { src, dest } of manifest) {
+        const source = transformVendoredSource(readFileSync(src, 'utf8'));
+
+        if (check) {
+            if (!existsSync(dest) || readFileSync(dest, 'utf8') !== source) {
+                drifted.push(dest);
+            }
+            continue;
         }
-        continue;
+
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, source, 'utf8');
     }
 
-    mkdirSync(dirname(dest), { recursive: true });
-    cpSync(src, dest);
-}
-
-if (check && drifted.length) {
-    console.error('landing/vendor is out of sync with ../packages:');
-    for (const file of drifted) {
-        console.error(`  ${file}`);
+    if (check && drifted.length > 0) {
+        throw new Error(formatDriftError(drifted));
     }
-    console.error('Run `pnpm sync:vendor` from landing/ and commit the result.');
-    process.exit(1);
+
+    return {
+        count: manifest.length,
+        drifted,
+    };
 }
 
-console.log(check
-    ? 'landing/vendor is in sync with ../packages'
-    : `Synced ${manifest.length} files into landing/vendor`);
+const isDirectCliRun = process.argv[1]
+    && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+
+if (isDirectCliRun) {
+    const check = process.argv.includes('--check');
+
+    try {
+        const result = syncVendor({check});
+        console.log(check
+            ? 'landing/vendor is in sync with ../packages'
+            : `Synced ${result.count} files into landing/vendor`);
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    }
+}
