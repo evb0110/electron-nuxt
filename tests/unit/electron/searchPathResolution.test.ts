@@ -25,7 +25,10 @@ vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
-vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+    normalizePathForLookup: (path: string) => path.trim(),
+}));
 
 describe('resolveSearchablePdfPath', () => {
     beforeEach(() => {

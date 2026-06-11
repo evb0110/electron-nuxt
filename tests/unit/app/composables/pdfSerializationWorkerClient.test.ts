@@ -8,9 +8,11 @@ import {
 import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
+const serializePdfEditsMock = vi.hoisted(() => vi.fn(async (data: Uint8Array) => data));
 const workerCloneTimeoutMs = 8_000;
 
 vi.mock('@app/utils/yieldToBrowser', () => ({ yieldToBrowser: yieldToBrowserMock }));
+vi.mock('@app/utils/pdf-viewer/pdf-serialization-operations/serializePdfEdits', () => ({ serializePdfEdits: serializePdfEditsMock }));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -53,6 +55,11 @@ class FakeWorker {
         this.messageHandlers.delete(handler as (event: MessageEvent) => void);
     }
 
+    public emitMessage(data: unknown) {
+        const event = { data } as MessageEvent;
+        this.messageHandlers.forEach((handler) => handler(event));
+    }
+
     public postMessage(message: unknown, transfer: Transferable[]) {
         this.postMessageCalls.push({
             message,
@@ -64,12 +71,11 @@ class FakeWorker {
                 id: number;
                 payload: { data: Uint8Array };
             };
-            const event = { data: {
+            this.emitMessage({
                 id: request.id,
                 ok: true,
                 data: request.payload.data,
-            } } as MessageEvent;
-            this.messageHandlers.forEach((handler) => handler(event));
+            });
         });
     }
 
@@ -88,6 +94,8 @@ describe('pdfSerializationWorkerClient', () => {
         FakeWorker.lastInstance = null;
         yieldToBrowserMock.mockReset();
         yieldToBrowserMock.mockResolvedValue(undefined);
+        serializePdfEditsMock.mockReset();
+        serializePdfEditsMock.mockImplementation(async (data: Uint8Array) => data);
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -237,6 +245,60 @@ describe('pdfSerializationWorkerClient', () => {
             // The wedged worker is torn down so subsequent saves get a
             // fresh instance.
             expect(terminateSpy).toHaveBeenCalled();
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
+
+    it('rejects structured worker operation errors without direct fallback', async () => {
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function failingOperationPostMessage(
+            this: FakeWorker,
+            message: unknown,
+            transfer: Transferable[],
+        ) {
+            this.postMessageCalls.push({
+                message,
+                transfer,
+            });
+
+            queueMicrotask(() => {
+                const request = message as { id: number };
+                this.emitMessage({
+                    id: request.id,
+                    ok: false,
+                    error: 'deterministic serialization failure',
+                });
+            });
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/utils/pdf-viewer/pdf-serialization-worker-client/serializePdfEditsOffThread');
+
+            const payload: IPdfSerializationSavePayload = {
+                markupSubtypeOverrides: [],
+                markupSubtypeHints: [],
+                rewriteShapeState: false,
+                shapes: [],
+                deletedShapeAnnotationIds: [],
+                deletedShapeStableKeys: [],
+                freeTextComments: [],
+                annotationComments: [],
+                pendingEmbeddedTextUpdates: [],
+                pendingEmbeddedAnnotationDeletes: [],
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                totalPages: 0,
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: '',
+                placedImage: null,
+            };
+
+            await expect(serializePdfEditsOffThread(new Uint8Array([1]), payload))
+                .rejects.toThrow('deterministic serialization failure');
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+            expect(yieldToBrowserMock).not.toHaveBeenCalled();
         } finally {
             FakeWorker.prototype.postMessage = originalPostMessage;
         }

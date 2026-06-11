@@ -4,10 +4,18 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    PDFDocument,
+    PDFHexString,
+    PDFName,
+} from 'pdf-lib';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { buildPdfAnnotationCommentSummary } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
 import { buildPopupIndex } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/buildPopupIndex';
 import { collectPagePdfSnapshotEntries } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
+import { collectPdfAnnotationNamesByPage } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
+import { computeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/computeSummaryStableKey';
 import { loadPdfPageAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { pickLatestAnnotationTimestamp } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
 import { resolveCombinedAnnotationText } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
@@ -62,6 +70,7 @@ const __test__ = {
     buildPdfAnnotationCommentSummary,
     buildPopupIndex,
     collectPagePdfSnapshotEntries,
+    collectPdfAnnotationNamesByPage,
     loadPdfPageAnnotations,
     pickLatestAnnotationTimestamp,
     resolveCombinedAnnotationText,
@@ -77,6 +86,7 @@ const computeStableKey = vi.fn((params: {
     source: string;
     uid?: string | null;
     annotationId?: string | null;
+    annotationName?: string | null | undefined;
 }) => `${params.source}:${params.pageIndex}:${params.id}`);
 
 const resolveKindLabel = vi.fn((subtype: string | null | undefined) => `kind:${subtype ?? 'null'}`);
@@ -407,6 +417,35 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.annotationId).toBe('a-1');
         expect(summary.kindLabel).toBe('kind:Highlight');
         expect(summary.stableKey).toBe('pdf:4:a-1');
+    });
+
+    it('prefers the PDF annotation /NM name for stable identity', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: '42R',
+                annotationName: 'evb-markup:stable-id',
+                subtype: 'Highlight',
+                contents: 'hello',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            null,
+            5,
+            0,
+            pageView,
+            0,
+            {
+                computeStableKey: computeSummaryStableKey,
+                resolveKindLabel,
+            },
+        );
+
+        expect(summary.annotationName).toBe('evb-markup:stable-id');
+        expect(summary.stableKey).toBe('nm:evb-markup:stable-id');
     });
 
     it('falls through to popup text when annotation is ZWS-only', () => {
@@ -946,6 +985,55 @@ describe('useAnnotationSync helpers / resolveEditorMarkerRect', () => {
     });
 });
 
+describe('useAnnotationSync helpers / collectPdfAnnotationNamesByPage', () => {
+    it('reads PDF annotation names by pdf.js annotation ref', async () => {
+        const pdfDocument = await PDFDocument.create();
+        const page = pdfDocument.addPage([
+            100,
+            200,
+        ]);
+        const annotation = pdfDocument.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Text'),
+            Rect: [
+                10,
+                10,
+                20,
+                20,
+            ],
+            Contents: PDFHexString.fromText('note'),
+            NM: PDFHexString.fromText('evb-markup:stable'),
+        });
+        const annotationRef = pdfDocument.context.register(annotation);
+        page.node.set(
+            PDFName.of('Annots'),
+            pdfDocument.context.obj([annotationRef]),
+        );
+
+        const data = await pdfDocument.save();
+        const doc = { getData: vi.fn(async () => data) };
+
+        const result = await __test__.collectPdfAnnotationNamesByPage(doc as never);
+
+        expect(result.get(0)?.get(formatPdfJsAnnotationRef(annotationRef))).toBe('evb-markup:stable');
+        expect(doc.getData).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips pages without annotation arrays', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage([
+            100,
+            200,
+        ]);
+        const data = await pdfDocument.save();
+        const doc = { getData: vi.fn(async () => data) };
+
+        const result = await __test__.collectPdfAnnotationNamesByPage(doc as never);
+
+        expect(result.size).toBe(0);
+    });
+});
+
 describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
     it('cleans the PDF page after reading annotations', async () => {
         const cleanup = vi.fn();
@@ -965,6 +1053,40 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         const result = await __test__.loadPdfPageAnnotations(doc as never, 1);
 
         expect(result?.annotations).toEqual([{id: 'a-1'}]);
+        expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('attaches PDF annotation names by annotation id', async () => {
+        const cleanup = vi.fn();
+        const page = {
+            getAnnotations: vi.fn(async () => [
+                {id: '5R'},
+                {id: '6R'},
+            ]),
+            view: [
+                0,
+                0,
+                100,
+                200,
+            ],
+            rotate: 0,
+            cleanup,
+        };
+        const doc = {getPage: vi.fn(async () => page)};
+        const annotationNames = new Map([[
+            '5R',
+            'evb-markup:stable',
+        ]]);
+
+        const result = await __test__.loadPdfPageAnnotations(doc as never, 1, annotationNames);
+
+        expect(result?.annotations).toEqual([
+            {
+                id: '5R',
+                annotationName: 'evb-markup:stable',
+            },
+            {id: '6R'},
+        ]);
         expect(cleanup).toHaveBeenCalledTimes(1);
     });
 

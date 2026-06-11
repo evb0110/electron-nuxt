@@ -2,7 +2,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { computeSummaryStableKey } from '@app/utils/pdf-viewer/annotations/annotation-identity-matching/computeSummaryStableKey';
 
 export function toCanonicalStableKey(
-    summary: Pick<IAnnotationCommentSummary, 'id' | 'pageIndex' | 'source' | 'uid' | 'annotationId'>,
+    summary: Pick<IAnnotationCommentSummary, 'id' | 'pageIndex' | 'source' | 'uid' | 'annotationId' | 'annotationName'>,
 ) {
     return computeSummaryStableKey({
         id: summary.id,
@@ -10,5 +10,6 @@ export function toCanonicalStableKey(
         source: summary.source,
         uid: summary.uid,
         annotationId: summary.annotationId,
+        annotationName: summary.annotationName,
     });
 }

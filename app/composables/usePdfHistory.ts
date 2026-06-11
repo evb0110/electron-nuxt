@@ -5,8 +5,29 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/public';
 import { capturePdfReloadSnapshot } from '@app/utils/pdf-viewer/pdf-reload-waiter/capturePdfReloadSnapshot';
 import { createPdfReloadWaiter } from '@app/utils/pdf-viewer/pdf-reload-waiter/createPdfReloadWaiter';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IWaitForPdfReloadOptions {captureScrollSnapshot?: boolean;}
+type THistoryDirection = 'undo' | 'redo';
+type TShouldPreferTimelineUndo = (
+    direction?: THistoryDirection,
+    source?: TWorkspaceUndoSource | null,
+) => boolean;
+type THistoryRoute = (
+    | {kind: 'blocked';}
+    | {
+        kind: 'annotation';
+        direction: THistoryDirection;
+    }
+    | {
+        kind: 'timeline';
+        direction: THistoryDirection;
+        source: TWorkspaceUndoSource | null;
+        shouldPreferTimelineUndo: boolean;
+    }
+);
+
+const HISTORY_LOG_SECTION = 'pdf-history';
 
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -18,7 +39,7 @@ export const usePdfHistory = (deps: {
             options?: { fallbackPage?: number | null; },
         ) => void;
         undoAnnotation: () => void;
-        redoAnnotation: () => void 
+        redoAnnotation: () => void;
     } | null>;
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
@@ -26,7 +47,7 @@ export const usePdfHistory = (deps: {
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     isAnnotationUndoContext: Ref<boolean>;
-    shouldPreferTimelineUndo?: (() => boolean) | undefined;
+    shouldPreferTimelineUndo?: TShouldPreferTimelineUndo | undefined;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
     nextRedoSource: Ref<TWorkspaceUndoSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -53,6 +74,7 @@ export const usePdfHistory = (deps: {
         undoHistory,
         redoHistory,
     } = deps;
+    let preferredTimelineRedoSource: TWorkspaceUndoSource | null = null;
 
     /**
      * Starts watching for a PDF document instance swap and resolves when
@@ -90,73 +112,123 @@ export const usePdfHistory = (deps: {
         return preparePdfReloadWaiter(pageToRestore, opts).promise;
     }
 
-    async function handleUndo() {
-        if (isAnySaving.value || !canUndo.value) {
-            return;
+    function getCanUseHistory(direction: THistoryDirection) {
+        return direction === 'undo'
+            ? canUndo.value
+            : canRedo.value;
+    }
+
+    function getTimelineHistorySource(direction: THistoryDirection) {
+        return direction === 'undo'
+            ? nextUndoSource.value
+            : nextRedoSource.value;
+    }
+
+    function resolveHistoryRoute(direction: THistoryDirection): THistoryRoute {
+        if (isAnySaving.value || !getCanUseHistory(direction)) {
+            return {kind: 'blocked'};
         }
-        if (isAnnotationUndoContext.value && shouldPreferTimelineUndo?.() !== true) {
-            pdfViewerRef.value?.undoAnnotation();
-            return;
+
+        const source = getTimelineHistorySource(direction);
+        const prefersTimeline = shouldPreferTimelineUndo?.(direction, source) === true;
+        const redoesPreferredTimelineUndo = direction === 'redo'
+            && source !== null
+            && source === preferredTimelineRedoSource;
+        if (isAnnotationUndoContext.value && !prefersTimeline && !redoesPreferredTimelineUndo) {
+            return {
+                kind: 'annotation',
+                direction,
+            };
         }
+
+        return {
+            kind: 'timeline',
+            direction,
+            source,
+            shouldPreferTimelineUndo: prefersTimeline,
+        };
+    }
+
+    function reportMissingTimelineSource(route: Extract<THistoryRoute, {kind: 'timeline';}>) {
+        BrowserLogger.warn(
+            HISTORY_LOG_SECTION,
+            `${route.direction === 'undo' ? 'Undo' : 'Redo'} requested but no timeline history source was available`,
+            {
+                direction: route.direction,
+                canUndo: canUndo.value,
+                canRedo: canRedo.value,
+                isAnnotationUndoContext: isAnnotationUndoContext.value,
+                shouldPreferTimelineUndo: route.shouldPreferTimelineUndo,
+            },
+        );
+    }
+
+    async function runTimelineHistoryRoute(
+        route: Extract<THistoryRoute, {kind: 'timeline';}>,
+        runHistory: () => Promise<boolean>,
+    ) {
         if (isHistoryBusy.value) {
-            return;
+            return false;
         }
         isHistoryBusy.value = true;
         try {
-            const undoSource = nextUndoSource.value;
-            if (!undoSource) {
-                return;
+            const historySource = route.source;
+            if (!historySource) {
+                reportMissingTimelineSource(route);
+                return false;
             }
-            if (undoSource === 'file' && workingCopyPath.value) {
+            if (historySource === 'file' && workingCopyPath.value) {
                 clearOcrCache(workingCopyPath.value);
             }
             const pageToRestore = currentPage.value;
-            const reloadWaiter = undoSource === 'file'
+            const reloadWaiter = historySource === 'file'
                 ? preparePdfReloadWaiter(pageToRestore)
                 : null;
-            const didUndo = await undoHistory();
-            if (didUndo && reloadWaiter) {
+            const didRun = await runHistory();
+            if (didRun && reloadWaiter) {
                 await reloadWaiter.promise;
             } else if (reloadWaiter) {
                 reloadWaiter.cancel();
             }
+            return didRun;
         } finally {
             isHistoryBusy.value = false;
         }
     }
 
-    async function handleRedo() {
-        if (isAnySaving.value || !canRedo.value) {
+    async function handleUndo() {
+        const route = resolveHistoryRoute('undo');
+        if (route.kind === 'blocked') {
             return;
         }
-        if (isAnnotationUndoContext.value) {
+        if (route.kind === 'annotation') {
+            preferredTimelineRedoSource = null;
+            pdfViewerRef.value?.undoAnnotation();
+            return;
+        }
+
+        const didUndo = await runTimelineHistoryRoute(route, undoHistory);
+        if (didUndo) {
+            preferredTimelineRedoSource = route.shouldPreferTimelineUndo
+                ? route.source
+                : null;
+        }
+    }
+
+    async function handleRedo() {
+        const route = resolveHistoryRoute('redo');
+        if (route.kind === 'blocked') {
+            return;
+        }
+        if (route.kind === 'annotation') {
+            preferredTimelineRedoSource = null;
             pdfViewerRef.value?.redoAnnotation();
             return;
         }
-        if (isHistoryBusy.value) {
-            return;
-        }
-        isHistoryBusy.value = true;
-        try {
-            const redoSource = nextRedoSource.value;
-            if (!redoSource) {
-                return;
-            }
-            if (redoSource === 'file' && workingCopyPath.value) {
-                clearOcrCache(workingCopyPath.value);
-            }
-            const pageToRestore = currentPage.value;
-            const reloadWaiter = redoSource === 'file'
-                ? preparePdfReloadWaiter(pageToRestore)
-                : null;
-            const didRedo = await redoHistory();
-            if (didRedo && reloadWaiter) {
-                await reloadWaiter.promise;
-            } else if (reloadWaiter) {
-                reloadWaiter.cancel();
-            }
-        } finally {
-            isHistoryBusy.value = false;
+
+        const didRedo = await runTimelineHistoryRoute(route, redoHistory);
+        if (didRedo) {
+            preferredTimelineRedoSource = null;
         }
     }
 

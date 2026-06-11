@@ -1,7 +1,6 @@
 import { statSync } from 'fs';
 import {
     readFile,
-    rename,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -22,6 +21,10 @@ import {
 } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -198,10 +201,10 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
 
 async function saveRecentFilesData(data: IRecentFilesData) {
     const storagePath = getStoragePath();
-    const tempPath = `${storagePath}.tmp-${process.pid}-${Date.now()}`;
+    const tempPath = makeSiblingTempPath(storagePath);
     try {
         await writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
-        await rename(tempPath, storagePath);
+        await atomicReplace(tempPath, storagePath);
     } catch (err) {
         logger.error(`Failed to save recent files: ${getErrorMessage(err)}`);
         try {

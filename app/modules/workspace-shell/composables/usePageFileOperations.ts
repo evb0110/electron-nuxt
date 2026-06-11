@@ -24,6 +24,7 @@ export interface IPageFileOperationsDeps {
     isHistoryBusy: Ref<boolean>;
     isExportingDocx: Ref<boolean>;
     isAnyAnnotationNoteSaving: Ref<boolean>;
+    isDocumentOperationInProgress?: Ref<boolean> | ComputedRef<boolean>;
     annotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
     hasPendingUnsavedChanges: ComputedRef<boolean>;
     annotationDirty: Ref<boolean>;
@@ -51,6 +52,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         isHistoryBusy,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
+        isDocumentOperationInProgress,
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,
@@ -72,7 +74,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function waitUntilAllIdle() {
         await waitUntilIdle(() =>
-            isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value,
+            isAnySaving.value
+            || isHistoryBusy.value
+            || isExportingDocx.value
+            || isAnyAnnotationNoteSaving.value
+            || (isDocumentOperationInProgress?.value ?? false),
         );
     }
 
@@ -82,6 +88,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             isHistoryBusy: isHistoryBusy.value,
             isExportingDocx: isExportingDocx.value,
             isAnyAnnotationNoteSaving: isAnyAnnotationNoteSaving.value,
+            isDocumentOperationInProgress: isDocumentOperationInProgress?.value ?? false,
         };
     }
 
@@ -93,7 +100,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     function hasBusyOperation() {
-        return isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value;
+        return isAnySaving.value
+            || isHistoryBusy.value
+            || isExportingDocx.value
+            || isAnyAnnotationNoteSaving.value
+            || (isDocumentOperationInProgress?.value ?? false);
     }
 
     function hasPendingPersistenceChanges() {

@@ -77,6 +77,14 @@ function resolvePdfCommentIds(
     };
 }
 
+function resolvePdfCommentAnnotationName(annotation: IPdfAnnotationRecord) {
+    const rawName = annotation.annotationName ?? null;
+    const name = typeof rawName === 'string'
+        ? rawName.trim()
+        : '';
+    return name || null;
+}
+
 function resolvePdfCommentAuthor(
     annotation: IPdfAnnotationRecord,
     popupAnnotation: IPdfAnnotationRecord | null,
@@ -163,6 +171,7 @@ export function buildPdfAnnotationCommentSummary(
         id,
         annotationId,
     } = resolvePdfCommentIds(annotation, pageNumber, annotationIndex);
+    const annotationName = resolvePdfCommentAnnotationName(annotation);
     const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
     const rawMarkerRect = toMarkerRectFromPdfRect(
         annotation.rect ?? popupAnnotation?.rect,
@@ -194,6 +203,7 @@ export function buildPdfAnnotationCommentSummary(
             source: 'pdf',
             uid: null,
             annotationId,
+            annotationName,
         }),
         sortIndex: null,
         pageIndex: pageNumber - 1,
@@ -208,6 +218,7 @@ export function buildPdfAnnotationCommentSummary(
         color: resolvePdfCommentColor(annotation, popupAnnotation),
         uid: null,
         annotationId,
+        annotationName,
         source: 'pdf',
         hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text),
         markerRect: resolvePdfCommentMarkerRect(subtype, hasLinkedPopup, rawMarkerRect),

@@ -1,6 +1,5 @@
 import {
     readFile,
-    rename,
     rm,
     writeFile,
 } from 'fs/promises';
@@ -18,6 +17,10 @@ import {
 import type { ISettingsData } from '@contracts/shared';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    atomicReplace,
+    makeSiblingTempPath,
+} from '@electron/utils/atomicReplace';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -54,11 +57,11 @@ function queueSettingsMutation<T>(mutation: () => Promise<T>) {
 }
 
 async function writeSettingsAtomically(storagePath: string, settings: ISettingsData) {
-    const tempPath = `${storagePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+    const tempPath = makeSiblingTempPath(storagePath);
     await writeFile(tempPath, JSON.stringify(settings, null, 2), 'utf-8');
 
     try {
-        await rename(tempPath, storagePath);
+        await atomicReplace(tempPath, storagePath);
     } catch (error) {
         await rm(tempPath, { force: true }).catch(() => {});
         throw error;

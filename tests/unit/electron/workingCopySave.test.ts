@@ -39,7 +39,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 }));
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args)}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
+    normalizePathForLookup: (path: string) => path.trim(),
+}));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 
 describe('workingCopySave', () => {

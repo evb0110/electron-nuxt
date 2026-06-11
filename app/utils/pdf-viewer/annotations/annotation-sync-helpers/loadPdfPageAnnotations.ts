@@ -15,6 +15,25 @@ import type {
     IPdfPageAnnotationBundle,
 } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
+function attachPdfAnnotationNames(
+    annotations: IPdfAnnotationRecord[],
+    annotationNamesById: ReadonlyMap<string, string> | null | undefined,
+) {
+    if (!annotationNamesById || annotationNamesById.size === 0) {
+        return annotations;
+    }
+
+    return annotations.map((annotation) => {
+        const annotationName = annotation.id ? annotationNamesById.get(annotation.id) : null;
+        return annotationName
+            ? {
+                ...annotation,
+                annotationName,
+            }
+            : annotation;
+    });
+}
+
 function shouldLoadTextPreviewItems(pageAnnotations: readonly IPdfAnnotationRecord[]) {
     return pageAnnotations.some(annotation => isTextMarkupSubtype(annotation.subtype));
 }
@@ -73,14 +92,18 @@ async function loadPageTextPreviewData(
 export async function loadPdfPageAnnotations(
     doc: PDFDocumentProxy,
     pageNumber: number,
+    annotationNamesById?: ReadonlyMap<string, string> | null,
 ): Promise<IPdfPageAnnotationBundle | null> {
     let page: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
     try {
         page = await doc.getPage(pageNumber);
         const rawAnnotations: unknown = await page.getAnnotations();
-        const annotations = Array.isArray(rawAnnotations)
-            ? rawAnnotations as IPdfAnnotationRecord[]
-            : [];
+        const annotations = attachPdfAnnotationNames(
+            Array.isArray(rawAnnotations)
+                ? rawAnnotations as IPdfAnnotationRecord[]
+                : [],
+            annotationNamesById,
+        );
         const {
             textItems,
             textViewport,

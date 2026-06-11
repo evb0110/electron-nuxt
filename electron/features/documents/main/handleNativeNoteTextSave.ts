@@ -37,7 +37,9 @@ import {
 } from '@electron/features/page-ops/public';
 import {
     findWorkingCopyPathByOriginalPath,
+    getWorkingCopyOriginalFileExpectation,
     getWorkingCopyOriginalPath,
+    refreshWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
@@ -195,6 +197,58 @@ async function workingCopyMatchesExpectation(
         .update(bytes)
         .digest('hex');
     return sha256 === expectedBase.sha256;
+}
+
+async function originalPathMatchesStoredExpectation(
+    originalPath: string,
+    expectedOriginal: NonNullable<ReturnType<typeof getWorkingCopyOriginalFileExpectation>>,
+) {
+    const originalStat = await stat(originalPath);
+    return (
+        originalStat.size === expectedOriginal.size
+        && originalStat.mtimeMs === expectedOriginal.mtimeMs
+    );
+}
+
+async function originalPathMatchesWorkingCopyBytes(
+    originalPath: string,
+    workingPath: string,
+) {
+    const [
+        originalStat,
+        workingStat,
+    ] = await Promise.all([
+        stat(originalPath),
+        stat(workingPath),
+    ]);
+    if (originalStat.size !== workingStat.size) {
+        return false;
+    }
+
+    const [
+        originalBytes,
+        workingBytes,
+    ] = await Promise.all([
+        readFile(originalPath),
+        readFile(workingPath),
+    ]);
+    return originalBytes.equals(workingBytes);
+}
+
+async function originalPathNativeSaveBaseMatches(
+    workingPath: string,
+    originalPath: string,
+    senderWebContentsId: number,
+) {
+    const expectedOriginal = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+    if (!expectedOriginal) {
+        return true;
+    }
+    if (await originalPathMatchesStoredExpectation(originalPath, expectedOriginal)) {
+        return true;
+    }
+
+    return originalPathMatchesWorkingCopyBytes(originalPath, workingPath);
 }
 
 function normalizeNoteTextUpdates(updates: unknown) {
@@ -1026,24 +1080,22 @@ async function measureNativeNotePhase<T>(
     }
 }
 
-async function syncNativeOutputToLatestWorkingCopy(
+async function syncNativeOutputToRequestingWorkingCopy(
     originalPath: string,
     requestedWorkingPath: string,
     senderWebContentsId: number,
 ) {
-    const latestWorkingPath = findWorkingCopyPathByOriginalPath(originalPath, senderWebContentsId)
-        ?? requestedWorkingPath;
-    const syncLatestWorkingCopy = async () => {
-        await ensureWorkingCopyDirectory(latestWorkingPath, senderWebContentsId);
-        await copyFileCopyOnWrite(originalPath, latestWorkingPath);
-    };
+    const currentWorkingPath = findWorkingCopyPathByOriginalPath(originalPath, senderWebContentsId);
+    await ensureWorkingCopyDirectory(requestedWorkingPath, senderWebContentsId);
+    await copyFileCopyOnWrite(originalPath, requestedWorkingPath);
+    refreshWorkingCopyOriginalFileExpectation(requestedWorkingPath, senderWebContentsId);
 
-    if (latestWorkingPath === requestedWorkingPath) {
-        await syncLatestWorkingCopy();
-        return;
+    if (currentWorkingPath && currentWorkingPath !== requestedWorkingPath) {
+        log.debug(`Skipped native output sync to distinct current working copy: ${JSON.stringify({
+            currentWorkingPath,
+            requestedWorkingPath,
+        })}`);
     }
-
-    await enqueueWorkingCopyMutation(latestWorkingPath, syncLatestWorkingCopy);
 }
 
 async function runNativeNoteCommand(
@@ -1103,11 +1155,20 @@ async function runNativeNoteCommand(
             await measureNativeNotePhase(phaseTimings, 'assert-output', () =>
                 assertNativeOutputReady(tempPath));
             const validation = createNativeValidationResult();
+            const originalBaseMatches = await measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
+                originalPathNativeSaveBaseMatches(normalizedWorkingPath, originalPath, event.sender.id));
+            if (!originalBaseMatches) {
+                log.debug(`Native note save skipped because original base expectation no longer matches: ${JSON.stringify({
+                    command: options.command,
+                    totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
+                })}`);
+                return createNotAppliedResult();
+            }
 
             await measureNativeNotePhase(phaseTimings, 'atomic-replace-original', () =>
                 atomicReplace(tempPath, originalPath));
-            await measureNativeNotePhase(phaseTimings, 'sync-latest-working-copy', () =>
-                syncNativeOutputToLatestWorkingCopy(originalPath, normalizedWorkingPath, event.sender.id));
+            await measureNativeNotePhase(phaseTimings, 'sync-requesting-working-copy', () =>
+                syncNativeOutputToRequestingWorkingCopy(originalPath, normalizedWorkingPath, event.sender.id));
             log.debug(`Native note save phase timings: ${JSON.stringify({
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,

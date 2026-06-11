@@ -6,7 +6,12 @@ export function computeSummaryStableKey(params: {
     source: IAnnotationCommentSummary['source'];
     uid?: string | null;
     annotationId?: string | null;
+    annotationName?: string | null | undefined;
 }) {
+    const annotationName = params.annotationName?.trim();
+    if (annotationName) {
+        return `nm:${annotationName}`;
+    }
     if (params.annotationId) {
         return `ann:${params.pageIndex}:${params.annotationId}`;
     }

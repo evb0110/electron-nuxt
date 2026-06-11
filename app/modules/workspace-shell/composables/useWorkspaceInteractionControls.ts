@@ -12,6 +12,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { ISettingsData } from '@contracts/shared';
+import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 import type {
     IAnnotationSettings,
     TAnnotationTool,
@@ -68,6 +69,10 @@ interface IWorkspaceInteractionControlsOptions {
     openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionControlsOptions) => {
@@ -110,6 +115,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         openFileWithDjvuCleanup,
         waitForPdfReload,
         loadPdfFromPath,
+        runWithDocumentOperationLease,
     } = options;
 
     const {
@@ -222,6 +228,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         openFileWithDjvuCleanup,
         waitForPdfReload,
         loadPdfFromPath,
+        ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 
     return {

@@ -8,6 +8,10 @@ import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/worksp
 import type { TPdfSource } from '@app/types/pdf';
 import { getDocumentsCapability } from '@app/utils/platformDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import {
+    runWithoutDocumentOperationLease,
+    type TDocumentOperationKind,
+} from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
@@ -24,6 +28,10 @@ interface IUseWorkspaceSplitPayloadOptions {
     openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 type TPdfSnapshotSplitPayload = Extract<TSplitPayload, { kind: 'pdfSnapshot' }>;
@@ -45,6 +53,9 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 }
 
 export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptions) => {
+    const runWithDocumentOperationLease = options.runWithDocumentOperationLease
+        ?? runWithoutDocumentOperationLease;
+
     function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean): TPdfSnapshotSplitPayload {
         const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
         return {
@@ -79,28 +90,30 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
     }
 
     async function resolvePdfSnapshotData() {
-        const viewerSnapshot = await options.pdfViewerRef.value?.saveDocument?.() ?? null;
-        if (viewerSnapshot) {
-            return viewerSnapshot;
-        }
+        return runWithDocumentOperationLease('split-capture', async () => {
+            const viewerSnapshot = await options.pdfViewerRef.value?.saveDocument?.() ?? null;
+            if (viewerSnapshot) {
+                return viewerSnapshot;
+            }
 
-        if (options.pdfData.value) {
-            return options.pdfData.value;
-        }
+            if (options.pdfData.value) {
+                return options.pdfData.value;
+            }
 
-        if (!options.workingCopyPath.value) {
-            return null;
-        }
+            if (!options.workingCopyPath.value) {
+                return null;
+            }
 
-        try {
-            return await readDocumentBytes(options.workingCopyPath.value);
-        } catch (error) {
-            BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
-                path: options.workingCopyPath.value,
-                error,
-            });
-            return null;
-        }
+            try {
+                return await readDocumentBytes(options.workingCopyPath.value);
+            } catch (error) {
+                BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
+                    path: options.workingCopyPath.value,
+                    error,
+                });
+                return null;
+            }
+        });
     }
 
     async function capturePdfSnapshotPayload(): Promise<TSplitPayload> {

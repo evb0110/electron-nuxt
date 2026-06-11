@@ -26,6 +26,7 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
+import { useDocumentOperationLease } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 import { isNoteEligibleComment } from '@app/utils/pdf-viewer/annotations/annotation-rules/isNoteEligibleComment';
@@ -135,6 +136,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
+    const documentOperationLease = useDocumentOperationLease();
 
     const metadataSession = useMetadataSession({
         pdfDocument,
@@ -371,6 +373,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationDirty.value
         || isDirty.value
         || hasAnnotationChanges()
+        || hasSavedPdfJsAnnotationBaselineChanges()
         || pendingEmbeddedAnnotationDeleteCount.value > 0
         || preservedAnnotationSourceDirty.value
         || pageLabelsDirty.value
@@ -438,6 +441,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         currentPage,
         waitForPdfReload: (page) => waitForPdfReload(page),
         resetSearchCache,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     const {
         handleSave,
@@ -653,6 +657,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ensureWorkingCopyFreshForRead,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
+        isDocumentOperationInProgress: documentOperationLease.isBusy,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,
@@ -798,6 +804,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openFileWithDjvuCleanup,
         waitForPdfReload,
         loadPdfFromPath,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
 
     useWorkspaceDocumentLifecycleEffects({

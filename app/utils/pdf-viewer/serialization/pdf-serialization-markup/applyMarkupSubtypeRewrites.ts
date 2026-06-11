@@ -4,6 +4,7 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import {
+    PDFHexString,
     LineCapStyle,
     PDFArray,
     PDFName,
@@ -33,6 +34,7 @@ import {
     formatPdfJsAnnotationRef,
     normalizePdfJsAnnotationId,
 } from '@app/utils/pdfAnnotationRefs';
+import { getPdfStringValue } from '@app/utils/pdfDict';
 import { readPdfRectFromDict } from '@pdf-core';
 import { iterateAnnotationRefDicts } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
 import { resolvePageAnnotationContext } from '@app/utils/pdf-viewer/pdf-page-annotation-iteration/resolvePageAnnotationContext';
@@ -61,6 +63,9 @@ const COLOR_MATCH_WEIGHT = 1.5;
 const PAGE_MARKUP_INDEX_MATCH_BONUS = 0.25;
 
 const PAGE_MARKUP_INDEX_MISMATCH_PENALTY = 0.08;
+
+const MARKUP_ANNOTATION_NAME_PREFIX = 'evb-markup:';
+const ANNOTATION_NAME = PDFName.of('NM');
 
 const MAX_RGB_DISTANCE = Math.sqrt((255 ** 2) * 3);
 
@@ -600,7 +605,7 @@ function applySubtypeRewriteToDict(
     targetSubtype: TMarkupSubtype,
     color?: string | null,
 ) {
-    let modified = false;
+    let modified = ensureMarkupAnnotationName(dict);
     const targetColor = resolveHintTargetColor(targetSubtype, color);
     if (targetColor) {
         writePdfMarkupColor(doc, dict, targetColor);
@@ -635,6 +640,19 @@ function applySubtypeRewriteToDict(
     }
 
     return modified;
+}
+
+function ensureMarkupAnnotationName(dict: PDFDict) {
+    const currentName = getPdfStringValue(dict.get(ANNOTATION_NAME)).trim();
+    if (currentName) {
+        return false;
+    }
+
+    dict.set(
+        ANNOTATION_NAME,
+        PDFHexString.fromText(`${MARKUP_ANNOTATION_NAME_PREFIX}${crypto.randomUUID()}`),
+    );
+    return true;
 }
 
 function forEachPageAnnotationContext(

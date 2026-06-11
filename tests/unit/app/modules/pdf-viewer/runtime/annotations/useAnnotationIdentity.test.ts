@@ -16,8 +16,11 @@ vi.stubGlobal('DOMMatrix', class {
 });
 
 const { areTextMarkupCommentsLikelySame } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame');
+const { commentsAreSameLogicalAnnotation } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/commentsAreSameLogicalAnnotation');
 const { likelyEditorPdfMirror } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/likelyEditorPdfMirror');
 const { mergeCommentSummaries } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeCommentSummaries');
+const { mergeDuplicateCommentSummary } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeDuplicateCommentSummary');
+const { selectPreferredAnnotationComment } = await import('@app/utils/pdf-viewer/annotation-comment-matching/selectPreferredAnnotationComment');
 const { useAnnotationIdentity } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity');
 
 function makeRect(
@@ -54,6 +57,7 @@ function makeSummary(
         colorEdited: overrides.colorEdited,
         uid: overrides.uid ?? null,
         annotationId: overrides.annotationId ?? null,
+        annotationName: overrides.annotationName ?? null,
         source: overrides.source ?? 'editor',
         hasNote: overrides.hasNote ?? true,
         markerRect: overrides.markerRect ?? makeRect(0.1, 0.1, 0.2, 0.05),
@@ -219,6 +223,20 @@ describe('likelyEditorPdfMirror', () => {
             const right = makeSummary({
                 source: 'pdf',
                 uid: 'shared-uid',
+                markerRect: makeRect(0.9, 0.9, 0.05, 0.05),
+            });
+            expect(likelyEditorPdfMirror(left, right)).toBe(true);
+        });
+
+        it('returns true when PDF annotation names match (no geometry needed)', () => {
+            const left = makeSummary({
+                source: 'editor',
+                annotationName: 'evb-markup:stable',
+                markerRect: makeRect(0, 0, 0.001, 0.001),
+            });
+            const right = makeSummary({
+                source: 'pdf',
+                annotationName: 'evb-markup:stable',
                 markerRect: makeRect(0.9, 0.9, 0.05, 0.05),
             });
             expect(likelyEditorPdfMirror(left, right)).toBe(true);
@@ -528,6 +546,19 @@ describe('areTextMarkupCommentsLikelySame', () => {
 });
 
 describe('mergeCommentSummaries', () => {
+    it('preserves PDF annotation names while merging mirrors', () => {
+        const existing = makeSummary({
+            source: 'editor',
+            annotationName: null,
+        });
+        const incoming = makeSummary({
+            source: 'pdf',
+            annotationName: 'evb-markup:stable',
+        });
+
+        expect(mergeCommentSummaries(existing, incoming).annotationName).toBe('evb-markup:stable');
+    });
+
     it('preserves selected-text previews when merging editor and PDF mirrors', () => {
         const existing = makeSummary({
             source: 'editor',
@@ -650,6 +681,57 @@ describe('mergeCommentSummaries', () => {
         });
 
         expect(mergeCommentSummaries(existing, incoming).color).toBe('#ec4899');
+    });
+});
+
+describe('deterministic annotation names', () => {
+    it('make logical annotation matching exact before fuzzy geometry', () => {
+        const left = makeSummary({
+            pageIndex: 0,
+            annotationName: 'evb-markup:stable',
+            markerRect: makeRect(0.1, 0.1, 0.1, 0.1),
+        });
+        const right = makeSummary({
+            pageIndex: 0,
+            annotationName: 'evb-markup:stable',
+            markerRect: makeRect(0.8, 0.8, 0.1, 0.1),
+        });
+
+        expect(commentsAreSameLogicalAnnotation(left, right)).toBe(true);
+    });
+
+    it('keep nm stable keys canonical after duplicate merging', () => {
+        const merged = mergeDuplicateCommentSummary(
+            makeSummary({
+                source: 'editor',
+                stableKey: 'src:editor:0:runtime-1',
+                annotationName: null,
+            }),
+            makeSummary({
+                source: 'pdf',
+                stableKey: 'ann:0:42R',
+                annotationId: '42R',
+                annotationName: 'evb-markup:stable',
+            }),
+        );
+
+        expect(merged.annotationName).toBe('evb-markup:stable');
+        expect(merged.stableKey).toBe('nm:evb-markup:stable');
+    });
+
+    it('prefers nm-backed comments over object-ref-only comments', () => {
+        const preferred = selectPreferredAnnotationComment(
+            makeSummary({
+                stableKey: 'ann:0:42R',
+                annotationId: '42R',
+            }),
+            makeSummary({
+                stableKey: 'nm:evb-markup:stable',
+                annotationName: 'evb-markup:stable',
+            }),
+        );
+
+        expect(preferred.stableKey).toBe('nm:evb-markup:stable');
     });
 });
 

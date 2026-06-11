@@ -74,6 +74,7 @@ vi.mock('@electron/file-access/workingCopyCreation', () => ({
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
     isKnownWorkingCopyOriginalPath: vi.fn(() => false),
+    normalizePathForLookup: (path: string) => path.trim(),
     setWorkingCopyOriginalPath: (...args: [string, string, number?]) => mocks.setWorkingCopyOriginalPath(...args),
 }));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
