@@ -1,5 +1,6 @@
 import type {
     IWorkspaceAgentPort,
+    IWorkspaceAutomationPort,
     IWorkspaceExportPort,
     IWorkspaceExpose,
     IWorkspaceFilePort,
@@ -77,6 +78,17 @@ const AGENT_METHODS = [
     'readAgentResource',
 ] as const satisfies ReadonlyArray<keyof IWorkspaceAgentPort>;
 
+const AUTOMATION_METHODS = [
+    'commentAtPoint',
+    'getAllShapes',
+    'getAutomationStateSnapshot',
+    'getDeletedEmbeddedShapeAnnotationIds',
+    'getDeletedEmbeddedShapeStableKeys',
+    'handleOcrComplete',
+    'highlightSelection',
+    'scrollToPage',
+] as const satisfies ReadonlyArray<keyof IWorkspaceAutomationPort>;
+
 type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;
 
 export const requiredWorkspaceExposeMethods = [
@@ -87,4 +99,5 @@ export const requiredWorkspaceExposeMethods = [
     ...SPLIT_TRANSFER_METHODS,
     ...UI_METHODS,
     ...AGENT_METHODS,
+    ...AUTOMATION_METHODS,
 ] as const satisfies readonly TWorkspaceExposeMethod[];

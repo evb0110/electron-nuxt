@@ -8,30 +8,152 @@ import {
 
 interface IPackageJson { scripts: Record<string, string> }
 
+const removedScriptNames = [
+    'test:smoke',
+    'gate:pre-release',
+    [
+        'test',
+        'integration',
+    ].join(':'),
+];
+
 async function readPackageJson() {
     return JSON.parse(
         await readFile(path.join(process.cwd(), 'package.json'), 'utf8'),
     ) as IPackageJson;
 }
 
+function scriptCommands(packageJson: IPackageJson, scriptName: string) {
+    const script = packageJson.scripts[scriptName];
+    if (script === undefined) {
+        throw new Error(`Missing package script: ${scriptName}`);
+    }
+
+    return script.split(/\s*&&\s*/u)
+        .map(command => command.trim())
+        .filter(Boolean);
+}
+
+function scriptRunTargets(packageJson: IPackageJson, scriptName: string) {
+    const script = packageJson.scripts[scriptName];
+    if (script === undefined) {
+        throw new Error(`Missing package script: ${scriptName}`);
+    }
+
+    return Array.from(script.matchAll(/(?:^|\s)pnpm\s+run\s+([^\s&]+)/gu))
+        .map(match => match[1])
+        .filter((target): target is string => target !== undefined);
+}
+
 describe('package scripts', () => {
-    it('keeps the web build output checked before deploy', async () => {
+    it('keeps the web build output checked after Nuxt build artifacts are pruned', async () => {
         const packageJson = await readPackageJson();
 
-        expect(packageJson.scripts.build).toContain('scripts/check-web-deploy-assets.mjs');
+        expect(scriptCommands(packageJson, 'build')).toEqual([
+            'pnpm exec nuxi build',
+            'node scripts/prune-build-artifacts.mjs',
+            'node scripts/check-web-deploy-assets.mjs',
+        ]);
     });
 
     it('keeps desktop builds staging every Rust native tool', async () => {
         const packageJson = await readPackageJson();
 
-        expect(packageJson.scripts['build:desktop']).toContain('build:pdf-image-combine');
-        expect(packageJson.scripts['build:desktop']).toContain('build:pdf-page-ops');
-        expect(packageJson.scripts['build:desktop']).toContain('build:pdf-search');
+        expect(scriptRunTargets(packageJson, 'build:desktop')).toEqual([
+            'build',
+            'build:electron',
+            'build:pdf-image-combine',
+            'build:pdf-page-ops',
+            'build:pdf-search',
+        ]);
     });
 
     it('keeps dependency lockstep checks in lint', async () => {
         const packageJson = await readPackageJson();
 
-        expect(packageJson.scripts.lint).toContain('check:dependency-lockstep');
+        expect(scriptRunTargets(packageJson, 'lint')).toEqual(expect.arrayContaining([
+            'check:dependency-lockstep',
+            'check:naming',
+        ]));
+        expect(packageJson.scripts.lint).not.toContain('|| true');
+    });
+
+    it('keeps focused release and diagnostic test scripts mapped to first-class commands', async () => {
+        const packageJson = await readPackageJson();
+
+        expect(packageJson.scripts['test:coverage']).toBe('pnpm run test:coverage:run && pnpm run check:coverage-ratchet');
+        expect(packageJson.scripts.test).toBe('vitest run --project unit');
+        expect(packageJson.scripts['test:unit']).toBe('vitest run --project unit');
+        expect(packageJson.scripts['test:coverage:run']).toBe('vitest run --coverage --project unit');
+        expect(packageJson.scripts['test:bundle-integrity']).toBe('vitest run --project bundle-integrity && pnpm run check:build-artifacts:hygiene');
+        expect(packageJson.scripts['check:coverage-ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
+        expect(packageJson.scripts['check:coverage-ratchet:update']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts --update-baseline');
+        expect(packageJson.scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');
+        expect(scriptCommands(packageJson, 'test:e2e:electron')).toEqual([
+            'pnpm run build:electron',
+            'pnpm run test:e2e:electron:smoke:no-build',
+        ]);
+        expect(packageJson.scripts['test:e2e:electron:smoke:no-build']).toBe('vitest run --project e2e-smoke --reporter verbose');
+        expect(scriptCommands(packageJson, 'test:e2e:electron:draw-shapes')).toEqual([
+            'pnpm run build:electron',
+            'pnpm run test:e2e:electron:draw-shapes:no-build',
+        ]);
+        expect(packageJson.scripts['test:e2e:electron:draw-shapes:no-build']).toBe('vitest run --project e2e-draw-shapes --reporter verbose');
+        expect(scriptCommands(packageJson, 'test:e2e:electron:quarantine')).toEqual([
+            'pnpm run build:electron',
+            'pnpm run test:e2e:electron:quarantine:no-build',
+        ]);
+        expect(packageJson.scripts['test:e2e:electron:quarantine:no-build']).toBe('vitest run --project e2e-quarantine --passWithNoTests --reporter verbose');
+        expect(scriptCommands(packageJson, 'test:e2e:electron:rapid-navigation')).toEqual([
+            'pnpm run build:electron',
+            'pnpm run test:e2e:electron:rapid-navigation:no-build',
+        ]);
+        expect(packageJson.scripts['test:e2e:electron:rapid-navigation:no-build']).toBe('vitest run --project e2e-rapid-navigation --reporter verbose');
+        expect(scriptCommands(packageJson, 'diag:pdf-skeleton-navigation')).toEqual([
+            'pnpm run build:electron',
+            'pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts',
+        ]);
+        expect(scriptCommands(packageJson, 'diag:arnold-pdf-open')).toEqual([
+            'pnpm run build:electron',
+            'pnpm exec tsx scripts/diagnostics/runArnoldPdfOpenDiagnostics.ts',
+        ]);
+    });
+
+    it('keeps opt-in fixture and PDF tab diagnostic tripwires explicit', async () => {
+        const packageJson = await readPackageJson();
+        const largeFixtureScript = packageJson.scripts['test:e2e:electron:large'] ?? '';
+        const largeFixtureNoBuildScript = packageJson.scripts['test:e2e:electron:large:no-build'] ?? '';
+        const pdfTabsCiScript = packageJson.scripts['diag:pdf-tabs:ci'] ?? '';
+
+        expect(largeFixtureScript).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
+        expect(largeFixtureScript).toContain('pnpm run test:e2e:electron:large:no-build');
+        expect(largeFixtureScript).not.toContain('EVB_E2E_LARGE_PDF=1');
+        expect(largeFixtureScript).not.toContain('EVB_E2E_LARGE_PDF_ANNOTATION_SAVE=1');
+        expect(largeFixtureNoBuildScript).toBe('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
+        expect(pdfTabsCiScript).toContain('pdf-tabs-ci');
+        expect(pdfTabsCiScript).toContain('pnpm diag:pdf-tabs --session pdf-tabs-ci');
+        expect(pdfTabsCiScript).toContain('--max-inactive-canvases 0');
+        expect(pdfTabsCiScript).toContain('--max-inactive-rendered-pages 0');
+        expect(pdfTabsCiScript).toContain('--max-inactive-djvu-images 0');
+        expect(pdfTabsCiScript).toContain('--max-inactive-canvas-pixels 0');
+    });
+
+    it('keeps informational fallow health out of failing gates', async () => {
+        const packageJson = await readPackageJson();
+
+        expect(scriptRunTargets(packageJson, 'fallow:all')).toEqual([
+            'fallow',
+            'fallow:dupes',
+        ]);
+        expect(packageJson.scripts['fallow:all']).not.toContain('fallow:health');
+        expect(packageJson.scripts['fallow:health:summary']).toBe('fallow health --summary || true');
+    });
+
+    it('keeps obsolete pseudo-gates removed from package scripts', async () => {
+        const packageJson = await readPackageJson();
+
+        for (const scriptName of removedScriptNames) {
+            expect(packageJson.scripts[scriptName]).toBeUndefined();
+        }
     });
 });

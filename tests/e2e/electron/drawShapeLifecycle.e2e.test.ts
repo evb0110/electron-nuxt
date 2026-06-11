@@ -1,7 +1,6 @@
 import type { Page } from 'puppeteer-core';
 import {
     afterEach,
-    beforeEach,
     describe,
     expect,
     it,
@@ -15,20 +14,24 @@ import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAnnotationTool,
+    setAnnotationColor,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
     clickToolbarButtonWhenEnabled,
     openPdfInApp,
     saveViaWindowHandle,
-    setAnnotationColor,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
-
-const runExtendedDrawShapeLifecycle = process.env.EVB_E2E_DRAW_SHAPES_EXTENDED === '1';
-const extendedIt = runExtendedDrawShapeLifecycle ? it : it.skip;
+} from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    callWorkspaceCommand,
+    getWorkspaceToolbarSnapshot,
+    readWorkspaceStateValues,
+    waitForWorkspaceToolbarIdle,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 interface IRendererErrorTracker {
     errors: string[];
@@ -40,13 +43,26 @@ interface IPdfRenderTraceEntry {
     payload: Record<string, unknown>;
 }
 
-interface IWorkspaceToolbarSnapshot {
-    isAnySaving?: boolean;
-    isSaving?: boolean;
-    isSavingAs?: boolean;
+interface IManagedShapeDebugShape {
+    annotationId?: string | null;
+    height?: number;
+    id: string;
+    points?: Array<{
+        x: number;
+        y: number;
+    }>;
+    source?: string;
+    stableKey?: string | null;
+    strokeWidth?: number;
+    strokes?: Array<Array<{
+        x: number;
+        y: number;
+    }>>;
+    type?: string;
+    width?: number;
+    x?: number;
+    y?: number;
 }
-
-interface IWorkspaceToolbarSnapshotProvider { getToolbarSnapshot?: () => IWorkspaceToolbarSnapshot; }
 
 async function enableDebugBrowserLogging(page: Page) {
     await page.evaluate(() => {
@@ -198,28 +214,13 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
                 }))
                 .filter(button => button.label === 'Undo' || button.label === 'Redo');
 
-            const candidates = [
-                ...Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active, .workspace-host')),
-                ...Array.from(document.querySelectorAll<HTMLElement>('*')),
-            ];
-            const isWorkspaceToolbarSnapshotProvider = (
-                value: unknown,
-            ): value is IWorkspaceToolbarSnapshotProvider => Boolean(
-                value
-                && typeof value === 'object'
-                && typeof (value as Partial<IWorkspaceToolbarSnapshotProvider>).getToolbarSnapshot === 'function',
-            );
-            const workspaceInstance = candidates
-                .map(element => (element as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed)
-                .find(isWorkspaceToolbarSnapshotProvider) ?? null;
-
-            const toolbarSnapshot = workspaceInstance?.getToolbarSnapshot?.() ?? null;
-            return {
-                buttons,
-                toolbarSnapshot,
-            };
+            return { buttons };
         });
-        throw new Error(`Enabled toolbar action not found: ${label}. State: ${JSON.stringify(state)}`);
+        const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page);
+        throw new Error(`Enabled toolbar action not found: ${label}. State: ${JSON.stringify({
+            ...state,
+            toolbarSnapshot,
+        })}`);
     }
 }
 
@@ -665,7 +666,7 @@ async function deleteSelectedShapeViaPropertiesPopup(page: Page) {
 }
 
 async function getToolbarSaveDebugState(page: Page) {
-    return evaluateInPage(page, () => {
+    const state = await evaluateInPage(page, () => {
         const saveButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
             .map((button) => ({
                 label: button.getAttribute('aria-label')?.trim() ?? '',
@@ -675,30 +676,17 @@ async function getToolbarSaveDebugState(page: Page) {
             }))
             .filter(button => button.label === 'Save' || button.label.startsWith('Save ('));
 
-        let workspaceInstance: unknown = null;
-        let currentElement = document.querySelector<HTMLElement>('.editor-pane.is-active');
-        while (currentElement) {
-            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed;
-            if (
-                exposed
-                && typeof exposed === 'object'
-                && typeof (exposed as { getToolbarSnapshot?: unknown; }).getToolbarSnapshot === 'function'
-            ) {
-                workspaceInstance = exposed;
-                break;
-            }
-            currentElement = currentElement.parentElement;
-        }
-
-        const toolbarSnapshot = (workspaceInstance as { getToolbarSnapshot?: () => unknown; } | null)?.getToolbarSnapshot?.() ?? null;
         const activeTabDirty = Boolean(document.querySelector('.tab.is-active .tab-dirty-dot'));
 
         return {
             activeTabDirty,
             saveButtons,
-            toolbarSnapshot,
         };
     });
+    return {
+        ...state,
+        toolbarSnapshot: await getWorkspaceToolbarSnapshot(page),
+    };
 }
 
 async function saveViaToolbarButton(page: Page) {
@@ -710,38 +698,10 @@ async function saveViaToolbarButton(page: Page) {
         throw new Error(`Save toolbar action was not clickable: ${detail}. State: ${JSON.stringify(state)}`);
     }
 
+    await waitForWorkspaceToolbarIdle(page, { timeoutMs: 20_000 });
     await page.waitForFunction(() => {
-        const isWorkspaceToolbarSnapshotProvider = (
-            value: unknown,
-        ): value is IWorkspaceToolbarSnapshotProvider => Boolean(
-            value
-            && typeof value === 'object'
-            && typeof (value as Partial<IWorkspaceToolbarSnapshotProvider>).getToolbarSnapshot === 'function',
-        );
-        let workspaceInstance: IWorkspaceToolbarSnapshotProvider | null = null;
-        let currentElement = document.querySelector<HTMLElement>('.editor-pane.is-active');
-        while (currentElement) {
-            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed;
-            if (isWorkspaceToolbarSnapshotProvider(exposed)) {
-                workspaceInstance = exposed;
-                break;
-            }
-            currentElement = currentElement.parentElement;
-        }
-
-        const toolbarSnapshot = workspaceInstance?.getToolbarSnapshot?.() ?? null;
-        const hasPendingWorkspaceSave = Boolean(
-            toolbarSnapshot?.isAnySaving
-            || toolbarSnapshot?.isSaving
-            || toolbarSnapshot?.isSavingAs,
-        );
-        // The save split button has its own classes, so wait on the workspace
-        // snapshot as well as visible toolbar loading chrome.
         const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading, .save-split-primary.is-loading');
         if (hasPendingToolbarLoading) {
-            return false;
-        }
-        if (hasPendingWorkspaceSave) {
             return false;
         }
 
@@ -1054,94 +1014,70 @@ async function hasVisibleCanvasInkAtPointWithOverlayHidden(page: Page, point: {
 }
 
 async function getManagedShapeDebugState(page: Page) {
-    return evaluateInPage(page, () => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const viewerRoot = host?.querySelector<HTMLElement>('.pdfViewer') ?? null;
-        let currentElement: HTMLElement | null = viewerRoot;
-        let pdfViewerInstance: unknown = null;
-        while (currentElement) {
-            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed;
-            if (
-                exposed
-                && typeof exposed === 'object'
-                && typeof (exposed as { getAllShapes?: unknown; }).getAllShapes === 'function'
-            ) {
-                pdfViewerInstance = exposed;
-                break;
-            }
-            currentElement = currentElement.parentElement;
-        }
-        const normalizedPdfViewerInstance = pdfViewerInstance as
-            | {
-                getAllShapes?: () => Array<{
-                    id: string;
-                    type?: string;
-                    x?: number;
-                    y?: number;
-                    width?: number;
-                    height?: number;
-                    strokeWidth?: number;
-                    source?: string;
-                    annotationId?: string | null;
-                    stableKey?: string | null;
-                    points?: Array<{
-                        x: number;
-                        y: number;
-                    }>;
-                    strokes?: Array<Array<{
-                        x: number;
-                        y: number;
-                    }>>;
-                }>;
-                hasShapes?: {value?: boolean;} | boolean;
-                selectedShapeId?: {value?: string | null;} | string | null;
-                getDeletedEmbeddedShapeAnnotationIds?: () => string[];
-                getDeletedEmbeddedShapeStableKeys?: () => string[];
-                $?: {setupState?: {hiddenEmbeddedAnnotationIds?: {value?: Set<string>;};};};
-            }
-            | null;
-        const pdfViewerSetupState = normalizedPdfViewerInstance?.$?.setupState ?? null;
-        const shapes = normalizedPdfViewerInstance?.getAllShapes?.() ?? [];
-        const hiddenIds = Array.from(pdfViewerSetupState?.hiddenEmbeddedAnnotationIds?.value ?? []);
-        return {
-            hasWorkspace: Boolean(host),
-            hasPdfViewer: Boolean(normalizedPdfViewerInstance),
-            hasShapes: typeof normalizedPdfViewerInstance?.hasShapes === 'object'
-                ? Boolean(normalizedPdfViewerInstance?.hasShapes?.value)
-                : Boolean(normalizedPdfViewerInstance?.hasShapes),
-            selectedShapeId: typeof normalizedPdfViewerInstance?.selectedShapeId === 'object'
-                ? normalizedPdfViewerInstance?.selectedShapeId?.value ?? null
-                : normalizedPdfViewerInstance?.selectedShapeId ?? null,
-            domShapeCount: host?.querySelectorAll('.pdf-shape-overlay > g:not(.is-drawing)').length ?? 0,
-            shapes: shapes.map(shape => ({
-                id: shape.id,
-                type: shape.type ?? null,
-                x: shape.x ?? null,
-                y: shape.y ?? null,
-                width: shape.width ?? null,
-                height: shape.height ?? null,
-                strokeWidth: shape.strokeWidth ?? null,
-                source: shape.source ?? null,
-                annotationId: shape.annotationId ?? null,
-                stableKey: shape.stableKey ?? null,
-                points: shape.points?.slice(0, 6) ?? null,
-                strokes: shape.strokes?.slice(0, 2).map(points => points.slice(0, 6)) ?? null,
-            })),
-            deletedAnnotationIds: normalizedPdfViewerInstance?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
-            deletedStableKeys: normalizedPdfViewerInstance?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-            hiddenIds,
-        };
-    });
+    const [
+        domState,
+        shapeResult,
+        deletedAnnotationIds,
+        deletedStableKeys,
+        viewerState,
+    ] = await Promise.all([
+        evaluateInPage(page, () => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = (activeHost && visibleHosts.includes(activeHost))
+                ? activeHost
+                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+            return {
+                hasWorkspace: Boolean(host),
+                domShapeCount: host?.querySelectorAll('.pdf-shape-overlay > g:not(.is-drawing)').length ?? 0,
+            };
+        }),
+        callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes'),
+        callWorkspaceCommand<string[]>(page, 'getDeletedEmbeddedShapeAnnotationIds'),
+        callWorkspaceCommand<string[]>(page, 'getDeletedEmbeddedShapeStableKeys'),
+        readWorkspaceStateValues<{
+            hasShapes?: boolean;
+            hiddenEmbeddedAnnotationIds?: string[];
+            selectedShapeId?: string | null;
+        }>(page, [
+            'hasShapes',
+            'hiddenEmbeddedAnnotationIds',
+            'selectedShapeId',
+        ], {
+            requiredMethods: ['getAllShapes'],
+            requiredProperties: [],
+        }),
+    ]);
+    const shapes = shapeResult.value ?? [];
+    return {
+        ...domState,
+        hasPdfViewer: shapeResult.called,
+        hasShapes: Boolean(viewerState.hasShapes),
+        selectedShapeId: viewerState.selectedShapeId ?? null,
+        shapes: shapes.map(shape => ({
+            id: shape.id,
+            type: shape.type ?? null,
+            x: shape.x ?? null,
+            y: shape.y ?? null,
+            width: shape.width ?? null,
+            height: shape.height ?? null,
+            strokeWidth: shape.strokeWidth ?? null,
+            source: shape.source ?? null,
+            annotationId: shape.annotationId ?? null,
+            stableKey: shape.stableKey ?? null,
+            points: shape.points?.slice(0, 6) ?? null,
+            strokes: shape.strokes?.slice(0, 2).map(points => points.slice(0, 6)) ?? null,
+        })),
+        deletedAnnotationIds: deletedAnnotationIds.value ?? [],
+        deletedStableKeys: deletedStableKeys.value ?? [],
+        hiddenIds: viewerState.hiddenEmbeddedAnnotationIds ?? [],
+    };
 }
 
 async function expectAnyManagedShapeSelected(page: Page) {
@@ -1226,58 +1162,1159 @@ async function getPointInteractionDebugState(page: Page, point: {
 }
 
 async function waitForAllShapesEmbedded(page: Page, expectedCount: number) {
-    await waitForFunctionInPage(page, (count: number) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const viewerRoot = host?.querySelector<HTMLElement>('.pdfViewer') ?? null;
-        let currentElement: HTMLElement | null = viewerRoot;
-        let pdfViewerInstance: unknown = null;
-        while (currentElement) {
-            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: {exposed?: unknown;};}).__vueParentComponent?.exposed;
-            if (
-                exposed
-                && typeof exposed === 'object'
-                && typeof (exposed as { getAllShapes?: unknown; }).getAllShapes === 'function'
-            ) {
-                pdfViewerInstance = exposed;
-                break;
-            }
-            currentElement = currentElement.parentElement;
-        }
-        const normalizedPdfViewerInstance = pdfViewerInstance as
-            | {getAllShapes?: () => Array<{
-                source?: string;
-                annotationId?: string | null;
-            }>;}
-            | null;
-        const shapes = normalizedPdfViewerInstance?.getAllShapes?.() ?? [];
-        return (
-            shapes.length === count
+    const startedAt = Date.now();
+    let shapes: IManagedShapeDebugShape[] = [];
+    while (Date.now() - startedAt < 20_000) {
+        shapes = (await callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes')).value ?? [];
+        if (
+            shapes.length === expectedCount
             && shapes.every(shape => shape.source === 'embedded' && typeof shape.annotationId === 'string' && shape.annotationId.length > 0)
-        );
-    }, { timeout: 20_000 }, expectedCount);
+        ) {
+            return;
+        }
+        await delay(150);
+    }
+    throw new Error(`Timed out waiting for ${expectedCount} embedded shapes: ${JSON.stringify(shapes)}`);
+}
+
+interface IPoint {
+    x: number;
+    y: number;
+}
+
+type TScenarioShapeKind = 'ink' | 'line';
+type TScenarioSaveVia = 'handle' | 'toolbar';
+type TScenarioDeleteVia = 'keyboard' | 'popup';
+type TScenarioSaveSettle = 'shape-count' | 'embedded';
+type TScenarioShapeSource = 'local' | 'embedded';
+
+interface IInkScenarioShape {
+    kind: 'ink';
+    color: string;
+    hit: IPoint;
+    points: readonly IPoint[];
+    drawMode?: 'mouse' | 'pointer';
+}
+
+interface ILineScenarioShape {
+    kind: 'line';
+    color: string;
+    start: IPoint;
+    end: IPoint;
+    hit: IPoint;
+}
+
+type TScenarioShape = IInkScenarioShape | ILineScenarioShape;
+
+interface IDrawScenarioStep {
+    action: 'draw';
+    shapeIndexes: readonly number[];
+    expectCount: number;
+}
+
+interface ISaveScenarioStep {
+    action: 'save';
+    via: TScenarioSaveVia;
+    settle?: TScenarioSaveSettle;
+    expectDiskCount?: number;
+    expectToolbarClean?: boolean;
+    expectNoCanvasInkForShapes?: readonly number[];
+}
+
+interface IDeleteScenarioStep {
+    action: 'delete';
+    shapeIndex: number;
+    via?: TScenarioDeleteVia;
+    expectCount: number;
+    expectDeletedAnnotationIds?: number;
+    expectSource?: TScenarioShapeSource;
+    expectKind?: TScenarioShapeKind;
+    expectDiskCount?: number;
+}
+
+interface IReopenScenarioStep {
+    action: 'reopen';
+    expectCount: number;
+    expectNoCanvasInkForShapes?: readonly number[];
+}
+
+type TScenarioStep =
+    | IDrawScenarioStep
+    | ISaveScenarioStep
+    | IDeleteScenarioStep
+    | IReopenScenarioStep;
+
+interface ISavedShapeDeleteScenario {
+    name: string;
+    fixturePrefix: string;
+    viewport?: {
+        width: number;
+        height: number;
+    };
+    shapes: readonly TScenarioShape[];
+    steps: readonly TScenarioStep[];
+}
+
+const p = (x: number, y: number): IPoint => ({
+    x,
+    y,
+});
+
+const ink = (
+    color: string,
+    hit: IPoint,
+    points: readonly IPoint[],
+    drawMode: IInkScenarioShape['drawMode'] = 'pointer',
+): IInkScenarioShape => ({
+    kind: 'ink',
+    color,
+    hit,
+    points,
+    drawMode,
+});
+
+const line = (
+    color: string,
+    start: IPoint,
+    end: IPoint,
+    hit: IPoint,
+): ILineScenarioShape => ({
+    kind: 'line',
+    color,
+    start,
+    end,
+    hit,
+});
+
+const baseInkStrokes = [
+    ink('#ef4444', p(0.24, 0.24), [
+        p(0.18, 0.2),
+        p(0.24, 0.24),
+        p(0.31, 0.3),
+    ]),
+    ink('#22c55e', p(0.56, 0.34), [
+        p(0.46, 0.28),
+        p(0.56, 0.34),
+        p(0.66, 0.42),
+    ]),
+    ink('#3b82f6', p(0.34, 0.62), [
+        p(0.22, 0.58),
+        p(0.34, 0.62),
+        p(0.46, 0.7),
+    ]),
+] as const;
+
+const mouseInkStrokes = [
+    ink('#ef4444', p(0.24, 0.24), [
+        p(0.14, 0.18),
+        p(0.18, 0.2),
+        p(0.22, 0.225),
+        p(0.24, 0.24),
+        p(0.265, 0.262),
+        p(0.29, 0.285),
+        p(0.31, 0.3),
+    ], 'mouse'),
+    ink('#22c55e', p(0.56, 0.34), [
+        p(0.42, 0.255),
+        p(0.46, 0.28),
+        p(0.5, 0.305),
+        p(0.56, 0.34),
+        p(0.6, 0.365),
+        p(0.63, 0.39),
+        p(0.66, 0.42),
+    ], 'mouse'),
+    ink('#3b82f6', p(0.34, 0.62), [
+        p(0.18, 0.555),
+        p(0.22, 0.58),
+        p(0.27, 0.595),
+        p(0.34, 0.62),
+        p(0.39, 0.652),
+        p(0.43, 0.678),
+        p(0.46, 0.7),
+    ], 'mouse'),
+] as const;
+
+const fiveInkStrokes = [
+    ink('#ef4444', p(0.18, 0.2), [
+        p(0.14, 0.17),
+        p(0.18, 0.2),
+        p(0.24, 0.24),
+    ]),
+    ink('#22c55e', p(0.34, 0.3), [
+        p(0.3, 0.27),
+        p(0.34, 0.3),
+        p(0.4, 0.35),
+    ]),
+    ink('#3b82f6', p(0.54, 0.38), [
+        p(0.48, 0.34),
+        p(0.54, 0.38),
+        p(0.6, 0.43),
+    ]),
+    ink('#ffd400', p(0.3, 0.58), [
+        p(0.24, 0.54),
+        p(0.3, 0.58),
+        p(0.36, 0.63),
+    ]),
+    ink('#8b5cf6', p(0.62, 0.66), [
+        p(0.56, 0.61),
+        p(0.62, 0.66),
+        p(0.69, 0.71),
+    ]),
+] as const;
+
+const multiRoundInkStrokes = [
+    ...fiveInkStrokes.slice(0, 3),
+    ink('#ffd400', p(0.28, 0.56), [
+        p(0.23, 0.52),
+        p(0.28, 0.56),
+        p(0.34, 0.61),
+    ]),
+    ink('#8b5cf6', p(0.5, 0.6), [
+        p(0.45, 0.56),
+        p(0.5, 0.6),
+        p(0.56, 0.65),
+    ]),
+    ink('#f59e0b', p(0.7, 0.67), [
+        p(0.64, 0.62),
+        p(0.7, 0.67),
+        p(0.76, 0.72),
+    ]),
+    ink('#06b6d4', p(0.16, 0.14), [
+        p(0.12, 0.1),
+        p(0.16, 0.14),
+        p(0.22, 0.19),
+    ]),
+    ink('#ec4899', p(0.44, 0.18), [
+        p(0.39, 0.14),
+        p(0.44, 0.18),
+        p(0.5, 0.23),
+    ]),
+    ink('#111827', p(0.7, 0.22), [
+        p(0.64, 0.18),
+        p(0.7, 0.22),
+        p(0.76, 0.26),
+    ]),
+] as const;
+
+const successiveCycleInkStrokes = [
+    ...baseInkStrokes,
+    ink('#f59e0b', p(0.65, 0.64), [
+        p(0.54, 0.56),
+        p(0.65, 0.64),
+        p(0.74, 0.72),
+    ]),
+] as const;
+
+const baseLines = [
+    line('#ef4444', p(0.18, 0.18), p(0.38, 0.34), p(0.28, 0.26)),
+    line('#22c55e', p(0.52, 0.2), p(0.52, 0.56), p(0.52, 0.38)),
+    line('#3b82f6', p(0.2, 0.62), p(0.44, 0.78), p(0.32, 0.7)),
+] as const;
+
+const savedShapeDeleteScenarios = [
+    {
+        name: 'keeps multiple saved strokes fully managed after save so delete clears them visually before the next save',
+        fixturePrefix: 'draw-shape-multi',
+        shapes: mouseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 3,
+                expectNoCanvasInkForShapes: [
+                    0,
+                    1,
+                    2,
+                ],
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 2,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                expectDiskCount: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps later saved-stroke deletions stable when removing several saved strokes in a row',
+        fixturePrefix: 'draw-shape-many-delete',
+        shapes: fiveInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                ],
+                expectCount: 5,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 5,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 4,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 3,
+                expectDeletedAnnotationIds: 2,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 2,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 3,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 3,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 4,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                expectDiskCount: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps deleting the second saved stroke stable after deleting and saving the first saved stroke',
+        fixturePrefix: 'draw-shape-first-then-second',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 2,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+                expectDiskCount: 2,
+            },
+        ],
+    },
+    {
+        name: 'keeps the popup-delete path stable after saving via the visible toolbar button',
+        fixturePrefix: 'draw-shape-toolbar-popup',
+        viewport: {
+            width: 1600,
+            height: 1000,
+        },
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'toolbar',
+                settle: 'embedded',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                via: 'popup',
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'toolbar',
+                settle: 'embedded',
+                expectDiskCount: 2,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                via: 'popup',
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+                expectDiskCount: 2,
+            },
+        ],
+    },
+    {
+        name: 'keeps the popup-delete path stable after saving through the workspace save hook',
+        fixturePrefix: 'draw-shape-hook-popup',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                via: 'popup',
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                via: 'popup',
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps deleting the second saved stroke stable when the second delete happens immediately after saving the first delete',
+        fixturePrefix: 'draw-shape-immediate-second-delete',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps shapes fully managed when one local stroke is deleted before the first save and another is deleted right after that save',
+        fixturePrefix: 'draw-shape-delete-before-first-save',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 0,
+                expectSource: 'local',
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 2,
+                expectToolbarClean: true,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 1,
+                expectToolbarClean: true,
+            },
+        ],
+    },
+    {
+        name: 'keeps the popup-delete path stable when the second delete happens immediately after a toolbar save',
+        fixturePrefix: 'draw-shape-toolbar-popup-immediate',
+        viewport: {
+            width: 1600,
+            height: 1000,
+        },
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'toolbar',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                via: 'popup',
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'toolbar',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                via: 'popup',
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps the popup-delete path stable when the second delete happens immediately after a save handle round-trip',
+        fixturePrefix: 'draw-shape-popup-immediate-save-handle',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                via: 'popup',
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                via: 'popup',
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps deleting saved strokes stable across multiple save rounds',
+        fixturePrefix: 'draw-shape-multi-round',
+        shapes: multiRoundInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 3,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 2,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                expectDiskCount: 1,
+            },
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    3,
+                    4,
+                    5,
+                ],
+                expectCount: 4,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 4,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 3,
+                expectCount: 3,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 4,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 2,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                expectDiskCount: 2,
+            },
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    6,
+                    7,
+                    8,
+                ],
+                expectCount: 5,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 5,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 6,
+                expectCount: 4,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 7,
+                expectCount: 3,
+                expectDeletedAnnotationIds: 2,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                expectDiskCount: 3,
+            },
+        ],
+    },
+    {
+        name: 'allows deleting a saved stroke immediately after save without leaving a ghost layer',
+        fixturePrefix: 'draw-shape-immediate-delete',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'shape-count',
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'allows deleting a preexisting saved stroke after reopening the file without leaving a ghost layer',
+        fixturePrefix: 'draw-shape-reopen-delete',
+        shapes: baseInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'shape-count',
+            },
+            {
+                action: 'reopen',
+                expectCount: 3,
+                expectNoCanvasInkForShapes: [0],
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps deleting saved survivors stable across successive save cycles',
+        fixturePrefix: 'draw-shape-successive-delete',
+        shapes: successiveCycleInkStrokes,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 3,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 2,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 2,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 1,
+            },
+            {
+                action: 'draw',
+                shapeIndexes: [3],
+                expectCount: 2,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 2,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+            },
+        ],
+    },
+    {
+        name: 'keeps deleting the second saved line stable after deleting and saving the first saved line',
+        fixturePrefix: 'draw-shape-line-first-then-second',
+        shapes: baseLines,
+        steps: [
+            {
+                action: 'draw',
+                shapeIndexes: [
+                    0,
+                    1,
+                    2,
+                ],
+                expectCount: 3,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 3,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 0,
+                expectCount: 2,
+                expectDeletedAnnotationIds: 1,
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 2,
+            },
+            {
+                action: 'delete',
+                shapeIndex: 1,
+                expectCount: 1,
+                expectDeletedAnnotationIds: 1,
+                expectKind: 'line',
+                expectSource: 'embedded',
+            },
+            {
+                action: 'save',
+                via: 'handle',
+                settle: 'embedded',
+                expectDiskCount: 1,
+                expectToolbarClean: true,
+            },
+        ],
+    },
+] satisfies readonly ISavedShapeDeleteScenario[];
+
+function getScenarioGhostPoints(shape: TScenarioShape) {
+    if (shape.kind === 'line') {
+        return [
+            shape.start,
+            shape.hit,
+            shape.end,
+        ];
+    }
+
+    return shape.points;
+}
+
+function getScenarioAnnotationSubtype(scenario: ISavedShapeDeleteScenario) {
+    const firstShape = scenario.shapes[0];
+    if (!firstShape) {
+        throw new Error(`Scenario has no shapes: ${scenario.name}`);
+    }
+
+    return firstShape.kind === 'line' ? 'Line' : 'Ink';
+}
+
+async function expectScenarioAnnotationCount(
+    scenario: ISavedShapeDeleteScenario,
+    fixturePath: string,
+    expectedCount: number,
+) {
+    const subtype = getScenarioAnnotationSubtype(scenario);
+    const summary = await waitForAnnotationSubtypeCountOnDisk(fixturePath, subtype, expectedCount);
+    expect(summary.bySubtype[subtype] ?? 0).toBe(expectedCount);
+}
+
+async function expectNoCanvasInkForScenarioShapes(
+    page: Page,
+    scenario: ISavedShapeDeleteScenario,
+    shapeIndexes: readonly number[],
+) {
+    for (const shapeIndex of shapeIndexes) {
+        const shape = scenario.shapes[shapeIndex];
+        if (!shape) {
+            throw new Error(`Scenario references missing shape ${shapeIndex}: ${scenario.name}`);
+        }
+        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, shape.hit)).toBe(false);
+    }
+}
+
+async function expectToolbarClean(page: Page) {
+    const toolbarState = await getToolbarSaveDebugState(page);
+    expect(toolbarState.activeTabDirty).toBe(false);
+    if (toolbarState.toolbarSnapshot) {
+        expect(toolbarState.toolbarSnapshot).toMatchObject({ canSave: false });
+    }
+}
+
+async function saveForScenario(page: Page, step: ISaveScenarioStep, shapeCount: number) {
+    if (step.via === 'toolbar') {
+        await saveViaToolbarButton(page);
+    } else {
+        await saveViaWindowHandle(page);
+    }
+
+    await waitForShapeCount(page, shapeCount);
+    if (step.settle === 'embedded') {
+        await waitForAllShapesEmbedded(page, shapeCount);
+    }
+    if (step.expectToolbarClean) {
+        await expectToolbarClean(page);
+    }
+}
+
+async function drawScenarioShape(page: Page, shape: TScenarioShape) {
+    await setAnnotationColor(page, shape.color);
+    if (shape.kind === 'line') {
+        await dragLineSegment(page, {
+            start: shape.start,
+            end: shape.end,
+        });
+        return;
+    }
+
+    if (shape.drawMode === 'mouse') {
+        await dragInkStrokeWithMouse(page, shape.points);
+        return;
+    }
+
+    await dragInkStroke(page, shape.points);
+}
+
+async function drawScenarioShapes(
+    page: Page,
+    scenario: ISavedShapeDeleteScenario,
+    step: IDrawScenarioStep,
+) {
+    const firstShape = scenario.shapes[step.shapeIndexes[0] ?? -1];
+    await clickAnnotationTool(page, firstShape?.kind === 'line' ? 'Line' : 'Draw');
+    await waitForActiveColorIndicator(page);
+
+    for (const shapeIndex of step.shapeIndexes) {
+        const shape = scenario.shapes[shapeIndex];
+        if (!shape) {
+            throw new Error(`Scenario references missing shape ${shapeIndex}: ${scenario.name}`);
+        }
+        await drawScenarioShape(page, shape);
+    }
+
+    await waitForShapeCount(page, step.expectCount);
+    await waitForNoShapeSelectionUi(page);
+}
+
+async function waitForShapeCountWithScenarioDiagnostics(
+    page: Page,
+    scenario: ISavedShapeDeleteScenario,
+    shape: TScenarioShape,
+    expectedCount: number,
+    stateAfterClick: Awaited<ReturnType<typeof getManagedShapeDebugState>>,
+) {
+    try {
+        await waitForShapeCount(page, expectedCount);
+    } catch (error) {
+        const [
+            managedShapeState,
+            toolbarState,
+            canvasGhostVisible,
+            pointInteractionState,
+        ] = await Promise.all([
+            getManagedShapeDebugState(page),
+            getToolbarSaveDebugState(page),
+            hasVisibleCanvasInkAtPointWithOverlayHidden(page, shape.hit),
+            getPointInteractionDebugState(page, shape.hit),
+        ]);
+        throw new Error([
+            `${scenario.name}: ${error instanceof Error ? error.message : String(error)}`,
+            `stateAfterClick=${JSON.stringify(stateAfterClick)}`,
+            `managedShapeState=${JSON.stringify(managedShapeState)}`,
+            `toolbarState=${JSON.stringify(toolbarState)}`,
+            `canvasGhostVisible=${JSON.stringify(canvasGhostVisible)}`,
+            `pointInteractionState=${JSON.stringify(pointInteractionState)}`,
+        ].join('\n'));
+    }
+}
+
+async function deleteScenarioShape(
+    page: Page,
+    scenario: ISavedShapeDeleteScenario,
+    fixturePath: string,
+    step: IDeleteScenarioStep,
+) {
+    const shape = scenario.shapes[step.shapeIndex];
+    if (!shape) {
+        throw new Error(`Scenario references missing shape ${step.shapeIndex}: ${scenario.name}`);
+    }
+
+    await clickPagePoint(page, shape.hit);
+    const stateAfterClick = await expectAnyManagedShapeSelected(page);
+    if (step.via === 'popup') {
+        await deleteSelectedShapeViaPropertiesPopup(page);
+    } else {
+        await deleteSelectedShape(page);
+    }
+
+    await waitForShapeCountWithScenarioDiagnostics(page, scenario, shape, step.expectCount, stateAfterClick);
+    await waitForNoVisibleInkAtPoints(page, getScenarioGhostPoints(shape));
+
+    const stateAfterDelete = await getManagedShapeDebugState(page);
+    if (typeof step.expectDeletedAnnotationIds === 'number') {
+        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(step.expectDeletedAnnotationIds);
+    }
+    if (step.expectSource) {
+        expect(stateAfterDelete.shapes).toHaveLength(step.expectCount);
+        expect(stateAfterDelete.shapes.every(candidate => candidate.source === step.expectSource)).toBe(true);
+    }
+    if (step.expectKind) {
+        expect(stateAfterDelete.shapes).toHaveLength(step.expectCount);
+        expect(stateAfterDelete.shapes.every(candidate => candidate.type === step.expectKind)).toBe(true);
+    }
+    if (typeof step.expectDiskCount === 'number') {
+        await expectScenarioAnnotationCount(scenario, fixturePath, step.expectDiskCount);
+    }
+}
+
+async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDeleteScenario) {
+    if (scenario.viewport) {
+        await page.setViewport(scenario.viewport);
+    }
+
+    const fixturePath = await createBlankFixturePdf(`${scenario.fixturePrefix}-${Date.now()}.pdf`, 1);
+    await openPdfInApp(page, fixturePath);
+    await waitForPdfLoaded(page);
+
+    let shapeCount = 0;
+    for (const step of scenario.steps) {
+        switch (step.action) {
+            case 'draw':
+                await drawScenarioShapes(page, scenario, step);
+                shapeCount = step.expectCount;
+                break;
+            case 'save':
+                await saveForScenario(page, step, shapeCount);
+                if (typeof step.expectDiskCount === 'number') {
+                    await expectScenarioAnnotationCount(scenario, fixturePath, step.expectDiskCount);
+                }
+                if (step.expectNoCanvasInkForShapes) {
+                    await expectNoCanvasInkForScenarioShapes(page, scenario, step.expectNoCanvasInkForShapes);
+                }
+                break;
+            case 'delete':
+                await deleteScenarioShape(page, scenario, fixturePath, step);
+                shapeCount = step.expectCount;
+                break;
+            case 'reopen':
+                await openPdfInApp(page, fixturePath);
+                await waitForPdfLoaded(page);
+                await waitForViewerInteractive(page);
+                shapeCount = step.expectCount;
+                await waitForShapeCount(page, shapeCount);
+                if (step.expectNoCanvasInkForShapes) {
+                    await expectNoCanvasInkForScenarioShapes(page, scenario, step.expectNoCanvasInkForShapes);
+                }
+                break;
+            default: {
+                const exhaustiveStep: never = step;
+                throw new Error(`Unsupported scenario step: ${JSON.stringify(exhaustiveStep)}`);
+            }
+        }
+    }
 }
 
 describe('Electron E2E - Draw Shape Lifecycle', () => {
-    let session: IElectronE2ESession | null = null;
     let rendererErrorTracker: IRendererErrorTracker | null = null;
 
-    beforeEach(async () => {
-        session = await startElectronE2ESession(`e2e-draw-shapes-${Date.now()}`);
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-draw-shapes-${Date.now()}`});
+
+    const startDrawShapeSession = async () => {
+        const session = await sessionFixture.start({sessionName: () => `e2e-draw-shapes-${Date.now()}`});
         if (session?.page) {
             rendererErrorTracker = createRendererErrorTracker(session.page);
             await enableDebugBrowserLogging(session.page);
         }
-    });
+        return session;
+    };
 
     afterEach(async () => {
         try {
@@ -1285,16 +2322,16 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         } finally {
             rendererErrorTracker?.detach();
             rendererErrorTracker = null;
-            await session?.stop();
-            session = null;
+            await sessionFixture.stop();
         }
     });
 
     it('preserves repeated draw-save-delete-redraw cycles without ghost shapes or auto-selecting new strokes', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
+        const session = await startDrawShapeSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const fixturePath = await createBlankFixturePdf(`draw-shape-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
@@ -1306,15 +2343,15 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await dragInkStroke(page, [
             {
                 x: 0.18,
-                y: 0.22, 
+                y: 0.22,
             },
             {
                 x: 0.28,
-                y: 0.27, 
+                y: 0.27,
             },
             {
                 x: 0.42,
-                y: 0.35, 
+                y: 0.35,
             },
         ]);
 
@@ -1332,7 +2369,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
         await clickPagePoint(page, {
             x: 0.28,
-            y: 0.27, 
+            y: 0.27,
         });
         await deleteSelectedShape(page);
         await waitForShapeCount(page, 0);
@@ -1350,15 +2387,15 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await dragInkStroke(page, [
             {
                 x: 0.5,
-                y: 0.28, 
+                y: 0.28,
             },
             {
                 x: 0.6,
-                y: 0.38, 
+                y: 0.38,
             },
             {
                 x: 0.7,
-                y: 0.48, 
+                y: 0.48,
             },
         ]);
 
@@ -1376,7 +2413,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
         await clickPagePoint(page, {
             x: 0.6,
-            y: 0.38, 
+            y: 0.38,
         });
         await deleteSelectedShape(page);
         await waitForShapeCount(page, 0);
@@ -1393,15 +2430,15 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await dragInkStroke(page, [
             {
                 x: 0.2,
-                y: 0.55, 
+                y: 0.55,
             },
             {
                 x: 0.34,
-                y: 0.6, 
+                y: 0.6,
             },
             {
                 x: 0.46,
-                y: 0.68, 
+                y: 0.68,
             },
         ]);
 
@@ -1418,10 +2455,11 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
     });
 
     it('keeps drawing undo and redo coherent after saving the new shape', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
+        const session = await startDrawShapeSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const fixturePath = await createBlankFixturePdf(`draw-shape-save-undo-redo-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
@@ -1457,2033 +2495,20 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForShapeSidebarCount(page, 1);
     });
 
-    extendedIt('keeps multiple saved strokes fully managed after save so delete clears them visually before the next save', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
+    it('keeps saved stroke and line delete permutations stable without ghost shapes', async () => {
+        const session = await startDrawShapeSession();
+        if (!session) {
+            return;
         }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-multi-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStrokeWithMouse(page, [
-            {
-                x: 0.14,
-                y: 0.18,
-            },
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.22,
-                y: 0.225,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.265,
-                y: 0.262,
-            },
-            {
-                x: 0.29,
-                y: 0.285,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStrokeWithMouse(page, [
-            {
-                x: 0.42,
-                y: 0.255,
-            },
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.5,
-                y: 0.305,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.6,
-                y: 0.365,
-            },
-            {
-                x: 0.63,
-                y: 0.39,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStrokeWithMouse(page, [
-            {
-                x: 0.18,
-                y: 0.555,
-            },
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.27,
-                y: 0.595,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.39,
-                y: 0.652,
-            },
-            {
-                x: 0.43,
-                y: 0.678,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await waitForNoShapeSelectionUi(page);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 3);
-        const postSaveState = await getManagedShapeDebugState(page);
-        await waitForAllShapesEmbedded(page, 3);
-        expect(postSaveState.shapes).toHaveLength(3);
-        expect(postSaveState.shapes.every(shape => shape.source === 'embedded')).toBe(true);
-        expect(postSaveState.shapes.every(shape => typeof shape.annotationId === 'string' && shape.annotationId.length > 0)).toBe(true);
-
-        let annotationSummary = await waitForInkCountOnDisk(fixturePath, 3);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(3);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.24,
-            y: 0.24,
-        })).toBe(false);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.56,
-            y: 0.34,
-        })).toBe(false);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.34,
-            y: 0.62,
-        })).toBe(false);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-
-        const afterFirstDelete = await getManagedShapeDebugState(page);
-        expect(afterFirstDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, 1);
-        await waitForNoVisibleInkAtPoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-
-        const afterSecondDelete = await getManagedShapeDebugState(page);
-        expect(afterSecondDelete.deletedAnnotationIds).toHaveLength(2);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 1);
-        annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-    });
-
-    extendedIt('keeps later saved-stroke deletions stable when removing several saved strokes in a row', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-many-delete-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        const strokes = [
-            {
-                color: '#ef4444',
-                hit: {
-                    x: 0.18,
-                    y: 0.2,
-                },
-                points: [
-                    {
-                        x: 0.14,
-                        y: 0.17,
-                    },
-                    {
-                        x: 0.18,
-                        y: 0.2,
-                    },
-                    {
-                        x: 0.24,
-                        y: 0.24,
-                    },
-                ],
-            },
-            {
-                color: '#22c55e',
-                hit: {
-                    x: 0.34,
-                    y: 0.3,
-                },
-                points: [
-                    {
-                        x: 0.3,
-                        y: 0.27,
-                    },
-                    {
-                        x: 0.34,
-                        y: 0.3,
-                    },
-                    {
-                        x: 0.4,
-                        y: 0.35,
-                    },
-                ],
-            },
-            {
-                color: '#3b82f6',
-                hit: {
-                    x: 0.54,
-                    y: 0.38,
-                },
-                points: [
-                    {
-                        x: 0.48,
-                        y: 0.34,
-                    },
-                    {
-                        x: 0.54,
-                        y: 0.38,
-                    },
-                    {
-                        x: 0.6,
-                        y: 0.43,
-                    },
-                ],
-            },
-            {
-                color: '#ffd400',
-                hit: {
-                    x: 0.3,
-                    y: 0.58,
-                },
-                points: [
-                    {
-                        x: 0.24,
-                        y: 0.54,
-                    },
-                    {
-                        x: 0.3,
-                        y: 0.58,
-                    },
-                    {
-                        x: 0.36,
-                        y: 0.63,
-                    },
-                ],
-            },
-            {
-                color: '#8b5cf6',
-                hit: {
-                    x: 0.62,
-                    y: 0.66,
-                },
-                points: [
-                    {
-                        x: 0.56,
-                        y: 0.61,
-                    },
-                    {
-                        x: 0.62,
-                        y: 0.66,
-                    },
-                    {
-                        x: 0.69,
-                        y: 0.71,
-                    },
-                ],
-            },
-        ] as const;
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        for (const stroke of strokes) {
-            await setAnnotationColor(page, stroke.color);
-            await dragInkStroke(page, stroke.points);
-        }
-
-        await waitForShapeCount(page, strokes.length);
-        await waitForNoShapeSelectionUi(page);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, strokes.length);
-        await waitForAllShapesEmbedded(page, strokes.length);
-
-        let annotationSummary = await waitForInkCountOnDisk(fixturePath, strokes.length);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(strokes.length);
-
-        for (let index = 0; index < strokes.length - 1; index += 1) {
-            const stroke = strokes[index]!;
-            await clickPagePoint(page, stroke.hit);
-            await deleteSelectedShape(page);
-            await waitForShapeCount(page, strokes.length - index - 1);
-            await waitForNoVisibleInkAtPoint(page, stroke.hit);
-
-            const stateAfterDelete = await getManagedShapeDebugState(page);
-            expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(index + 1);
-        }
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 1);
-        annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-    });
-
-    extendedIt('keeps deleting the second saved stroke stable after deleting and saving the first saved stroke', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-first-then-second-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 3);
-        await waitForAllShapesEmbedded(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-        await waitForAllShapesEmbedded(page, 2);
-        let annotationSummary = await waitForInkCountOnDisk(fixturePath, 2);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        const stateAfterSecondClick = await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShape(page);
-        try {
-            await waitForShapeCount(page, 1);
-        } catch (error) {
-            const [
-                managedShapeState,
-                toolbarState,
-                greenCanvasGhostVisible,
-                pointInteractionState,
-            ] = await Promise.all([
-                getManagedShapeDebugState(page),
-                getToolbarSaveDebugState(page),
-                hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-                    x: 0.56,
-                    y: 0.34,
-                }),
-                getPointInteractionDebugState(page, {
-                    x: 0.56,
-                    y: 0.34,
-                }),
-            ]);
-            throw new Error([
-                error instanceof Error ? error.message : String(error),
-                `stateAfterSecondClick=${JSON.stringify(stateAfterSecondClick)}`,
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-                `toolbarState=${JSON.stringify(toolbarState)}`,
-                `greenCanvasGhostVisible=${JSON.stringify(greenCanvasGhostVisible)}`,
-                `pointInteractionState=${JSON.stringify(pointInteractionState)}`,
-            ].join('\n'));
-        }
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-        annotationSummary = await readPdfAnnotationSummary(fixturePath);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
-    });
-
-    extendedIt('keeps the popup-delete path stable after saving via the visible toolbar button', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-        await page.setViewport({
-            width: 1600,
-            height: 1000,
-        });
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-toolbar-popup-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaToolbarButton(page);
-        await waitForShapeCount(page, 3);
-        await waitForAllShapesEmbedded(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaToolbarButton(page);
-        await waitForShapeCount(page, 2);
-        await waitForAllShapesEmbedded(page, 2);
-        let annotationSummary = await waitForInkCountOnDisk(fixturePath, 2);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 1);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-        annotationSummary = await readPdfAnnotationSummary(fixturePath);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
-    });
-
-    extendedIt('keeps the popup-delete path stable after saving through the workspace save hook', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-hook-popup-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 3);
-        await waitForAllShapesEmbedded(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-        await waitForAllShapesEmbedded(page, 2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 1);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-    });
-
-    extendedIt('keeps deleting the second saved stroke stable when the second delete happens immediately after saving the first delete', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-immediate-second-delete-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShape(page);
-        try {
-            await waitForShapeCount(page, 1);
-        } catch (error) {
-            const [
-                managedShapeState,
-                toolbarState,
-                greenCanvasGhostVisible,
-            ] = await Promise.all([
-                getManagedShapeDebugState(page),
-                getToolbarSaveDebugState(page),
-                hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-                    x: 0.56,
-                    y: 0.34,
-                }),
-            ]);
-            throw new Error([
-                error instanceof Error ? error.message : String(error),
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-                `toolbarState=${JSON.stringify(toolbarState)}`,
-                `greenCanvasGhostVisible=${JSON.stringify(greenCanvasGhostVisible)}`,
-            ].join('\n'));
-        }
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-    });
-
-    extendedIt('keeps shapes fully managed when one local stroke is deleted before the first save and another is deleted right after that save', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-delete-before-first-save-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        const stateAfterLocalDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterLocalDelete.deletedAnnotationIds).toEqual([]);
-        expect(stateAfterLocalDelete.shapes).toHaveLength(2);
-        expect(stateAfterLocalDelete.shapes.every(shape => shape.source === 'local')).toBe(true);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-        await waitForAllShapesEmbedded(page, 2);
-
-        const postFirstSaveState = await getManagedShapeDebugState(page);
-        expect(postFirstSaveState.shapes).toHaveLength(2);
-        expect(postFirstSaveState.shapes.every(shape => shape.source === 'embedded')).toBe(true);
-        expect(postFirstSaveState.shapes.every(shape => typeof shape.annotationId === 'string' && shape.annotationId.length > 0)).toBe(true);
-
-        let toolbarState = await getToolbarSaveDebugState(page);
-        expect(toolbarState.activeTabDirty).toBe(false);
-        if (toolbarState.toolbarSnapshot) {
-            expect(toolbarState.toolbarSnapshot).toMatchObject({ canSave: false });
-        }
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShape(page);
-        try {
-            await waitForShapeCount(page, 1);
-        } catch (error) {
-            const [
-                managedShapeState,
-                latestToolbarState,
-                greenCanvasGhostVisible,
-            ] = await Promise.all([
-                getManagedShapeDebugState(page),
-                getToolbarSaveDebugState(page),
-                hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-                    x: 0.56,
-                    y: 0.34,
-                }),
-            ]);
-            throw new Error([
-                error instanceof Error ? error.message : String(error),
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-                `toolbarState=${JSON.stringify(latestToolbarState)}`,
-                `greenCanvasGhostVisible=${JSON.stringify(greenCanvasGhostVisible)}`,
-            ].join('\n'));
-        }
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        const stateAfterSecondDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterSecondDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 1);
-        await waitForAllShapesEmbedded(page, 1);
-
-        const annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-
-        toolbarState = await getToolbarSaveDebugState(page);
-        expect(toolbarState.activeTabDirty).toBe(false);
-        if (toolbarState.toolbarSnapshot) {
-            expect(toolbarState.toolbarSnapshot).toMatchObject({ canSave: false });
-        }
-    });
-
-    extendedIt('keeps the popup-delete path stable when the second delete happens immediately after a toolbar save', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-        await page.setViewport({
-            width: 1600,
-            height: 1000,
-        });
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-toolbar-popup-immediate-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaToolbarButton(page);
-        await waitForShapeCount(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaToolbarButton(page);
-        await waitForShapeCount(page, 2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 1);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-    });
-
-    extendedIt('keeps the popup-delete path stable when the second delete happens immediately after a save handle round-trip', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-popup-immediate-save-handle-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await expectAnyManagedShapeSelected(page);
-        await deleteSelectedShapeViaPropertiesPopup(page);
-        await waitForShapeCount(page, 1);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-    });
-
-    extendedIt('keeps deleting saved strokes stable across multiple save rounds', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-multi-round-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        const rounds = [
-            [
-                {
-                    color: '#ef4444',
-                    hit: {
-                        x: 0.18,
-                        y: 0.2,
-                    },
-                    points: [
-                        {
-                            x: 0.14,
-                            y: 0.17,
-                        },
-                        {
-                            x: 0.18,
-                            y: 0.2,
-                        },
-                        {
-                            x: 0.24,
-                            y: 0.24,
-                        },
-                    ],
-                },
-                {
-                    color: '#22c55e',
-                    hit: {
-                        x: 0.34,
-                        y: 0.3,
-                    },
-                    points: [
-                        {
-                            x: 0.3,
-                            y: 0.27,
-                        },
-                        {
-                            x: 0.34,
-                            y: 0.3,
-                        },
-                        {
-                            x: 0.4,
-                            y: 0.35,
-                        },
-                    ],
-                },
-                {
-                    color: '#3b82f6',
-                    hit: {
-                        x: 0.54,
-                        y: 0.38,
-                    },
-                    points: [
-                        {
-                            x: 0.48,
-                            y: 0.34,
-                        },
-                        {
-                            x: 0.54,
-                            y: 0.38,
-                        },
-                        {
-                            x: 0.6,
-                            y: 0.43,
-                        },
-                    ],
-                },
-            ],
-            [
-                {
-                    color: '#ffd400',
-                    hit: {
-                        x: 0.28,
-                        y: 0.56,
-                    },
-                    points: [
-                        {
-                            x: 0.23,
-                            y: 0.52,
-                        },
-                        {
-                            x: 0.28,
-                            y: 0.56,
-                        },
-                        {
-                            x: 0.34,
-                            y: 0.61,
-                        },
-                    ],
-                },
-                {
-                    color: '#8b5cf6',
-                    hit: {
-                        x: 0.5,
-                        y: 0.6,
-                    },
-                    points: [
-                        {
-                            x: 0.45,
-                            y: 0.56,
-                        },
-                        {
-                            x: 0.5,
-                            y: 0.6,
-                        },
-                        {
-                            x: 0.56,
-                            y: 0.65,
-                        },
-                    ],
-                },
-                {
-                    color: '#f59e0b',
-                    hit: {
-                        x: 0.7,
-                        y: 0.67,
-                    },
-                    points: [
-                        {
-                            x: 0.64,
-                            y: 0.62,
-                        },
-                        {
-                            x: 0.7,
-                            y: 0.67,
-                        },
-                        {
-                            x: 0.76,
-                            y: 0.72,
-                        },
-                    ],
-                },
-            ],
-            [
-                {
-                    color: '#06b6d4',
-                    hit: {
-                        x: 0.16,
-                        y: 0.14,
-                    },
-                    points: [
-                        {
-                            x: 0.12,
-                            y: 0.1,
-                        },
-                        {
-                            x: 0.16,
-                            y: 0.14,
-                        },
-                        {
-                            x: 0.22,
-                            y: 0.19,
-                        },
-                    ],
-                },
-                {
-                    color: '#ec4899',
-                    hit: {
-                        x: 0.44,
-                        y: 0.18,
-                    },
-                    points: [
-                        {
-                            x: 0.39,
-                            y: 0.14,
-                        },
-                        {
-                            x: 0.44,
-                            y: 0.18,
-                        },
-                        {
-                            x: 0.5,
-                            y: 0.23,
-                        },
-                    ],
-                },
-                {
-                    color: '#111827',
-                    hit: {
-                        x: 0.7,
-                        y: 0.22,
-                    },
-                    points: [
-                        {
-                            x: 0.64,
-                            y: 0.18,
-                        },
-                        {
-                            x: 0.7,
-                            y: 0.22,
-                        },
-                        {
-                            x: 0.76,
-                            y: 0.26,
-                        },
-                    ],
-                },
-            ],
-        ] as const;
-
-        let expectedInkCount = 0;
-        let expectedDeletedCount = 0;
-
-        for (const round of rounds) {
-            await clickAnnotationTool(page, 'Draw');
-            await waitForActiveColorIndicator(page);
-
-            for (const stroke of round) {
-                await setAnnotationColor(page, stroke.color);
-                await dragInkStroke(page, stroke.points);
+        const { page } = session;
+
+        for (const scenario of savedShapeDeleteScenarios) {
+            try {
+                await runSavedShapeDeleteScenario(page, scenario);
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                throw new Error(`${scenario.name} failed:\n${detail}`);
             }
-
-            expectedInkCount += round.length;
-            await waitForShapeCount(page, expectedInkCount);
-            await waitForNoShapeSelectionUi(page);
-
-            await saveViaWindowHandle(page);
-            await waitForShapeCount(page, expectedInkCount);
-            await waitForAllShapesEmbedded(page, expectedInkCount);
-
-            let annotationSummary = await waitForInkCountOnDisk(fixturePath, expectedInkCount);
-            expect(annotationSummary.bySubtype.Ink ?? 0).toBe(expectedInkCount);
-
-            for (const stroke of round.slice(0, 2)) {
-                await clickPagePoint(page, stroke.hit);
-                await deleteSelectedShape(page);
-                expectedInkCount -= 1;
-                expectedDeletedCount += 1;
-                await waitForShapeCount(page, expectedInkCount);
-                await waitForNoVisibleInkAtPoint(page, stroke.hit);
-
-                const stateAfterDelete = await getManagedShapeDebugState(page);
-                expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(expectedDeletedCount);
-            }
-
-            await saveViaWindowHandle(page);
-            await waitForShapeCount(page, expectedInkCount);
-            annotationSummary = await waitForInkCountOnDisk(fixturePath, expectedInkCount);
-            expect(annotationSummary.bySubtype.Ink ?? 0).toBe(expectedInkCount);
-
-            expectedDeletedCount = 0;
         }
-    });
-
-    extendedIt('allows deleting a saved stroke immediately after save without leaving a ghost layer', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-immediate-delete-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2, 
-            },
-            {
-                x: 0.24,
-                y: 0.24, 
-            },
-            {
-                x: 0.31,
-                y: 0.3, 
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28, 
-            },
-            {
-                x: 0.56,
-                y: 0.34, 
-            },
-            {
-                x: 0.66,
-                y: 0.42, 
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58, 
-            },
-            {
-                x: 0.34,
-                y: 0.62, 
-            },
-            {
-                x: 0.46,
-                y: 0.7, 
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        const immediateAfterDeleteState = await getManagedShapeDebugState(page);
-        expect(immediateAfterDeleteState.deletedAnnotationIds).toHaveLength(1);
-    });
-
-    extendedIt('allows deleting a preexisting saved stroke after reopening the file without leaving a ghost layer', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-reopen-delete-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2, 
-            },
-            {
-                x: 0.24,
-                y: 0.24, 
-            },
-            {
-                x: 0.31,
-                y: 0.3, 
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28, 
-            },
-            {
-                x: 0.56,
-                y: 0.34, 
-            },
-            {
-                x: 0.66,
-                y: 0.42, 
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58, 
-            },
-            {
-                x: 0.34,
-                y: 0.62, 
-            },
-            {
-                x: 0.46,
-                y: 0.7, 
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.24,
-            y: 0.24,
-        })).toBe(false);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        const reopenAfterDeleteState = await getManagedShapeDebugState(page);
-        expect(reopenAfterDeleteState.deletedAnnotationIds).toHaveLength(1);
-    });
-
-    extendedIt('keeps deleting saved survivors stable across successive save cycles', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-successive-delete-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-
-        await setAnnotationColor(page, '#ef4444');
-        await dragInkStroke(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#22c55e');
-        await dragInkStroke(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-
-        await setAnnotationColor(page, '#3b82f6');
-        await dragInkStroke(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await waitForShapeCount(page, 3);
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 3);
-        await waitForAllShapesEmbedded(page, 3);
-
-        await clickPagePoint(page, {
-            x: 0.24,
-            y: 0.24,
-        });
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, 2);
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.18,
-                y: 0.2,
-            },
-            {
-                x: 0.24,
-                y: 0.24,
-            },
-            {
-                x: 0.31,
-                y: 0.3,
-            },
-        ]);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-        await waitForAllShapesEmbedded(page, 2);
-        let annotationSummary = await waitForInkCountOnDisk(fixturePath, 2);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
-
-        await clickPagePoint(page, {
-            x: 0.34,
-            y: 0.62,
-        });
-        await deleteSelectedShape(page);
-        try {
-            await waitForShapeCount(page, 1);
-        } catch (error) {
-            const [
-                managedShapeState,
-                toolbarState,
-                greenCanvasGhostVisible,
-            ] = await Promise.all([
-                getManagedShapeDebugState(page),
-                getToolbarSaveDebugState(page),
-                hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-                    x: 0.34,
-                    y: 0.62,
-                }),
-            ]);
-            throw new Error([
-                error instanceof Error ? error.message : String(error),
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-                `toolbarState=${JSON.stringify(toolbarState)}`,
-                `greenCanvasGhostVisible=${JSON.stringify(greenCanvasGhostVisible)}`,
-            ].join('\n'));
-        }
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.22,
-                y: 0.58,
-            },
-            {
-                x: 0.34,
-                y: 0.62,
-            },
-            {
-                x: 0.46,
-                y: 0.7,
-            },
-        ]);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 1);
-        await waitForAllShapesEmbedded(page, 1);
-        annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-
-        await clickAnnotationTool(page, 'Draw');
-        await waitForActiveColorIndicator(page);
-        await setAnnotationColor(page, '#f59e0b');
-        await dragInkStroke(page, [
-            {
-                x: 0.54,
-                y: 0.56,
-            },
-            {
-                x: 0.65,
-                y: 0.64,
-            },
-            {
-                x: 0.74,
-                y: 0.72,
-            },
-        ]);
-
-        await waitForShapeCount(page, 2);
-        await waitForNoShapeSelectionUi(page);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 2);
-        await waitForAllShapesEmbedded(page, 2);
-        annotationSummary = await waitForInkCountOnDisk(fixturePath, 2);
-        expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
-
-        await clickPagePoint(page, {
-            x: 0.56,
-            y: 0.34,
-        });
-        await deleteSelectedShape(page);
-        try {
-            await waitForShapeCount(page, 1);
-        } catch (error) {
-            const [
-                managedShapeState,
-                toolbarState,
-                greenCanvasGhostVisible,
-            ] = await Promise.all([
-                getManagedShapeDebugState(page),
-                getToolbarSaveDebugState(page),
-                hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-                    x: 0.56,
-                    y: 0.34,
-                }),
-            ]);
-            throw new Error([
-                error instanceof Error ? error.message : String(error),
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-                `toolbarState=${JSON.stringify(toolbarState)}`,
-                `greenCanvasGhostVisible=${JSON.stringify(greenCanvasGhostVisible)}`,
-            ].join('\n'));
-        }
-        await waitForNoVisibleInkAtPoints(page, [
-            {
-                x: 0.46,
-                y: 0.28,
-            },
-            {
-                x: 0.56,
-                y: 0.34,
-            },
-            {
-                x: 0.66,
-                y: 0.42,
-            },
-        ]);
-    });
-
-    extendedIt('keeps deleting the second saved line stable after deleting and saving the first saved line', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Draw-shape session was not initialized');
-        }
-
-        const fixturePath = await createBlankFixturePdf(`draw-shape-line-first-then-second-${Date.now()}.pdf`, 1);
-        await openPdfInApp(page, fixturePath);
-        await waitForPdfLoaded(page);
-
-        await clickAnnotationTool(page, 'Line');
-        await waitForActiveColorIndicator(page);
-
-        const lines = [
-            {
-                color: '#ef4444',
-                start: {
-                    x: 0.18,
-                    y: 0.18,
-                },
-                end: {
-                    x: 0.38,
-                    y: 0.34,
-                },
-                hit: {
-                    x: 0.28,
-                    y: 0.26,
-                },
-            },
-            {
-                color: '#22c55e',
-                start: {
-                    x: 0.52,
-                    y: 0.2,
-                },
-                end: {
-                    x: 0.52,
-                    y: 0.56,
-                },
-                hit: {
-                    x: 0.52,
-                    y: 0.38,
-                },
-            },
-            {
-                color: '#3b82f6',
-                start: {
-                    x: 0.2,
-                    y: 0.62,
-                },
-                end: {
-                    x: 0.44,
-                    y: 0.78,
-                },
-                hit: {
-                    x: 0.32,
-                    y: 0.7,
-                },
-            },
-        ];
-
-        for (const line of lines) {
-            await setAnnotationColor(page, line.color);
-            await dragLineSegment(page, {
-                start: line.start,
-                end: line.end,
-            });
-        }
-
-        await waitForShapeCount(page, lines.length);
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, lines.length);
-        await waitForAllShapesEmbedded(page, lines.length);
-        let annotationSummary = await waitForLineCountOnDisk(fixturePath, lines.length);
-        expect(annotationSummary.bySubtype.Line ?? 0).toBe(lines.length);
-
-        await clickPagePoint(page, lines[0]!.hit);
-        await deleteSelectedShape(page);
-        await waitForShapeCount(page, lines.length - 1);
-        await waitForNoVisibleInkAtPoints(page, [
-            lines[0]!.start,
-            lines[0]!.hit,
-            lines[0]!.end,
-        ]);
-
-        let stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, lines.length - 1);
-        await waitForAllShapesEmbedded(page, lines.length - 1);
-        annotationSummary = await waitForLineCountOnDisk(fixturePath, lines.length - 1);
-        expect(annotationSummary.bySubtype.Line ?? 0).toBe(lines.length - 1);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.shapes).toHaveLength(lines.length - 1);
-        expect(stateAfterDelete.shapes.every(shape => shape.type === 'line' && shape.source === 'embedded')).toBe(true);
-
-        await clickPagePoint(page, lines[1]!.hit);
-        await deleteSelectedShape(page);
-        try {
-            await waitForShapeCount(page, 1);
-        } catch (error) {
-            const [
-                managedShapeState,
-                toolbarState,
-                secondLineGhostVisible,
-            ] = await Promise.all([
-                getManagedShapeDebugState(page),
-                getToolbarSaveDebugState(page),
-                hasVisibleCanvasInkAtPointWithOverlayHidden(page, lines[1]!.hit),
-            ]);
-            throw new Error([
-                error instanceof Error ? error.message : String(error),
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-                `toolbarState=${JSON.stringify(toolbarState)}`,
-                `secondLineGhostVisible=${JSON.stringify(secondLineGhostVisible)}`,
-            ].join('\n'));
-        }
-        await waitForNoVisibleInkAtPoints(page, [
-            lines[1]!.start,
-            lines[1]!.hit,
-            lines[1]!.end,
-        ]);
-
-        stateAfterDelete = await getManagedShapeDebugState(page);
-        expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
-
-        await saveViaWindowHandle(page);
-        await waitForShapeCount(page, 1);
-        await waitForAllShapesEmbedded(page, 1);
-        annotationSummary = await waitForLineCountOnDisk(fixturePath, 1);
-        expect(annotationSummary.bySubtype.Line ?? 0).toBe(1);
-
-        const toolbarState = await getToolbarSaveDebugState(page);
-        expect(toolbarState.activeTabDirty).toBe(false);
     });
 });

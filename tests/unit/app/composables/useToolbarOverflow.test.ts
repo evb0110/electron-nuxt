@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     afterEach,
     beforeEach,
@@ -12,7 +14,6 @@ import {
     ref,
     watch,
 } from 'vue';
-import { cast } from '@tests/helpers/cast';
 
 const resizeObserverCallbacks: Array<() => void> = [];
 
@@ -63,49 +64,57 @@ vi.mock('@vueuse/core', () => ({
     },
 }));
 
-class FakeElement {
-    public children: unknown[] = [];
-    private _clientWidth = 0;
-    private _scrollWidth = 0;
-    public rectLeft = 0;
+const measuredElementSetters = new WeakMap<HTMLElement, (clientWidth: number, scrollWidth: number) => void>();
 
-    constructor(width: number, scrollWidth: number, rectLeft = 0) {
-        this._clientWidth = width;
-        this._scrollWidth = scrollWidth;
-        this.rectLeft = rectLeft;
-    }
+function createMeasuredElement(
+    clientWidth: number,
+    scrollWidth: number,
+    rectLeft = 0,
+): HTMLElement {
+    const element = document.createElement('div');
+    let measuredClientWidth = clientWidth;
+    let measuredScrollWidth = scrollWidth;
+    Object.defineProperties(element, {
+        clientWidth: {
+            configurable: true,
+            get: () => measuredClientWidth,
+        },
+        scrollWidth: {
+            configurable: true,
+            get: () => measuredScrollWidth,
+        },
+        getBoundingClientRect: {
+            configurable: true,
+            value: () => ({
+                left: rectLeft,
+                right: rectLeft + measuredClientWidth,
+                width: measuredClientWidth,
+            }),
+        },
+    });
+    measuredElementSetters.set(element, (nextClientWidth, nextScrollWidth) => {
+        measuredClientWidth = nextClientWidth;
+        measuredScrollWidth = nextScrollWidth;
+    });
+    document.body.append(element);
+    return element;
+}
 
-    get clientWidth() {
-        return this._clientWidth;
-    }
+function setElementMeasurements(
+    element: HTMLElement,
+    clientWidth: number,
+    scrollWidth: number,
+) {
+    measuredElementSetters.get(element)?.(clientWidth, scrollWidth);
+}
 
-    set clientWidth(value: number) {
-        this._clientWidth = value;
-    }
-
-    get scrollWidth() {
-        return this._scrollWidth;
-    }
-
-    set scrollWidth(value: number) {
-        this._scrollWidth = value;
-    }
-
-    querySelector<T = FakeElement>(_selector: string): T | null {
-        return null;
-    }
-
-    querySelectorAll<T = FakeElement>(_selector: string): T[] {
-        return this.children as T[];
-    }
-
-    getBoundingClientRect() {
-        return {
-            left: this.rectLeft,
-            right: this.rectLeft + this.clientWidth,
-            width: this.clientWidth,
-        };
-    }
+function createResponsiveToolbarElement(getClientWidth: () => number) {
+    const element = createMeasuredElement(500, 500);
+    Object.defineProperty(element, 'clientWidth', {
+        configurable: true,
+        get: getClientWidth,
+    });
+    return element;
 }
 
 function stubGlobals() {
@@ -114,18 +123,6 @@ function stubGlobals() {
     vi.stubGlobal('watch', watch);
     vi.stubGlobal('onMounted', (cb: () => void) => cb());
     vi.stubGlobal('onBeforeUnmount', vi.fn());
-    vi.stubGlobal('HTMLElement', FakeElement);
-    vi.stubGlobal('window', {
-        requestAnimationFrame: (cb: FrameRequestCallback) => {
-            const id = setTimeout(() => cb(0), 0);
-            return id;
-        },
-        cancelAnimationFrame: (id: number) => clearTimeout(id),
-        setTimeout,
-        clearTimeout,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-    });
 }
 
 describe('useToolbarOverflow', () => {
@@ -133,6 +130,7 @@ describe('useToolbarOverflow', () => {
         vi.resetModules();
         vi.useFakeTimers();
         vi.clearAllMocks();
+        document.body.replaceChildren();
         resizeObserverCallbacks.length = 0;
         stubGlobals();
     });
@@ -146,7 +144,7 @@ describe('useToolbarOverflow', () => {
         const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
         const overflow = useToolbarOverflow();
 
-        overflow.toolbarRef.value = cast<HTMLElement>(new FakeElement(100, 260));
+        overflow.toolbarRef.value = createMeasuredElement(100, 260);
         await nextTick();
         await vi.runAllTimersAsync();
 
@@ -158,16 +156,15 @@ describe('useToolbarOverflow', () => {
     it('re-expands when resize removes overflow', async () => {
         const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
         const overflow = useToolbarOverflow();
-        const toolbar = new FakeElement(120, 300);
+        const toolbar = createMeasuredElement(120, 300);
 
-        overflow.toolbarRef.value = cast<HTMLElement>(toolbar);
+        overflow.toolbarRef.value = toolbar;
         await nextTick();
         await vi.runAllTimersAsync();
 
         expect(overflow.collapseTier.value).toBe(5);
 
-        toolbar.clientWidth = 160;
-        toolbar.scrollWidth = 120;
+        setElementMeasurements(toolbar, 160, 120);
         resizeObserverCallbacks.forEach(cb => cb());
         await vi.runAllTimersAsync();
 
@@ -178,11 +175,11 @@ describe('useToolbarOverflow', () => {
     it('detects overflow from out-of-bounds children', async () => {
         const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
         const overflow = useToolbarOverflow();
-        const toolbar = new FakeElement(100, 100);
-        const child = new FakeElement(30, 30, 85);
+        const toolbar = createMeasuredElement(100, 100);
+        const child = createMeasuredElement(30, 30, 85);
 
-        toolbar.children = [child];
-        overflow.toolbarRef.value = cast<HTMLElement>(toolbar);
+        toolbar.append(child);
+        overflow.toolbarRef.value = toolbar;
         await nextTick();
         await vi.runAllTimersAsync();
 
@@ -197,22 +194,10 @@ describe('useToolbarOverflow', () => {
 
         watch(overflow.collapseTier, value => tierChanges.push(value));
 
-        class ResponsiveToolbarElement extends FakeElement {
-            constructor() {
-                super(500, 500);
-            }
-
-            override get clientWidth() {
-                return overflow.collapseTier.value === 0 ? 490 : 500;
-            }
-
-            override get scrollWidth() {
-                return 500;
-            }
-        }
-
         overflow.collapseTier.value = 1;
-        overflow.toolbarRef.value = cast<HTMLElement>(new ResponsiveToolbarElement());
+        overflow.toolbarRef.value = createResponsiveToolbarElement(
+            () => overflow.collapseTier.value === 0 ? 490 : 500,
+        );
         await nextTick();
         await vi.runAllTimersAsync();
 

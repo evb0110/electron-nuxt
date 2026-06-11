@@ -2,6 +2,11 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type {
+    IAnnotationCommentSummary,
+    TAnnotationCommentsStatus,
+} from '@app/types/annotations';
+import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
+import type {
     IRecentFile,
     TFitMode,
     TPdfViewMode,
@@ -154,6 +159,31 @@ export interface IWorkspaceAgentPort {
 
 interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 
+export interface IWorkspaceAutomationStateSnapshot {
+    annotationComments: IAnnotationCommentSummary[];
+    annotationCommentsStatus: TAnnotationCommentsStatus;
+    annotationDirty: boolean;
+    originalPath: TDocumentRef | null;
+    sortedAnnotationNoteWindows: IAnnotationNoteWindowState[];
+    workingCopyPath: TDocumentRef | null;
+}
+
+export interface IWorkspaceAutomationPort {
+    commentAtPoint?: (
+        pageNumber: number,
+        pageX: number,
+        pageY: number,
+        options?: { preferTextAnchor?: boolean },
+    ) => Promise<boolean>;
+    getAllShapes?: () => unknown[];
+    getAutomationStateSnapshot: () => IWorkspaceAutomationStateSnapshot;
+    getDeletedEmbeddedShapeAnnotationIds?: () => string[];
+    getDeletedEmbeddedShapeStableKeys?: () => string[];
+    handleOcrComplete?: (payload: unknown) => Promise<void>;
+    highlightSelection?: () => Promise<boolean>;
+    scrollToPage?: (page: number) => void;
+}
+
 export interface IWorkspaceExpose extends
     IWorkspaceFilePort,
     IWorkspaceExportPort,
@@ -162,4 +192,5 @@ export interface IWorkspaceExpose extends
     IWorkspaceSplitTransferPort,
     IWorkspaceUiPort,
     IWorkspaceAgentPort,
+    IWorkspaceAutomationPort,
     IWorkspaceStatePort {}

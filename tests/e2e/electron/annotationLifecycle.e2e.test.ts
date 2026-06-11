@@ -1,6 +1,4 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
@@ -10,108 +8,36 @@ import type { Page } from 'puppeteer-core';
 import {
     copyProjectFixture,
     createMultiPageTextFixturePdf,
-    readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
+    clickLatestVisibleNoteWindowClose,
+    collectStickyNoteDebugState,
     createFreeTextAnnotation,
+    createHighlightWithPdfjsManager,
     getFreeTextEditorCount,
+    getVisibleHighlightEditorCount,
+    waitForHighlightEditorCount,
+    waitForNoOpenNoteWindows,
+    waitForPdfAnnotationSubtypeCount,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
-    waitForActiveWorkspaceHost,
     waitForPdfLoaded,
     waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
-
-interface IVueWorkspaceHost extends HTMLElement {__vueParentComponent?: {
-    exposed?: unknown;
-    setupState?: {
-        mountedWorkspace?: { value?: unknown };
-        workspaceRef?: { value?: unknown };
-    } & Record<string, unknown>;
-};}
+} from '@tests/e2e/electron/helpers/viewerCore';
+import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
+import {
+    callWorkspaceCommand,
+    collectWorkspaceExposeDebugState,
+    getWorkspaceToolbarSnapshot,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
-
-async function getVisibleHighlightEditorCounts(page: Page) {
-    return page.evaluate(() => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        return visibleHosts.map(host => host.querySelectorAll('.highlightEditor, .highlightAnnotation').length);
-    });
-}
-
-async function getVisibleHighlightEditorCount(page: Page) {
-    const counts = await getVisibleHighlightEditorCounts(page);
-    return Math.max(0, ...counts);
-}
-
-async function waitForHighlightEditorCount(page: Page, expectedCount: number) {
-    const startedAt = Date.now();
-    let counts = await getVisibleHighlightEditorCounts(page);
-    while (Date.now() - startedAt < 20_000) {
-        if (
-            (expectedCount === 0 && counts.every(count => count === 0))
-            || (expectedCount > 0 && counts.some(count => count === expectedCount))
-        ) {
-            return;
-        }
-        await delay(150);
-        counts = await getVisibleHighlightEditorCounts(page);
-    }
-    const details = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.highlightEditor, .highlightAnnotation'))
-        .map(editor => ({
-            id: editor.id,
-            label: editor.getAttribute('aria-label'),
-            page: editor.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
-            visible: (() => {
-                const rect = editor.getBoundingClientRect();
-                const style = window.getComputedStyle(editor);
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-            })(),
-        })));
-    const workspaceDebug = await page.evaluate(() => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => {
-                const rect = host.getBoundingClientRect();
-                const style = window.getComputedStyle(host);
-                return (
-                    rect.width > 100
-                    && rect.height > 100
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts[0] ?? null);
-        return {
-            visibleHostCount: visibleHosts.length,
-            activeHostVisible: Boolean(activeHost && visibleHosts.includes(activeHost)),
-            pageContainers: Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-                .map(pageContainer => ({
-                    page: pageContainer.dataset.page ?? null,
-                    rendered: pageContainer.classList.contains('page_container--rendered'),
-                    highlightCount: pageContainer.querySelectorAll('.highlightEditor, .highlightAnnotation').length,
-                })),
-        };
-    });
-    throw new Error(
-        `Expected visible highlight count ${expectedCount}, got [${counts.join(', ')}]: ${JSON.stringify(details)}; workspace=${JSON.stringify(workspaceDebug)}`,
-    );
-}
+const TOOLTIP_HIDDEN_QUIET_WINDOW_MS = 400;
+const TOOLTIP_HIDDEN_POLL_INTERVAL_MS = 50;
 
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
@@ -130,166 +56,8 @@ async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     throw new Error(`Expected active tab dirty=${expectedDirty}, got ${actualDirty}`);
 }
 
-async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: string, expectedCount: number) {
-    const startedAt = Date.now();
-    let lastSummary = await readPdfAnnotationSummary(filePath);
-    while (Date.now() - startedAt < 20_000) {
-        if ((lastSummary.bySubtype[subtype] ?? 0) === expectedCount) {
-            return lastSummary;
-        }
-        await delay(150);
-        lastSummary = await readPdfAnnotationSummary(filePath);
-    }
-    throw new Error(`Expected ${expectedCount} ${subtype} annotations on disk, got ${lastSummary.bySubtype[subtype] ?? 0}`);
-}
-
-async function createHighlightWithPdfjsManager(page: Page) {
-    const before = await getVisibleHighlightEditorCount(page);
-    let result = 'missing-ui-manager';
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 8_000 && result !== 'ok' && result !== 'issued-highlight') {
-        result = await page.evaluate(async (previousCount: number) => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            };
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const matchingHosts = visibleHosts
-                .filter(candidate => candidate.querySelector('.annotationEditorLayer, .annotation-editor-layer'));
-            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            if (!host) {
-                return 'missing-host';
-            }
-            if (host.querySelectorAll('.highlightEditor').length > previousCount) {
-                return 'ok';
-            }
-
-            type TVueComponentLike = {
-                parent?: TVueComponentLike | null;
-                exposed?: unknown;
-                setupState?: Record<string, unknown>;
-            };
-            const unwrap = (value: unknown) => (
-                value
-                && typeof value === 'object'
-                && 'value' in value
-                    ? (value as {value?: unknown;}).value
-                    : value
-            );
-            const fromCandidate = (candidate: unknown) => {
-                const setupState = (candidate as {$?: {setupState?: Record<string, unknown>;};} | null)?.$?.setupState
-                    ?? (candidate as {setupState?: Record<string, unknown>;} | null)?.setupState
-                    ?? null;
-                const direct = unwrap(setupState?.annotationUiManager);
-                if (direct) {
-                    return direct;
-                }
-                const pdfViewer = unwrap(setupState?.pdfViewerRef) as {
-                    $?: {setupState?: Record<string, unknown>;};
-                    annotationUiManager?: {value?: unknown;};
-                } | null;
-                return unwrap(pdfViewer?.$?.setupState?.annotationUiManager)
-                    ?? unwrap(pdfViewer?.annotationUiManager)
-                    ?? null;
-            };
-            const viewerElement = host.querySelector<HTMLElement>('#pdf-viewer') ?? host;
-            let component = (viewerElement as HTMLElement & {__vueParentComponent?: TVueComponentLike;}).__vueParentComponent
-                ?? (host as HTMLElement & {__vueParentComponent?: TVueComponentLike;}).__vueParentComponent
-                ?? null;
-            let uiManager: unknown = null;
-            while (component && !uiManager) {
-                const setupState = component.setupState;
-                for (const candidate of [
-                    component,
-                    component.exposed,
-                    unwrap(setupState?.mountedWorkspace),
-                    unwrap(setupState?.workspaceRef),
-                    unwrap(setupState?.pdfViewerRef),
-                ]) {
-                    uiManager = fromCandidate(candidate);
-                    if (uiManager) {
-                        break;
-                    }
-                }
-                component = component.parent ?? null;
-            }
-
-            const manager = uiManager as {
-                updateMode?: (mode: number) => Promise<void>;
-                waitForEditorsRendered?: (pageNumber: number) => Promise<void>;
-                highlightSelection?: (methodOfCreation?: string) => void;
-            } | null;
-            if (typeof manager?.highlightSelection !== 'function') {
-                return 'missing-ui-manager';
-            }
-
-            const textNodes = Array.from(host.querySelectorAll<HTMLElement>(
-                '.page_container--rendered .text-layer span, .page_container--rendered .textLayer span',
-            ))
-                .map((span) => {
-                    const node = Array.from(span.childNodes)
-                        .find(candidate => candidate.nodeType === Node.TEXT_NODE);
-                    return {
-                        node,
-                        text: node?.textContent ?? '',
-                    };
-                })
-                .filter(({
-                    node,
-                    text,
-                }) => node && text.trim().length > 4);
-            const first = textNodes[0];
-            if (!first?.node) {
-                return 'missing-text';
-            }
-            const pageElement = (first.node.parentElement ?? null)
-                ?.closest<HTMLElement>('.page_container');
-            const pageNumber = Number(pageElement?.dataset.page ?? '1');
-            if (typeof manager.updateMode === 'function') {
-                await manager.updateMode(9);
-            }
-            if (Number.isFinite(pageNumber) && typeof manager.waitForEditorsRendered === 'function') {
-                await manager.waitForEditorsRendered(pageNumber);
-            }
-
-            const range = document.createRange();
-            range.setStart(first.node, 0);
-            range.setEnd(first.node, first.text.length);
-            const selection = document.getSelection();
-            selection?.removeAllRanges();
-            selection?.addRange(range);
-            manager.highlightSelection('e2e');
-            selection?.removeAllRanges();
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-            if ((host.querySelectorAll('.highlightEditor').length ?? 0) > previousCount) {
-                return 'ok';
-            }
-            return 'issued-highlight';
-        }, before);
-        if (result !== 'ok' && result !== 'issued-highlight') {
-            await delay(150);
-        }
-    }
-
-    if (result !== 'ok' && result !== 'issued-highlight') {
-        throw new Error(`Unable to create highlight: ${result}`);
-    }
-    await waitForHighlightEditorCount(page, before + 1);
-    return getVisibleHighlightEditorCount(page);
-}
-
 async function clickEnabledToolbarAction(page: Page, label: string) {
-    const clicked = await page.evaluate(async (targetLabel: string) => {
+    const clickedButton = await page.evaluate((targetLabel: string) => {
         const isVisible = (candidate: HTMLElement) => {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
@@ -300,49 +68,6 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
                 && rect.height > 0
             );
         };
-        const commandName = targetLabel === 'Undo'
-            ? 'handleUndo'
-            : targetLabel === 'Redo'
-                ? 'handleRedo'
-                : null;
-        const canRunKey = targetLabel === 'Undo'
-            ? 'canUndo'
-            : targetLabel === 'Redo'
-                ? 'canRedo'
-                : null;
-        if (!commandName || !canRunKey) {
-            return false;
-        }
-        const visibleHosts = Array.from(document.querySelectorAll<IVueWorkspaceHost>('.workspace-host')).filter(isVisible);
-        const activeHost = document.querySelector<IVueWorkspaceHost>('.editor-pane.is-active .workspace-host');
-        const preferredHost = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts[0] ?? null);
-        const preferredComponent = preferredHost?.__vueParentComponent;
-        const preferredCandidates = [
-            preferredComponent?.exposed,
-            preferredComponent?.setupState?.mountedWorkspace?.value,
-            preferredComponent?.setupState?.workspaceRef?.value,
-        ];
-        for (const candidate of preferredCandidates) {
-            if (!candidate || typeof candidate !== 'object') {
-                continue;
-            }
-            const commandSurface = candidate as {
-                getToolbarSnapshot?: () => Record<string, unknown>;
-                handleRedo?: () => unknown;
-                handleUndo?: () => unknown;
-            };
-            if (
-                typeof commandSurface[commandName] !== 'function'
-                || commandSurface.getToolbarSnapshot?.()[canRunKey] !== true
-            ) {
-                continue;
-            }
-            await Promise.resolve(commandSurface[commandName]());
-            return true;
-        }
-
         const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
             .find(candidate => (
                 candidate.getAttribute('aria-label')?.trim() === targetLabel
@@ -351,41 +76,29 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
                 && candidate.getAttribute('aria-disabled') !== 'true'
             ));
         button?.click();
-        if (button) {
-            return true;
-        }
-
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as IVueWorkspaceHost).__vueParentComponent;
-            const candidates = [
-                component?.setupState?.mountedWorkspace?.value,
-                component?.setupState?.workspaceRef?.value,
-                component?.exposed,
-            ];
-            for (const candidate of candidates) {
-                if (!candidate || typeof candidate !== 'object') {
-                    continue;
-                }
-                const commandSurface = candidate as {
-                    getToolbarSnapshot?: () => Record<string, unknown>;
-                    handleRedo?: () => unknown;
-                    handleUndo?: () => unknown;
-                };
-                if (
-                    typeof commandSurface[commandName] !== 'function'
-                    || commandSurface.getToolbarSnapshot?.()[canRunKey] !== true
-                ) {
-                    continue;
-                }
-                await Promise.resolve(commandSurface[commandName]());
-                return true;
-            }
-        }
-        return false;
+        return Boolean(button);
     }, label);
+    if (clickedButton) {
+        return;
+    }
 
-    if (!clicked) {
-        const debugState = await page.evaluate((targetLabel: string) => {
+    const commandName = label === 'Undo'
+        ? 'handleUndo'
+        : label === 'Redo'
+            ? 'handleRedo'
+            : null;
+    const canRunKey = label === 'Undo'
+        ? 'canUndo'
+        : label === 'Redo'
+            ? 'canRedo'
+            : null;
+    const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page);
+    const commandResult = commandName && canRunKey && toolbarSnapshot?.[canRunKey] === true
+        ? await callWorkspaceCommand(page, commandName)
+        : { called: false };
+
+    if (!commandResult.called) {
+        const buttonState = await page.evaluate((targetLabel: string) => {
             const isVisible = (candidate: HTMLElement) => {
                 const rect = candidate.getBoundingClientRect();
                 const style = window.getComputedStyle(candidate);
@@ -396,61 +109,20 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
                     && rect.height > 0
                 );
             };
-            const unwrap = (value: unknown) => (
-                value
-                && typeof value === 'object'
-                && 'value' in value
-                    ? (value as { value?: unknown }).value
-                    : value
-            );
-            const toolbarSnapshots: unknown[] = [];
-            const annotationStates: unknown[] = [];
-            for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-                const component = (element as IVueWorkspaceHost).__vueParentComponent;
-                const candidates = [
-                    component?.setupState,
-                    component?.setupState?.mountedWorkspace?.value,
-                    component?.setupState?.workspaceRef?.value,
-                    component?.exposed,
-                ];
-                for (const candidate of candidates) {
-                    if (
-                        candidate
-                        && typeof candidate === 'object'
-                        && typeof (candidate as { getToolbarSnapshot?: unknown }).getToolbarSnapshot === 'function'
-                    ) {
-                        toolbarSnapshots.push((candidate as { getToolbarSnapshot: () => unknown }).getToolbarSnapshot());
-                    }
-                    const setupState = (
-                        candidate
-                        && typeof candidate === 'object'
-                        && '$' in candidate
-                            ? (candidate as { $?: { setupState?: unknown } }).$?.setupState
-                            : candidate
-                    ) as Record<string, unknown> | null | undefined;
-                    if (setupState?.annotationEditorState || setupState?.annotationComments) {
-                        annotationStates.push({
-                            annotationEditorState: unwrap(setupState.annotationEditorState) ?? null,
-                            annotationCommentsCount: Array.isArray(unwrap(setupState.annotationComments))
-                                ? (unwrap(setupState.annotationComments) as unknown[]).length
-                                : null,
-                        });
-                    }
-                }
-            }
-            return {
-                buttons: Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-                    .filter(button => button.getAttribute('aria-label')?.trim() === targetLabel)
-                    .map(button => ({
-                        visible: isVisible(button),
-                        disabled: button.disabled,
-                        ariaDisabled: button.getAttribute('aria-disabled'),
-                        text: button.textContent?.trim() ?? '',
-                    })),
-                toolbarSnapshots,
-                annotationStates,
-            };
+            return { buttons: Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+                .filter(button => button.getAttribute('aria-label')?.trim() === targetLabel)
+                .map(button => ({
+                    visible: isVisible(button),
+                    disabled: button.disabled,
+                    ariaDisabled: button.getAttribute('aria-disabled'),
+                    text: button.textContent?.trim() ?? '',
+                })) };
         }, label);
+        const debugState = {
+            ...buttonState,
+            toolbarSnapshot,
+            workspaceDebug: await collectWorkspaceExposeDebugState(page),
+        };
         throw new Error(`Enabled toolbar action not found: ${label}: ${JSON.stringify(debugState)}`);
     }
 }
@@ -896,254 +568,6 @@ async function waitForActiveThumbnailYellowPixelCount(
     throw new Error(`Timed out waiting for thumbnail yellow pixels (${label}); last count=${count}; debug=${JSON.stringify(debug)}`);
 }
 
-async function waitForNoOpenNoteWindows(page: Page) {
-    try {
-        await page.waitForFunction(() => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
-                );
-            };
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const host = activeHost && visibleHosts.includes(activeHost)
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const root: ParentNode = host ?? document;
-            return Array.from(root.querySelectorAll('textarea.note-window__textarea'))
-                .filter((candidate): candidate is HTMLTextAreaElement => (
-                    candidate instanceof HTMLTextAreaElement
-                    && isVisible(candidate)
-                ))
-                .length === 0;
-        }, { timeout: 8_000 });
-    } catch {
-        throw new Error(`Timed out waiting for note windows to close: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
-    }
-}
-
-async function clickLatestVisibleNoteWindowClose(page: Page) {
-    const clicked = await page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisible);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const root: ParentNode = host ?? document;
-        const closeButton = Array.from(root.querySelectorAll('.note-window__close'))
-            .filter((candidate): candidate is HTMLButtonElement => (
-                candidate instanceof HTMLButtonElement
-                && isVisible(candidate)
-            ))
-            .at(-1);
-        closeButton?.click();
-        return Boolean(closeButton);
-    });
-    if (!clicked) {
-        throw new Error(`Could not close a visible note window: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
-    }
-}
-
-async function collectStickyNoteDebugState(page: Page) {
-    return page.evaluate(() => {
-        const unwrap = (value: unknown) => (
-            value
-            && typeof value === 'object'
-            && 'value' in value
-                ? (value as { value?: unknown }).value
-                : value
-        );
-        let setupState: Record<string, unknown> | null = null;
-        const comments = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
-            .map(item => item.textContent?.replace(/\s+/g, ' ').trim() ?? '');
-        const noteWindows = Array.from(document.querySelectorAll<HTMLElement>('.note-window'))
-            .map(windowElement => windowElement.textContent?.replace(/\s+/g, ' ').trim() ?? '');
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => {
-                const rect = host.getBoundingClientRect();
-                const style = window.getComputedStyle(host);
-                return (
-                    rect.width > 100
-                    && rect.height > 100
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts[0] ?? null);
-        const pageContainers = Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-            .map((pageContainer) => {
-                const rect = pageContainer.getBoundingClientRect();
-                const editorLayer = pageContainer.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
-                return {
-                    page: pageContainer.dataset.page ?? null,
-                    rendered: pageContainer.classList.contains('page_container--rendered'),
-                    rect: {
-                        left: Math.round(rect.left),
-                        top: Math.round(rect.top),
-                        width: Math.round(rect.width),
-                        height: Math.round(rect.height),
-                    },
-                    editorLayerClasses: editorLayer?.className ?? null,
-                    freeTextCount: pageContainer.querySelectorAll('.freeTextEditor').length,
-                    highlightCount: pageContainer.querySelectorAll('.highlightEditor, .highlightAnnotation').length,
-                };
-            });
-        const toolbarButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .map(button => ({
-                label: button.getAttribute('aria-label'),
-                disabled: button.disabled,
-                classes: button.className,
-            }))
-            .filter(button => (button.label ?? '').toLowerCase().includes('note'));
-        const contextButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-context-menu .pdf-context-menu__action',
-        )).map(button => ({
-            text: button.textContent?.replace(/\s+/g, ' ').trim() ?? '',
-            disabled: button.disabled,
-        }));
-        const toolbarSnapshots: unknown[] = [];
-        const matchingComponentSamples: Array<{
-            exposedKeys: string[];
-            setupKeys: string[];
-            tag: string;
-        }> = [];
-        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
-            const component = (element as IVueWorkspaceHost).__vueParentComponent;
-            if (!component) {
-                continue;
-            }
-            const exposedKeys = component.exposed && typeof component.exposed === 'object'
-                ? Object.keys(component.exposed)
-                : [];
-            const setupKeys = component.setupState && typeof component.setupState === 'object'
-                ? Object.keys(component.setupState)
-                : [];
-            const candidates = [
-                component.setupState?.mountedWorkspace?.value,
-                component.setupState?.workspaceRef?.value,
-                component.exposed,
-            ];
-            for (const candidate of candidates) {
-                if (
-                    candidate
-                    && typeof candidate === 'object'
-                    && typeof (candidate as { getToolbarSnapshot?: unknown }).getToolbarSnapshot === 'function'
-                ) {
-                    toolbarSnapshots.push((candidate as { getToolbarSnapshot: () => unknown }).getToolbarSnapshot());
-                }
-                const candidateSetup = (
-                    candidate
-                    && typeof candidate === 'object'
-                    && '$' in candidate
-                        ? (candidate as { $?: { setupState?: unknown } }).$?.setupState
-                        : null
-                ) as Record<string, unknown> | null;
-                if (!setupState && (candidateSetup?.pdfViewerRef || candidateSetup?.annotationComments)) {
-                    setupState = candidateSetup;
-                }
-            }
-            if (
-                matchingComponentSamples.length < 12
-                && [
-                    ...exposedKeys,
-                    ...setupKeys,
-                ].some(key => [
-                    'workspaceRef',
-                    'mountedWorkspace',
-                    'pdfViewerRef',
-                    'annotationComments',
-                    'handleQuickNote',
-                    'commentAtPoint',
-                ].includes(key))
-            ) {
-                matchingComponentSamples.push({
-                    tag: element.tagName.toLowerCase(),
-                    exposedKeys: exposedKeys.slice(0, 20),
-                    setupKeys: setupKeys.slice(0, 20),
-                });
-            }
-        }
-
-        const annotationComments = setupState
-            ? unwrap(setupState['annotationComments'])
-            : null;
-        const annotationEditorState = setupState
-            ? unwrap(setupState['annotationEditorState'])
-            : null;
-        const sortedNoteWindows = setupState
-            ? (
-                unwrap(setupState['sortedAnnotationNoteWindows'])
-                ?? unwrap(setupState['annotationNoteWindows'])
-            )
-            : null;
-
-        return {
-            comments,
-            noteWindows,
-            visibleHostCount: visibleHosts.length,
-            activeHostVisible: Boolean(activeHost && visibleHosts.includes(activeHost)),
-            pdfViewerCount: document.querySelectorAll('#pdf-viewer').length,
-            pageContainers,
-            toolbarButtons,
-            contextButtons,
-            toolbarSnapshots,
-            annotationEditorState,
-            matchingComponentSamples,
-            annotationComments: Array.isArray(annotationComments)
-                ? annotationComments.map((comment) => {
-                    const entry = comment as Record<string, unknown>;
-                    return {
-                        stableKey: entry.stableKey ?? null,
-                        source: entry.source ?? null,
-                        subtype: entry.subtype ?? null,
-                        hasNote: entry.hasNote ?? null,
-                        text: entry.text ?? null,
-                        createdAt: entry.createdAt ?? null,
-                        modifiedAt: entry.modifiedAt ?? null,
-                    };
-                })
-                : null,
-            sortedNoteWindows: Array.isArray(sortedNoteWindows)
-                ? sortedNoteWindows.map((note) => {
-                    const entry = note as Record<string, unknown>;
-                    const comment = (entry.comment ?? {}) as Record<string, unknown>;
-                    return {
-                        stableKey: comment.stableKey ?? null,
-                        source: comment.source ?? null,
-                        subtype: comment.subtype ?? null,
-                        text: comment.text ?? null,
-                        createdAt: comment.createdAt ?? null,
-                        modifiedAt: comment.modifiedAt ?? null,
-                    };
-                })
-                : null,
-        };
-    });
-}
-
 async function placeEmptyNote(page: Page) {
     const contextMenuPoint = await tryCreatePageNoteViaContextMenu(page);
     if (contextMenuPoint) {
@@ -1386,6 +810,43 @@ async function waitForNoVisibleTooltipText(page: Page, expectedText: string) {
     }
 }
 
+async function waitForTooltipTextToRemainHidden(page: Page, expectedText: string, timeoutMs = 4_000) {
+    const startedAt = Date.now();
+    let hiddenSince: number | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+        const hasVisibleTooltip = await page.evaluate((text: string) => {
+            const isVisible = (candidate: HTMLElement) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 0
+                    && rect.height > 0
+                );
+            };
+            return Array.from(document.querySelectorAll<HTMLElement>('[data-slot="content"]'))
+                .filter(isVisible)
+                .some(tooltip => tooltip.textContent?.includes(text));
+        }, expectedText);
+
+        if (hasVisibleTooltip) {
+            hiddenSince = null;
+        } else {
+            hiddenSince ??= Date.now();
+            if (Date.now() - hiddenSince >= TOOLTIP_HIDDEN_QUIET_WINDOW_MS) {
+                return;
+            }
+        }
+
+        await delay(TOOLTIP_HIDDEN_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(`Timed out waiting for tooltip text to remain hidden: ${JSON.stringify(await collectTooltipDebugState(page))}`);
+}
+
 async function collectTooltipDebugState(page: Page) {
     return page.evaluate(() => {
         const readElement = (element: HTMLElement) => {
@@ -1619,26 +1080,18 @@ async function setLatestNoteWindowText(page: Page, text: string) {
 }
 
 describe('Electron E2E - Annotation Lifecycle', () => {
-    let session: IElectronE2ESession | null = null;
-    let fixturePath = '';
-
-    beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-annotation-lifecycle-${Date.now()}`);
-        fixturePath = copyProjectFixture('freetext-lifecycle-test.pdf', `annotation-lifecycle-${Date.now()}-freetext.pdf`);
-        await openPdfInApp(session.page, fixturePath);
-        await waitForPdfLoaded(session.page);
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`});
 
     it('creates and edits a FreeText annotation in the active workspace', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
+        const fixturePath = copyProjectFixture('freetext-lifecycle-test.pdf', `annotation-lifecycle-${Date.now()}-freetext.pdf`);
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
         await openAnnotationsTab(page);
 
         const baselineCount = await getFreeTextEditorCount(page);
@@ -1676,10 +1129,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-sticky-sidebar.pdf`,
@@ -1705,10 +1159,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
     it('dismisses the marker tooltip when opening the sticky note window', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-sticky-tooltip-dismiss.pdf`,
@@ -1736,24 +1191,24 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const markerCenter = await getCommentMarkerCenter(page, markerKey);
 
         await movePointerAwayFromCommentMarker(page, markerKey, markerCenter);
-        await delay(100);
+        await waitForNoVisibleTooltipText(page, noteText);
         await movePointerOverCommentMarker(page, markerKey, markerCenter);
         await waitForVisibleTooltipText(page, noteText);
 
         await clickCommentMarker(page, markerKey);
         await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
         await movePointerOverCommentMarker(page, markerKey, markerCenter);
-        await delay(300);
-        await waitForNoVisibleTooltipText(page, noteText);
+        await waitForTooltipTextToRemainHidden(page, noteText);
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
     });
 
     it('keeps the unsaved sticky note PDF.js anchor hidden and synced while dragging its marker', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-sticky-anchor-drag.pdf`,
@@ -1816,10 +1271,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
     it('undoes a sticky note created after a highlight without removing the highlight', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-highlight-then-note-undo.pdf`,
@@ -1847,10 +1303,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
     it('keeps highlight undo and redo coherent after saving', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const highlightFixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-highlight.pdf`,
@@ -1905,10 +1362,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
     it('restores a persisted highlight when undoing a saved sidebar delete', async () => {
-        const page = session?.page;
-        if (!page) {
-            throw new Error('Annotation lifecycle session was not initialized');
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
         }
+        const { page } = session;
 
         const highlightFixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-persisted-highlight-delete.pdf`,

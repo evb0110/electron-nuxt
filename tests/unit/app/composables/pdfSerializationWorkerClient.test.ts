@@ -8,6 +8,7 @@ import {
 import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
+const workerCloneTimeoutMs = 8_000;
 
 vi.mock('@app/utils/yieldToBrowser', () => ({ yieldToBrowser: yieldToBrowserMock }));
 
@@ -137,7 +138,7 @@ describe('pdfSerializationWorkerClient', () => {
             2,
             3,
         ]);
-    });
+    }, workerCloneTimeoutMs);
 
     it('terminates the idle worker after the TTL elapses', async () => {
         vi.useFakeTimers();

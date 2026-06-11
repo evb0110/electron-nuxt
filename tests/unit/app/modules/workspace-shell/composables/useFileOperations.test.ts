@@ -114,6 +114,20 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
     };
 }
 
+function expectWorkspaceSaveMarked(deps: ReturnType<typeof createDeps>['deps']) {
+    expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+    expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
+    expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+    expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+}
+
+function expectWorkspaceSaveNotMarked(deps: ReturnType<typeof createDeps>['deps']) {
+    expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+    expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
+    expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
+    expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+}
+
 function createPdfNoteComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? '3856R',
@@ -242,10 +256,7 @@ describe('useFileOperations', () => {
             5,
         ]);
         expect(resetModified).toHaveBeenCalledOnce();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
-        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+        expectWorkspaceSaveMarked(deps);
         expect(deps.isSaving.value).toBe(false);
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
     });
@@ -259,10 +270,7 @@ describe('useFileOperations', () => {
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
-        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+        expectWorkspaceSaveMarked(deps);
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
@@ -284,10 +292,7 @@ describe('useFileOperations', () => {
             expect.objectContaining({forceRewrite: true}),
         );
         expect(saveFile).toHaveBeenCalledOnce();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
-        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+        expectWorkspaceSaveMarked(deps);
     });
 
     it('preserves annotation undo history after a successful save', async () => {
@@ -361,6 +366,7 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
         expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
     });
@@ -1492,10 +1498,7 @@ describe('useFileOperations', () => {
         await expect(handleSave()).resolves.toBe(false);
         expect(deps.saveFile).toHaveBeenCalledOnce();
         expect(resetModified).not.toHaveBeenCalled();
-        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
-        expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
-        expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
-        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        expectWorkspaceSaveNotMarked(deps);
         const adoptPersistedShapeStateForNextReload = vi.mocked(
             deps.adoptPersistedShapeStateForNextReload!,
         );
@@ -1510,10 +1513,7 @@ describe('useFileOperations', () => {
 
         expect(settled).toBe(true);
         expect(resetModified).toHaveBeenCalledOnce();
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
-        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+        expectWorkspaceSaveMarked(deps);
     });
 
     it('arms persisted shape adoption before the save mutates the working copy bytes', async () => {
@@ -1602,10 +1602,7 @@ describe('useFileOperations', () => {
 
         await handleSave();
 
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
-        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+        expectWorkspaceSaveMarked(deps);
         expect(deps.adoptPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 

@@ -13,7 +13,11 @@ import {
     ref,
 } from 'vue';
 import { renderToString } from '@vue/server-renderer';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    type IWorkspaceExpose,
+    type IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
@@ -41,19 +45,35 @@ vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => 
 })}));
 
 function createOptions() {
+    const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
     const workspace = {
+        getAutomationStateSnapshot: vi.fn(() => ({
+            annotationComments: [],
+            annotationCommentsStatus: 'ready',
+            annotationDirty: false,
+            originalPath: null,
+            sortedAnnotationNoteWindows: [],
+            workingCopyPath: '/tmp/active.pdf',
+        })),
+        getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
         handleSaveAs: vi.fn(),
         handleRepairSave: vi.fn(),
         handleExportDocx: vi.fn(),
         handleUndo: vi.fn(),
         handleRedo: vi.fn(),
+        waitForDocumentOpenSettled: vi.fn(async () => {}),
     };
+    const activeWorkspace = ref(cast<IWorkspaceExpose>(workspace));
 
     return {
         tabs: ref([{id: 'tab-1'}]),
+        workspaceRefs: ref(new Map<string, IWorkspaceExpose>([[
+            'tab-1',
+            activeWorkspace.value,
+        ]])),
         isStartupOpenClaimPending: ref(true),
         activeTabId: ref('tab-1'),
-        activeWorkspace: ref(cast<IWorkspaceExpose>(workspace)),
+        activeWorkspace,
         createTab: vi.fn(() => ({id: 'tab-2'})),
         activateTab: vi.fn(),
         handleCloseTab: vi.fn(),
@@ -75,7 +95,36 @@ function createOptions() {
     };
 }
 
+function createWorkspaceForAutomation(snapshot: Partial<IWorkspaceToolbarSnapshot>) {
+    return cast<IWorkspaceExpose>({
+        getAutomationStateSnapshot: vi.fn(() => ({
+            annotationComments: [],
+            annotationCommentsStatus: 'ready',
+            annotationDirty: false,
+            originalPath: null,
+            sortedAnnotationNoteWindows: [],
+            workingCopyPath: `/tmp/page-${snapshot.currentPage ?? 1}.pdf`,
+        })),
+        getToolbarSnapshot: vi.fn(() => ({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            ...snapshot,
+        })),
+        handleUndo: vi.fn(),
+        waitForDocumentOpenSettled: vi.fn(async () => {}),
+    });
+}
+
 let capturedKeydown: ((event: KeyboardEvent) => void) | undefined;
+
+class CustomEventStub<T = unknown> {
+    readonly detail: T | null;
+    readonly type: string;
+
+    constructor(type: string, init?: CustomEventInit<T>) {
+        this.type = type;
+        this.detail = init?.detail ?? null;
+    }
+}
 
 async function mountBindings(options: ReturnType<typeof createOptions>) {
     const { useTabsShellBindings } = await import('@app/modules/workspace-shell/composables/useTabsShellBindings');
@@ -125,6 +174,8 @@ describe('useTabsShellBindings', () => {
         vi.resetModules();
         vi.clearAllMocks();
         capturedKeydown = undefined;
+        vi.stubGlobal('window', { dispatchEvent: vi.fn() });
+        vi.stubGlobal('CustomEvent', CustomEventStub);
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         mocks.shouldPreferDesktopPlatform.mockReturnValue(false);
         mocks.waitForDesktopPlatformBridge.mockResolvedValue(true);
@@ -135,6 +186,69 @@ describe('useTabsShellBindings', () => {
             }
             return vi.fn();
         });
+        if (typeof window !== 'undefined') {
+            delete window.__allowRendererFileOpenForAutomation;
+            delete window.__evbTestApi;
+            delete window.__handleSave;
+            delete window.__openFileDirect;
+        }
+    });
+
+    it('keeps the stable automation API absent when automation hooks are unavailable', async () => {
+        const options = createOptions();
+
+        const unmount = await mountBindingsClient(options);
+
+        expect(window.__evbTestApi).toBeUndefined();
+        expect(window.__openFileDirect).toBe(options.openPathInAppropriateTab);
+        unmount();
+    });
+
+    it('installs and cleans up the stable automation API in automation mode', async () => {
+        window.__allowRendererFileOpenForAutomation = vi.fn(async () => true);
+        const options = createOptions();
+        options.openPathInAppropriateTab = vi.fn(async () => true);
+
+        const unmount = await mountBindingsClient(options);
+
+        await expect(window.__evbTestApi?.openFile('/tmp/sample.pdf')).resolves.toBe(true);
+        expect(options.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/sample.pdf');
+        expect(window.__evbTestApi?.getActiveTabId()).toBe('tab-1');
+        expect(window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage).toBe(1);
+        await expect(window.__evbTestApi?.waitForActiveDocumentOpenSettled()).resolves.toBe(true);
+
+        unmount();
+
+        expect(window.__evbTestApi).toBeUndefined();
+        expect(window.__openFileDirect).toBeUndefined();
+    });
+
+    it('reads the current active workspace through the automation API after tab changes', async () => {
+        window.__allowRendererFileOpenForAutomation = vi.fn(async () => true);
+        const options = createOptions();
+        const secondWorkspace = createWorkspaceForAutomation({ currentPage: 7 });
+
+        const unmount = await mountBindingsClient(options);
+        const installedApi = window.__evbTestApi;
+
+        expect(installedApi?.getActiveToolbarSnapshot()?.currentPage).toBe(1);
+
+        options.tabs.value.push({id: 'tab-2'});
+        options.activeTabId.value = 'tab-2';
+        options.activeWorkspace.value = secondWorkspace;
+        options.workspaceRefs.value.set('tab-2', secondWorkspace);
+        await nextTick();
+
+        expect(installedApi?.getActiveTabId()).toBe('tab-2');
+        expect(installedApi?.getActiveToolbarSnapshot()?.currentPage).toBe(7);
+        await expect(installedApi?.callActiveWorkspaceCommand('handleUndo')).resolves.toEqual({
+            called: true,
+            value: null,
+        });
+        expect(secondWorkspace.handleUndo).toHaveBeenCalledOnce();
+        expect(installedApi?.readActiveWorkspaceStateValues(['workingCopyPath'])).toEqual({ workingCopyPath: '/tmp/page-7.pdf' });
+
+        unmount();
     });
 
     it('settles startup open claim after mounted startup work', async () => {

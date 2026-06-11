@@ -10,6 +10,8 @@ import {
     vi,
 } from 'vitest';
 
+const browserPlatformWiringTimeoutMs = 8_000;
+
 function listFilesRecursive(path: string): string[] {
     try {
         return readdirSync(path)
@@ -109,5 +111,5 @@ describe('browser OCR capability', () => {
                 jobId: 'request-4',
                 errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
             });
-    });
+    }, browserPlatformWiringTimeoutMs);
 });

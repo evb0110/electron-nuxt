@@ -23,10 +23,10 @@
 
 - `pnpm run check:naming` is part of `pnpm lint`.
 - Run `pnpm validate` after major changes.
-- Use `pnpm run fallow:all` only when intentionally checking dead code, duplicates, and complexity together.
+- Use `pnpm run fallow:all` for failing dead-code and duplicate checks; use `pnpm run fallow:health:summary` only when you need the informational maintainability report.
 
 ## PDF Notes
 
 - Read the FreeText note-persistence documentation before changing annotation serialization or note-window code.
-- Electron e2e is part of release gates; rerun Electron startup flakes in isolation before treating them as regressions.
+- Electron e2e runs in nightly/manual diagnostics until the smoke lane is stable enough to promote; keep release gates focused on deterministic checks.
 - For visual PDF navigation blink/skeleton debugging, see `scripts/diagnostics/README.md`.

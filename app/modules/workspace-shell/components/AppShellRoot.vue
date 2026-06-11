@@ -1024,6 +1024,7 @@ watch(showBrowserInstallHint, (isVisible) => {
 
 useTabsShellBindings({
     tabs,
+    workspaceRefs,
     activeTabId,
     activeWorkspace,
     createTab: () => {

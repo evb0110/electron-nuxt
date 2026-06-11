@@ -8,6 +8,10 @@ import {
     DEFAULT_TIMEOUT_MS,
     waitForActiveWorkspaceHost,
 } from '@tests/e2e/electron/helpers/viewerDom';
+import {
+    callWorkspaceCommand,
+    getWorkspaceToolbarSnapshot,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     'Toggle Sidebar': [
@@ -847,43 +851,12 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
 export async function scrollViewerToPage(page: Page, pageNumber: number) {
     await waitForActiveWorkspaceHost(page);
 
+    const scrollCommand = await callWorkspaceCommand(page, 'scrollToPage', [pageNumber]);
+    if (scrollCommand.called) {
+        return;
+    }
+
     const scrolled = await page.evaluate((targetPageNumber: number) => {
-        const getVisibleViewerHost = () => {
-            const viewerHosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
-            return viewerHosts.find((element) => {
-                if (!element.isConnected) {
-                    return false;
-                }
-
-                let current: HTMLElement | null = element;
-                while (current) {
-                    const style = window.getComputedStyle(current);
-                    if (
-                        style.display === 'none'
-                        || style.visibility === 'hidden'
-                        || Number(style.opacity || '1') === 0
-                    ) {
-                        return false;
-                    }
-                    current = current.parentElement;
-                }
-
-                const rect = element.getBoundingClientRect();
-                return rect.width > 100 && rect.height > 100;
-            }) ?? null;
-        };
-
-        const viewerHost = getVisibleViewerHost();
-        let currentElement: HTMLElement | null = viewerHost;
-        while (currentElement) {
-            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: { exposed?: { scrollToPage?: (page: number) => void; }; };}).__vueParentComponent?.exposed;
-            if (typeof exposed?.scrollToPage === 'function') {
-                exposed.scrollToPage(targetPageNumber);
-                return true;
-            }
-            currentElement = currentElement.parentElement;
-        }
-
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -923,43 +896,7 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
 }
 
 async function readActiveViewerCurrentPageState(page: Page) {
-    return page.evaluate(() => {
-        const isVisibleElement = (element: HTMLElement) => {
-            if (!element.isConnected) {
-                return false;
-            }
-
-            let current: HTMLElement | null = element;
-            while (current) {
-                const style = window.getComputedStyle(current);
-                if (
-                    style.display === 'none'
-                    || style.visibility === 'hidden'
-                    || Number(style.opacity || '1') === 0
-                ) {
-                    return false;
-                }
-                current = current.parentElement;
-            }
-
-            const rect = element.getBoundingClientRect();
-            return rect.width > 8 && rect.height > 8;
-        };
-
-        const viewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'))
-            .map((host, viewerIndex) => {
-                const setupState = (host as HTMLElement & { __vueParentComponent?: { setupState?: { currentPage?: number; }; }; }).__vueParentComponent?.setupState;
-                return {
-                    viewerIndex,
-                    isVisible: isVisibleElement(host),
-                    currentPage: setupState?.currentPage ?? null,
-                };
-            })
-            .filter(viewer => viewer.isVisible)
-            .sort((left, right) => right.viewerIndex - left.viewerIndex);
-
-        return viewers[0]?.currentPage ?? null;
-    });
+    return (await getWorkspaceToolbarSnapshot(page))?.currentPage ?? null;
 }
 
 export async function goToPageViaToolbar(page: Page, pageNumber: number) {
@@ -1044,22 +981,6 @@ export async function waitForToolbarCurrentPage(
             const rect = element.getBoundingClientRect();
             return rect.width > 8 && rect.height > 8;
         };
-
-        const viewerStateCurrentPage = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'))
-            .map((host, viewerIndex) => {
-                const setupState = (host as HTMLElement & { __vueParentComponent?: { setupState?: { currentPage?: number; }; }; }).__vueParentComponent?.setupState;
-                return {
-                    viewerIndex,
-                    isVisible: isVisibleElement(host),
-                    currentPage: setupState?.currentPage ?? null,
-                };
-            })
-            .filter(viewer => viewer.isVisible)
-            .sort((left, right) => right.viewerIndex - left.viewerIndex)[0]?.currentPage ?? null;
-
-        if (viewerStateCurrentPage === targetPage) {
-            return true;
-        }
 
         const currentPageText = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current'))
             .find(isVisibleElement)
@@ -1151,39 +1072,8 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
 }
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const saved = await page.evaluate(async () => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleHost);
-        const component = (host as (HTMLElement & {__vueParentComponent?: {
-            exposed?: unknown;
-            setupState?: {
-                mountedWorkspace?: { value?: unknown; };
-                workspaceRef?: { value?: unknown; };
-            };
-        };}) | null)?.__vueParentComponent;
-        const candidates = [
-            component?.exposed,
-            component?.setupState?.mountedWorkspace?.value,
-            component?.setupState?.workspaceRef?.value,
-        ];
-        for (const candidate of candidates) {
-            if (!candidate || typeof candidate !== 'object') {
-                continue;
-            }
-            const workspace = candidate as { handleSave?: () => Promise<unknown>; };
-            if (typeof workspace.handleSave === 'function') {
-                await workspace.handleSave();
-                return true;
-            }
-        }
-
+    const workspaceSave = await callWorkspaceCommand(page, 'handleSave');
+    const saved = workspaceSave.called || await page.evaluate(async () => {
         const save = (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
         if (typeof save !== 'function') {
             return false;

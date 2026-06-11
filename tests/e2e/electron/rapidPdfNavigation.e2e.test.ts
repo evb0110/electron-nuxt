@@ -1,12 +1,9 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
 } from 'vitest';
 import {
-    existsSync,
     mkdirSync,
     writeFileSync,
 } from 'node:fs';
@@ -15,11 +12,18 @@ import {
     resolve,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {
+    resolvePathFixtureAvailability,
+    selectFixtureDescribe,
+} from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
+import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
 
-const PAGE_JUMP_PDF_PATH = process.env.EVB_E2E_PAGE_JUMP_PDF_PATH
+const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
+const PAGE_JUMP_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_PAGE_JUMP_FIXTURE';
+const PAGE_JUMP_PDF_PATH = process.env[PAGE_JUMP_PDF_ENV_VAR]
     || resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
 const TARGET_PAGE = 100;
 const TRACE_OUTPUT_PATH = resolve(
@@ -37,6 +41,12 @@ const RAPID_NEXT_TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-rapid-next-to-21-trace.json',
 );
+const pageJumpFixture = resolvePathFixtureAvailability({
+    path: PAGE_JUMP_PDF_PATH,
+    label: 'page-jump PDF',
+    requiredEnvVar: PAGE_JUMP_REQUIRE_ENV_VAR,
+});
+const pageJumpDescribe = selectFixtureDescribe(describe, pageJumpFixture);
 
 type TPdfRenderTraceEntry = {
     event: string;
@@ -64,17 +74,6 @@ interface IPageButtonState {
     disabled: boolean;
     visible: boolean;
 }
-
-interface IWorkspaceJumpSetupState {
-    handleGoToPage?: (page: number) => void;
-    currentPage?: number | { value?: number };
-    pdfViewerRef?: { value?: { scrollToPage?: (page: number) => void } };
-}
-
-interface IWorkspaceHostElement extends HTMLElement {__vueParentComponent?: {
-    setupState?: { workspaceRef?: { value?: { $?: { setupState?: IWorkspaceJumpSetupState } } } };
-    exposed?: { scrollToPage?: (page: number) => void } 
-};}
 
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -230,80 +229,13 @@ async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber
 async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 15_000 });
 
-    const didJumpViaWorkspace = await session.page.evaluate((targetPageNumber: number) => {
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
+    const workspaceJump = await callWorkspaceCommand(session.page, 'handleGoToPage', [pageNumber]);
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost && isVisibleElement(activeHost)
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleElement);
-        const workspaceInstance = (host as IWorkspaceHostElement | null)?.__vueParentComponent?.setupState?.workspaceRef?.value;
-        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
-        if (typeof workspaceSetupState?.handleGoToPage === 'function') {
-            workspaceSetupState.handleGoToPage(targetPageNumber);
-            return true;
-        }
-
-        if (workspaceSetupState?.currentPage && typeof workspaceSetupState.currentPage === 'object') {
-            workspaceSetupState.currentPage.value = targetPageNumber;
-        } else if (workspaceSetupState) {
-            workspaceSetupState.currentPage = targetPageNumber;
-        }
-
-        const viewer = workspaceSetupState?.pdfViewerRef?.value ?? null;
-        if (typeof viewer?.scrollToPage === 'function') {
-            viewer.scrollToPage(targetPageNumber);
-            return true;
-        }
-
-        return false;
-    }, pageNumber);
-
-    if (didJumpViaWorkspace) {
+    if (workspaceJump.called) {
         return;
     }
 
-    await session.page.evaluate((targetPageNumber: number) => {
-        const getVisibleViewerHost = () => {
-            const viewerHosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
-            return viewerHosts.find((element) => {
-                if (!element.isConnected) {
-                    return false;
-                }
-
-                let current: HTMLElement | null = element;
-                while (current) {
-                    const style = window.getComputedStyle(current);
-                    if (
-                        style.display === 'none'
-                        || style.visibility === 'hidden'
-                        || Number(style.opacity || '1') === 0
-                    ) {
-                        return false;
-                    }
-                    current = current.parentElement;
-                }
-
-                const rect = element.getBoundingClientRect();
-                return rect.width > 100 && rect.height > 100;
-            }) ?? null;
-        };
-
-        const viewerHost = getVisibleViewerHost();
-        let currentElement: HTMLElement | null = viewerHost;
-        while (currentElement) {
-            const exposed = (currentElement as IWorkspaceHostElement).__vueParentComponent?.exposed;
-            if (typeof exposed?.scrollToPage === 'function') {
-                exposed.scrollToPage(targetPageNumber);
-                return;
-            }
-            currentElement = currentElement.parentElement;
-        }
-    }, pageNumber);
+    await callWorkspaceCommand(session.page, 'scrollToPage', [pageNumber]);
 
     const canvasMounted = await session.page.waitForFunction((targetPageNumber: number) => {
         const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
@@ -390,25 +322,29 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
     await delay(1_000);
 }
 
-describe('Electron E2E - PDF Page Jump Rendering', () => {
-    let session: IElectronE2ESession | null = null;
+pageJumpDescribe('Electron E2E - PDF Page Jump Rendering', () => {
+    let pageJumpReady = false;
 
-    beforeAll(async () => {
-        if (!existsSync(PAGE_JUMP_PDF_PATH)) {
-            return;
-        }
-        session = await startElectronE2ESession(`e2e-pdf-page-jump-${Date.now()}`);
-        await enableBufferedPdfTrace(session);
-        await openPdfInApp(session.page, PAGE_JUMP_PDF_PATH, 45_000);
-    }, 90_000);
-
-    afterAll(async () => {
-        await session?.stop();
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-pdf-page-jump-${Date.now()}`,
+        timeoutMs: 90_000,
     });
 
-    it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
+    it('opens the page-jump PDF for navigation checks', async () => {
+        const session = sessionFixture.getSession();
         if (!session) {
-            throw new Error('Page jump session was not initialized');
+            return;
+        }
+
+        await enableBufferedPdfTrace(session);
+        await openPdfInApp(session.page, PAGE_JUMP_PDF_PATH, 45_000);
+        pageJumpReady = true;
+    }, 90_000);
+
+    it('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady) {
+            return;
         }
 
         let targetCanvasMounted = false;
@@ -466,9 +402,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(blankVisiblePages).toEqual([]);
     }, 70_000);
 
-    it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('renders the final page after twenty rapid next-page clicks', async () => {
-        if (!session) {
-            throw new Error('Page jump session was not initialized');
+    it('renders the final page after twenty rapid next-page clicks', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady) {
+            return;
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -501,9 +438,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(blankVisiblePages).toEqual([]);
     }, 80_000);
 
-    it.runIf(existsSync(PAGE_JUMP_PDF_PATH))('keeps page overlays mounted after jumping to page 100', async () => {
-        if (!session) {
-            throw new Error('Page jump session was not initialized');
+    it('keeps page overlays mounted after jumping to page 100', async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady) {
+            return;
         }
 
         await delay(5_000);

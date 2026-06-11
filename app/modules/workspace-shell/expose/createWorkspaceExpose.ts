@@ -2,6 +2,11 @@ import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import { ZOOM } from '@app/constants/pdfLayout';
 import type {
+    IAnnotationCommentSummary,
+    TAnnotationCommentsStatus,
+} from '@app/types/annotations';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type {
     TFitMode,
     TPdfViewMode,
     TZoomMode,
@@ -11,9 +16,11 @@ import type {
     IWorkspaceExportPort,
     IWorkspaceExpose,
     IWorkspaceFilePort,
+    IWorkspaceAutomationStateSnapshot,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
@@ -71,6 +78,13 @@ interface ICreateWorkspaceExposeDeps extends
     captureSplitPayload: IWorkspaceExpose['captureSplitPayload'];
     restoreSplitPayload: IWorkspaceExpose['restoreSplitPayload'];
     waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
+    workingCopyPath: Ref<TDocumentRef | null>;
+    originalPath: Ref<TDocumentRef | null>;
+    annotationComments: Ref<IAnnotationCommentSummary[]>;
+    annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
+    annotationDirty: Ref<boolean>;
+    sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
+    handleOcrComplete: (payload: unknown) => Promise<void>;
 }
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
@@ -206,6 +220,20 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         deps.zoomMode.value = 'custom';
     }
 
+    function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
+        return {
+            annotationComments: [...deps.annotationComments.value],
+            annotationCommentsStatus: deps.annotationCommentsStatus.value,
+            annotationDirty: deps.annotationDirty.value,
+            originalPath: deps.originalPath.value,
+            sortedAnnotationNoteWindows: deps.sortedAnnotationNoteWindows.value.map(note => ({
+                ...note,
+                comment: {...note.comment},
+            })),
+            workingCopyPath: deps.workingCopyPath.value,
+        };
+    }
+
     return {
         handleSave: handleSaveFromCommandSurface,
         handleRepairSave: handleRepairSaveFromCommandSurface,
@@ -304,5 +332,17 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         readAgentResource: deps.readAgentResource,
         closeAllDropdowns: deps.closeAllDropdowns,
         getToolbarSnapshot,
+        getAutomationStateSnapshot,
+        handleOcrComplete: deps.handleOcrComplete,
+        scrollToPage: (page: number) => {
+            deps.pdfViewerRef?.value?.scrollToPage(page);
+        },
+        getAllShapes: () => deps.pdfViewerRef?.value?.getAllShapes?.() ?? [],
+        getDeletedEmbeddedShapeAnnotationIds: () => deps.pdfViewerRef?.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
+        getDeletedEmbeddedShapeStableKeys: () => deps.pdfViewerRef?.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+        highlightSelection: () => deps.pdfViewerRef?.value?.highlightSelection?.() ?? Promise.resolve(false),
+        commentAtPoint: (pageNumber, pageX, pageY, options) => (
+            deps.pdfViewerRef?.value?.commentAtPoint?.(pageNumber, pageX, pageY, options) ?? Promise.resolve(false)
+        ),
     };
 }

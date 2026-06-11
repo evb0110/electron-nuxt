@@ -18,6 +18,8 @@ interface IRegisteredEvent {
 
 type TRegisteredHandler = (event: IRegisteredEvent, ...args: unknown[]) => unknown;
 
+const ipcRegistrySecurityImportTimeoutMs = 10_000;
+
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
     logger: {
@@ -116,7 +118,7 @@ describe('IPC registry sender trust', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(
             '[ipc] rejected settings:get: untrusted sender URL http://127.0.0.1:41001/admin (expected http://127.0.0.1:41001/electron)',
         );
-    });
+    }, ipcRegistrySecurityImportTimeoutMs);
 
     it('allows senders under the configured renderer route', async () => {
         const handler = await getSettingsHandler();

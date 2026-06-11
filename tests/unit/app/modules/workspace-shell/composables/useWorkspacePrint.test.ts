@@ -146,6 +146,35 @@ function createFakeFrame() {
     };
 }
 
+function stubDocumentWithFrame(appFrame = createFakeFrame()) {
+    vi.stubGlobal('document', {
+        body: { append: vi.fn() },
+        createElement: vi.fn((tag: string) => {
+            if (tag !== 'iframe') {
+                throw new Error(`Unexpected element: ${tag}`);
+            }
+            return appFrame.frame;
+        }),
+    });
+
+    return appFrame;
+}
+
+function stubDocumentWithFrames(frames: Array<ReturnType<typeof createFakeFrame>>) {
+    let frameCreateCount = 0;
+    vi.stubGlobal('document', {
+        body: { append: vi.fn() },
+        createElement: vi.fn((tag: string) => {
+            if (tag !== 'iframe') {
+                throw new Error(`Unexpected element: ${tag}`);
+            }
+            const frame = frames[frameCreateCount];
+            frameCreateCount += 1;
+            return frame?.frame ?? frames.at(-1)!.frame;
+        }),
+    });
+}
+
 async function flushMicrotasks(iterations = 6) {
     for (let index = 0; index < iterations; index += 1) {
         await Promise.resolve();
@@ -260,16 +289,7 @@ describe('useWorkspacePrint', () => {
     it('quick-prints through rendered browser printing', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getQuickPrintPageMetrics,
             getPrintableSourceData,
@@ -317,16 +337,7 @@ describe('useWorkspacePrint', () => {
     it('uses rendered browser printing for the default flow when a working copy path is available', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -367,16 +378,7 @@ describe('useWorkspacePrint', () => {
     it('prints only the current page through rendered browser printing', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -415,16 +417,7 @@ describe('useWorkspacePrint', () => {
 
     it('prints the current loaded PDF.js page without rebuilding the whole PDF', async () => {
         const renderLoadedPdfPagesForBrowserPrint = vi.fn(async () => {});
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -479,16 +472,7 @@ describe('useWorkspacePrint', () => {
                 }, { once: true });
             });
         });
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -531,16 +515,7 @@ describe('useWorkspacePrint', () => {
             error: 'Printing via the native desktop dialog is unavailable in the browser capability',
         });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -581,16 +556,7 @@ describe('useWorkspacePrint', () => {
     it('falls back to a one-page printable PDF when native current-page extraction rejects', async () => {
         documentsCapabilityMock.printPdfPath.mockRejectedValue(new Error('Path is outside the allowed working directory'));
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -631,16 +597,7 @@ describe('useWorkspacePrint', () => {
     });
 
     it('quick-prints the current browser PDF source without rebuilding it', async () => {
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getQuickPrintPageMetrics,
             getPrintableSourceData,
@@ -687,16 +644,7 @@ describe('useWorkspacePrint', () => {
             success: false,
             error: 'Printing via the native desktop dialog is unavailable in the browser capability',
         });
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -736,16 +684,7 @@ describe('useWorkspacePrint', () => {
     });
 
     it('prints the current source PDF directly in the browser for the default flow', async () => {
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -794,16 +733,7 @@ describe('useWorkspacePrint', () => {
     it('never hands print jobs to the default PDF app when using rendered browser printing', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -840,16 +770,7 @@ describe('useWorkspacePrint', () => {
     it('still builds a transformed PDF when the default flow cannot print from an existing source directly', async () => {
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(false);
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getQuickPrintPageMetrics,
             getPrintableSourceData,
@@ -898,16 +819,7 @@ describe('useWorkspacePrint', () => {
     it('builds a transformed PDF and prints it through the rendered browser path', async () => {
         documentsCapabilityMock.printPdfData.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -950,16 +862,7 @@ describe('useWorkspacePrint', () => {
             error: 'Printing via the native desktop dialog is unavailable in the browser capability',
         });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        const appFrame = stubDocumentWithFrame();
         const {
             getPrintableSourceData,
             scope,
@@ -1008,17 +911,10 @@ describe('useWorkspacePrint', () => {
         renderedFrame.frameWindow.print.mockImplementation(() => {
             throw new Error('Blocked a frame with origin "http://127.0.0.1:3235" from accessing a cross-origin frame.');
         });
-        let frameCreateCount = 0;
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                frameCreateCount += 1;
-                return frameCreateCount === 1 ? renderedFrame.frame : pdfViewerFrame.frame;
-            }),
-        });
+        stubDocumentWithFrames([
+            renderedFrame,
+            pdfViewerFrame,
+        ]);
         const {
             scope,
             state,
@@ -1069,15 +965,7 @@ describe('useWorkspacePrint', () => {
         appFrame.frameWindow.removeEventListener.mockImplementation(() => {
             throw new Error('removeEventListener should not run for blocked cross-origin frames');
         });
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+        stubDocumentWithFrame(appFrame);
         const {
             scope,
             state,

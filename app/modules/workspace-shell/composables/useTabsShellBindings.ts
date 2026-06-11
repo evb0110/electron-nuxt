@@ -1,6 +1,16 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    IEvbTestCommandResult,
+    IEvbTestApi,
+    IEvbTestWorkspaceDebugState,
+} from '@app/types/evbTestApi';
+import type {
+    IWorkspaceAutomationStateSnapshot,
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 import {
     getPlatformAPI,
     shouldPreferDesktopPlatform,
@@ -23,6 +33,7 @@ const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcu
 
 interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     tabs: Ref<Array<{ id: string }>>;
+    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
@@ -32,6 +43,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const route = useRoute();
     const {
         tabs,
+        workspaceRefs,
         isStartupOpenClaimPending,
         activeTabId,
         activeWorkspace,
@@ -56,6 +68,133 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
     const menuCleanups: Array<() => void> = [];
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
+    let installedTestApi: IEvbTestApi | null = null;
+
+    function isAutomationTestApiEnabled() {
+        return typeof window !== 'undefined'
+            && typeof window.__allowRendererFileOpenForAutomation === 'function';
+    }
+
+    function readWorkspaceSnapshot(workspace: IWorkspaceExpose | null): IWorkspaceToolbarSnapshot | null {
+        try {
+            return workspace?.getToolbarSnapshot() ?? null;
+        } catch (error) {
+            BrowserLogger.warn('tabs-shell', 'Failed to read workspace toolbar snapshot for automation API', error);
+            return null;
+        }
+    }
+
+    function readWorkspaceAutomationState(
+        workspace: IWorkspaceExpose | null,
+    ): IWorkspaceAutomationStateSnapshot | Record<string, never> {
+        try {
+            return workspace?.getAutomationStateSnapshot() ?? {};
+        } catch (error) {
+            BrowserLogger.warn('tabs-shell', 'Failed to read workspace automation state', error);
+            return {};
+        }
+    }
+
+    function unwrapAutomationValue(value: unknown) {
+        const unwrapped = value
+        && typeof value === 'object'
+        && 'value' in value
+            ? (value as { value?: unknown }).value
+            : value;
+        return unwrapped instanceof Set ? Array.from(unwrapped) : unwrapped;
+    }
+
+    function createEvbTestApi(): IEvbTestApi {
+        const getActiveWorkspaceHandle = () => activeWorkspace.value;
+
+        function readActiveWorkspaceStateValues<TValues extends Record<string, unknown> = Record<string, unknown>>(
+            propertyNames: string[],
+        ): TValues {
+            const workspace = getActiveWorkspaceHandle();
+            const automationState = readWorkspaceAutomationState(workspace) as Record<string, unknown>;
+            const workspaceRecord = workspace as Record<string, unknown> | null;
+            const values: Record<string, unknown> = {};
+
+            for (const propertyName of propertyNames) {
+                if (propertyName in automationState) {
+                    values[propertyName] = automationState[propertyName];
+                    continue;
+                }
+
+                values[propertyName] = unwrapAutomationValue(workspaceRecord?.[propertyName]);
+            }
+
+            return values as TValues;
+        }
+
+        const callActiveWorkspaceCommand = async <TResult = unknown>(
+            commandName: string,
+            args: unknown[] = [],
+        ): Promise<IEvbTestCommandResult<TResult>> => {
+            const workspace = getActiveWorkspaceHandle();
+            const command = (workspace as Record<string, unknown> | null)?.[commandName];
+            if (typeof command !== 'function') {
+                return {
+                    called: false,
+                    value: null,
+                };
+            }
+
+            const value = await Promise.resolve((command as (...values: unknown[]) => unknown).apply(workspace, args));
+            return {
+                called: true,
+                value: (value ?? null) as TResult | null,
+            };
+        };
+
+        return {
+            openFile: openPathInAppropriateTab,
+            openFiles: openPathsInAppropriateTab,
+            getActiveTabId: () => activeTabId.value,
+            getActiveWorkspaceHandle,
+            getActiveToolbarSnapshot: () => readWorkspaceSnapshot(getActiveWorkspaceHandle()),
+            readActiveWorkspaceStateValues,
+            callActiveWorkspaceCommand,
+            collectWorkspaceDebugState: (): IEvbTestWorkspaceDebugState => {
+                const activeWorkspaceHandle = getActiveWorkspaceHandle();
+                return {
+                    activeTabId: activeTabId.value,
+                    activeToolbarSnapshot: readWorkspaceSnapshot(activeWorkspaceHandle),
+                    activeWorkspaceState: readWorkspaceAutomationState(activeWorkspaceHandle),
+                    workspaceCount: workspaceRefs.value.size,
+                    workspaces: Array.from(
+                        workspaceRefs.value.entries(),
+                    ).map(([
+                        tabId,
+                        workspace,
+                    ]) => ({
+                        automationStateKeys: Object.keys(readWorkspaceAutomationState(workspace)),
+                        exposedKeys: Object.keys(workspace),
+                        isActive: tabId === activeTabId.value,
+                        tabId,
+                        toolbarSnapshot: readWorkspaceSnapshot(workspace),
+                    })),
+                };
+            },
+            waitForActiveDocumentOpenSettled: async () => {
+                const workspace = getActiveWorkspaceHandle();
+                if (!workspace) {
+                    return false;
+                }
+                await workspace.waitForDocumentOpenSettled();
+                return true;
+            },
+        };
+    }
+
+    function installAutomationTestApi() {
+        if (!isAutomationTestApiEnabled()) {
+            return;
+        }
+
+        installedTestApi = createEvbTestApi();
+        window.__evbTestApi = installedTestApi;
+    }
 
     function dispatchStartupOpenClaimed(pathCount: number) {
         if (typeof window === 'undefined') {
@@ -227,6 +366,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<boolean> }).__openFileDirect = openPathInAppropriateTab;
             (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave = debugHandleSave;
+            installAutomationTestApi();
         }
 
         void (async () => {
@@ -287,6 +427,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
             // Remove debug hooks on unmount so old closures do not retain stale workspace state.
             delete (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
+        }
+        if (typeof window !== 'undefined' && window.__evbTestApi === installedTestApi) {
+            delete window.__evbTestApi;
         }
         menuCleanups.forEach(cleanup => cleanup());
         stopTabKeyboardShortcutListener();

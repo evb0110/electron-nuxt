@@ -1331,6 +1331,13 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     waitForDocumentOpenSettled,
     runAgentAction,
     readAgentResource,
+    workingCopyPath,
+    originalPath,
+    annotationComments,
+    annotationCommentsStatus,
+    annotationDirty,
+    sortedAnnotationNoteWindows,
+    handleOcrComplete: payload => handleOcrComplete(payload as Parameters<typeof handleOcrComplete>[0]),
 });
 
 defineExpose(workspaceExpose);

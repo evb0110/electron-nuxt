@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     afterEach,
     beforeEach,
@@ -86,55 +88,10 @@ function createUiManager(overrides: Partial<IUiManagerLike> = {}) {
     };
 }
 
-class FakeStyleDeclaration {
-    private readonly values = new Map<string, string>();
-
-    setProperty(name: string, value: string) {
-        this.values.set(name, value);
-    }
-
-    removeProperty(name: string) {
-        this.values.delete(name);
-    }
-
-    getPropertyValue(name: string) {
-        return this.values.get(name) ?? '';
-    }
-}
-
-class FakeClassList {
-    private readonly values = new Set<string>();
-
-    add(...names: string[]) {
-        names.forEach(name => this.values.add(name));
-    }
-
-    remove(...names: string[]) {
-        names.forEach(name => this.values.delete(name));
-    }
-
-    contains(name: string) {
-        return this.values.has(name);
-    }
-
-    [Symbol.iterator]() {
-        return this.values[Symbol.iterator]();
-    }
-}
-
-class FakeMarkupElement {
-    readonly classList = new FakeClassList();
-    readonly dataset: Record<string, string> = {};
-    readonly style = new FakeStyleDeclaration();
-    readonly isConnected = true;
-
-    querySelector() {
-        return null;
-    }
-
-    closest() {
-        return null;
-    }
+function createMarkupElement() {
+    const element = document.createElement('div');
+    document.body.append(element);
+    return element;
 }
 
 function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
@@ -160,6 +117,7 @@ function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, o
 describe('useAnnotationToolState', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        document.body.replaceChildren();
     });
 
     afterEach(() => {
@@ -325,18 +283,17 @@ describe('useAnnotationToolState', () => {
     });
 
     it('keeps each existing underline painted with its captured editor color when defaults change', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const settings = ref(createAnnotationSettings());
         const firstEditor = {
             id: 'underline-1',
             color: '#f59e0b',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
         };
         const secondEditor = {
             id: 'underline-2',
             color: '#22c55e',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
         };
         const uiManager = createUiManager({ getEditors: vi.fn(() => [
             firstEditor,
@@ -348,8 +305,8 @@ describe('useAnnotationToolState', () => {
             tool: 'underline',
         }) as never);
 
-        manager.setEditorMarkupSubtypeOverride(firstEditor as never, 0, 'Underline');
-        manager.setEditorMarkupSubtypeOverride(secondEditor as never, 0, 'Underline');
+        manager.setEditorMarkupSubtypeOverride(firstEditor, 0, 'Underline');
+        manager.setEditorMarkupSubtypeOverride(secondEditor, 0, 'Underline');
         settings.value = {
             ...settings.value,
             underlineColor: '#3b82f6',
@@ -361,7 +318,6 @@ describe('useAnnotationToolState', () => {
     });
 
     it('updates selected highlights with an opaque display color and raw persisted color', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const highlightEditor = {
             id: 'highlight-1',
@@ -369,7 +325,7 @@ describe('useAnnotationToolState', () => {
             opacity: 1,
             isSelected: true,
             parentPageIndex: 0,
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.2,
             width: 0.3,
@@ -384,7 +340,7 @@ describe('useAnnotationToolState', () => {
             tool: 'highlight',
         }) as never);
 
-        manager.setEditorMarkupSubtypeOverride(highlightEditor as never, 0, 'Highlight');
+        manager.setEditorMarkupSubtypeOverride(highlightEditor, 0, 'Highlight');
         highlightEditor.onUpdatedColor.mockClear();
         highlightEditor.addToAnnotationStorage.mockClear();
 
@@ -408,7 +364,6 @@ describe('useAnnotationToolState', () => {
     });
 
     it('marks existing materialized text markup as changed after color updates', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const addChangedExistingAnnotation = vi.fn();
         const highlightEditor = {
@@ -416,7 +371,7 @@ describe('useAnnotationToolState', () => {
             annotationElementId: '42R0',
             color: '#ffff66',
             opacity: 1,
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.2,
             width: 0.3,
@@ -446,9 +401,8 @@ describe('useAnnotationToolState', () => {
     });
 
     it('reapplies underline presentation after PDF.js updates editor color', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
-        const div = new FakeMarkupElement();
+        const div = createMarkupElement();
         const underlineEditor = {
             id: 'underline-1',
             color: '#00ff00',
@@ -472,7 +426,7 @@ describe('useAnnotationToolState', () => {
             tool: 'underline',
         }) as never);
 
-        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
         underlineEditor.onUpdatedColor.mockClear();
         underlineEditor.addToAnnotationStorage.mockClear();
 
@@ -484,14 +438,13 @@ describe('useAnnotationToolState', () => {
     });
 
     it('stores raw highlight color for selection-created editors instead of the opaque display color', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const highlightEditor = {
             id: 'highlight-1',
             color: '#ffff66',
             opacity: 1,
             __evbSelectionText: 'selected text',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.2,
             width: 0.3,
@@ -508,13 +461,12 @@ describe('useAnnotationToolState', () => {
     });
 
     it('uses raw highlight settings for active-tool subtype overrides while keeping the visual color opaque', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const highlightEditor = {
             id: 'highlight-1',
             color: '#ffff66',
             opacity: 1,
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.2,
             width: 0.3,
@@ -529,7 +481,7 @@ describe('useAnnotationToolState', () => {
         }) as never);
 
         manager.setEditorMarkupSubtypeOverride(
-            highlightEditor as never,
+            highlightEditor,
             0,
             'Highlight',
             { preferEditorColor: false },
@@ -541,14 +493,13 @@ describe('useAnnotationToolState', () => {
     });
 
     it('prefers materialized annotation colors over stale editor defaults', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const underlineEditor = {
             id: 'underline-1',
             annotationElementId: '42R0',
             color: '#ffd400',
             opacity: 1,
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
         };
         underlineEditor.div.classList.add('highlightEditor');
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager({ getEditors: vi.fn(() => [underlineEditor]) }), {
@@ -565,13 +516,12 @@ describe('useAnnotationToolState', () => {
     });
 
     it('uses normalized materialized annotation ids for markup color overrides', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const underlineEditor = {
             id: 'underline-1',
             annotationElementId: '42R',
             color: '#ef4444',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
         };
         underlineEditor.div.classList.add('highlightEditor');
         const manager = useAnnotationToolState(createToolStateOptions(createUiManager({ getEditors: vi.fn(() => [underlineEditor]) }), {
@@ -585,11 +535,10 @@ describe('useAnnotationToolState', () => {
     });
 
     it('records the per-page text markup order for subtype geometry hints', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const highlightEditor = {
             id: 'highlight-1',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.1,
             width: 0.4,
@@ -598,7 +547,7 @@ describe('useAnnotationToolState', () => {
         highlightEditor.div.classList.add('highlightEditor');
         const underlineEditor = {
             id: 'underline-1',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.1,
             width: 0.4,
@@ -614,7 +563,7 @@ describe('useAnnotationToolState', () => {
             tool: 'underline',
         }) as never);
 
-        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
 
         const hints = manager.getMarkupSubtypeHints();
         expect(hints).toHaveLength(1);
@@ -628,11 +577,10 @@ describe('useAnnotationToolState', () => {
     });
 
     it('drops subtype geometry hints for editors no longer present on the page', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const underlineEditor = {
             id: 'underline-1',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.1,
             width: 0.4,
@@ -645,19 +593,18 @@ describe('useAnnotationToolState', () => {
             tool: 'underline',
         }) as never);
 
-        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
         uiManager.getEditors.mockReturnValue([]);
 
         expect(manager.getMarkupSubtypeHints()).toEqual([]);
     });
 
     it('clears stale ref overrides for materialized PDF annotations', async () => {
-        vi.stubGlobal('HTMLElement', FakeMarkupElement);
         const { useAnnotationToolState } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
         const underlineEditor = {
             id: 'underline-1',
             annotationElementId: '42R0',
-            div: new FakeMarkupElement(),
+            div: createMarkupElement(),
             x: 0.1,
             y: 0.1,
             width: 0.4,
@@ -670,7 +617,7 @@ describe('useAnnotationToolState', () => {
             tool: 'underline',
         }) as never);
 
-        manager.setEditorMarkupSubtypeOverride(underlineEditor as never, 0, 'Underline');
+        manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
         manager.forgetMarkupSubtypeOverride('42R0');
 
         expect(manager.getMarkupSubtypeOverrides().has('42R0')).toBe(false);

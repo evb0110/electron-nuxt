@@ -9,6 +9,7 @@ import { sendCommand } from '@scripts/electron-run/sendCommand';
 import { buildHeadlessAutomationEnv } from '@scripts/electron-run/electronRunLaunchConfig';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
+import { formatElectronStartupDiagnostics } from '@scripts/electron-run/electronRunStartupDiagnostics';
 import {
     getSessionInfo,
     getSessionStartingInfo,
@@ -78,6 +79,7 @@ function createSessionDiagnostics(sessionName: string) {
     const logTail = readSessionLogTail(120);
     return [
         `Session diagnostics: ${JSON.stringify(details, null, 2)}`,
+        formatElectronStartupDiagnostics(),
         logTail ? `--- Recent session log ---\n${logTail}` : 'No session log tail available.',
     ].join('\n');
 }

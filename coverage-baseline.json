@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "tolerancePercentagePoints": 0.5,
+  "metrics": {
+    "statements": 61.27,
+    "branches": 52.85,
+    "functions": 64.33,
+    "lines": 61.48
+  }
+}

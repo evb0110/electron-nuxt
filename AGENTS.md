@@ -8,6 +8,7 @@
 - Keep `pnpm run release:verify` host-only, deterministic, and free of tracked-file mutations.
 - Add host-independent unit coverage for cross-platform release decisions.
 - Keep local release verification aligned with CI mode when runner semantics affect tests.
+- Use nightly/manual CI for Electron E2E and PDF tab diagnostics until those lanes are stable enough to promote into a blocking release gate.
 - Record release-critical install scripts in `pnpm-workspace.yaml` so fresh CI installs fail fast.
 - For release-critical native tools on macOS, verify execution from inside the signed app bundle.
 - Treat ad-hoc local mac packaging as insufficient evidence for LaunchServices startup behavior.

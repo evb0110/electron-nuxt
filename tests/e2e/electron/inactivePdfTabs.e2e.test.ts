@@ -1,22 +1,20 @@
 import {
-    afterAll,
-    beforeAll,
     describe,
     expect,
     it,
 } from 'vitest';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/viewerPressure';
 import {
-    assertInactiveDocumentPressureReleased,
     getToolbarCurrentPage,
     openPdfInApp,
     scrollViewerToPage,
     setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
-    waitForTabCount,
-} from '@tests/e2e/electron/helpers/viewerHelpers';
+} from '@tests/e2e/electron/helpers/viewerCore';
+import {waitForTabCount} from '@tests/e2e/electron/helpers/viewerTabs';
 
 interface IWorkspaceHostPressure {
     index: number;
@@ -165,26 +163,20 @@ async function waitForVisibleRenderedPdfHosts(session: IElectronE2ESession, expe
 }
 
 describe('Electron E2E - Inactive PDF Tabs', () => {
-    let session: IElectronE2ESession | null = null;
     let firstFixturePath = '';
     let secondFixturePath = '';
 
-    beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-inactive-pdf-tabs-${Date.now()}`);
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-inactive-pdf-tabs-${Date.now()}`});
+
+    it('releases rendered page resources from hidden PDF tabs and restores them on activation', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
         await setTabMemoryPolicyForE2E(session.page, 'aggressive');
         firstFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-first-${Date.now()}.pdf`, 3);
         secondFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-second-${Date.now()}.pdf`, 3);
-    });
-
-    afterAll(async () => {
-        await session?.stop();
-    });
-
-    it('releases rendered page resources from hidden PDF tabs and restores them on activation', async () => {
-        if (!session) {
-            throw new Error('Inactive PDF tabs session was not initialized');
-        }
-
         await openPdfInApp(session.page, firstFixturePath);
         await waitForPdfLoaded(session.page);
         await scrollViewerToPage(session.page, 3);
@@ -225,8 +217,9 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
     });
 
     it('keeps every visible split-pane document rendered while releasing hidden resources', async () => {
+        const session = sessionFixture.getSession();
         if (!session) {
-            throw new Error('Inactive PDF tabs session was not initialized');
+            return;
         }
 
         await activateTab(session, 0);

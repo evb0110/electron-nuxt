@@ -61,56 +61,75 @@ async function flushCurrentPageFitRerender() {
     await Promise.resolve();
 }
 
+type TCoordinatorDeps = Parameters<typeof usePdfViewerRerenderCoordinator>[0];
+
+function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps {
+    const currentPage = ref(1);
+    const visibleRange = ref({
+        start: 1,
+        end: 1,
+    });
+
+    return {
+        viewerContainer: ref(null),
+        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+        isLoading: ref(false),
+        numPages: ref(10),
+        currentPage,
+        visibleRange,
+        zoom: computed(() => 1),
+        zoomMode: computed(() => 'custom' as const),
+        fitMode: computed(() => 'width' as const),
+        viewMode: computed(() => 'single' as const),
+        isResizing: computed(() => false),
+        continuousScroll: computed(() => false),
+        getVisibleRange: () => visibleRange.value,
+        reRenderAllVisiblePages: vi.fn(async () => {}),
+        isPageRendered: vi.fn(() => true),
+        summarizeViewerMetricsForLog: vi.fn(() => null),
+        summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
+        syncCurrentPageFromViewport: vi.fn(async () => {}),
+        markLowResZoomRerenderUsed: vi.fn(),
+        buildResizeAnchorContext: vi.fn((options?: IBuildResizeAnchorContextOptions) => {
+            return createResizeAnchor(options?.preferredAnchorPage ?? currentPage.value);
+        }),
+        scheduleEndResizeTransition: vi.fn(),
+        enqueueZoomSync: vi.fn(),
+        scheduleResizeAwareRerender: vi.fn(),
+        cancelInFlightPageRenders: vi.fn(),
+        computeFitWidthScale: vi.fn(() => false),
+        syncHorizontalScrollForZoomMode: vi.fn(() => true),
+        setupPagePlaceholders: vi.fn(),
+        scrollToPage: vi.fn(),
+        getMostVisiblePage: vi.fn(() => currentPage.value),
+        resetContinuousScrollState: vi.fn(),
+        resetZoomRerenderQueueState: vi.fn(),
+        consumeZoomViewportAnchor: vi.fn(() => null),
+        beginResizeTransition: vi.fn(() => 1),
+        consumeSuppressedZoomRerender: vi.fn(() => false),
+        ...overrides,
+    };
+}
+
 describe('usePdfViewerRerenderCoordinator', () => {
     it('skips scheduling a zoom rerender when the zoom change was already handled by reload recovery', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
         const consumeSuppressedZoomRerender = vi.fn(() => true);
         const enqueueZoomSync = vi.fn();
         const cancelInFlightPageRenders = vi.fn();
 
-        pdfDocument.value = cast<PDFDocumentProxy>({});
-
-        usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument,
-            isLoading: ref(false),
+        usePdfViewerRerenderCoordinator(createDeps({
             numPages: ref(10),
-            currentPage: ref(1),
-            visibleRange: ref({
-                start: 1,
-                end: 1,
-            }),
             zoom: computed(() => zoom.value),
             fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
-            continuousScroll: computed(() => false),
             getVisibleRange: () => ({
                 start: 1,
                 end: 1,
             }),
-            reRenderAllVisiblePages: vi.fn(async () => {}),
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-            syncCurrentPageFromViewport: vi.fn(async () => {}),
-            markLowResZoomRerenderUsed: vi.fn(),
-            buildResizeAnchorContext: vi.fn(() => createResizeAnchor(1)),
-            scheduleEndResizeTransition: vi.fn(),
             enqueueZoomSync,
-            scheduleResizeAwareRerender: vi.fn(),
             cancelInFlightPageRenders,
-            computeFitWidthScale: vi.fn(() => false),
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
-            getMostVisiblePage: vi.fn(() => 1),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
             consumeSuppressedZoomRerender,
-        });
+        }));
 
         zoom.value = 1.94;
         await nextTick();
@@ -131,40 +150,18 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(157));
         const enqueueZoomSync = vi.fn();
 
-        usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
+        usePdfViewerRerenderCoordinator(createDeps({
             pdfDocument,
-            isLoading: ref(false),
             numPages: ref(348),
             currentPage,
             visibleRange,
             zoom: computed(() => zoom.value),
             fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
-            continuousScroll: computed(() => false),
             getVisibleRange: () => visibleRange.value,
-            reRenderAllVisiblePages: vi.fn(async () => {}),
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-            syncCurrentPageFromViewport: vi.fn(async () => {}),
-            markLowResZoomRerenderUsed: vi.fn(),
             buildResizeAnchorContext,
-            scheduleEndResizeTransition: vi.fn(),
             enqueueZoomSync,
-            scheduleResizeAwareRerender: vi.fn(),
-            cancelInFlightPageRenders: vi.fn(),
-            computeFitWidthScale: vi.fn(() => false),
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
             getMostVisiblePage: vi.fn(() => 157),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         zoom.value = 1.43;
         await nextTick();
@@ -191,48 +188,26 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const syncHorizontalScrollForZoomMode = vi.fn(() => true);
         const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(currentPage.value));
 
-        usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-            isLoading: ref(false),
-            numPages: ref(10),
+        usePdfViewerRerenderCoordinator(createDeps({
             currentPage,
             visibleRange: ref({
                 start: 1,
                 end: 2,
             }),
-            zoom: computed(() => 1),
             zoomMode: computed(() => 'fit-width' as const),
-            fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
             continuousScroll: computed(() => true),
             getVisibleRange: () => ({
                 start: 1,
                 end: 2,
             }),
             reRenderAllVisiblePages,
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
             syncCurrentPageFromViewport,
-            markLowResZoomRerenderUsed: vi.fn(),
             buildResizeAnchorContext,
-            scheduleEndResizeTransition: vi.fn(),
-            enqueueZoomSync: vi.fn(),
-            scheduleResizeAwareRerender: vi.fn(),
             cancelInFlightPageRenders,
             computeFitWidthScale,
             syncHorizontalScrollForZoomMode,
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
             getMostVisiblePage: vi.fn(() => 2),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         currentPage.value = 2;
         await nextTick();
@@ -256,48 +231,20 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const syncCurrentPageFromViewport = vi.fn(async () => {});
             const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(currentPage.value));
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
-                numPages: ref(10),
+            usePdfViewerRerenderCoordinator(createDeps({
                 currentPage,
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-width' as const),
-                fitMode: computed(() => 'width' as const),
-                viewMode: computed(() => 'single' as const),
-                isResizing: computed(() => false),
-                continuousScroll: computed(() => false),
                 getVisibleRange: () => ({
                     start: 2,
                     end: 2,
                 }),
                 reRenderAllVisiblePages,
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
                 syncCurrentPageFromViewport,
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext,
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
-                scheduleResizeAwareRerender: vi.fn(),
                 cancelInFlightPageRenders,
                 computeFitWidthScale,
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
-                setupPagePlaceholders: vi.fn(),
-                scrollToPage: vi.fn(),
                 getMostVisiblePage: vi.fn(() => 2),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
-                consumeZoomViewportAnchor: vi.fn(() => null),
-                beginResizeTransition: vi.fn(() => 1),
-                consumeSuppressedZoomRerender: vi.fn(() => false),
-            });
+            }));
 
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
@@ -338,50 +285,26 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const ensurePageMetricsInRange = vi.fn(async () => true);
             const setupPagePlaceholders = vi.fn();
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
-                numPages: ref(10),
+            usePdfViewerRerenderCoordinator(createDeps({
                 currentPage,
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-height' as const),
                 fitMode: computed(() => 'height' as const),
                 viewMode: computed(() => 'facing-first-single' as const),
-                isResizing: computed(() => false),
-                continuousScroll: computed(() => false),
                 getVisibleRange: () => ({
                     start: 2,
                     end: 3,
                 }),
                 reRenderAllVisiblePages,
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
                 syncCurrentPageFromViewport,
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext,
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
-                scheduleResizeAwareRerender: vi.fn(),
                 cancelInFlightPageRenders,
                 ensurePageMetricsInRange,
                 computeFitWidthScale,
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
                 setupPagePlaceholders,
                 scrollToPage,
                 getMostVisiblePage: vi.fn(() => 2),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
-                consumeZoomViewportAnchor: vi.fn(() => null),
-                beginResizeTransition: vi.fn(() => 1),
-                consumeSuppressedZoomRerender: vi.fn(() => false),
                 setCurrentPageFitRerenderTransitionActive,
-            });
+            }));
 
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
@@ -431,49 +354,20 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const computeFitWidthScale = vi.fn(() => false);
             const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
-                numPages: ref(10),
+            usePdfViewerRerenderCoordinator(createDeps({
                 currentPage,
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-height' as const),
                 fitMode: computed(() => 'height' as const),
-                viewMode: computed(() => 'single' as const),
-                isResizing: computed(() => false),
-                continuousScroll: computed(() => false),
                 getVisibleRange: () => ({
                     start: 2,
                     end: 2,
                 }),
                 reRenderAllVisiblePages,
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-                syncCurrentPageFromViewport: vi.fn(async () => {}),
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext: vi.fn(() => createResizeAnchor(currentPage.value)),
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
-                scheduleResizeAwareRerender: vi.fn(),
-                cancelInFlightPageRenders: vi.fn(),
                 ensurePageMetricsInRange: vi.fn(async () => false),
                 computeFitWidthScale,
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
-                setupPagePlaceholders: vi.fn(),
-                scrollToPage: vi.fn(),
                 getMostVisiblePage: vi.fn(() => 2),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
-                consumeZoomViewportAnchor: vi.fn(() => null),
-                beginResizeTransition: vi.fn(() => 1),
-                consumeSuppressedZoomRerender: vi.fn(() => false),
-            });
+            }));
 
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
@@ -501,50 +395,22 @@ describe('usePdfViewerRerenderCoordinator', () => {
             });
             const scrollToPage = vi.fn(() => true);
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
-                numPages: ref(10),
+            usePdfViewerRerenderCoordinator(createDeps({
                 currentPage,
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-height' as const),
                 fitMode: computed(() => 'height' as const),
-                viewMode: computed(() => 'single' as const),
-                isResizing: computed(() => false),
-                continuousScroll: computed(() => false),
                 getVisibleRange: () => ({
                     start: 2,
                     end: 2,
                 }),
                 reRenderAllVisiblePages,
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-                syncCurrentPageFromViewport: vi.fn(async () => {}),
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext: vi.fn(() => createResizeAnchor(currentPage.value)),
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
-                scheduleResizeAwareRerender: vi.fn(),
-                cancelInFlightPageRenders: vi.fn(),
                 ensurePageMetricsInRange: vi.fn(async () => true),
                 computeFitWidthScale: vi.fn(() => true),
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
-                setupPagePlaceholders: vi.fn(),
                 scrollToPage,
                 getMostVisiblePage: vi.fn(() => 2),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
                 getUserViewportInteractionEpoch: () => userInteractionEpoch,
-                consumeZoomViewportAnchor: vi.fn(() => null),
-                beginResizeTransition: vi.fn(() => 1),
-                consumeSuppressedZoomRerender: vi.fn(() => false),
-            });
+            }));
 
             currentPage.value = 2;
             await flushCurrentPageFitRerender();
@@ -566,48 +432,25 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const scrollToPage = vi.fn(() => true);
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
 
-        usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-            isLoading: ref(false),
-            numPages: ref(10),
+        usePdfViewerRerenderCoordinator(createDeps({
             currentPage: ref(4),
             visibleRange: ref({
                 start: 4,
                 end: 4,
             }),
-            zoom: computed(() => 1),
             zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
             fitMode: computed(() => fitMode.value),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
-            continuousScroll: computed(() => false),
             getVisibleRange: () => ({
                 start: 4,
                 end: 4,
             }),
             reRenderAllVisiblePages,
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-            syncCurrentPageFromViewport: vi.fn(async () => {}),
-            markLowResZoomRerenderUsed: vi.fn(),
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(4)),
-            scheduleEndResizeTransition: vi.fn(),
-            enqueueZoomSync: vi.fn(),
-            scheduleResizeAwareRerender: vi.fn(),
-            cancelInFlightPageRenders: vi.fn(),
             computeFitWidthScale,
-            syncHorizontalScrollForZoomMode: vi.fn(() => true),
             setupPagePlaceholders,
             scrollToPage,
             getMostVisiblePage: vi.fn(() => 4),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         fitMode.value = 'height';
         await nextTick();
@@ -646,49 +489,23 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const scrollToPage = vi.fn();
             const ensurePageMetricsInRange = vi.fn(async () => true);
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
+            usePdfViewerRerenderCoordinator(createDeps({
                 numPages: ref(1_000),
                 currentPage,
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-height' as const),
                 fitMode: computed(() => 'height' as const),
-                viewMode: computed(() => 'single' as const),
-                isResizing: computed(() => false),
-                continuousScroll: computed(() => false),
                 getVisibleRange: () => ({
                     start: currentPage.value,
                     end: currentPage.value,
                 }),
                 reRenderAllVisiblePages,
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-                syncCurrentPageFromViewport: vi.fn(async () => {}),
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext: vi.fn(() => createResizeAnchor(currentPage.value)),
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
-                scheduleResizeAwareRerender: vi.fn(),
                 cancelInFlightPageRenders,
                 ensurePageMetricsInRange,
                 computeFitWidthScale,
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
-                setupPagePlaceholders: vi.fn(),
                 scrollToPage,
                 getMostVisiblePage: vi.fn(() => currentPage.value),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
-                consumeZoomViewportAnchor: vi.fn(() => null),
-                beginResizeTransition: vi.fn(() => 1),
-                consumeSuppressedZoomRerender: vi.fn(() => false),
-            });
+            }));
 
             currentPage.value = 30;
             await nextTick();
@@ -731,50 +548,23 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const setCurrentPageFitRerenderTransitionActive = vi.fn();
             const ensurePageMetricsInRange = vi.fn(async () => true);
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
+            usePdfViewerRerenderCoordinator(createDeps({
                 numPages: ref(1_000),
                 currentPage,
-                visibleRange: ref({
-                    start: 1,
-                    end: 1,
-                }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-width' as const),
-                fitMode: computed(() => 'width' as const),
-                viewMode: computed(() => 'single' as const),
-                isResizing: computed(() => false),
-                continuousScroll: computed(() => false),
                 getVisibleRange: () => ({
                     start: currentPage.value,
                     end: currentPage.value,
                 }),
                 reRenderAllVisiblePages,
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
                 syncCurrentPageFromViewport,
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext,
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
-                scheduleResizeAwareRerender: vi.fn(),
                 cancelInFlightPageRenders,
                 ensurePageMetricsInRange,
                 computeFitWidthScale,
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
-                setupPagePlaceholders: vi.fn(),
-                scrollToPage: vi.fn(),
                 getMostVisiblePage: vi.fn(() => currentPage.value),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
-                consumeZoomViewportAnchor: vi.fn(() => null),
-                beginResizeTransition: vi.fn(() => 1),
-                consumeSuppressedZoomRerender: vi.fn(() => false),
                 setCurrentPageFitRerenderTransitionActive,
-            });
+            }));
 
             currentPage.value = 30;
             await nextTick();
@@ -817,48 +607,25 @@ describe('usePdfViewerRerenderCoordinator', () => {
             const scheduleResizeAwareRerender = vi.fn();
             const beginResizeTransition = vi.fn(() => 7);
 
-            usePdfViewerRerenderCoordinator({
-                viewerContainer: ref(null),
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-                isLoading: ref(false),
-                numPages: ref(10),
+            usePdfViewerRerenderCoordinator(createDeps({
                 currentPage: ref(4),
                 visibleRange: ref({
                     start: 4,
                     end: 5,
                 }),
-                zoom: computed(() => 1),
                 zoomMode: computed(() => 'fit-width' as const),
-                fitMode: computed(() => 'width' as const),
-                viewMode: computed(() => 'single' as const),
                 isResizing: computed(() => isResizing.value),
                 continuousScroll: computed(() => true),
                 getVisibleRange: () => ({
                     start: 4,
                     end: 5,
                 }),
-                reRenderAllVisiblePages: vi.fn(async () => {}),
-                isPageRendered: vi.fn(() => true),
-                summarizeViewerMetricsForLog: vi.fn(() => null),
-                summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-                syncCurrentPageFromViewport: vi.fn(async () => {}),
-                markLowResZoomRerenderUsed: vi.fn(),
                 buildResizeAnchorContext,
-                scheduleEndResizeTransition: vi.fn(),
-                enqueueZoomSync: vi.fn(),
                 scheduleResizeAwareRerender,
-                cancelInFlightPageRenders: vi.fn(),
                 computeFitWidthScale: vi.fn(() => true),
-                syncHorizontalScrollForZoomMode: vi.fn(() => true),
-                setupPagePlaceholders: vi.fn(),
-                scrollToPage: vi.fn(),
                 getMostVisiblePage: vi.fn(() => 4),
-                resetContinuousScrollState: vi.fn(),
-                resetZoomRerenderQueueState: vi.fn(),
-                consumeZoomViewportAnchor: vi.fn(() => null),
                 beginResizeTransition,
-                consumeSuppressedZoomRerender: vi.fn(() => false),
-            });
+            }));
 
             isResizing.value = false;
             await nextTick();
@@ -891,47 +658,23 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncCurrentPageFromViewport = vi.fn(async () => {});
 
-        usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-            isLoading: ref(false),
-            numPages: ref(10),
+        usePdfViewerRerenderCoordinator(createDeps({
             currentPage,
             visibleRange: ref({
                 start: 1,
                 end: 2,
             }),
-            zoom: computed(() => 1),
-            zoomMode: computed(() => 'custom' as const),
-            fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
             continuousScroll: computed(() => true),
             getVisibleRange: () => ({
                 start: 1,
                 end: 2,
             }),
             reRenderAllVisiblePages,
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
             syncCurrentPageFromViewport,
-            markLowResZoomRerenderUsed: vi.fn(),
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(currentPage.value)),
-            scheduleEndResizeTransition: vi.fn(),
-            enqueueZoomSync: vi.fn(),
-            scheduleResizeAwareRerender: vi.fn(),
-            cancelInFlightPageRenders: vi.fn(),
             computeFitWidthScale,
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
             getMostVisiblePage: vi.fn(() => 2),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         currentPage.value = 2;
         await nextTick();
@@ -946,46 +689,22 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const markLowResZoomRerenderUsed = vi.fn();
 
-        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-            isLoading: ref(false),
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
             numPages: ref(348),
             currentPage: ref(157),
             visibleRange: ref({
                 start: 157,
                 end: 157,
             }),
-            zoom: computed(() => 1),
-            fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
-            continuousScroll: computed(() => false),
             getVisibleRange: () => ({
                 start: 157,
                 end: 157,
             }),
             reRenderAllVisiblePages,
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-            syncCurrentPageFromViewport: vi.fn(async () => {}),
             markLowResZoomRerenderUsed,
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(157)),
-            scheduleEndResizeTransition: vi.fn(),
-            enqueueZoomSync: vi.fn(),
-            scheduleResizeAwareRerender: vi.fn(),
-            cancelInFlightPageRenders: vi.fn(),
-            computeFitWidthScale: vi.fn(() => false),
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
             getMostVisiblePage: vi.fn(() => 157),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         await reRenderVisiblePagesAndSyncCurrentPage({
             source: 'zoom-change',
@@ -1008,48 +727,24 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncHorizontalScrollForZoomMode = vi.fn(() => true);
 
-        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-            isLoading: ref(false),
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
             numPages: ref(348),
             currentPage: ref(157),
             visibleRange: ref({
                 start: 157,
                 end: 157,
             }),
-            zoom: computed(() => 1),
             zoomMode: computed(() => 'fit-width' as const),
-            fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
             continuousScroll: computed(() => true),
             getVisibleRange: () => ({
                 start: 157,
                 end: 157,
             }),
             reRenderAllVisiblePages,
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-            syncCurrentPageFromViewport: vi.fn(async () => {}),
-            markLowResZoomRerenderUsed: vi.fn(),
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(157)),
-            scheduleEndResizeTransition: vi.fn(),
-            enqueueZoomSync: vi.fn(),
-            scheduleResizeAwareRerender: vi.fn(),
-            cancelInFlightPageRenders: vi.fn(),
-            computeFitWidthScale: vi.fn(() => false),
             syncHorizontalScrollForZoomMode,
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
             getMostVisiblePage: vi.fn(() => 157),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         await reRenderVisiblePagesAndSyncCurrentPage({
             source: 'resize-settle',
@@ -1071,48 +766,24 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncHorizontalScrollForZoomMode = vi.fn(() => false);
 
-        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator({
-            viewerContainer: ref(null),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-            isLoading: ref(false),
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
             numPages: ref(348),
             currentPage: ref(157),
             visibleRange: ref({
                 start: 157,
                 end: 157,
             }),
-            zoom: computed(() => 1),
             zoomMode: computed(() => 'fit-width' as const),
-            fitMode: computed(() => 'width' as const),
-            viewMode: computed(() => 'single' as const),
-            isResizing: computed(() => false),
             continuousScroll: computed(() => true),
             getVisibleRange: () => ({
                 start: 157,
                 end: 157,
             }),
             reRenderAllVisiblePages,
-            isPageRendered: vi.fn(() => true),
-            summarizeViewerMetricsForLog: vi.fn(() => null),
-            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
-            syncCurrentPageFromViewport: vi.fn(async () => {}),
-            markLowResZoomRerenderUsed: vi.fn(),
             buildResizeAnchorContext: vi.fn(() => createResizeAnchor(157)),
-            scheduleEndResizeTransition: vi.fn(),
-            enqueueZoomSync: vi.fn(),
-            scheduleResizeAwareRerender: vi.fn(),
-            cancelInFlightPageRenders: vi.fn(),
-            computeFitWidthScale: vi.fn(() => false),
             syncHorizontalScrollForZoomMode,
-            setupPagePlaceholders: vi.fn(),
-            scrollToPage: vi.fn(),
             getMostVisiblePage: vi.fn(() => 157),
-            resetContinuousScrollState: vi.fn(),
-            resetZoomRerenderQueueState: vi.fn(),
-            consumeZoomViewportAnchor: vi.fn(() => null),
-            beginResizeTransition: vi.fn(() => 1),
-            consumeSuppressedZoomRerender: vi.fn(() => false),
-        });
+        }));
 
         await reRenderVisiblePagesAndSyncCurrentPage({
             source: 'resize-settle',

@@ -183,8 +183,11 @@ Copy `.env.example` files when you need local environment overrides. Do not comm
 pnpm lint
 pnpm typecheck
 
-# Unit + integration tests
+# Unit tests
 pnpm test
+
+# Coverage ratchet, run in nightly CI
+pnpm run test:coverage
 
 # Heavy generated Electron bundle integrity check
 pnpm run test:bundle-integrity
@@ -194,7 +197,9 @@ pnpm run test:e2e:electron
 
 # Full contributor validation
 pnpm validate
-pnpm run test:smoke
+
+# Python page processor syntax + lightweight CLI smoke
+pnpm run test:python-page-processor
 
 # Native-resource sanity check
 pnpm run check:resources:matrix
@@ -203,24 +208,35 @@ pnpm run check:resources:matrix
 pnpm run release:verify
 ```
 
+Electron E2E Vitest setup starts one shared Nuxt renderer server for the run,
+passes its port to detached Electron sessions, and tears it down only when the
+setup process owns it. Individual sessions launch Electron against that shared
+renderer instead of starting their own Nuxt server.
+
 Root app checks are intentionally scoped to the browser/Electron app and shared
 packages. The landing site is checked from `landing/` with its own dependency
 install and build commands.
 
 Release-critical checks intentionally stop at linting, typechecking, Electron
 install verification, strict artifact builds, current-platform packaging, and
-the fast unit/integration suite. Broader maintenance checks stay in
-`pnpm validate` and pull-request CI. Electron E2E is available as a manual
-diagnostic tool when we need true desktop-shell coverage.
+the fast unit suite. Broader maintenance checks stay in
+`pnpm validate` and scheduled nightly CI. Direct pushes to `main` run
+`pnpm lint`, `pnpm typecheck`, and `pnpm run test:release`; native, landing,
+and Python page-processor changes also get path-filtered checks. Electron E2E
+and PDF tab diagnostics run in nightly/manual diagnostics until they are stable
+enough to promote into a blocking release gate.
 
 The manual Electron E2E smoke lane currently covers:
 
-- Startup hydration on desktop
+- Startup hydration, recent files, core viewer smoke, inactive PDF/DjVu tabs,
+  annotation lifecycle, and squiggly markup on desktop
 
-Set `EVB_E2E_DRAW_SHAPES_EXTENDED=1` when running the Electron E2E smoke command
-to include the full draw-shape lifecycle matrix.
+Opt-in Electron E2E subsets are selected by named Vitest projects through
+package scripts: `pnpm run test:e2e:electron:draw-shapes`,
+`pnpm run test:e2e:electron:large`, and
+`pnpm run test:e2e:electron:rapid-navigation`.
 
-Broader regressions such as page operations, DOCX/image export, browser/desktop page extraction, recent-files persistence, and external-open routing are covered by fast unit/integration tests so releases do not depend on long serial UI automation.
+Broader regressions such as page operations, DOCX/image export, browser/desktop page extraction, recent-files persistence, and external-open routing are covered by fast unit tests so releases do not depend on long serial UI automation.
 
 ## OCR Tuning
 
