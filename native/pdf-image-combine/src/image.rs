@@ -10,9 +10,20 @@ use crate::{
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
     pdf::{ImagePage, ImagePayload},
     png::parse_png_reader,
-    tiff_io::{read_tiff_pdf_pages, read_tiff_pdf_pages_from_bytes},
+    tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages},
     Result, DEFAULT_DPI,
 };
+
+fn image_extension(path: &Path) -> String {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+fn is_tiff_extension(extension: &str) -> bool {
+    extension == "tif" || extension == "tiff"
+}
 
 pub(crate) fn read_image_pages(
     path: &Path,
@@ -20,13 +31,24 @@ pub(crate) fn read_image_pages(
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
 ) -> Result<Vec<ImagePage>> {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if extension == "tif" || extension == "tiff" {
-        return read_tiff_pdf_pages(path, max_pixels, default_dpi, max_tiff_frames);
+    let mut pages = Vec::new();
+    visit_image_pages(path, max_pixels, default_dpi, max_tiff_frames, |page| {
+        pages.push(page);
+        Ok(())
+    })?;
+    Ok(pages)
+}
+
+pub(crate) fn visit_image_pages(
+    path: &Path,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+    mut on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
+    let extension = image_extension(path);
+    if is_tiff_extension(&extension) {
+        return visit_tiff_pdf_pages(path, max_pixels, default_dpi, max_tiff_frames, on_page);
     }
 
     let page = match extension.as_str() {
@@ -40,7 +62,8 @@ pub(crate) fn read_image_pages(
         _ => return Err(format!("Unsupported image extension: {}", path.display()).into()),
     };
 
-    Ok(vec![page])
+    on_page(page)?;
+    Ok(1)
 }
 
 pub(crate) fn read_image_pages_from_bytes(
@@ -55,7 +78,7 @@ pub(crate) fn read_image_pages_from_bytes(
         .map(|(_, extension)| extension)
         .unwrap_or("")
         .to_ascii_lowercase();
-    if extension == "tif" || extension == "tiff" {
+    if is_tiff_extension(&extension) {
         return read_tiff_pdf_pages_from_bytes(bytes, max_pixels, default_dpi, max_tiff_frames);
     }
 

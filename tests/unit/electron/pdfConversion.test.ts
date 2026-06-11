@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
         2,
         3,
     ]));
+    const writeFile = vi.fn(async () => undefined);
     const mkdtemp = vi.fn(async () => '/tmp/pdf-combine-djvu-test');
     const rm = vi.fn(async () => undefined);
     const stat = vi.fn(async () => ({
@@ -25,6 +26,11 @@ const mocks = vi.hoisted(() => {
         _inputPaths: string[],
         _options?: unknown,
     ) => null as Uint8Array | null);
+    const nativeFileAssembler = vi.fn(async (
+        _inputPaths: string[],
+        _outputPath: string,
+        _options?: unknown,
+    ) => false);
     const getDjvuPageCount = vi.fn(async () => 2);
     const convertDjvuToPdfFile = vi.fn(async () => ({
         success: true,
@@ -53,10 +59,12 @@ const mocks = vi.hoisted(() => {
         workerCtor,
         loggerWarn,
         readFile,
+        writeFile,
         mkdtemp,
         rm,
         stat,
         nativeAssembler,
+        nativeFileAssembler,
         getDjvuPageCount,
         convertDjvuToPdfFile,
         create,
@@ -152,6 +160,7 @@ vi.mock('fs/promises', () => ({
     readFile: mocks.readFile,
     rm: mocks.rm,
     stat: mocks.stat,
+    writeFile: mocks.writeFile,
 }));
 
 vi.mock('pdf-lib', () => ({PDFDocument: {
@@ -174,12 +183,22 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
 vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
-vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({tryCreatePdfFromInputPathsNative: (
-    inputPaths: string[],
-    options?: unknown,
-) => mocks.nativeAssembler(inputPaths, options)}));
+vi.mock('@electron/image/tryCreatePdfFromInputPathsNative', () => ({
+    tryCreatePdfFromInputPathsNative: (
+        inputPaths: string[],
+        options?: unknown,
+    ) => mocks.nativeAssembler(inputPaths, options),
+    tryWritePdfFromInputPathsNative: (
+        inputPaths: string[],
+        outputPath: string,
+        options?: unknown,
+    ) => mocks.nativeFileAssembler(inputPaths, outputPath, options),
+}));
 
-const { createPdfFromInputPaths } =
+const {
+    createPdfFileFromInputPaths,
+    createPdfFromInputPaths,
+} =
     await import('@electron/image/pdfConversion');
 
 describe('createPdfFromInputPaths worker fallback', () => {
@@ -199,6 +218,7 @@ describe('createPdfFromInputPaths worker fallback', () => {
             size: 1024,
         });
         mocks.nativeAssembler.mockResolvedValue(null);
+        mocks.nativeFileAssembler.mockResolvedValue(false);
     });
 
     it('uses the native assembler before spawning the pdf-lib worker for mixed PDF and image inputs', async () => {
@@ -223,6 +243,68 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.workerCtor).not.toHaveBeenCalled();
         expect(mocks.create).not.toHaveBeenCalled();
         expect(mocks.load).not.toHaveBeenCalled();
+    });
+
+    it('writes oversized native-supported batches through the file-backed native assembler', async () => {
+        const progress = vi.fn();
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 4 * 1024 * 1024 * 1024,
+        });
+        mocks.nativeFileAssembler.mockResolvedValueOnce(true);
+
+        const result = await createPdfFileFromInputPaths(
+            ['/tmp/huge.tiff'],
+            '/tmp/output.pdf',
+            {onProgress: progress},
+        );
+
+        expect(result).toBe('/tmp/output.pdf');
+        expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
+            ['/tmp/huge.tiff'],
+            '/tmp/output.pdf',
+            {onProgress: progress},
+        );
+        expect(mocks.nativeAssembler).not.toHaveBeenCalled();
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('does not fall back to memory combine when oversized file-backed native combine fails', async () => {
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 4 * 1024 * 1024 * 1024,
+        });
+        mocks.nativeFileAssembler.mockResolvedValueOnce(false);
+
+        await expect(createPdfFileFromInputPaths(['/tmp/huge.tiff'], '/tmp/output.pdf'))
+            .rejects
+            .toThrow('Input file is too large to combine safely: /tmp/huge.tiff');
+
+        expect(mocks.nativeAssembler).not.toHaveBeenCalled();
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('uses the memory combine fallback only for small file-backed jobs', async () => {
+        mocks.workerState.mode = 'startup-error';
+
+        const result = await createPdfFileFromInputPaths(['/tmp/input.pdf'], '/tmp/output.pdf');
+
+        expect(result).toBe('/tmp/output.pdf');
+        expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
+            ['/tmp/input.pdf'],
+            '/tmp/output.pdf',
+            undefined,
+        );
+        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/output.pdf', new Uint8Array([
+            9,
+            9,
+            9,
+        ]));
     });
 
     it('falls back to in-process conversion when worker startup fails', async () => {
