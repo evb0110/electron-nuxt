@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -147,6 +148,10 @@ describe('agent assistant opt-in gating', () => {
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
     });
 
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it('does not discover Codex or start MCP when disabled state is requested', async () => {
         const { getAgentAssistantState } = await import('@electron/features/agent/codexAssistant');
 
@@ -227,5 +232,79 @@ describe('agent assistant opt-in gating', () => {
         const restoredDocumentA = await getAgentAssistantState({ scope: documentA });
         expect(restoredDocumentA.messages.map(message => message.text)).toContain('Question for A');
         expect(restoredDocumentA.messages.map(message => message.text)).not.toContain('Question for B');
+    });
+
+    it('evicts least-recently-used idle document chat sessions', async () => {
+        vi.stubEnv('EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES', '2');
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        const documentA: IAgentAssistantChatScope = {
+            kind: 'document',
+            key: 'document:/tmp/a.pdf',
+            title: 'a.pdf',
+            documentRef: '/tmp/a.pdf',
+        };
+        const documentB: IAgentAssistantChatScope = {
+            kind: 'document',
+            key: 'document:/tmp/b.pdf',
+            title: 'b.pdf',
+            documentRef: '/tmp/b.pdf',
+        };
+        const documentC: IAgentAssistantChatScope = {
+            kind: 'document',
+            key: 'document:/tmp/c.pdf',
+            title: 'c.pdf',
+            documentRef: '/tmp/c.pdf',
+        };
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+        mocks.getCodexCliInfo.mockResolvedValue({
+            installed: true,
+            path: '/Applications/Codex.app/Contents/Resources/codex',
+            version: '0.133.0',
+            minimumVersion: '0.133.0',
+            isVersionSupported: true,
+            managedInstallDir: '/tmp/codex',
+        });
+        mocks.startEmbeddedMcpServer.mockResolvedValue({
+            name: 'evb_viewer_embedded',
+            url: 'http://127.0.0.1:9876',
+        });
+        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+
+        try {
+            const {
+                getAgentAssistantState,
+                interruptAgentAssistant,
+                sendAgentAssistantMessage,
+            } = await import('@electron/features/agent/codexAssistant');
+
+            await sendAgentAssistantMessage({
+                text: 'Question for A',
+                scope: documentA,
+            });
+            await interruptAgentAssistant({ scope: documentA });
+            nowSpy.mockReturnValue(1_000_100);
+            await sendAgentAssistantMessage({
+                text: 'Question for B',
+                scope: documentB,
+            });
+            await interruptAgentAssistant({ scope: documentB });
+            nowSpy.mockReturnValue(1_000_200);
+            await getAgentAssistantState({ scope: documentA });
+            nowSpy.mockReturnValue(1_000_300);
+            await sendAgentAssistantMessage({
+                text: 'Question for C',
+                scope: documentC,
+            });
+
+            nowSpy.mockReturnValue(1_000_400);
+            const restoredDocumentA = await getAgentAssistantState({ scope: documentA });
+            expect(restoredDocumentA.messages.map(message => message.text)).toContain('Question for A');
+
+            nowSpy.mockReturnValue(1_000_500);
+            const restoredDocumentB = await getAgentAssistantState({ scope: documentB });
+            expect(restoredDocumentB.messages).toEqual([]);
+        } finally {
+            nowSpy.mockRestore();
+        }
     });
 });

@@ -23,7 +23,6 @@ import {
 import {
     allowOpenPaths,
     requireOpenPath,
-    type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
@@ -107,8 +106,10 @@ export async function openInputPaths(
             {...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {})},
         );
         logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
+        allowOpenPaths([tempOutputPath], owner);
+        const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
         workingPath = await createWorkingCopyFromPath(
-            tempOutputPath as TOpenPath,
+            trustedTempOutputPath,
             outputPath,
             getOwnerWebContentsId(owner),
         );

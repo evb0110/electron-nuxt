@@ -82,8 +82,24 @@ interface IAssistantChatSession {
     activeTurnId: string | null;
     turnPhase: TAgentAssistantTurnPhase;
     messages: IAgentAssistantChatMessage[];
+    lastAccessedAtMs: number;
     lastError?: string;
 }
+
+const ASSISTANT_CHAT_SESSION_MAX_ENTRIES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES ?? '32', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 32;
+    }
+    return Math.min(parsed, 512);
+})();
+const ASSISTANT_CHAT_SESSION_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_ASSISTANT_CHAT_SESSION_TTL_MS ?? `${60 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 60_000) {
+        return 60 * 60 * 1000;
+    }
+    return parsed;
+})();
 
 let codexInfoCache: ICodexCliInfo | null = null;
 let runtime: IAssistantRuntime | null = null;
@@ -203,12 +219,77 @@ function rememberStateScope(scope: IAgentAssistantChatScope | null) {
     lastStateScope = scope ? cloneAssistantScope(scope) : null;
 }
 
+function touchChatSession(session: IAssistantChatSession, now = Date.now()) {
+    session.lastAccessedAtMs = now;
+    return session;
+}
+
+function isEvictableChatSession(session: IAssistantChatSession) {
+    return session.activeTurnId === null
+        && session.turnPhase !== 'starting'
+        && session.turnPhase !== 'running'
+        && session.turnPhase !== 'interrupting';
+}
+
+function deleteChatSession(key: string, reason: string) {
+    const session = chatSessions.get(key);
+    if (!session) {
+        return;
+    }
+
+    chatSessions.delete(key);
+    if (activeChatKey === key) {
+        activeChatKey = null;
+    }
+    if (lastStateScope?.key === key) {
+        lastStateScope = null;
+    }
+
+    if (runtime && session.threadId) {
+        void runtime.client.request('thread/archive', { threadId: session.threadId }).catch((error: unknown) => {
+            logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
+        });
+    }
+}
+
+function pruneChatSessions(now = Date.now()) {
+    for (const [
+        key,
+        session,
+    ] of chatSessions.entries()) {
+        if (
+            isEvictableChatSession(session)
+            && now - session.lastAccessedAtMs > ASSISTANT_CHAT_SESSION_TTL_MS
+        ) {
+            deleteChatSession(key, 'expired');
+        }
+    }
+
+    if (chatSessions.size <= ASSISTANT_CHAT_SESSION_MAX_ENTRIES) {
+        return;
+    }
+
+    const evictableSessions = [...chatSessions.entries()]
+        .filter((entry) => isEvictableChatSession(entry[1]))
+        .sort((left, right) => left[1].lastAccessedAtMs - right[1].lastAccessedAtMs);
+    const overflowCount = chatSessions.size - ASSISTANT_CHAT_SESSION_MAX_ENTRIES;
+    for (let index = 0; index < overflowCount; index += 1) {
+        const entry = evictableSessions[index];
+        if (!entry) {
+            break;
+        }
+        deleteChatSession(entry[0], 'evicted');
+    }
+}
+
 function getChatSession(scope: IAgentAssistantChatScope, options: { create: true }): IAssistantChatSession;
 function getChatSession(scope: IAgentAssistantChatScope | null, options?: { create?: false }): IAssistantChatSession | null;
 function getChatSession(
     scope: IAgentAssistantChatScope | null,
     options: { create?: boolean } = {},
 ) {
+    const now = Date.now();
+    pruneChatSessions(now);
     if (!scope) {
         return null;
     }
@@ -221,7 +302,7 @@ function getChatSession(
     const existing = chatSessions.get(normalizedScope.key);
     if (existing) {
         existing.scope = normalizedScope;
-        return existing;
+        return touchChatSession(existing, now);
     }
 
     if (!options.create) {
@@ -234,13 +315,16 @@ function getChatSession(
         activeTurnId: null,
         turnPhase: 'idle',
         messages: [],
+        lastAccessedAtMs: now,
     };
     chatSessions.set(normalizedScope.key, session);
+    pruneChatSessions(now);
     return session;
 }
 
 function getActiveChatSession() {
-    return activeChatKey ? chatSessions.get(activeChatKey) ?? null : null;
+    const session = activeChatKey ? chatSessions.get(activeChatKey) ?? null : null;
+    return session ? touchChatSession(session) : null;
 }
 
 function getChatSessionByThreadId(candidateThreadId: string | null) {
@@ -248,8 +332,9 @@ function getChatSessionByThreadId(candidateThreadId: string | null) {
         return null;
     }
 
-    return Array.from(chatSessions.values())
-        .find(session => session.threadId === candidateThreadId) ?? null;
+    const session = Array.from(chatSessions.values())
+        .find(candidate => candidate.threadId === candidateThreadId) ?? null;
+    return session ? touchChatSession(session) : null;
 }
 
 function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
@@ -383,6 +468,7 @@ function addMessage(
     session: IAssistantChatSession,
     message: Omit<IAgentAssistantChatMessage, 'id' | 'createdAt'> & { id?: string },
 ) {
+    touchChatSession(session);
     const nextMessage: IAgentAssistantChatMessage = {
         id: message.id ?? randomUUID(),
         role: message.role,
@@ -407,6 +493,7 @@ function upsertAssistantMessage(
     id: string,
     patch: Partial<IAgentAssistantChatMessage>,
 ) {
+    touchChatSession(session);
     const existing = session.messages.find(message => message.id === id);
     if (existing) {
         Object.assign(existing, patch);
