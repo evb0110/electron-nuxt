@@ -18,6 +18,7 @@ interface IMockNativeWriteProgress {
 type TMockNativeWriteOptions = {onProgress?: (progress: IMockNativeWriteProgress) => void};
 
 const mocks = vi.hoisted(() => {
+    const copyFile = vi.fn(async () => undefined);
     const mkdtemp = vi.fn(async () => '/tmp/native-assembler');
     const readFile = vi.fn(async (path: string) => new Uint8Array(path.endsWith('input.pdf')
         ? [
@@ -58,6 +59,7 @@ const mocks = vi.hoisted(() => {
     const warn = vi.fn();
 
     return {
+        copyFile,
         mkdtemp,
         readFile,
         rm,
@@ -73,6 +75,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('fs/promises', () => ({
+    copyFile: mocks.copyFile,
     mkdtemp: mocks.mkdtemp,
     readFile: mocks.readFile,
     rm: mocks.rm,
@@ -109,7 +112,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
-const { tryCreatePdfFromInputPathsNative } = await import('@electron/image/tryCreatePdfFromInputPathsNative');
+const {
+    tryCreatePdfFromInputPathsNative,
+    tryWritePdfFromInputPathsNative,
+} = await import('@electron/image/tryCreatePdfFromInputPathsNative');
 
 describe('tryCreatePdfFromInputPathsNative', () => {
     beforeEach(() => {
@@ -189,6 +195,52 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             total: 6,
             percent: 100,
         }));
+    });
+
+    it('writes native assembly to the requested output path without reading the output into memory', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+
+        const ok = await tryWritePdfFromInputPathsNative([
+            '/tmp/a.pdf',
+            '/tmp/one.png',
+        ], '/tmp/final.pdf');
+
+        expect(ok).toBe(true);
+        expect(mocks.nativeWrite).toHaveBeenCalledWith(
+            ['/tmp/one.png'],
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            expect.any(Object),
+        );
+        expect(mocks.runQpdfCommand).toHaveBeenCalledWith([
+            '--empty',
+            '--pages',
+            '/tmp/a.pdf',
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            '--',
+            '/tmp/final.pdf',
+        ], expect.objectContaining({commandLabel: 'qpdf(native-pdf-assembler)'}));
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/native-assembler', {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('copies a single native output chunk to the requested output path', async () => {
+        vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
+
+        const ok = await tryWritePdfFromInputPathsNative([
+            '/tmp/one.png',
+            '/tmp/two.jpg',
+        ], '/tmp/final.pdf');
+
+        expect(ok).toBe(true);
+        expect(mocks.copyFile).toHaveBeenCalledWith(
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            '/tmp/final.pdf',
+        );
+        expect(mocks.runQpdfCommand).not.toHaveBeenCalled();
+        expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
     it('falls back when the native image writer is unavailable', async () => {

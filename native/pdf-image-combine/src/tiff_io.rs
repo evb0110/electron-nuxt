@@ -18,49 +18,58 @@ use crate::{
     Result, CM_PER_INCH, DEFAULT_DPI,
 };
 
-pub(crate) fn read_tiff_pdf_pages(
-    path: &Path,
-    max_pixels: u64,
-    default_dpi: Option<u32>,
-    max_tiff_frames: usize,
-) -> Result<Vec<ImagePage>> {
-    let file = File::open(path)?;
-    read_tiff_pdf_pages_from_reader(
-        file,
-        &path.display().to_string(),
-        max_pixels,
-        default_dpi,
-        max_tiff_frames,
-    )
-}
-
 pub(crate) fn read_tiff_pdf_pages_from_bytes(
     bytes: &[u8],
     max_pixels: u64,
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
 ) -> Result<Vec<ImagePage>> {
-    read_tiff_pdf_pages_from_reader(
+    let mut pages = Vec::new();
+    visit_tiff_pdf_pages_from_reader(
         Cursor::new(bytes),
         "in-memory TIFF",
         max_pixels,
         default_dpi,
         max_tiff_frames,
+        |page| {
+            pages.push(page);
+            Ok(())
+        },
+    )?;
+    Ok(pages)
+}
+
+pub(crate) fn visit_tiff_pdf_pages(
+    path: &Path,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+    on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
+    let file = File::open(path)?;
+    visit_tiff_pdf_pages_from_reader(
+        file,
+        &path.display().to_string(),
+        max_pixels,
+        default_dpi,
+        max_tiff_frames,
+        on_page,
     )
 }
 
-fn read_tiff_pdf_pages_from_reader<R: Read + Seek>(
+fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
     reader: R,
     source_label: &str,
     max_pixels: u64,
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
-) -> Result<Vec<ImagePage>> {
+    mut on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
     let mut decoder = Decoder::new(BufReader::new(reader))?;
-    let mut pages = Vec::new();
+    let mut page_count = 0;
 
     loop {
-        if pages.len() >= max_tiff_frames {
+        if page_count >= max_tiff_frames {
             return Err(format!(
                 "TIFF frame count is capped at {max_tiff_frames}: {}",
                 source_label,
@@ -75,9 +84,10 @@ fn read_tiff_pdf_pages_from_reader<R: Read + Seek>(
             .unwrap_or(DEFAULT_DPI);
         let color_type = decoder.colortype()?;
         let decoded = decoder.read_image()?;
-        pages.push(build_tiff_pdf_page(
+        on_page(build_tiff_pdf_page(
             width, height, dpi, color_type, decoded,
-        )?);
+        )?)?;
+        page_count += 1;
 
         if !decoder.more_images() {
             break;
@@ -85,11 +95,11 @@ fn read_tiff_pdf_pages_from_reader<R: Read + Seek>(
         decoder.next_image()?;
     }
 
-    if pages.is_empty() {
+    if page_count == 0 {
         return Err(format!("No decodable TIFF pages found in {source_label}").into());
     }
 
-    Ok(pages)
+    Ok(page_count)
 }
 
 fn build_tiff_pdf_page(
@@ -306,7 +316,12 @@ mod tests {
         let input_path = temp_tiff_path("pdf-input");
         write_rgb_tiff(&input_path, 2, 1, &[255, 0, 0, 0, 255, 0], 300);
 
-        let pages = read_tiff_pdf_pages(&input_path, 1_000_000, None, 10).unwrap();
+        let mut pages = Vec::new();
+        visit_tiff_pdf_pages(&input_path, 1_000_000, None, 10, |page| {
+            pages.push(page);
+            Ok(())
+        })
+        .unwrap();
 
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].width, 2);

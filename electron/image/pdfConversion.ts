@@ -4,6 +4,7 @@ import {
     readFile,
     rm,
     stat,
+    writeFile,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
@@ -29,7 +30,10 @@ import {
     isWorkerMessageRecord,
 } from '@electron/utils/workerMessage';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
-import { tryCreatePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
+import {
+    tryCreatePdfFromInputPathsNative,
+    tryWritePdfFromInputPathsNative,
+} from '@electron/image/tryCreatePdfFromInputPathsNative';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -40,6 +44,14 @@ export interface ICreatePdfFromInputPathsProgress {
 }
 
 interface ICreatePdfFromInputPathsOptions {onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
+
+interface ICombineInputResourceUsage {
+    files: Array<{
+        path: string;
+        size: number;
+    }>;
+    totalBytes: number;
+}
 
 type TCombineWorkerPayload =
     | {
@@ -293,8 +305,9 @@ function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {
     return null;
 }
 
-async function enforceInputResourceLimits(inputPaths: string[]) {
+async function inspectInputResourceUsage(inputPaths: string[]): Promise<ICombineInputResourceUsage> {
     let totalBytes = 0;
+    const files: ICombineInputResourceUsage['files'] = [];
     for (const inputPath of inputPaths) {
         const fileStat = await stat(inputPath);
         if (!fileStat.isFile()) {
@@ -303,15 +316,34 @@ async function enforceInputResourceLimits(inputPaths: string[]) {
         if (fileStat.size <= 0) {
             throw new Error(`Input file is empty: ${inputPath}`);
         }
-        if (fileStat.size > PDF_COMBINE_MAX_INPUT_BYTES) {
-            throw new Error(`Input file is too large to combine safely: ${inputPath}`);
-        }
+        files.push({
+            path: inputPath,
+            size: fileStat.size,
+        });
         totalBytes += fileStat.size;
-        if (totalBytes > PDF_COMBINE_MAX_TOTAL_INPUT_BYTES) {
-            throw new Error('Combined input files are too large to combine safely');
+    }
+
+    return {
+        files,
+        totalBytes,
+    };
+}
+
+function assertMemoryCombineInputResourceLimits(resourceUsage: ICombineInputResourceUsage) {
+    for (const file of resourceUsage.files) {
+        if (file.size > PDF_COMBINE_MAX_INPUT_BYTES) {
+            throw new Error(`Input file is too large to combine safely: ${file.path}`);
         }
     }
-    return { totalBytes };
+    if (resourceUsage.totalBytes > PDF_COMBINE_MAX_TOTAL_INPUT_BYTES) {
+        throw new Error('Combined input files are too large to combine safely');
+    }
+}
+
+async function enforceInputResourceLimits(inputPaths: string[]) {
+    const resourceUsage = await inspectInputResourceUsage(inputPaths);
+    assertMemoryCombineInputResourceLimits(resourceUsage);
+    return { totalBytes: resourceUsage.totalBytes };
 }
 
 function canUseLocalWorkerStartupFallback(totalBytes: number) {
@@ -462,6 +494,39 @@ function createPdfFromInputPathsWorker(
         }, PDF_COMBINE_WORKER_TIMEOUT_MS);
         timeoutHandle.unref?.();
     });
+}
+
+export async function createPdfFileFromInputPaths(
+    inputPaths: string[],
+    outputPath: string,
+    options?: ICreatePdfFromInputPathsOptions,
+) {
+    const normalizedPaths = inputPaths
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0);
+    const normalizedOutputPath = typeof outputPath === 'string' ? outputPath.trim() : '';
+
+    if (normalizedPaths.length === 0) {
+        throw new Error('No input files were provided');
+    }
+    if (!normalizedOutputPath) {
+        throw new Error('No output file was provided');
+    }
+
+    const resourceUsage = await inspectInputResourceUsage(normalizedPaths);
+    const nativeWrote = await tryWritePdfFromInputPathsNative(
+        normalizedPaths,
+        normalizedOutputPath,
+        options,
+    );
+    if (nativeWrote) {
+        return normalizedOutputPath;
+    }
+
+    assertMemoryCombineInputResourceLimits(resourceUsage);
+    const pdfBytes = await createPdfFromInputPaths(normalizedPaths, options);
+    await writeFile(normalizedOutputPath, pdfBytes);
+    return normalizedOutputPath;
 }
 
 export async function createPdfFromInputPaths(

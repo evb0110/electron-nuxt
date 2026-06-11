@@ -33,7 +33,11 @@ fn encode_netpbm_as_png(data: &[u8]) -> Result<Vec<u8>> {
         (2u8, 3usize, netpbm.pixels.to_vec())
     };
 
-    let compressed = deflate_png_rows(&pixels, netpbm.width as usize * channels, netpbm.height as usize)?;
+    let compressed = deflate_png_rows(
+        &pixels,
+        netpbm.width as usize * channels,
+        netpbm.height as usize,
+    )?;
     let mut png = Vec::new();
     png.extend_from_slice(PNG_SIGNATURE);
 

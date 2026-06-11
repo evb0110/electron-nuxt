@@ -19,7 +19,7 @@ use std::{
 };
 
 use crate::{
-    image::{read_image_pages, read_image_pages_from_bytes},
+    image::{read_image_pages, read_image_pages_from_bytes, visit_image_pages},
     pdf::{build_pdf, write_pdf_to_writer},
     png_encode::encode_netpbm_file_as_png,
     tiff_io::combine_tiff_pages,
@@ -101,17 +101,16 @@ pub fn write_pdf_from_image_paths_with_progress(
 
     write_pdf_to_writer(writer, |pdf| {
         for (index, input_path) in input_paths.iter().enumerate() {
-            let input_pages = read_image_pages(
+            visit_image_pages(
                 input_path,
                 options.max_pixels,
                 options.default_dpi,
                 options.max_tiff_frames,
+                |page| {
+                    page_count = next_page_count_with_limit(page_count, 1, options.max_pages)?;
+                    pdf.add_page(&page)
+                },
             )?;
-            page_count =
-                next_page_count_with_limit(page_count, input_pages.len(), options.max_pages)?;
-            for page in &input_pages {
-                pdf.add_page(page)?;
-            }
             on_processed(index + 1);
         }
         Ok(())
@@ -189,8 +188,15 @@ fn next_page_count_with_limit(
 mod tests {
     use super::*;
     use std::{
-        env, fs, process,
+        env, fs,
+        io::BufWriter,
+        path::Path,
+        process,
         time::{SystemTime, UNIX_EPOCH},
+    };
+    use tiff::{
+        encoder::{colortype, Rational, TiffEncoder},
+        tags::ResolutionUnit,
     };
 
     #[test]
@@ -259,6 +265,36 @@ mod tests {
         let _ = fs::remove_file(output_path);
     }
 
+    #[test]
+    fn writes_multi_page_tiff_to_pdf_output_file() {
+        let input_path = temp_path("stream-tiff").with_extension("tiff");
+        let output_path = temp_path("stream-tiff-output").with_extension("pdf");
+        write_two_page_rgb_tiff(&input_path);
+
+        let mut progress = Vec::new();
+        write_pdf_from_image_paths_with_progress(
+            &[input_path.clone()],
+            &output_path,
+            &PdfBuildOptions {
+                default_dpi: Some(72),
+                max_pages: 10,
+                max_tiff_frames: 10,
+                ..PdfBuildOptions::default()
+            },
+            |processed| progress.push(processed),
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        assert!(pdf
+            .windows(b"/Count 2".len())
+            .any(|window| window == b"/Count 2"));
+        assert_eq!(progress, vec![1]);
+
+        let _ = fs::remove_file(input_path);
+        let _ = fs::remove_file(output_path);
+    }
+
     fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
         let mut chunk = Vec::new();
         chunk.extend_from_slice(&(data.len() as u32).to_be_bytes());
@@ -277,5 +313,16 @@ mod tests {
             "evb-pdf-image-combine-{label}-{}-{nanos}",
             process::id()
         ))
+    }
+
+    fn write_two_page_rgb_tiff(path: &Path) {
+        let file = fs::File::create(path).unwrap();
+        let mut encoder = TiffEncoder::new(BufWriter::new(file)).unwrap();
+        let mut first = encoder.new_image::<colortype::RGB8>(1, 1).unwrap();
+        first.resolution(ResolutionUnit::Inch, Rational { n: 72, d: 1 });
+        first.write_data(&[255, 0, 0]).unwrap();
+        let mut second = encoder.new_image::<colortype::RGB8>(1, 1).unwrap();
+        second.resolution(ResolutionUnit::Inch, Rational { n: 72, d: 1 });
+        second.write_data(&[0, 255, 0]).unwrap();
     }
 }

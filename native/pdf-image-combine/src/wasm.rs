@@ -1,11 +1,6 @@
 use std::{cell::RefCell, mem, slice, str};
 
-use crate::{
-    build_pdf_from_image_bytes_inputs,
-    ImageBytesInput,
-    PdfBuildOptions,
-    Result,
-};
+use crate::{build_pdf_from_image_bytes_inputs, ImageBytesInput, PdfBuildOptions, Result};
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPIC";
 const REQUEST_VERSION: u32 = 1;
@@ -140,9 +135,7 @@ fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usiz
 
 fn read_u32_le(request: &[u8], offset: &mut usize) -> Result<u32> {
     let bytes = take_bytes(request, offset, 4)?;
-    Ok(u32::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3],
-    ]))
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 fn take_bytes<'a>(request: &'a [u8], offset: &mut usize, len: usize) -> Result<&'a [u8]> {

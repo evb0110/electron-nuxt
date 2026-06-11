@@ -1,4 +1,5 @@
 import {
+    copyFile,
     mkdtemp,
     readFile,
     rm,
@@ -68,6 +69,12 @@ function isNativeAssemblerSupportedPath(inputPath: string) {
     return isPdfPath(inputPath)
         || isDjvuPath(inputPath)
         || isNativePdfImageCombineBitmapPath(inputPath);
+}
+
+function canUseNativePdfAssembler(inputPaths: string[]) {
+    return !isNativePdfAssemblerDisabled()
+        && inputPaths.length > 0
+        && inputPaths.every(isNativeAssemblerSupportedPath);
 }
 
 function estimateRemainingMs(elapsedMs: number, processed: number, total: number) {
@@ -212,21 +219,12 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string) {
     await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
 }
 
-export async function tryCreatePdfFromInputPathsNative(
+async function writePdfFromInputPathsNativeWithTempDir(
     inputPaths: string[],
+    outputPath: string,
+    tempDir: string,
     options?: INativePdfAssemblerOptions,
-): Promise<Uint8Array | null> {
-    if (
-        isNativePdfAssemblerDisabled()
-        || inputPaths.length === 0
-        || !inputPaths.every(isNativeAssemblerSupportedPath)
-    ) {
-        return null;
-    }
-
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
-    const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-
+): Promise<boolean> {
     try {
         const progress: IProgressState = {
             processed: 0,
@@ -256,7 +254,7 @@ export async function tryCreatePdfFromInputPathsNative(
                 options,
             );
             if (addedImagePages === null) {
-                return null;
+                return false;
             }
             pageCount += addedImagePages;
 
@@ -272,7 +270,7 @@ export async function tryCreatePdfFromInputPathsNative(
                 chunkPaths.push(convertedPath);
                 pageCount += sourcePageCount;
             } else {
-                return null;
+                return false;
             }
 
             progress.processed += 1;
@@ -290,21 +288,82 @@ export async function tryCreatePdfFromInputPathsNative(
             options,
         );
         if (addedImagePages === null) {
-            return null;
+            return false;
         }
 
         if (chunkPaths.length === 0) {
-            return null;
+            return false;
         }
 
         if (chunkPaths.length === 1) {
+            await copyFile(chunkPaths[0]!, outputPath);
+            await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
             emitProgress(progress, options, progress.total);
-            return await readLimitedPdfOutput(chunkPaths[0]!, limits);
+            return true;
         }
 
         await mergePdfChunks(chunkPaths, outputPath);
         emitProgress(progress, options, progress.total);
-        return await readLimitedPdfOutput(outputPath, limits);
+        return true;
+    } catch (error) {
+        log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
+        return false;
+    }
+}
+
+export async function tryWritePdfFromInputPathsNative(
+    inputPaths: string[],
+    outputPath: string,
+    options?: INativePdfAssemblerOptions,
+): Promise<boolean> {
+    if (!canUseNativePdfAssembler(inputPaths)) {
+        return false;
+    }
+
+    const normalizedOutputPath = typeof outputPath === 'string' ? outputPath.trim() : '';
+    if (!normalizedOutputPath) {
+        return false;
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
+
+    try {
+        return await writePdfFromInputPathsNativeWithTempDir(
+            inputPaths,
+            normalizedOutputPath,
+            tempDir,
+            options,
+        );
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+    }
+}
+
+export async function tryCreatePdfFromInputPathsNative(
+    inputPaths: string[],
+    options?: INativePdfAssemblerOptions,
+): Promise<Uint8Array | null> {
+    if (!canUseNativePdfAssembler(inputPaths)) {
+        return null;
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
+    const outputPath = join(tempDir, `${randomUUID()}.pdf`);
+
+    try {
+        const ok = await writePdfFromInputPathsNativeWithTempDir(
+            inputPaths,
+            outputPath,
+            tempDir,
+            options,
+        );
+        if (!ok) {
+            return null;
+        }
+        return await readLimitedPdfOutput(outputPath, getResourceLimits());
     } catch (error) {
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return null;

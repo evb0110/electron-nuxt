@@ -1,8 +1,16 @@
 import { existsSync } from 'fs';
-import { basename } from 'path';
+import {
+    mkdtemp,
+    rm,
+} from 'fs/promises';
+import { tmpdir } from 'os';
+import {
+    basename,
+    join,
+} from 'path';
 import {
     buildCombinedPdfOutputPath,
-    createPdfFromInputPaths,
+    createPdfFileFromInputPaths,
     type ICreatePdfFromInputPathsProgress,
     isDjvuPath,
     isPdfPath,
@@ -10,11 +18,12 @@ import {
 } from '@electron/image/pdfConversion';
 import {
     createWorkingCopy,
-    createWorkingCopyFromData,
+    createWorkingCopyFromPath,
 } from '@electron/file-access/workingCopyCreation';
 import {
     allowOpenPaths,
     requireOpenPath,
+    type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
@@ -87,15 +96,28 @@ export async function openInputPaths(
         };
     }
 
-    const mergedPdf = await createPdfFromInputPaths(normalizedPaths, {...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {})});
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
-    logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
-    const workingPath = await createWorkingCopyFromData(
-        basename(outputPath),
-        mergedPdf,
-        outputPath,
-        getOwnerWebContentsId(owner),
-    );
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-open-'));
+    let workingPath: string;
+    try {
+        const tempOutputPath = join(tempDir, basename(outputPath));
+        await createPdfFileFromInputPaths(
+            normalizedPaths,
+            tempOutputPath,
+            {...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {})},
+        );
+        logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
+        workingPath = await createWorkingCopyFromPath(
+            tempOutputPath as TOpenPath,
+            outputPath,
+            getOwnerWebContentsId(owner),
+        );
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+    }
 
     const recentDocumentPaths = toRecentDocumentPaths(normalizedPaths);
     if (recentDocumentPaths.length > 0) {

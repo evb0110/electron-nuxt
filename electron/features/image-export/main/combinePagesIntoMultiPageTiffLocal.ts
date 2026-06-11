@@ -59,10 +59,10 @@ interface ITiffImageDescriptor {
     dataLength: number;
 }
 
-export interface ITiffPageDescriptor extends ITiffImageDescriptor { path: string; }
+interface ITiffPageDescriptor extends ITiffImageDescriptor { path: string; }
 
 const UTIF = utifModule as IUtifModule as IUtifEncoderModule;
-export const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
+const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
 
 function toPositiveInteger(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
