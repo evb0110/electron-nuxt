@@ -139,7 +139,7 @@ async function waitForInactiveDjvuImagesToRelease(session: IElectronE2ESession) 
 const djvuFixture = resolveDjvuFixturePath();
 const runOrSkip = djvuFixture.path || isDjvuFixtureRequired() ? describe : describe.skip;
 
-runOrSkip('Electron E2E - Phase 0 (Inactive DjVu Tabs)', () => {
+runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
     let session: IElectronE2ESession | null = null;
     let pdfFixturePath = '';
 

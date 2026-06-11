@@ -22,9 +22,14 @@ import { createLogger } from '@electron/utils/createLogger';
 import {
     cleanupDjvuTempPdfPath,
     handleDjvuOpenForViewing,
+    isAllowedDjvuViewingPath,
     releaseDjvuViewingPath,
     sweepStaleDjvuTempPdfs,
 } from '@electron/features/djvu/main/viewing';
+import {
+    getDjvuPageSizesForViewing,
+    renderDjvuPagePreview,
+} from '@electron/features/djvu/main/pagePreview';
 import { isDjvuPath } from '@electron/image/pdfConversion';
 import {
     requireOpenPath,
@@ -118,6 +123,33 @@ async function handleDjvuEstimateSizes(
     return estimateSizes(normalizedDjvuPath, pageCount);
 }
 
+async function handleDjvuGetPageSizes(
+    event: IpcMainInvokeEvent,
+    djvuPath: string,
+) {
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
+    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, event.sender.id)) {
+        throw new Error('DjVu viewing path is not active');
+    }
+    const pageCount = await getDjvuPageCount(normalizedDjvuPath);
+    return getDjvuPageSizesForViewing(normalizedDjvuPath, pageCount);
+}
+
+async function handleDjvuRenderPagePreview(
+    event: IpcMainInvokeEvent,
+    djvuPath: string,
+    pageNumber: number,
+) {
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, event.sender);
+    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, event.sender.id)) {
+        throw new Error('DjVu viewing path is not active');
+    }
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+        throw new Error(`Invalid DjVu page number: ${pageNumber}`);
+    }
+    return renderDjvuPagePreview(normalizedDjvuPath, pageNumber);
+}
+
 async function handleDjvuCleanupTemp(
     _event: IpcMainInvokeEvent,
     tempPdfPath: string,
@@ -150,6 +182,8 @@ export function registerDjvuHandlers(registrar: TDjvuIpcMainRegistrar = ipcMain)
     );
     registrar.handle(DJVU_CHANNELS.cancel, handleDjvuCancel);
     registrar.handle(DJVU_CHANNELS.getInfo, handleDjvuGetInfo);
+    registrar.handle(DJVU_CHANNELS.getPageSizes, handleDjvuGetPageSizes);
+    registrar.handle(DJVU_CHANNELS.renderPagePreview, handleDjvuRenderPagePreview);
     registrar.handle(DJVU_CHANNELS.estimateSizes, handleDjvuEstimateSizes);
     registrar.handle(DJVU_CHANNELS.cleanupTemp, handleDjvuCleanupTemp);
 

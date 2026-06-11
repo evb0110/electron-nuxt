@@ -152,7 +152,7 @@ async function zoomInUntilScrollable(session: IElectronE2ESession, start: IViewe
     return previous;
 }
 
-describe('Electron E2E - Phase 0 (Viewer Smoke)', () => {
+describe('Electron E2E - Viewer Smoke', () => {
     let session: IElectronE2ESession | null = null;
     let fixturePath = '';
 

@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
+import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 function createEmbeddedShape(): IShapeAnnotation {

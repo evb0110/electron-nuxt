@@ -13,27 +13,27 @@ export default defineConfig({
         // Keep smoke focused on deterministic startup coverage.
         // Set EVB_E2E_DRAW_SHAPES_EXTENDED=1 to run the full draw lifecycle matrix.
         include: [
-            'tests/e2e/electron/phase0StartupHydration.e2e.test.ts',
-            'tests/e2e/electron/phase0RecentFiles.e2e.test.ts',
-            'tests/e2e/electron/phase0ViewerSmoke.e2e.test.ts',
-            'tests/e2e/electron/phase0InactivePdfTabs.e2e.test.ts',
-            'tests/e2e/electron/phase0InactiveDjvuTabs.e2e.test.ts',
-            'tests/e2e/electron/phase1AnnotationLifecycle.e2e.test.ts',
-            'tests/e2e/electron/phase1SquigglyMarkup.e2e.test.ts',
+            'tests/e2e/electron/startupHydration.e2e.test.ts',
+            'tests/e2e/electron/recentFiles.e2e.test.ts',
+            'tests/e2e/electron/viewerSmoke.e2e.test.ts',
+            'tests/e2e/electron/inactivePdfTabs.e2e.test.ts',
+            'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts',
+            'tests/e2e/electron/annotationLifecycle.e2e.test.ts',
+            'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
             ...(includeExtendedDrawShapeLifecycle
-                ? ['tests/e2e/electron/phase1DrawShapeLifecycle.e2e.test.ts']
+                ? ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts']
                 : []),
             ...(includeLargePdfAnnotationSave
-                ? ['tests/e2e/electron/phase1LargePdfAnnotationSave.e2e.test.ts']
+                ? ['tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts']
                 : []),
             ...(includeRapidPdfNavigation
-                ? ['tests/e2e/electron/phase1RapidPdfNavigation.e2e.test.ts']
+                ? ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts']
                 : []),
             ...(includePdfSkeletonNavigationDiagnostics
-                ? ['tests/e2e/electron/phase1PdfSkeletonNavigationDiagnostics.e2e.test.ts']
+                ? ['tests/e2e/electron/pdfSkeletonNavigationDiagnostics.e2e.test.ts']
                 : []),
             ...(includeArnoldPdfOpenDiagnostics
-                ? ['tests/e2e/electron/phase1ArnoldPdfOpenDiagnostics.e2e.test.ts']
+                ? ['tests/e2e/electron/arnoldPdfOpenDiagnostics.e2e.test.ts']
                 : []),
         ],
         globals: false,

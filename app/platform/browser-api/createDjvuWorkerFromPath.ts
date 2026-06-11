@@ -1,10 +1,14 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type { IDocumentsCapability } from '@contracts/electronApiDocuments';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
-import { loadDjvuJs } from '@app/platform/browser-api/djvujsLoader';
+import {
+    loadDjvuJs,
+    type IDjvuPageSize,
+} from '@app/platform/browser-api/djvujsLoader';
 
 const DJVU_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -66,6 +70,18 @@ function getDesktopDocumentsCapability(path: TDocumentRef) {
         throw new Error(`Browser document not found: ${path}`);
     }
     return documents;
+}
+
+function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
+    if (isBrowserDocumentRef(path) || typeof window === 'undefined') {
+        return null;
+    }
+
+    const djvu = (window as Window & {electronAPI?: { djvu?: IDjvuCapability };}).electronAPI?.djvu;
+    if (typeof djvu?.getPageSizes !== 'function' || typeof djvu.renderPagePreview !== 'function') {
+        return null;
+    }
+    return djvu;
 }
 
 async function readDesktopDocumentBytes(
@@ -151,4 +167,34 @@ export async function createDjvuWorkerFromPath(
     }
 
     return worker;
+}
+
+function createPngObjectUrl(bytes: Uint8Array) {
+    return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+}
+
+export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef) {
+    const nativeDjvu = getDesktopDjvuPreviewCapability(djvuPath);
+    if (nativeDjvu) {
+        return {
+            getPageSizes: () => nativeDjvu.getPageSizes(djvuPath),
+            async renderPageObjectUrl(pageNumber: number) {
+                const preview = await nativeDjvu.renderPagePreview(djvuPath, pageNumber);
+                return createPngObjectUrl(preview.bytes);
+            },
+            revokeObjectURL: (url: string) => URL.revokeObjectURL(url),
+            terminate() {},
+        };
+    }
+
+    const worker = await createDjvuWorkerFromPath(djvuPath);
+    return {
+        getPageSizes: (): Promise<IDjvuPageSize[]> => worker.doc.getPagesSizes().run(),
+        async renderPageObjectUrl(pageNumber: number) {
+            const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            return pageObject.url;
+        },
+        revokeObjectURL: (url: string) => worker.revokeObjectURL(url),
+        terminate: () => worker.terminate(),
+    };
 }

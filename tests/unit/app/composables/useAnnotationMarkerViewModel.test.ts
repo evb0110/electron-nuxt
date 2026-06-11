@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { useAnnotationMarkerViewModel } from '@app/composables/pdf/annotations/useAnnotationMarkerViewModel';
+import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 
 const labels = {
     annotation: 'Annotation',

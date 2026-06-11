@@ -109,7 +109,7 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/public';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
-import { createDjvuWorkerFromPath } from '@app/platform/browser-api/public';
+import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -599,7 +599,7 @@ const effectiveZoom = computed(() => {
     return resolveFitWidthZoom();
 });
 
-let activeWorker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>> | null = null;
+let activeWorker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>> | null = null;
 let scrollRafId = 0;
 let loadGeneration = 0;
 let activeRenderPromise: Promise<void> | null = null;
@@ -759,14 +759,14 @@ function canLoadPagePreview(state: IDjvuPageState | undefined): state is IDjvuPa
 }
 
 function discardStalePageObjectUrl(
-    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
     url: string,
 ) {
     worker.revokeObjectURL(url);
 }
 
 function discardStaleWorker(
-    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
 ) {
     if (worker === activeWorker) {
         activeWorker = null;
@@ -778,7 +778,7 @@ function commitLoadedPagePreview(
     pageNumber: number,
     token: number,
     generation: number,
-    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
     objectUrl: string,
 ) {
     const currentState = pageStates.value[pageNumber - 1];
@@ -804,7 +804,7 @@ function markPagePreviewLoadFailed(
     pageNumber: number,
     token: number,
     generation: number,
-    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+    worker: Awaited<ReturnType<typeof createDjvuPagePreviewSourceFromPath>>,
     error: unknown,
 ) {
     const currentState = pageStates.value[pageNumber - 1];
@@ -866,8 +866,8 @@ async function ensurePageLoaded(pageNumber: number) {
     const token = state.token;
 
     try {
-        const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-        commitLoadedPagePreview(pageNumber, token, generation, worker, pageObject.url);
+        const objectUrl = await worker.renderPageObjectUrl(pageNumber);
+        commitLoadedPagePreview(pageNumber, token, generation, worker, objectUrl);
     } catch (error) {
         markPagePreviewLoadFailed(pageNumber, token, generation, worker, error);
     }
@@ -1210,14 +1210,14 @@ watch(
         emitLoading(true, { force: true });
 
         try {
-            const worker = await createDjvuWorkerFromPath(src);
+            const worker = await createDjvuPagePreviewSourceFromPath(src);
             if (!isCurrentLoadGeneration(generation)) {
                 discardStaleWorker(worker);
                 return;
             }
 
             activeWorker = worker;
-            const sizes = await worker.doc.getPagesSizes().run();
+            const sizes = await worker.getPageSizes();
             if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
                 if (worker === activeWorker && pageSizes.value.length === 0) {
                     discardStaleWorker(worker);
@@ -1289,7 +1289,7 @@ watch(isActive, async (active) => {
         emitLoading(true, { force: true });
 
         try {
-            const worker = await createDjvuWorkerFromPath(src);
+            const worker = await createDjvuPagePreviewSourceFromPath(src);
             if (!isCurrentLoadGeneration(generation)) {
                 discardStaleWorker(worker);
                 return;
@@ -1297,7 +1297,7 @@ watch(isActive, async (active) => {
 
             activeWorker = worker;
             if (pageSizes.value.length === 0) {
-                const sizes = await worker.doc.getPagesSizes().run();
+                const sizes = await worker.getPageSizes();
                 if (!isCurrentLoadGeneration(generation) || worker !== activeWorker) {
                     if (worker === activeWorker && pageSizes.value.length === 0) {
                         discardStaleWorker(worker);

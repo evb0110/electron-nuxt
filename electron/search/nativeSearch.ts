@@ -87,15 +87,6 @@ function resolveNativeSearchPath() {
     return candidates.find(candidate => existsSync(candidate)) ?? null;
 }
 
-function isAscii(value: string) {
-    for (let index = 0; index < value.length; index += 1) {
-        if (value.charCodeAt(index) > 0x7F) {
-            return false;
-        }
-    }
-    return true;
-}
-
 export function isNativeSearchSupportedOptions(options: {
     query: string;
     matchCase: boolean;
@@ -106,7 +97,7 @@ export function isNativeSearchSupportedOptions(options: {
         return false;
     }
 
-    return options.matchCase || isAscii(options.query);
+    return true;
 }
 
 async function statMtimeMs(filePath: string) {

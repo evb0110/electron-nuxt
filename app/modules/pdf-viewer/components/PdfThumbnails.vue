@@ -89,6 +89,7 @@ import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
+import { resolveThumbnailRenderConcurrency } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderConcurrency';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createHiddenAnnotationOperationsFilter } from '@app/utils/pdf-viewer/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
@@ -138,6 +139,7 @@ interface IProps {
 
 const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
 const THUMBNAIL_RENDER_CONCURRENCY = 2;
+const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
 const MAX_THUMBNAIL_OUTPUT_SCALE = 2;
@@ -196,6 +198,7 @@ let lastUserInteractionAtMs = 0;
 let lastUserInteractionLogAtMs = 0;
 let lastUserInteractionReason: string | null = null;
 let lastProgrammaticScrollAtMs = 0;
+let lastNavigationAtMs = Number.NEGATIVE_INFINITY;
 let currentPageSyncRunId = 0;
 let thumbnailSourceCycleId = 0;
 let manualScrollSourceCycleId = -1;
@@ -1335,7 +1338,13 @@ async function renderThumbnailQueue(
 
     const queue = [...pages];
 
-    const workers = Array.from({length: Math.min(THUMBNAIL_RENDER_CONCURRENCY, queue.length)}, async () => {
+    const concurrency = resolveThumbnailRenderConcurrency({
+        baseConcurrency: THUMBNAIL_RENDER_CONCURRENCY,
+        lastNavigationAtMs,
+        navigationCooldownMs: THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS,
+        nowMs: Date.now(),
+    });
+    const workers = Array.from({length: Math.min(concurrency, queue.length)}, async () => {
         while (queue.length > 0) {
             if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
                 return;
@@ -1544,7 +1553,10 @@ watch(
 
 watch(
     () => currentPage,
-    () => {
+    (nextPage, previousPage) => {
+        if (previousPage !== undefined && nextPage !== previousPage) {
+            lastNavigationAtMs = Date.now();
+        }
         scheduleActivePaneRefresh('current-page');
     },
     {

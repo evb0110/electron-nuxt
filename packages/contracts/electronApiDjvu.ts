@@ -28,6 +28,18 @@ export interface IDjvuSizeEstimate {
     estimatedBytes: number;
 }
 
+export interface IDjvuPageSize {
+    width: number;
+    height: number;
+    dpi: number;
+}
+
+export interface IDjvuPagePreview {
+    bytes: Uint8Array;
+    width: number;
+    height: number;
+}
+
 export interface IDjvuConvertOptions {
     subsample?: number;
     preserveBookmarks?: boolean;
@@ -65,6 +77,8 @@ export interface IDjvuAPI {
     convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
+    getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
+    renderPagePreview: (djvuPath: TDocumentRef, pageNumber: number) => Promise<IDjvuPagePreview>;
     estimateSizes: (djvuPath: TDocumentRef) => Promise<IDjvuSizeEstimate[]>;
     cleanupTemp: (tempPdfPath: TDocumentRef) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;

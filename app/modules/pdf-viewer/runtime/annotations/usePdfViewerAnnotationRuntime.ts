@@ -5,11 +5,11 @@ import type {
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
-import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
+import { useManagedEmbeddedPdfShapes } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isImportedEmbeddedShapeSubtype } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
-import type { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
-import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
+import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
+import { useAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
 import {
     usePdfAnnotationColorCommands,
     usePdfAnnotationCommentActions,

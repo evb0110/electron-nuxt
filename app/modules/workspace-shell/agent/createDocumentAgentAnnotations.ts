@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { TAgentTextMarkupKind } from '@app/composables/pdf/annotations/useAnnotationHighlight';
+import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowState } from '@app/utils/pdf-viewer/annotations/annotationNoteWindowTypes';
 import { markerRectFromPoint } from '@app/utils/pdf-viewer/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';

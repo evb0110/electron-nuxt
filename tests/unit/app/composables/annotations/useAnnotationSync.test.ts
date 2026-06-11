@@ -13,7 +13,7 @@ import type {
     IAnnotationCommentSummary,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';
+import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
 const { loadPdfPageAnnotations } = vi.hoisted(() => ({loadPdfPageAnnotations: vi.fn<(_doc: unknown, _pageNumber: number) => Promise<IPdfPageAnnotationBundle | null>>()}));
@@ -114,7 +114,7 @@ describe('useAnnotationSync', () => {
                 annotationCommentsCache.value = appliedComments;
                 return appliedComments;
             });
-            const { useAnnotationSync } = await import('@app/composables/pdf/annotations/useAnnotationSync');
+            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
             const sync = useAnnotationSync({
                 pdfDocument: shallowRef({}),
                 numPages: ref(1),

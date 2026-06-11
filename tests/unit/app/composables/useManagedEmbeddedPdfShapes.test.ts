@@ -10,9 +10,9 @@ import {
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
+import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
-import { useManagedEmbeddedPdfShapes } from '@app/composables/pdf/useManagedEmbeddedPdfShapes';
+import { useManagedEmbeddedPdfShapes } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 
 vi.mock('@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations', async (importOriginal) => {
     const actual = await importOriginal<{importEmbeddedShapeAnnotations: typeof importEmbeddedShapeAnnotations;}>();

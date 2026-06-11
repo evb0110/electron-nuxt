@@ -10,10 +10,6 @@ import type {
     TDrawableShapeType,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type {
-    ICreateTextMarkupFromTextOptions,
-    ICreateTextMarkupFromTextResult,
-} from '@app/composables/pdf/annotations/useAnnotationHighlight';
 import type { ICropSelectionResult } from '@app/types/crop';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
@@ -24,6 +20,27 @@ import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrint';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
+
+export interface ICreateTextMarkupFromTextOptions {
+    pageNumber: number;
+    text: string;
+    occurrence?: number | undefined;
+    markup?: TAgentTextMarkupKind | undefined;
+    caseSensitive?: boolean | undefined;
+    wholeWord?: boolean | undefined;
+    withNote?: boolean | undefined;
+}
+
+export interface ICreateTextMarkupFromTextResult {
+    created: boolean;
+    pageNumber: number;
+    requestedText: string;
+    matchedText: string | null;
+    occurrence: number;
+    subtype: TMarkupSubtype;
+    reason?: string | undefined;
+}
 
 export interface ICreatePointNoteAnnotationOptions {
     pageNumber: number;

@@ -585,6 +585,14 @@ const lazyDjvuCapability: IDjvuCapability = {
         'djvu',
         'getInfo',
     ]),
+    getPageSizes: lazyAsync<IDjvuCapability['getPageSizes']>([
+        'djvu',
+        'getPageSizes',
+    ]),
+    renderPagePreview: lazyAsync<IDjvuCapability['renderPagePreview']>([
+        'djvu',
+        'renderPagePreview',
+    ]),
     estimateSizes: lazyAsync<IDjvuCapability['estimateSizes']>([
         'djvu',
         'estimateSizes',

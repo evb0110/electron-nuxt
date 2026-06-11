@@ -30,6 +30,9 @@ const mocks = vi.hoisted(() => ({
     handleDjvuConvertToPdf: vi.fn(),
     handleDjvuCancel: vi.fn(),
     handleDjvuOpenForViewing: vi.fn(),
+    isAllowedDjvuViewingPath: vi.fn(),
+    getDjvuPageSizesForViewing: vi.fn(),
+    renderDjvuPagePreview: vi.fn(),
     releaseDjvuViewingPath: vi.fn(),
     cleanupDjvuTempPdfPath: vi.fn(),
     sweepStaleDjvuTempPdfs: vi.fn(),
@@ -55,9 +58,14 @@ vi.mock('@electron/features/djvu/main/pdfExport', () => ({
 }));
 vi.mock('@electron/features/djvu/main/viewing', () => ({
     handleDjvuOpenForViewing: mocks.handleDjvuOpenForViewing,
+    isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath,
     releaseDjvuViewingPath: mocks.releaseDjvuViewingPath,
     cleanupDjvuTempPdfPath: mocks.cleanupDjvuTempPdfPath,
     sweepStaleDjvuTempPdfs: mocks.sweepStaleDjvuTempPdfs,
+}));
+vi.mock('@electron/features/djvu/main/pagePreview', () => ({
+    getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
+    renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -92,6 +100,17 @@ describe('registerDjvuHandlers', () => {
         mocks.handleDjvuConvertToPdf.mockResolvedValue({success: true});
         mocks.handleDjvuCancel.mockResolvedValue({canceled: true});
         mocks.handleDjvuOpenForViewing.mockResolvedValue({success: true});
+        mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
+        mocks.getDjvuPageSizesForViewing.mockResolvedValue([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        mocks.renderDjvuPagePreview.mockResolvedValue({
+            bytes: new Uint8Array([1]),
+            width: 100,
+            height: 200,
+        });
         mocks.releaseDjvuViewingPath.mockReturnValue(undefined);
         mocks.cleanupDjvuTempPdfPath.mockResolvedValue(undefined);
         mocks.sweepStaleDjvuTempPdfs.mockResolvedValue(0);
@@ -148,6 +167,59 @@ describe('registerDjvuHandlers', () => {
             handler(event, symlinkPath);
 
             expect(mocks.releaseDjvuViewingPath).toHaveBeenCalledWith(event, canonicalRealPath);
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('requires an active viewing grant before probing page sizes', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-size-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = {sender: {id: 1}};
+            allowOpenPath(realPath, event.sender as never);
+            mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
+            registerDjvuHandlers();
+            const handler = getHandler('djvu:getPageSizes');
+
+            await expect(handler(event, realPath)).rejects.toThrow('DjVu viewing path is not active');
+
+            expect(mocks.getDjvuPageSizesForViewing).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('renders a page preview only for an active viewing path', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const canonicalRealPath = realpathSync.native(realPath);
+
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = {sender: {id: 1}};
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuHandlers();
+            const handler = getHandler('djvu:renderPagePreview');
+
+            await expect(handler(event, realPath, 1)).resolves.toEqual({
+                bytes: new Uint8Array([1]),
+                width: 100,
+                height: 200,
+            });
+
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(canonicalRealPath, 1);
+            expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
                 force: true,

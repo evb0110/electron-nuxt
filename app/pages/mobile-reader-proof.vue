@@ -223,6 +223,7 @@ import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/
 import { PdfPageDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';
 import { PdfToolbar } from '@app/modules/pdf-viewer/public/component-exports/pdfToolbar';
 import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
+import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { MOBILE_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';

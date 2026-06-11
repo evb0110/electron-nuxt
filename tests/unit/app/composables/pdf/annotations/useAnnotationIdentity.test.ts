@@ -18,7 +18,7 @@ vi.stubGlobal('DOMMatrix', class {
 const { areTextMarkupCommentsLikelySame } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/areTextMarkupCommentsLikelySame');
 const { likelyEditorPdfMirror } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/likelyEditorPdfMirror');
 const { mergeCommentSummaries } = await import('@app/utils/pdf-viewer/annotations/annotation-identity-matching/mergeCommentSummaries');
-const { useAnnotationIdentity } = await import('@app/composables/pdf/annotations/useAnnotationIdentity');
+const { useAnnotationIdentity } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity');
 
 function makeRect(
     left: number,

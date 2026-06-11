@@ -33,7 +33,7 @@ const platformMocks = vi.hoisted(() => ({
     warmIndex: vi.fn(),
 }));
 
-vi.mock('@app/composables/useFileOperations', () => ({useFileOperations: vi.fn((deps: unknown) => {
+vi.mock('@app/modules/workspace-shell/composables/useFileOperations', () => ({useFileOperations: vi.fn((deps: unknown) => {
     fileOperationMocks.capturedDeps = deps;
     return {
         handleSave: fileOperationMocks.handleSave,

@@ -24,11 +24,11 @@ function findHydrationWarnings(messages: IConsoleCommandResult['messages']) {
     });
 }
 
-describe('Electron E2E - Phase 0 (Startup Hydration)', () => {
+describe('Electron E2E - Startup Hydration', () => {
     let session: IElectronE2ESession | null = null;
 
     beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-phase0-${Date.now()}`);
+        session = await startElectronE2ESession(`e2e-startup-hydration-${Date.now()}`);
         await delay(1500);
     });
 
@@ -38,7 +38,7 @@ describe('Electron E2E - Phase 0 (Startup Hydration)', () => {
 
     it('does not emit Vue hydration mismatch warnings on initial desktop startup', async () => {
         if (!session) {
-            throw new Error('Phase 0 session was not initialized');
+            throw new Error('Startup hydration session was not initialized');
         }
 
         const consoleResult = await session.command<IConsoleCommandResult>('console', [

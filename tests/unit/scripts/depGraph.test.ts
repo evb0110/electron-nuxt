@@ -92,18 +92,18 @@ describe('dependency graph', () => {
         expect(graph.cycles).toEqual([]);
     });
 
-    it('keeps electron features from importing legacy IPC modules', async () => {
+    it('keeps electron code from importing app runtime modules', async () => {
         const graph = await buildDependencyGraph({
             projectRoot: process.cwd(),
             roots: ['electron'],
         });
 
-        const featureToIpcEdges = graph.edges.filter((edge: {
+        const electronToAppEdges = graph.edges.filter((edge: {
             source: string;
             target: string;
-        }) => edge.source.startsWith('electron/features/')
-            && edge.target.startsWith('electron/ipc/'));
-        expect(featureToIpcEdges).toEqual([]);
+        }) => edge.source.startsWith('electron/')
+            && edge.target.startsWith('app/'));
+        expect(electronToAppEdges).toEqual([]);
     });
 
     it('requires cross-feature app module component imports to go through public entrypoints', () => {
@@ -172,12 +172,12 @@ describe('dependency graph', () => {
 
     it('keeps the aggregate platform API limited to composition points', () => {
         expect(checkArchitectureBoundaryEdge({
-            source: 'app/composables/usePdfFile.ts',
+            source: 'app/modules/workspace-shell/composables/usePdfFile.ts',
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',
         })).toEqual([{
             rule: 'platform-api-aggregate-import',
-            source: 'app/composables/usePdfFile.ts',
+            source: 'app/modules/workspace-shell/composables/usePdfFile.ts',
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',
             message: 'Import narrow platform capability contracts instead of the aggregate IPlatformApi contract.',

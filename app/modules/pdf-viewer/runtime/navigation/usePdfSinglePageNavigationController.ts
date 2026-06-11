@@ -1,4 +1,4 @@
-import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
+import { usePdfSinglePageScroll } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 type TUsePdfSinglePageScrollOptions = Parameters<typeof usePdfSinglePageScroll>[0];

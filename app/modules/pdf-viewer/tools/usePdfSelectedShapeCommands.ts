@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import type { IPdfAppAnnotationHistoryCommand } from '@app/composables/pdf/usePdfShapeHistory';
+import type { IPdfAppAnnotationHistoryCommand } from '@app/modules/pdf-viewer/tools/usePdfShapeHistory';
 import { cloneShape } from '@app/utils/pdf-viewer/shapes/cloneShape';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

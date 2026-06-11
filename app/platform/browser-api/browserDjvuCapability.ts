@@ -848,6 +848,27 @@ export const browserDjvuCapability: IDjvuCapability = {
     getInfo(djvuPath) {
         return getDjvuInfo(djvuPath);
     },
+    getPageSizes(djvuPath) {
+        return withDjvuWorker(djvuPath, worker => worker.doc.getPagesSizes().run());
+    },
+    renderPagePreview(djvuPath, pageNumber) {
+        return withDjvuWorker(djvuPath, async (worker) => {
+            const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            try {
+                const response = await fetch(pageObject.url);
+                if (!response.ok) {
+                    throw new Error(`Failed to read DjVu page preview: ${response.status}`);
+                }
+                return {
+                    bytes: new Uint8Array(await response.arrayBuffer()),
+                    width: pageObject.width,
+                    height: pageObject.height,
+                };
+            } finally {
+                worker.revokeObjectURL(pageObject.url);
+            }
+        });
+    },
     estimateSizes(djvuPath) {
         return estimateDjvuSizes(djvuPath);
     },

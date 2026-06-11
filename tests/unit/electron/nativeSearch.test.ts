@@ -14,11 +14,11 @@ describe('native search routing', () => {
             useRegex: false,
         })).toBe(true);
         expect(isNativeSearchSupportedOptions({
-            query: 'İ',
+            query: 'ёж',
             matchCase: false,
             wholeWord: false,
             useRegex: false,
-        })).toBe(false);
+        })).toBe(true);
         expect(isNativeSearchSupportedOptions({
             query: 'İ',
             matchCase: true,

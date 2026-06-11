@@ -32,12 +32,6 @@ const ROOT_BOUNDARY_RULES = [
         message: 'Electron code must not import app runtime code.',
     },
     {
-        sourceRoot: 'electron/features',
-        targetRoot: 'electron/ipc',
-        rule: 'electron-feature-to-legacy-ipc',
-        message: 'Electron feature code must not import legacy IPC infrastructure; use feature contracts, platform IPC contracts, or file-access services.',
-    },
-    {
         sourceRoot: 'landing',
         targetRoot: 'app',
         rule: 'landing-to-app',

@@ -200,7 +200,7 @@ async function createBridgeHarness(
         markupSubtype?: Partial<IMarkupSubtypeHarness>;
     },
 ) {
-    const { useAnnotationEditorBridge } = await import('@app/composables/pdf/annotations/useAnnotationEditorBridge');
+    const { useAnnotationEditorBridge } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge');
     const container = document.createElement('div');
     document.body.append(container);
 

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
     createDocument: vi.fn(),
     terminate: vi.fn(),
     unload: vi.fn(),
+    nativeGetPageSizes: vi.fn(),
+    nativeRenderPagePreview: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/djvujsLoader', () => ({loadDjvuJs: mocks.loadDjvuJs}));
@@ -32,6 +34,7 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 describe('createDjvuWorkerFromPath', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.unstubAllGlobals();
         mocks.stat.mockResolvedValue({size: 3});
         mocks.read.mockResolvedValue(new Uint8Array([
             1,
@@ -43,6 +46,21 @@ describe('createDjvuWorkerFromPath', () => {
             public terminate = mocks.terminate;
         }});
         mocks.createDocument.mockResolvedValue(undefined);
+        mocks.nativeGetPageSizes.mockResolvedValue([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        mocks.nativeRenderPagePreview.mockResolvedValue({
+            bytes: new Uint8Array([
+                137,
+                80,
+                78,
+                71,
+            ]),
+            width: 100,
+            height: 200,
+        });
     });
 
     it('reads DjVu bytes through the active platform document capability', async () => {
@@ -107,5 +125,40 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.createDocument).not.toHaveBeenCalled();
         expect(mocks.terminate).toHaveBeenCalled();
         expect(mocks.unload).toHaveBeenCalledWith(ref);
+    });
+
+    it('uses native desktop page previews without reading the full DjVu into djvu.js', async () => {
+        vi.stubGlobal('window', { electronAPI: { djvu: {
+            getPageSizes: mocks.nativeGetPageSizes,
+            renderPagePreview: mocks.nativeRenderPagePreview,
+        } } });
+        vi.stubGlobal('URL', {
+            createObjectURL: vi.fn(() => 'blob:native-preview'),
+            revokeObjectURL: vi.fn(),
+        });
+        vi.stubGlobal('Blob', class {
+            public readonly parts: unknown[];
+            public readonly options: unknown;
+
+            constructor(parts: unknown[], options: unknown) {
+                this.parts = parts;
+                this.options = options;
+            }
+        });
+        const { createDjvuPagePreviewSourceFromPath } =
+            await import('@app/platform/browser-api/createDjvuWorkerFromPath');
+
+        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/book.djvu');
+        await expect(source.getPageSizes()).resolves.toEqual([{
+            width: 100,
+            height: 200,
+            dpi: 300,
+        }]);
+        await expect(source.renderPageObjectUrl(1)).resolves.toBe('blob:native-preview');
+
+        expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.read).not.toHaveBeenCalled();
+        expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1);
     });
 });

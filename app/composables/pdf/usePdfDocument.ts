@@ -501,7 +501,7 @@ export const usePdfDocument = () => {
 
         let cursor = begin;
         let outputOffset = 0;
-        const output = new Uint8Array(totalLength);
+        let output: Uint8Array | null = null;
         while (cursor < end) {
             if (version !== renderVersion) {
                 logPdfRenderTrace('pdf-document-range-request-stale-before-read', {
@@ -529,6 +529,19 @@ export const usePdfDocument = () => {
             if (chunk.byteLength === 0) {
                 throw new Error(`Range read returned no bytes at ${cursor} before requested end ${end}`);
             }
+
+            if (cursor === begin && chunk.byteLength === totalLength) {
+                transport.onDataRange(begin, chunk);
+                logPdfRenderTrace('pdf-document-range-fulfilled-direct', {
+                    begin,
+                    end,
+                    byteLength: chunk.byteLength,
+                    version,
+                });
+                return;
+            }
+
+            output ??= new Uint8Array(totalLength);
             if (chunk.byteLength > output.byteLength - outputOffset) {
                 throw new Error(`Range read returned ${chunk.byteLength} bytes for ${output.byteLength - outputOffset} remaining bytes`);
             }
@@ -546,6 +559,9 @@ export const usePdfDocument = () => {
             cursor += chunk.byteLength;
         }
 
+        if (!output) {
+            throw new Error(`Range read produced no output for ${begin}..${end}`);
+        }
         transport.onDataRange(begin, output);
         logPdfRenderTrace('pdf-document-range-fulfilled', {
             begin,

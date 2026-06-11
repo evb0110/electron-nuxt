@@ -164,7 +164,7 @@ async function waitForVisibleRenderedPdfHosts(session: IElectronE2ESession, expe
     }, { timeout: 30_000 }, expectedCount);
 }
 
-describe('Electron E2E - Phase 0 (Inactive PDF Tabs)', () => {
+describe('Electron E2E - Inactive PDF Tabs', () => {
     let session: IElectronE2ESession | null = null;
     let firstFixturePath = '';
     let secondFixturePath = '';

@@ -9,7 +9,7 @@ import type {
 import type {
     IShapeContextProvide,
     TUseAnnotationShapesReturn,
-} from '@app/composables/pdf/useAnnotationShapes';
+} from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { isAuthoringAnnotationTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { isSelectionInteractionTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isSelectionInteractionTool';
 import { isShapeTool } from '@app/utils/pdf-viewer/annotations/annotation-rules/isShapeTool';

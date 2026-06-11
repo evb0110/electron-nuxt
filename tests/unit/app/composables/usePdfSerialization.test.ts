@@ -23,7 +23,7 @@ import type {
 import type { IDocumentsFileCapability } from '@contracts/electronApiDocuments';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
-import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
+import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 
