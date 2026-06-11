@@ -1267,7 +1267,7 @@ async function waitForAllShapesEmbedded(page: Page, expectedCount: number) {
     }, { timeout: 20_000 }, expectedCount);
 }
 
-describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
+describe('Electron E2E - Draw Shape Lifecycle', () => {
     let session: IElectronE2ESession | null = null;
     let rendererErrorTracker: IRendererErrorTracker | null = null;
 
@@ -1293,10 +1293,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     it('preserves repeated draw-save-delete-redraw cycles without ghost shapes or auto-selecting new strokes', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -1420,10 +1420,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     it('keeps drawing undo and redo coherent after saving the new shape', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-save-undo-redo-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-save-undo-redo-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -1460,10 +1460,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps multiple saved strokes fully managed after save so delete clears them visually before the next save', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-multi-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-multi-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -1629,10 +1629,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps later saved-stroke deletions stable when removing several saved strokes in a row', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-many-delete-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-many-delete-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -1782,10 +1782,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps deleting the second saved stroke stable after deleting and saving the first saved stroke', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-first-then-second-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-first-then-second-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -1934,14 +1934,14 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps the popup-delete path stable after saving via the visible toolbar button', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
         await page.setViewport({
             width: 1600,
             height: 1000,
         });
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-toolbar-popup-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-toolbar-popup-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2062,10 +2062,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps the popup-delete path stable after saving through the workspace save hook', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-hook-popup-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-hook-popup-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2182,10 +2182,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps deleting the second saved stroke stable when the second delete happens immediately after saving the first delete', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-immediate-second-delete-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-immediate-second-delete-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2320,10 +2320,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps shapes fully managed when one local stroke is deleted before the first save and another is deleted right after that save', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-delete-before-first-save-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-delete-before-first-save-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2484,14 +2484,14 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps the popup-delete path stable when the second delete happens immediately after a toolbar save', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
         await page.setViewport({
             width: 1600,
             height: 1000,
         });
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-toolbar-popup-immediate-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-toolbar-popup-immediate-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2606,10 +2606,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps the popup-delete path stable when the second delete happens immediately after a save handle round-trip', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-popup-immediate-save-handle-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-popup-immediate-save-handle-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2724,10 +2724,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps deleting saved strokes stable across multiple save rounds', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-multi-round-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-multi-round-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -2976,10 +2976,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('allows deleting a saved stroke immediately after save without leaving a ghost layer', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-immediate-delete-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-immediate-delete-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -3055,10 +3055,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('allows deleting a preexisting saved stroke after reopening the file without leaving a ghost layer', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-reopen-delete-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-reopen-delete-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -3141,10 +3141,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps deleting saved survivors stable across successive save cycles', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-draw-successive-delete-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-successive-delete-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 
@@ -3352,10 +3352,10 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
     extendedIt('keeps deleting the second saved line stable after deleting and saving the first saved line', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 draw-shape session was not initialized');
+            throw new Error('Draw-shape session was not initialized');
         }
 
-        const fixturePath = await createBlankFixturePdf(`phase1-line-first-then-second-${Date.now()}.pdf`, 1);
+        const fixturePath = await createBlankFixturePdf(`draw-shape-line-first-then-second-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
 

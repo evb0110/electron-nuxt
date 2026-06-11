@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import { usePdfFile } from '@app/composables/usePdfFile';
+import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import type { IPdfConformanceProfile } from '@app/types/pdf';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 

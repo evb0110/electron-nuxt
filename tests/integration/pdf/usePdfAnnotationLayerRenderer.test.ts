@@ -134,7 +134,7 @@ vi.mock('pdfjs-dist', () => ({
 }));
 
 const { usePdfAnnotationLayerRenderer } =
-    await import('@app/composables/pdf/usePdfAnnotationLayerRenderer');
+    await import('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer');
 
 interface IFakeDivElement {
     innerHTML: string;

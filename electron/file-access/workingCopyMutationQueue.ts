@@ -9,13 +9,35 @@ import { getCompactSearchIndexPath } from '@electron/search/searchIndexSidecar';
 
 const log = createLogger('workingCopyMutationQueue');
 const workingCopyMutationQueue = new Map<string, Promise<void>>();
+const workingCopyMutationListeners = new Set<(workingCopyPath: string) => void>();
+
+export function onWorkingCopyMutationSettled(listener: (workingCopyPath: string) => void) {
+    workingCopyMutationListeners.add(listener);
+    return () => {
+        workingCopyMutationListeners.delete(listener);
+    };
+}
+
+function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
+    for (const listener of workingCopyMutationListeners) {
+        try {
+            listener(workingCopyPath);
+        } catch (error) {
+            log.debug(`Failed to notify working copy mutation listener: ${getErrorMessage(error)}`);
+        }
+    }
+}
 
 export function enqueueWorkingCopyMutation<T>(
     workingCopyPath: string,
     operation: () => Promise<T>,
 ) {
     const previousTail = workingCopyMutationQueue.get(workingCopyPath) ?? Promise.resolve();
-    const operationPromise = previousTail.then(operation);
+    const operationPromise = previousTail
+        .then(operation)
+        .finally(() => {
+            notifyWorkingCopyMutationSettled(workingCopyPath);
+        });
 
     const nextTail = operationPromise
         .then(() => undefined, () => undefined)

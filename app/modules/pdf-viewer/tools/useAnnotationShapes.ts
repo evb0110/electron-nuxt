@@ -80,7 +80,7 @@ export interface IShapeContextProvide {
     }) => void;
 }
 
-export interface IShapeStateSnapshot {
+interface IShapeStateSnapshot {
     shapes: IShapeAnnotation[];
     deletedAnnotationIds: string[];
     deletedStableKeys: string[];
@@ -88,7 +88,7 @@ export interface IShapeStateSnapshot {
     selectedShapeId: string | null;
 }
 
-export interface IBuildShapeAnnotationOptions {
+interface IBuildShapeAnnotationOptions {
     pageIndex: number;
     tool: TDrawableShapeType;
     x: number;

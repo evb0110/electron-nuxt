@@ -37,5 +37,21 @@
 ## Broader Gates
 
 - `pnpm run check:architecture` validates app/module boundaries.
+- `pnpm run check:dependency-lockstep` keeps Vue runtime/compiler pins,
+  intlify runtime pins, `vue-i18n`, and pnpm overrides aligned.
 - `pnpm validate` is the broad local gate: lint, typecheck, type coverage,
   strict build, fallow checks, and architecture checks.
+
+## Dependency Lockstep
+
+The web build ships Nuxt/Nitro production dependencies, and desktop packaging
+also carries the production dependency set. The direct Vue runtime/compiler
+packages therefore stay exact-pinned to `dependencies.vue`, with
+`@vue/compiler-sfc` pinned through `pnpm.overrides`; the intlify runtime
+packages stay exact-pinned together, and `vue-i18n` must declare a range that
+includes that intlify runtime pin. When bumping either family, update every
+matching direct pin and override together, run
+`pnpm run check:dependency-lockstep`, then run the normal lint/typecheck or
+`pnpm validate` gate. The same check also verifies that every pnpm override
+still points at a package resolved in `pnpm-lock.yaml`, so removed transitive
+dependencies leave a visible cleanup failure instead of a quiet stale override.

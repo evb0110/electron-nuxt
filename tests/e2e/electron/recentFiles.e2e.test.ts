@@ -216,7 +216,7 @@ async function assertRecentPdfStaysLoaded(session: IElectronE2ESession, fileName
     }
 }
 
-describe('Electron E2E - Phase 0 (Recent Files)', () => {
+describe('Electron E2E - Recent Files', () => {
     let session: IElectronE2ESession | null = null;
     const sessionName = `e2e-recent-files-${Date.now()}`;
     let fixturePath = '';
@@ -251,7 +251,7 @@ describe('Electron E2E - Phase 0 (Recent Files)', () => {
 const djvuFixture = resolveDjvuFixturePath();
 const runDjvuRecentOrSkip = djvuFixture.path || isDjvuFixtureRequired() ? describe : describe.skip;
 
-runDjvuRecentOrSkip('Electron E2E - Phase 0 (Recent DjVu Files)', () => {
+runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
     let session: IElectronE2ESession | null = null;
     const sessionName = `e2e-recent-djvu-files-${Date.now()}`;
 

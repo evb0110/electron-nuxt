@@ -32,6 +32,8 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
         ),
         cancel: (jobId) => invoke(DJVU_CHANNELS.cancel, jobId),
         getInfo: (djvuPath) => invoke(DJVU_CHANNELS.getInfo, djvuPath),
+        getPageSizes: (djvuPath) => invoke(DJVU_CHANNELS.getPageSizes, djvuPath),
+        renderPagePreview: (djvuPath, pageNumber) => invoke(DJVU_CHANNELS.renderPagePreview, djvuPath, pageNumber),
         estimateSizes: (djvuPath) => invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
         cleanupTemp: (tempPdfPath) => invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: {

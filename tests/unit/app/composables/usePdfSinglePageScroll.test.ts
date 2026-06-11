@@ -14,7 +14,7 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
+import { usePdfSinglePageScroll } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageScroll';
 import { accumulateWheelForPageFlips } from '@app/utils/pdf-viewer/single-page-wheel/accumulateWheelForPageFlips';
 import { resolveWheelPageFlipStepDelta } from '@app/utils/pdf-viewer/single-page-wheel/resolveWheelPageFlipStepDelta';
 import { resolveSnapAnchorForWheelDirection } from '@app/utils/pdf-viewer/single-page-wheel/resolveSnapAnchorForWheelDirection';

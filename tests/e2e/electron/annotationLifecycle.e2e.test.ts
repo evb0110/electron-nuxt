@@ -1618,13 +1618,13 @@ async function setLatestNoteWindowText(page: Page, text: string) {
     }, text);
 }
 
-describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
+describe('Electron E2E - Annotation Lifecycle', () => {
     let session: IElectronE2ESession | null = null;
     let fixturePath = '';
 
     beforeAll(async () => {
-        session = await startElectronE2ESession(`e2e-phase1-${Date.now()}`);
-        fixturePath = copyProjectFixture('freetext-lifecycle-test.pdf', `phase1-${Date.now()}-freetext.pdf`);
+        session = await startElectronE2ESession(`e2e-annotation-lifecycle-${Date.now()}`);
+        fixturePath = copyProjectFixture('freetext-lifecycle-test.pdf', `annotation-lifecycle-${Date.now()}-freetext.pdf`);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
     });
@@ -1636,13 +1636,13 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('creates and edits a FreeText annotation in the active workspace', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         await openAnnotationsTab(page);
 
         const baselineCount = await getFreeTextEditorCount(page);
-        const typedText = `Phase 1 free text ${Date.now()}`;
+        const typedText = `Annotation lifecycle free text ${Date.now()}`;
         const createdCount = await createFreeTextAnnotation(page, typedText);
         expect(createdCount).toBeGreaterThan(baselineCount);
 
@@ -1678,11 +1678,11 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
-            `phase1-${Date.now()}-sticky-sidebar.pdf`,
+            `annotation-lifecycle-${Date.now()}-sticky-sidebar.pdf`,
             1,
         );
         await openPdfInApp(page, noteFixturePath);
@@ -1707,11 +1707,11 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('dismisses the marker tooltip when opening the sticky note window', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
-            `phase1-${Date.now()}-sticky-tooltip-dismiss.pdf`,
+            `annotation-lifecycle-${Date.now()}-sticky-tooltip-dismiss.pdf`,
             1,
         );
         await openPdfInApp(page, noteFixturePath);
@@ -1752,11 +1752,11 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('keeps the unsaved sticky note PDF.js anchor hidden and synced while dragging its marker', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
-            `phase1-${Date.now()}-sticky-anchor-drag.pdf`,
+            `annotation-lifecycle-${Date.now()}-sticky-anchor-drag.pdf`,
             1,
         );
         await openPdfInApp(page, noteFixturePath);
@@ -1818,11 +1818,11 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('undoes a sticky note created after a highlight without removing the highlight', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
-            `phase1-${Date.now()}-highlight-then-note-undo.pdf`,
+            `annotation-lifecycle-${Date.now()}-highlight-then-note-undo.pdf`,
             1,
         );
         await openPdfInApp(page, noteFixturePath);
@@ -1849,11 +1849,11 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('keeps highlight undo and redo coherent after saving', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         const highlightFixturePath = await createMultiPageTextFixturePdf(
-            `phase1-${Date.now()}-highlight.pdf`,
+            `annotation-lifecycle-${Date.now()}-highlight.pdf`,
             1,
         );
         await openPdfInApp(page, highlightFixturePath);
@@ -1907,11 +1907,11 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
     it('restores a persisted highlight when undoing a saved sidebar delete', async () => {
         const page = session?.page;
         if (!page) {
-            throw new Error('Phase 1 session was not initialized');
+            throw new Error('Annotation lifecycle session was not initialized');
         }
 
         const highlightFixturePath = await createMultiPageTextFixturePdf(
-            `phase1-${Date.now()}-persisted-highlight-delete.pdf`,
+            `annotation-lifecycle-${Date.now()}-persisted-highlight-delete.pdf`,
             1,
         );
         await openPdfInApp(page, highlightFixturePath);

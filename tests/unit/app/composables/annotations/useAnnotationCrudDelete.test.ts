@@ -163,7 +163,7 @@ interface IHarnessOverrides {
 }
 
 async function createHarness(overrides: IHarnessOverrides = {}) {
-    const { useAnnotationCrud } = await import('@app/composables/pdf/annotations/useAnnotationCrud');
+    const { useAnnotationCrud } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud');
 
     const editors = overrides.editors ?? [];
     const uiManager = overrides.uiManagerNull ? null : createFakeUiManager(editors, overrides.uiManagerOpts);

@@ -28,4 +28,10 @@ describe('package scripts', () => {
         expect(packageJson.scripts['build:desktop']).toContain('build:pdf-page-ops');
         expect(packageJson.scripts['build:desktop']).toContain('build:pdf-search');
     });
+
+    it('keeps dependency lockstep checks in lint', async () => {
+        const packageJson = await readPackageJson();
+
+        expect(packageJson.scripts.lint).toContain('check:dependency-lockstep');
+    });
 });

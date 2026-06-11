@@ -14,9 +14,9 @@ import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
 } from '@app/types/annotations';
-import type { IFileOperationsDeps } from '@app/composables/useFileOperations';
+import type { IFileOperationsDeps } from '@app/modules/workspace-shell/composables/useFileOperations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
-import { useFileOperations } from '@app/composables/useFileOperations';
+import { useFileOperations } from '@app/modules/workspace-shell/composables/useFileOperations';
 import { cast } from '@tests/helpers/cast';
 
 const toastAddMock = vi.fn();
@@ -607,6 +607,49 @@ describe('useFileOperations', () => {
         expect(deps.serializePdfForSave).not.toHaveBeenCalled();
         expect(saveFile).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+    });
+
+    it('uses native note updates when preserved source dirtiness is fully replayable', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([createPdfNoteComment()]),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            hasPreservedAnnotationSourceChanges: vi.fn(() => true),
+            trySavePdfNativeMutations,
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(true);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            {updates: [{
+                objectNumber: 3856,
+                generationNumber: 0,
+                text: 'Updated note',
+            }]},
+            expect.objectContaining({
+                saveMode: 'rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                preserveLoadedSource: true,
+                modifiedAt: expect.stringMatching(/^D:\d{14}[+-]\d{2}'\d{2}'$/u),
+            }),
+        );
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(saveFile).not.toHaveBeenCalled();
     });
 
     it('materializes through PDF.js when a preserved live markup baseline changed without native note work', async () => {

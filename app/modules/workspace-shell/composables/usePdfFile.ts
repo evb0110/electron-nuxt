@@ -29,6 +29,7 @@ import {
     getDocumentsCapability,
     shouldRefreshWorkingCopyAfterSaveAs,
 } from '@app/utils/platformDocuments';
+import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { getErrorMessage } from '@app/utils/error';
 import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
 import type {
@@ -84,6 +85,7 @@ export const usePdfFile = () => {
     const requiresSaveAsOnFirstSave = ref(false);
     const MAX_HISTORY_ENTRIES = 20;
     const MAX_HISTORY_BYTES = 200 * 1024 * 1024;
+    const MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES = 8 * 1024 * 1024;
     let conformanceProfileRequestId = 0;
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -506,18 +508,21 @@ export const usePdfFile = () => {
         scheduleHistoryEntryCleanup(removedEntries);
     }
 
-    function resetHistory(
+    function clearHistory() {
+        replaceHistory([], 0, -1);
+    }
+
+    async function resetHistory(
         snapshot: Uint8Array | null,
         options?: { reuseSnapshot?: boolean },
     ) {
         if (snapshot) {
-            replaceHistory(
-                [createByteHistoryEntry(snapshot, options)],
-                0,
-                0,
-            );
+            const entry = await createHistoryEntryFromSnapshot(snapshot, options);
+            if (entry) {
+                replaceHistory([entry], 0, 0);
+            }
         } else {
-            replaceHistory([], 0, -1);
+            clearHistory();
         }
     }
 
@@ -529,23 +534,6 @@ export const usePdfFile = () => {
         isDirty.value =
             historyCleanIndex.value < 0 ||
       historyIndex.value !== historyCleanIndex.value;
-    }
-
-    function areByteArraysEqual(left: Uint8Array | null, right: Uint8Array | null) {
-        if (!left || !right) {
-            return false;
-        }
-        if (left.byteLength !== right.byteLength) {
-            return false;
-        }
-
-        for (let index = 0; index < left.byteLength; index += 1) {
-            if (left[index] !== right[index]) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     async function cleanupPreviousWorkingCopy(path: TDocumentRef, nextPath: TDocumentRef) {
@@ -629,10 +617,10 @@ export const usePdfFile = () => {
         if (!options?.preserveHistory) {
             fileHistorySessionVersion.value += 1;
             if (nextState.pdfData) {
-                resetHistory(nextState.pdfData, { reuseSnapshot: true });
+                await resetHistory(nextState.pdfData, { reuseSnapshot: true });
                 syncDirtyFromHistory();
             } else {
-                resetHistory(null);
+                clearHistory();
             }
         }
 
@@ -661,6 +649,65 @@ export const usePdfFile = () => {
             size,
             originalPath: originalPath.value,
         };
+    }
+
+    function shouldStoreHistorySnapshotOnDisk(snapshot: Uint8Array) {
+        return (
+            isElectron.value
+            && snapshot.byteLength > MAX_IN_MEMORY_HISTORY_SNAPSHOT_BYTES
+            && typeof getDocumentsCapability().createWorkingCopyFromData === 'function'
+        );
+    }
+
+    function getHistorySnapshotFileName() {
+        return fileName.value ?? getDocumentRefBaseName(workingCopyPath.value) ?? 'document.pdf';
+    }
+
+    async function createPathHistoryEntryFromSnapshot(
+        snapshot: Uint8Array,
+        expectedWorkingPath: TDocumentRef,
+    ): Promise<IPathHistoryEntry | null> {
+        const snapshotPath = await getDocumentsCapability().createWorkingCopyFromData(
+            getHistorySnapshotFileName(),
+            snapshot,
+            originalPath.value ?? undefined,
+        );
+        if (!isActiveWorkingCopy(expectedWorkingPath)) {
+            void getDocumentsCapability().cleanupFile(snapshotPath);
+            return null;
+        }
+        return {
+            kind: 'path',
+            path: snapshotPath,
+            size: snapshot.byteLength,
+            originalPath: originalPath.value,
+        };
+    }
+
+    async function createHistoryEntryFromSnapshot(
+        snapshot: Uint8Array,
+        options?: { reuseSnapshot?: boolean },
+    ): Promise<TPdfHistoryEntry | null> {
+        const expectedWorkingPath = workingCopyPath.value;
+        if (expectedWorkingPath && shouldStoreHistorySnapshotOnDisk(snapshot)) {
+            try {
+                const entry = await createPathHistoryEntryFromSnapshot(snapshot, expectedWorkingPath);
+                if (entry) {
+                    return entry;
+                }
+            } catch (snapshotError) {
+                BrowserLogger.warn('pdf-file', 'Failed to create disk-backed history snapshot', {
+                    path: expectedWorkingPath,
+                    bytes: snapshot.byteLength,
+                    error: snapshotError,
+                });
+            }
+        }
+
+        if (expectedWorkingPath && !isActiveWorkingCopy(expectedWorkingPath)) {
+            return null;
+        }
+        return createByteHistoryEntry(snapshot, options);
     }
 
     async function refreshPdfConformanceProfile(path: TDocumentRef | null) {
@@ -716,7 +763,7 @@ export const usePdfFile = () => {
         };
     }
 
-    function markCurrentHistoryEntryClean(
+    async function markCurrentHistoryEntryClean(
         snapshot: Uint8Array | null,
         options?: { recordSnapshotChange?: boolean },
     ) {
@@ -730,7 +777,7 @@ export const usePdfFile = () => {
         }));
         if (!snapshot) {
             if (history.value.length === 0) {
-                resetHistory(null);
+                clearHistory();
             } else {
                 historyCleanIndex.value = historyIndex.value;
                 syncDirtyFromHistory();
@@ -745,14 +792,26 @@ export const usePdfFile = () => {
                 // Annotation-only preserved-source saves update the clean file
                 // baseline; they must not become file undo entries and steal
                 // undo/redo from app-managed annotation history.
+                const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
+                if (!entry) {
+                    return;
+                }
                 const nextHistory = history.value.slice();
-                nextHistory[historyIndex.value] = createByteHistoryEntry(snapshot, { reuseSnapshot: true });
+                nextHistory[historyIndex.value] = entry;
                 replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
             } else {
-                pushHistorySnapshot(snapshot, { reuseSnapshot: true });
+                await pushHistorySnapshot(snapshot, { reuseSnapshot: true });
             }
+        } else if (currentEntry?.kind === 'path' && options?.recordSnapshotChange === false) {
+            const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
+            if (!entry) {
+                return;
+            }
+            const nextHistory = history.value.slice();
+            nextHistory[historyIndex.value] = entry;
+            replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
         } else if (!currentEntry) {
-            resetHistory(snapshot, { reuseSnapshot: true });
+            await resetHistory(snapshot, { reuseSnapshot: true });
         }
 
         historyCleanIndex.value = historyIndex.value;
@@ -799,14 +858,14 @@ export const usePdfFile = () => {
                     return false;
                 }
                 pdfData.value = snapshot;
-                markCurrentHistoryEntryClean(snapshot, { recordSnapshotChange: false });
+                await markCurrentHistoryEntryClean(snapshot, { recordSnapshotChange: false });
             } else {
                 const nextState = await readPdfStateFromPath(path);
                 if (!isActiveWorkingCopy(path)) {
                     return false;
                 }
                 pdfData.value = nextState.pdfData;
-                markCurrentHistoryEntryClean(nextState.pdfData, { recordSnapshotChange: false });
+                await markCurrentHistoryEntryClean(nextState.pdfData, { recordSnapshotChange: false });
             }
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
@@ -815,7 +874,7 @@ export const usePdfFile = () => {
             }
             pdfData.value = snapshot;
             pdfSrc.value = toPdfBlob(snapshot);
-            markCurrentHistoryEntryClean(snapshot);
+            await markCurrentHistoryEntryClean(snapshot);
         } else {
             const nextState = await readPdfStateFromPath(path);
             if (!isActiveWorkingCopy(path)) {
@@ -823,7 +882,7 @@ export const usePdfFile = () => {
             }
             pdfData.value = nextState.pdfData;
             pdfSrc.value = nextState.pdfSrc;
-            markCurrentHistoryEntryClean(nextState.pdfData);
+            await markCurrentHistoryEntryClean(nextState.pdfData);
         }
 
         if (opts?.preserveConformanceProfile !== true) {
@@ -963,7 +1022,7 @@ export const usePdfFile = () => {
             return false;
         }
         if (nextState.pdfData) {
-            resetHistory(nextState.pdfData, { reuseSnapshot: true });
+            await resetHistory(nextState.pdfData, { reuseSnapshot: true });
             syncDirtyFromHistory();
             return true;
         }
@@ -992,7 +1051,7 @@ export const usePdfFile = () => {
         if (nextState.pdfData) {
             pdfData.value = nextState.pdfData;
             pdfSrc.value = nextState.pdfSrc;
-            pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
+            await pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
         } else {
             const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
             if (!isActiveWorkingCopy(path)) {
@@ -1023,11 +1082,16 @@ export const usePdfFile = () => {
         syncDirtyFromHistory();
     }
 
-    function pushHistorySnapshot(
+    async function pushHistorySnapshot(
         snapshot: Uint8Array,
         options?: { reuseSnapshot?: boolean },
     ) {
-        pushHistoryEntry(createByteHistoryEntry(snapshot, options));
+        const entry = await createHistoryEntryFromSnapshot(snapshot, options);
+        if (!entry) {
+            return false;
+        }
+        pushHistoryEntry(entry);
+        return true;
     }
 
     async function applySnapshot(
@@ -1081,7 +1145,7 @@ export const usePdfFile = () => {
         }
 
         if (opts?.pushHistory !== false) {
-            pushHistorySnapshot(snapshot, { reuseSnapshot: true });
+            await pushHistorySnapshot(snapshot, { reuseSnapshot: true });
         } else {
             isDirty.value = true;
         }
@@ -1109,7 +1173,7 @@ export const usePdfFile = () => {
 
         pdfData.value = snapshot;
         pdfSrc.value = toPdfBlob(snapshot);
-        pushHistorySnapshot(snapshot, { reuseSnapshot: true });
+        await pushHistorySnapshot(snapshot, { reuseSnapshot: true });
 
         if (expectedWorkingPath) {
             deferPdfConformanceProfile(expectedWorkingPath);
@@ -1576,7 +1640,7 @@ export const usePdfFile = () => {
         requiresSaveAsOnFirstSave.value = false;
         analytics.clearDocumentContext();
         fileHistorySessionVersion.value += 1;
-        resetHistory(null);
+        clearHistory();
         if (pathToCleanup) {
             getDocumentsCapability().cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(

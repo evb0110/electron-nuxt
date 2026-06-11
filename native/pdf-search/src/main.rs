@@ -5,6 +5,7 @@ use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
+use unicode_casefold::{Locale, UnicodeCaseFold, Variant};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAGIC: &[u8; 8] = b"EVBSIDX1";
@@ -111,17 +112,24 @@ fn read_u64_le(bytes: &[u8], offset: usize) -> Result<u64, CliError> {
 }
 
 fn usize_from_u64(value: u64, label: &str) -> Result<usize, CliError> {
-    usize::try_from(value)
-        .map_err(|_| CliError(format!("Native search index {label} does not fit this platform")))
+    usize::try_from(value).map_err(|_| {
+        CliError(format!(
+            "Native search index {label} does not fit this platform"
+        ))
+    })
 }
 
 fn load_index(path: &PathBuf) -> Result<SearchIndex, Box<dyn Error>> {
     let data = fs::read(path)?;
     if data.len() < HEADER_SIZE {
-        return Err(Box::new(CliError("Native search index is too small".to_string())));
+        return Err(Box::new(CliError(
+            "Native search index is too small".to_string(),
+        )));
     }
     if data.get(0..8) != Some(&MAGIC[..]) {
-        return Err(Box::new(CliError("Native search index magic mismatch".to_string())));
+        return Err(Box::new(CliError(
+            "Native search index magic mismatch".to_string(),
+        )));
     }
 
     let schema_version = read_u32_le(&data, 8)?;
@@ -142,7 +150,9 @@ fn load_index(path: &PathBuf) -> Result<SearchIndex, Box<dyn Error>> {
         .checked_add(table_size)
         .ok_or_else(|| CliError("Native search index table offset overflow".to_string()))?;
     if data.len() < minimum_size {
-        return Err(Box::new(CliError("Native search index page table is truncated".to_string())));
+        return Err(Box::new(CliError(
+            "Native search index page table is truncated".to_string(),
+        )));
     }
 
     let mut records = Vec::with_capacity(page_record_count_usize);
@@ -155,7 +165,9 @@ fn load_index(path: &PathBuf) -> Result<SearchIndex, Box<dyn Error>> {
             .checked_add(byte_len)
             .ok_or_else(|| CliError("Native search index page text offset overflow".to_string()))?;
         if byte_end > data.len() {
-            return Err(Box::new(CliError("Native search index page text is truncated".to_string())));
+            return Err(Box::new(CliError(
+                "Native search index page text is truncated".to_string(),
+            )));
         }
         records.push(PageRecord {
             page_number,
@@ -197,7 +209,9 @@ fn parse_u32(value: Option<String>, label: &str) -> Result<u32, Box<dyn Error>> 
     Ok(parsed)
 }
 
-fn parse_search_options(mut args: impl Iterator<Item = String>) -> Result<SearchOptions, Box<dyn Error>> {
+fn parse_search_options(
+    mut args: impl Iterator<Item = String>,
+) -> Result<SearchOptions, Box<dyn Error>> {
     let mut index_path: Option<PathBuf> = None;
     let mut query: Option<String> = None;
     let mut limit = 500usize;
@@ -208,12 +222,16 @@ fn parse_search_options(mut args: impl Iterator<Item = String>) -> Result<Search
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--index" => {
-                index_path = Some(PathBuf::from(
-                    args.next().ok_or_else(|| CliError("Missing value for --index".to_string()))?,
-                ));
+                index_path =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        CliError("Missing value for --index".to_string())
+                    })?));
             }
             "--query" => {
-                query = Some(args.next().ok_or_else(|| CliError("Missing value for --query".to_string()))?);
+                query = Some(
+                    args.next()
+                        .ok_or_else(|| CliError("Missing value for --query".to_string()))?,
+                );
             }
             "--limit" => {
                 limit = parse_usize(args.next(), "--limit")?;
@@ -231,14 +249,18 @@ fn parse_search_options(mut args: impl Iterator<Item = String>) -> Result<Search
                 return Err(Box::new(CliError(usage().to_string())));
             }
             _ => {
-                return Err(Box::new(CliError(format!("Unknown search argument: {arg}"))));
+                return Err(Box::new(CliError(format!(
+                    "Unknown search argument: {arg}"
+                ))));
             }
         }
     }
 
     let query = query.ok_or_else(|| CliError("Missing required --query".to_string()))?;
     if query.is_empty() {
-        return Err(Box::new(CliError("Search query must not be empty".to_string())));
+        return Err(Box::new(CliError(
+            "Search query must not be empty".to_string(),
+        )));
     }
 
     Ok(SearchOptions {
@@ -305,11 +327,86 @@ fn find_ascii_case_insensitive_matches(text: &str, needle: &str) -> Vec<(usize, 
     matches
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct FoldedCharSpan {
+    folded_start: usize,
+    folded_end: usize,
+    original_start: usize,
+    original_end: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct FoldedText {
+    text: String,
+    spans: Vec<FoldedCharSpan>,
+}
+
+fn simple_case_fold(value: &str) -> String {
+    value
+        .case_fold_with(Variant::Simple, Locale::NonTurkic)
+        .collect()
+}
+
+fn fold_text_with_spans(value: &str) -> FoldedText {
+    let mut text = String::with_capacity(value.len());
+    let mut spans = Vec::with_capacity(value.chars().count());
+
+    for (original_start, character) in value.char_indices() {
+        let original_end = original_start + character.len_utf8();
+        let folded_start = text.len();
+        for folded_character in character.case_fold_with(Variant::Simple, Locale::NonTurkic) {
+            text.push(folded_character);
+        }
+        spans.push(FoldedCharSpan {
+            folded_start,
+            folded_end: text.len(),
+            original_start,
+            original_end,
+        });
+    }
+
+    FoldedText { text, spans }
+}
+
+fn original_byte_range_for_folded_match(
+    folded: &FoldedText,
+    folded_start: usize,
+    folded_end: usize,
+) -> Option<(usize, usize)> {
+    let start_span_index = folded
+        .spans
+        .binary_search_by_key(&folded_start, |span| span.folded_start)
+        .ok()?;
+    let end_span_index = folded
+        .spans
+        .binary_search_by_key(&folded_end, |span| span.folded_end)
+        .ok()?;
+    Some((
+        folded.spans[start_span_index].original_start,
+        folded.spans[end_span_index].original_end,
+    ))
+}
+
+fn find_unicode_case_insensitive_matches(text: &str, needle: &str) -> Vec<(usize, usize)> {
+    let folded_needle = simple_case_fold(needle);
+    if folded_needle.is_empty() {
+        return Vec::new();
+    }
+
+    let folded_text = fold_text_with_spans(text);
+    find_case_sensitive_matches(&folded_text.text, &folded_needle)
+        .into_iter()
+        .filter_map(|(start, end)| original_byte_range_for_folded_match(&folded_text, start, end))
+        .collect()
+}
+
 fn find_matches(text: &str, needle: &str, match_case: bool) -> Vec<(usize, usize)> {
     if match_case {
         find_case_sensitive_matches(text, needle)
-    } else {
+    } else if text.is_ascii() && needle.is_ascii() {
         find_ascii_case_insensitive_matches(text, needle)
+    } else {
+        find_unicode_case_insensitive_matches(text, needle)
     }
 }
 
@@ -383,7 +480,10 @@ fn build_excerpt(
     }
 }
 
-fn search_index(index: &SearchIndex, options: &SearchOptions) -> Result<SearchResponse, Box<dyn Error>> {
+fn search_index(
+    index: &SearchIndex,
+    options: &SearchOptions,
+) -> Result<SearchResponse, Box<dyn Error>> {
     let total_pages = options.page_count.unwrap_or(index.page_count);
     let mut results = Vec::new();
     let mut truncated = false;
@@ -494,10 +594,7 @@ mod tests {
 
     #[test]
     fn searches_ascii_case_insensitive_literals() {
-        let index = test_index(&[
-            (1, "Alpha beta alpha"),
-            (2, "ALPHA"),
-        ]);
+        let index = test_index(&[(1, "Alpha beta alpha"), (2, "ALPHA")]);
 
         let response = search_index(&index, &options("alpha")).expect("search should succeed");
 
@@ -508,6 +605,48 @@ mod tests {
         assert_eq!(response.results[1].page_match_index, 1);
         assert_eq!(response.results[2].page_number, 2);
         assert_eq!(response.results[2].matched_text(), "ALPHA");
+    }
+
+    #[test]
+    fn searches_unicode_case_insensitive_literals() {
+        let index = test_index(&[(1, "Привет, ЁЖ"), (2, "CAFÉ Σίσυφος K ſ")]);
+
+        let cyrillic_response =
+            search_index(&index, &options("ёж")).expect("search should succeed");
+        assert_eq!(cyrillic_response.results.len(), 1);
+        assert_eq!(cyrillic_response.results[0].page_number, 1);
+        assert_eq!(cyrillic_response.results[0].matched_text(), "ЁЖ");
+
+        let accent_response =
+            search_index(&index, &options("café")).expect("search should succeed");
+        assert_eq!(accent_response.results.len(), 1);
+        assert_eq!(accent_response.results[0].page_number, 2);
+        assert_eq!(accent_response.results[0].matched_text(), "CAFÉ");
+
+        let sigma_response = search_index(&index, &options("ς")).expect("search should succeed");
+        assert_eq!(sigma_response.results.len(), 3);
+        assert_eq!(sigma_response.results[0].matched_text(), "Σ");
+        assert_eq!(sigma_response.results[1].matched_text(), "σ");
+        assert_eq!(sigma_response.results[2].matched_text(), "ς");
+
+        let kelvin_response = search_index(&index, &options("k")).expect("search should succeed");
+        assert_eq!(kelvin_response.results.len(), 1);
+        assert_eq!(kelvin_response.results[0].matched_text(), "K");
+
+        let long_s_response = search_index(&index, &options("s")).expect("search should succeed");
+        assert_eq!(long_s_response.results.len(), 1);
+        assert_eq!(long_s_response.results[0].matched_text(), "ſ");
+    }
+
+    #[test]
+    fn keeps_simple_case_folding_from_expanding_matches() {
+        let index = test_index(&[(1, "İ ß")]);
+
+        let dotted_i_response = search_index(&index, &options("i")).expect("search should succeed");
+        assert!(dotted_i_response.results.is_empty());
+
+        let sharp_s_response = search_index(&index, &options("ss")).expect("search should succeed");
+        assert!(sharp_s_response.results.is_empty());
     }
 
     #[test]
@@ -538,10 +677,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_index_magic() {
-        let path = env::temp_dir().join(format!(
-            "evb-pdf-search-bad-magic-{}",
-            process::id(),
-        ));
+        let path = env::temp_dir().join(format!("evb-pdf-search-bad-magic-{}", process::id(),));
         fs::write(&path, b"not-index").expect("write temp file");
         let result = load_index(&path);
         fs::remove_file(&path).ok();

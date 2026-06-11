@@ -10,7 +10,10 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
     lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
     realpathSync: vi.fn<(path: string) => string>(),
-    statSync: vi.fn<(path: string) => { size: number }>(),
+    statSync: vi.fn<(path: string) => {
+        size: number;
+        mtimeMs?: number;
+    }>(),
     readFile: vi.fn(),
     writeFile: vi.fn(),
     copyFile: vi.fn(),
@@ -70,6 +73,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 
 const {
+    clearCachedRangeReadHandlesForTests,
     handleFileRead,
     handleFileReadRange,
     handleFileStat,
@@ -85,7 +89,8 @@ const { enqueueWorkingCopyMutation } = await import('@electron/file-access/worki
 describe('fileOps path security', () => {
     const event = {sender: {id: 42}} as Electron.IpcMainInvokeEvent;
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        await clearCachedRangeReadHandlesForTests();
         vi.resetAllMocks();
 
         mocks.existsSync.mockReturnValue(true);
@@ -114,7 +119,10 @@ describe('fileOps path security', () => {
         });
         mocks.lstatSync.mockReturnValue({ isSymbolicLink: () => false });
         mocks.realpathSync.mockImplementation((path: string) => path);
-        mocks.statSync.mockReturnValue({ size: 123 });
+        mocks.statSync.mockReturnValue({
+            size: 123,
+            mtimeMs: 1,
+        });
         mocks.stat.mockResolvedValue({ size: 123 });
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.copyFile.mockResolvedValue(undefined);
@@ -352,6 +360,8 @@ describe('fileOps path security', () => {
             4,
             5,
         ]));
+        expect(close).not.toHaveBeenCalled();
+        await clearCachedRangeReadHandlesForTests();
         expect(close).toHaveBeenCalled();
     });
 
@@ -381,7 +391,85 @@ describe('fileOps path security', () => {
             7,
             8,
         ]));
+        expect(close).not.toHaveBeenCalled();
+        await clearCachedRangeReadHandlesForTests();
         expect(close).toHaveBeenCalled();
+    });
+
+    it('reuses cached range read handles while the file is unchanged', async () => {
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, _offset: number, length: number) => {
+            buffer.fill(6, 0, length);
+            return { bytesRead: length };
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
+        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 2, 2);
+
+        expect(mocks.open).toHaveBeenCalledTimes(1);
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(close).not.toHaveBeenCalled();
+        await clearCachedRangeReadHandlesForTests();
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('reopens cached range read handles when file metadata changes', async () => {
+        const firstClose = vi.fn(async () => {});
+        const secondClose = vi.fn(async () => {});
+        mocks.statSync
+            .mockReturnValueOnce({
+                size: 123,
+                mtimeMs: 1,
+            })
+            .mockReturnValueOnce({
+                size: 123,
+                mtimeMs: 2,
+            });
+        mocks.open
+            .mockResolvedValueOnce({
+                close: firstClose,
+                read: vi.fn(async (buffer: Buffer) => {
+                    buffer.fill(1);
+                    return { bytesRead: buffer.byteLength };
+                }),
+            })
+            .mockResolvedValueOnce({
+                close: secondClose,
+                read: vi.fn(async (buffer: Buffer) => {
+                    buffer.fill(2);
+                    return { bytesRead: buffer.byteLength };
+                }),
+            });
+
+        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
+        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 2, 2);
+
+        expect(mocks.open).toHaveBeenCalledTimes(2);
+        expect(firstClose).toHaveBeenCalledTimes(1);
+        expect(secondClose).not.toHaveBeenCalled();
+        await clearCachedRangeReadHandlesForTests();
+        expect(secondClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes cached range read handles after working copy mutations settle', async () => {
+        const close = vi.fn(async () => {});
+        mocks.open.mockResolvedValue({
+            close,
+            read: vi.fn(async (buffer: Buffer) => {
+                buffer.fill(3);
+                return { bytesRead: buffer.byteLength };
+            }),
+        });
+
+        await handleFileReadRange(event, '/tmp/electron-test/safe.pdf', 0, 2);
+        await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
+
+        await waitForSettledQueueTurn();
+        expect(close).toHaveBeenCalledTimes(1);
     });
 
     it('allows direct reads for DjVu files approved for native viewing', async () => {
@@ -437,6 +525,8 @@ describe('fileOps path security', () => {
             6,
             7,
         ]));
+        expect(close).not.toHaveBeenCalled();
+        await clearCachedRangeReadHandlesForTests();
         expect(close).toHaveBeenCalled();
     });
 

@@ -578,6 +578,37 @@ describe('pdfPrint', () => {
         expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
     });
 
+    it('passes freshly materialized Blob bytes to pdf.js without an extra clone', async () => {
+        const root = {
+            append: vi.fn(),
+            replaceChildren: vi.fn(),
+        };
+        const targetDocument: IBrowserPrintDocument = {
+            createElement: () => {
+                throw new Error('Unexpected print element creation');
+            },
+            querySelector: () => root,
+        };
+        const pdfDocumentDestroy = vi.fn(async () => {});
+        const loadingTaskDestroy = vi.fn(async () => {});
+        pdfjsModule.getDocument.mockReturnValue({
+            destroy: loadingTaskDestroy,
+            promise: Promise.resolve({
+                destroy: pdfDocumentDestroy,
+                getPage: vi.fn(),
+                numPages: 0,
+            }),
+        });
+
+        await renderPdfPagesForBrowserPrint(targetDocument, new Blob([Uint8Array.of(1, 2, 3)]));
+
+        const pdfData = pdfjsModule.getDocument.mock.calls[0]?.[0]?.data;
+        expect(pdfData).toBeInstanceOf(Uint8Array);
+        expect(pdfData).toEqual(Uint8Array.of(1, 2, 3));
+        expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
+        expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
+    });
+
     it('renders selected pages from an already loaded PDF.js document', async () => {
         const root = {
             append: vi.fn(),

@@ -31,7 +31,6 @@
         "electron/djvu/conversion.ts",
         "electron/djvu/convert.ts",
         "electron/image/export.ts",
-        "electron/ipc/pdfExport.ts",
         "app/assets/css/*.scss",
         "landing/**",
         "nuxt-output/**",

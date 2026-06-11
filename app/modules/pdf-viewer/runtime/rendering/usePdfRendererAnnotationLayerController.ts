@@ -1,6 +1,6 @@
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
+import type { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 
 type TAnnotationLayerInstance = Awaited<
     ReturnType<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>

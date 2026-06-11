@@ -66,7 +66,7 @@ async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype: strin
     );
 }
 
-describe('Electron E2E - Phase 1 (Squiggly text markup)', () => {
+describe('Electron E2E - Squiggly text markup', () => {
     let session: IElectronE2ESession | null = null;
 
     beforeAll(async () => {
@@ -83,7 +83,7 @@ describe('Electron E2E - Phase 1 (Squiggly text markup)', () => {
             throw new Error('Squiggly session was not initialized');
         }
 
-        const fixturePath = await createMultiPageTextFixturePdf(`phase1-${Date.now()}-squiggly.pdf`, 1);
+        const fixturePath = await createMultiPageTextFixturePdf(`squiggly-${Date.now()}-squiggly.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
         await openAnnotationsTab(page);

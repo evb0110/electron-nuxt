@@ -14,9 +14,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
-    IPdfNativeMarkupSubtypeHint,
     IPdfNativeMutationSet,
-    IPdfNativeShapeAnnotation,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import { isTimeoutError } from '@contracts/isTimeoutError';
@@ -36,57 +34,20 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfJsAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import { normalizeMarkerRect } from '@app/utils/pdf-viewer/annotation-geometry/normalizeMarkerRect';
-import { toFreeTextNoteMarkerRect } from '@app/utils/pdf-viewer/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
 import { mergeAnnotationCommentSaveSnapshot } from '@app/utils/pdf-viewer/annotation-comment-save-snapshot/mergeAnnotationCommentSaveSnapshot';
 import { getErrorMessage } from '@app/utils/error';
 import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/buildPdfAnnotationSavePlan';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
-import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
 import { toPdfDateString } from '@app/utils/pdfDate';
-import { normalizePageLabelRanges } from '@app/utils/pdfPageLabels';
-import { collectMarkupSubtypeHints } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
+import {
+    buildNativePdfMutationPlanForSave,
+    type INativePdfMutationPlan,
+} from '@app/services/pdf-save/buildNativePdfMutationPlanForSave';
+import { isReplayableEditorOnlyFreeTextNote } from '@app/services/pdf-save/nativeFreeTextNotes';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
-const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
-    'text',
-    'popup',
-    'note',
-    'freetext',
-    'highlight',
-    'underline',
-    'strikeout',
-    'squiggly',
-]);
-const NATIVE_SHAPE_TYPES = new Set([
-    'rectangle',
-    'circle',
-    'line',
-    'arrow',
-    'polyline',
-    'polygon',
-]);
-const NATIVE_SHAPE_PDF_SUBTYPES = new Set([
-    'Square',
-    'Circle',
-    'Line',
-    'PolyLine',
-    'Polygon',
-    'Ink',
-]);
-const NATIVE_SHAPE_LINE_END_STYLES = new Set([
-    'none',
-    'openArrow',
-    'closedArrow',
-]);
-const NATIVE_MARKUP_SUBTYPES = new Set<TMarkupSubtype>([
-    'Highlight',
-    'Underline',
-    'StrikeOut',
-    'Squiggly',
-]);
 
 interface IPersistSerializedOptions {
     saveMode: TPdfSaveMode;
@@ -329,15 +290,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             });
             throw error;
         }
-    }
-
-    function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
-        const subtype = comment.subtype?.trim().toLowerCase();
-        return comment.source === 'editor'
-            && !parsePdfJsAnnotationRef(comment.annotationId)
-            && Boolean(comment.hasNote)
-            && Boolean(normalizeMarkerRect(comment.markerRect))
-            && (subtype === 'freetext' || subtype === 'typewriter');
     }
 
     function hasUnreplayableEditorOnlyAnnotationsPendingMaterialization() {
@@ -620,50 +572,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return plan.route === 'source-replay';
     }
 
-    function parseAnnotationRefFromStableKey(stableKey: string) {
-        const match = stableKey.trim().match(/^ann:\d+:(\d+R(?:\d+)?)$/iu);
-        return parsePdfJsAnnotationRef(match?.[1]);
-    }
-
-    function resolveNativeNoteTextUpdateRef(stableKey: string, comment: IAnnotationCommentSummary) {
-        return parseAnnotationRefFromStableKey(stableKey)
-            ?? parseAnnotationRefFromStableKey(comment.stableKey)
-            ?? parsePdfJsAnnotationRef(comment.annotationId);
-    }
-
-    function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
-        return parseAnnotationRefFromStableKey(comment.stableKey)
-            ?? parsePdfJsAnnotationRef(comment.annotationId)
-            ?? parsePdfJsAnnotationRef(comment.uid)
-            ?? parsePdfJsAnnotationRef(comment.id);
-    }
-
-    function buildNativeNoteTextCommentLookup(comments: IAnnotationCommentSummary[]) {
-        const commentsByKey = new Map<string, IAnnotationCommentSummary>();
-        const addCommentKey = (key: string | null | undefined, comment: IAnnotationCommentSummary) => {
-            const normalized = key?.trim();
-            if (normalized && !commentsByKey.has(normalized)) {
-                commentsByKey.set(normalized, comment);
-            }
-        };
-
-        comments.forEach((comment) => {
-            addCommentKey(comment.stableKey, comment);
-            const normalizedAnnotationId = normalizePdfJsAnnotationId(comment.annotationId);
-            addCommentKey(normalizedAnnotationId, comment);
-            if (normalizedAnnotationId) {
-                addCommentKey(`ann:${comment.pageIndex}:${normalizedAnnotationId}`, comment);
-            }
-        });
-
-        return commentsByKey;
-    }
-
-    function isNativeNoteTextUpdateSubtype(comment: IAnnotationCommentSummary) {
-        const normalizedSubtype = normalizeAnnotationSubtypeToken(comment.subtype);
-        return NATIVE_NOTE_TEXT_UPDATE_SUBTYPES.has(normalizedSubtype);
-    }
-
     function hasNativePdfMutationCapability() {
         return Boolean(trySavePdfNativeMutations || trySaveEmbeddedNoteTextUpdates);
     }
@@ -672,759 +580,35 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return Boolean(trySavePdfNativeMutations);
     }
 
-    function buildNativeNoteTextUpdatesForSave(opts: {
-        mode: 'save' | 'save_as';
-        pendingTexts: Map<string, string> | null;
-        pendingDeletes: IAnnotationCommentSummary[] | null;
-        annotationCommentsSnapshot: IAnnotationCommentSummary[];
-        shapeStateDirty: boolean;
-        forcePdfjsMaterialize: boolean;
-        includeManagedShapesForLiveSource: boolean;
-        forceRewrite: boolean;
-    }) {
-        const skip = (reason: string, details: Record<string, unknown> = {}) => {
-            BrowserLogger.debug('workspace', 'Skipped native note-text save fast path', () => ({
-                reason,
-                pendingTexts: opts.pendingTexts?.size ?? 0,
-                pendingDeletes: opts.pendingDeletes?.length ?? 0,
-                shapeStateDirty: opts.shapeStateDirty,
-                forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
-                includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
-                forceRewrite: opts.forceRewrite,
-                pageLabelsDirty: pageLabelsDirty.value,
-                bookmarksDirty: bookmarksDirty.value,
-                ...details,
-            }));
-            return null;
-        };
-
-        if (opts.mode !== 'save') {
-            return skip('not-save-mode', { mode: opts.mode });
-        }
-        if (!hasNativePdfMutationCapability()) {
-            return skip('native-save-capability-unavailable');
-        }
-        if (!opts.pendingTexts?.size) {
-            return skip('no-pending-text-updates');
-        }
-        if (opts.forcePdfjsMaterialize) {
-            return skip('pdfjs-materialize-required');
-        }
-        if (opts.includeManagedShapesForLiveSource) {
-            return skip('managed-shapes-require-materialization');
-        }
-        if (opts.forceRewrite) {
-            return skip('rewrite-forced');
-        }
-        const plan = buildAnnotationSavePlan({
-            pendingTexts: opts.pendingTexts,
-            pendingDeletes: opts.pendingDeletes,
-        });
-        if (plan.route !== 'source-replay') {
-            return skip('annotation-save-route-not-source-replay', {
-                route: plan.route,
-                reason: plan.reason,
-            });
-        }
-
-        const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.annotationCommentsSnapshot);
-        const updatesByRef = new Map<string, IPdfNoteTextUpdate>();
-        const updates: IPdfNoteTextUpdate[] = [];
-        for (const [
-            stableKey,
-            text,
-        ] of opts.pendingTexts.entries()) {
-            const comment = commentsByStableKey.get(stableKey);
-            const targetRef = comment ? resolveNativeNoteTextUpdateRef(stableKey, comment) : null;
-            if (
-                !comment
-                || comment.source !== 'pdf'
-                || !isNativeNoteTextUpdateSubtype(comment)
-                || !targetRef
-                || targetRef.generationNumber > 65_535
-            ) {
-                return skip('pending-text-not-native-eligible', {
-                    stableKey,
-                    hasComment: Boolean(comment),
-                    source: comment?.source ?? null,
-                    subtype: comment?.subtype ?? null,
-                    targetRef,
-                });
-            }
-            const refKey = `${targetRef.objectNumber}R${targetRef.generationNumber}`;
-            const existing = updatesByRef.get(refKey);
-            if (existing) {
-                if (existing.text !== text) {
-                    return skip('conflicting-native-note-text-aliases', {
-                        stableKey,
-                        objectNumber: targetRef.objectNumber,
-                        generationNumber: targetRef.generationNumber,
-                    });
-                }
-                continue;
-            }
-            const update = {
-                objectNumber: targetRef.objectNumber,
-                generationNumber: targetRef.generationNumber,
-                text,
-            };
-            updatesByRef.set(refKey, update);
-            updates.push(update);
-        }
-
-        return updates.length > 0 ? updates : null;
-    }
-
-    function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
-        const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
-        const stableKey = comment.stableKey?.trim();
-        if (!markerRect || !stableKey) {
-            return null;
-        }
-
-        return {
-            pageIndex: comment.pageIndex,
-            stableKey,
-            text: comment.text ?? '',
-            markerRect,
-            author: comment.author ?? null,
-            color: comment.color ?? null,
-            createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-                ? Math.trunc(comment.createdAt)
-                : null,
-        };
-    }
-
-    function buildNativeFreeTextNotesForSave(opts: {
-        mode: 'save' | 'save_as';
-        pendingTexts: Map<string, string> | null;
-        pendingDeletes: IAnnotationCommentSummary[] | null;
-        annotationCommentsSnapshot: IAnnotationCommentSummary[];
-        shapeStateDirty: boolean;
-        forcePdfjsMaterialize: boolean;
-        includeManagedShapesForLiveSource: boolean;
-        forceRewrite: boolean;
-    }) {
-        const skip = (reason: string, details: Record<string, unknown> = {}) => {
-            BrowserLogger.debug('workspace', 'Skipped native FreeText note save fast path', () => ({
-                reason,
-                pendingTexts: opts.pendingTexts?.size ?? 0,
-                pendingDeletes: opts.pendingDeletes?.length ?? 0,
-                shapeStateDirty: opts.shapeStateDirty,
-                forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
-                includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
-                forceRewrite: opts.forceRewrite,
-                pageLabelsDirty: pageLabelsDirty.value,
-                bookmarksDirty: bookmarksDirty.value,
-                ...details,
-            }));
-            return null;
-        };
-
-        if (opts.mode !== 'save') {
-            return skip('not-save-mode', {mode: opts.mode});
-        }
-        if (!hasNativePdfMutationCapability()) {
-            return skip('native-save-capability-unavailable');
-        }
-        if (opts.forcePdfjsMaterialize) {
-            return skip('pdfjs-materialize-required');
-        }
-        if (opts.includeManagedShapesForLiveSource) {
-            return skip('managed-shapes-require-materialization');
-        }
-        if (opts.forceRewrite) {
-            return skip('rewrite-forced');
-        }
-        const candidates = opts.annotationCommentsSnapshot
-            .filter(isReplayableEditorOnlyFreeTextNote)
-            .map(toNativeFreeTextNote)
-            .filter((note): note is IPdfNativeFreeTextNote => note !== null);
-        if (candidates.length === 0) {
-            return skip('no-replayable-editor-free-text-notes');
-        }
-
-        const plan = buildAnnotationSavePlan({
-            pendingTexts: opts.pendingTexts,
-            pendingDeletes: opts.pendingDeletes,
-        });
-        if (plan.route !== 'source-replay') {
-            return skip('annotation-save-route-not-source-replay', {
-                route: plan.route,
-                reason: plan.reason,
-            });
-        }
-
-        const notesByStableKey = new Map<string, IPdfNativeFreeTextNote>();
-        for (const note of candidates) {
-            const existing = notesByStableKey.get(note.stableKey);
-            if (existing) {
-                if (
-                    existing.text !== note.text
-                    || existing.pageIndex !== note.pageIndex
-                    || existing.createdAt !== note.createdAt
-                ) {
-                    return skip('conflicting-native-free-text-note-aliases', {stableKey: note.stableKey});
-                }
-                continue;
-            }
-            notesByStableKey.set(note.stableKey, note);
-        }
-
-        return Array.from(notesByStableKey.values());
-    }
-
-    function buildNativeAnnotationDeletesForSave(opts: {
-        mode: 'save' | 'save_as';
-        pendingTexts: Map<string, string> | null;
-        pendingDeletes: IAnnotationCommentSummary[] | null;
-        shapeStateDirty: boolean;
-        forcePdfjsMaterialize: boolean;
-        includeManagedShapesForLiveSource: boolean;
-        forceRewrite: boolean;
-    }) {
-        const skip = (reason: string, details: Record<string, unknown> = {}) => {
-            BrowserLogger.debug('workspace', 'Skipped native annotation delete fast path', () => ({
-                reason,
-                pendingTexts: opts.pendingTexts?.size ?? 0,
-                pendingDeletes: opts.pendingDeletes?.length ?? 0,
-                shapeStateDirty: opts.shapeStateDirty,
-                forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
-                includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
-                forceRewrite: opts.forceRewrite,
-                pageLabelsDirty: pageLabelsDirty.value,
-                bookmarksDirty: bookmarksDirty.value,
-                ...details,
-            }));
-            return null;
-        };
-
-        if (!opts.pendingDeletes?.length) {
-            return [];
-        }
-        if (opts.mode !== 'save') {
-            return skip('not-save-mode', {mode: opts.mode});
-        }
-        if (!hasNativePdfMutationCapability()) {
-            return skip('native-save-capability-unavailable');
-        }
-        if (opts.forcePdfjsMaterialize) {
-            return skip('pdfjs-materialize-required');
-        }
-        if (opts.includeManagedShapesForLiveSource) {
-            return skip('managed-shapes-require-materialization');
-        }
-        if (opts.forceRewrite) {
-            return skip('rewrite-forced');
-        }
-        const plan = buildAnnotationSavePlan({
-            pendingTexts: opts.pendingTexts,
-            pendingDeletes: opts.pendingDeletes,
-        });
-        if (plan.route !== 'source-replay') {
-            return skip('annotation-save-route-not-source-replay', {
-                route: plan.route,
-                reason: plan.reason,
-            });
-        }
-
-        const deletesByRef = new Map<string, IPdfNativeAnnotationDelete>();
-        const deletesByStableKey = new Map<string, IPdfNativeAnnotationDelete>();
-        for (const comment of opts.pendingDeletes) {
-            const targetRef = resolveNativeAnnotationDeleteRef(comment);
-            const stableKey = comment.stableKey?.trim();
-            if (
-                !targetRef
-                && stableKey
-                && isReplayableEditorOnlyFreeTextNote(comment)
-            ) {
-                const existing = deletesByStableKey.get(stableKey);
-                if (existing) {
-                    if (existing.pageIndex !== comment.pageIndex) {
-                        return skip('conflicting-native-delete-pages', {stableKey});
-                    }
-                    continue;
-                }
-                deletesByStableKey.set(stableKey, {
-                    pageIndex: comment.pageIndex,
-                    stableKey,
-                    createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-                        ? Math.trunc(comment.createdAt)
-                        : null,
-                });
-                continue;
-            }
-            if (
-                !targetRef
-                || targetRef.generationNumber > 65_535
-                || !Number.isSafeInteger(comment.pageIndex)
-                || comment.pageIndex < 0
-            ) {
-                return skip('pending-delete-not-native-eligible', {
-                    stableKey: comment.stableKey,
-                    source: comment.source,
-                    subtype: comment.subtype ?? null,
-                    annotationId: comment.annotationId ?? null,
-                    targetRef,
-                });
-            }
-
-            const refKey = `${targetRef.objectNumber}R${targetRef.generationNumber}`;
-            const deleteRequest = {
-                pageIndex: comment.pageIndex,
-                objectNumber: targetRef.objectNumber,
-                generationNumber: targetRef.generationNumber,
-            };
-            const existing = deletesByRef.get(refKey);
-            if (existing) {
-                if (existing.pageIndex !== deleteRequest.pageIndex) {
-                    return skip('conflicting-native-delete-pages', {
-                        stableKey: comment.stableKey,
-                        objectNumber: targetRef.objectNumber,
-                        generationNumber: targetRef.generationNumber,
-                    });
-                }
-                continue;
-            }
-            deletesByRef.set(refKey, deleteRequest);
-        }
-
-        return [
-            ...Array.from(deletesByRef.values()),
-            ...Array.from(deletesByStableKey.values()),
-        ];
-    }
-
-    function arePendingTextsCoveredByNativeChanges(opts: {
-        pendingTexts: Map<string, string> | null;
-        annotationCommentsSnapshot: IAnnotationCommentSummary[];
-        nativeNoteTextUpdates: IPdfNoteTextUpdate[] | null;
-        nativeFreeTextNotes: IPdfNativeFreeTextNote[] | null;
-    }) {
-        if (!opts.pendingTexts?.size) {
-            return true;
-        }
-
-        const freeTextNotesByStableKey = new Map(
-            (opts.nativeFreeTextNotes ?? []).map(note => [
-                note.stableKey,
-                note,
-            ]),
-        );
-        const updateRefs = new Set(
-            (opts.nativeNoteTextUpdates ?? []).map(update =>
-                `${update.objectNumber}R${update.generationNumber}`,
-            ),
-        );
-        const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.annotationCommentsSnapshot);
-
-        for (const [
-            stableKey,
-            text,
-        ] of opts.pendingTexts.entries()) {
-            const freeTextNote = freeTextNotesByStableKey.get(stableKey.trim());
-            if (freeTextNote?.text === text) {
-                continue;
-            }
-
-            const comment = commentsByStableKey.get(stableKey);
-            const targetRef = comment ? resolveNativeNoteTextUpdateRef(stableKey, comment) : null;
-            if (
-                targetRef
-                && updateRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`)
-            ) {
-                continue;
-            }
-
-            return false;
-        }
-
-        return true;
-    }
-
-    interface INativePdfMutationPlan {
-        mutations: IPdfNativeMutationSet;
-        noteTextUpdates: IPdfNoteTextUpdate[];
-        freeTextNotes: IPdfNativeFreeTextNote[];
-        annotationDeletes: IPdfNativeAnnotationDelete[];
-        hasMetadataMutations: boolean;
-        hasShapeMutations: boolean;
-        hasMarkupMutations: boolean;
-        phase: string;
-    }
-
-    function buildNativePageLabelsMutationForSave() {
-        if (!pageLabelsDirty.value) {
-            return null;
-        }
-        const totalPageCount = totalPages?.value ?? pdfDocument.value?.numPages ?? 0;
-        if (!pageLabelRanges || totalPageCount <= 0) {
-            return null;
-        }
-        return {
-            totalPages: totalPageCount,
-            ranges: normalizePageLabelRanges(pageLabelRanges.value, totalPageCount),
-        };
-    }
-
-    function buildNativeBookmarksMutationForSave() {
-        if (!bookmarksDirty.value) {
-            return null;
-        }
-        const totalPageCount = totalPages?.value ?? pdfDocument.value?.numPages ?? 0;
-        if (!bookmarkItems || totalPageCount <= 0) {
-            return null;
-        }
-        return {
-            totalPages: totalPageCount,
-            untitledLabel: untitledBookmarkLabel,
-            items: bookmarkItems.value,
-        };
-    }
-
-    function isFiniteUnitNumber(value: unknown) {
-        return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
-    }
-
-    function isFiniteNonNegativeNumber(value: unknown) {
-        return typeof value === 'number' && Number.isFinite(value) && value >= 0;
-    }
-
-    function areNativeShapePointsEligible(points: IShapeAnnotation['points']) {
-        return Array.isArray(points)
-            && points.length >= 2
-            && points.every(point => isFiniteUnitNumber(point.x) && isFiniteUnitNumber(point.y));
-    }
-
-    function areNativeShapeStrokesEligible(strokes: IShapeAnnotation['strokes']) {
-        return Array.isArray(strokes)
-            && strokes.length > 0
-            && strokes.every(points => areNativeShapePointsEligible(points));
-    }
-
-    function hasNativeShapeRectGeometry(shape: IShapeAnnotation) {
-        return isFiniteUnitNumber(shape.x)
-            && isFiniteUnitNumber(shape.y)
-            && isFiniteNonNegativeNumber(shape.width)
-            && isFiniteNonNegativeNumber(shape.height)
-            && shape.width > 0
-            && shape.height > 0
-            && shape.x + shape.width <= 1
-            && shape.y + shape.height <= 1;
-    }
-
-    function hasNativeShapeLineGeometry(shape: IShapeAnnotation) {
-        return isFiniteUnitNumber(shape.x)
-            && isFiniteUnitNumber(shape.y)
-            && isFiniteUnitNumber(shape.x2)
-            && isFiniteUnitNumber(shape.y2);
-    }
-
-    function isNativeShapeEligible(shape: IShapeAnnotation, totalPageCount: number) {
-        if (
-            !NATIVE_SHAPE_TYPES.has(shape.type)
-            || !Number.isSafeInteger(shape.pageIndex)
-            || shape.pageIndex < 0
-            || shape.pageIndex >= totalPageCount
-            || typeof shape.color !== 'string'
-            || !isFiniteNonNegativeNumber(shape.strokeWidth)
-            || !isFiniteUnitNumber(shape.opacity)
-            || (
-                shape.pdfSubtype !== undefined
-                && shape.pdfSubtype !== null
-                && !NATIVE_SHAPE_PDF_SUBTYPES.has(shape.pdfSubtype)
-            )
-            || (
-                shape.lineStartStyle !== undefined
-                && !NATIVE_SHAPE_LINE_END_STYLES.has(shape.lineStartStyle)
-            )
-            || (
-                shape.lineEndStyle !== undefined
-                && !NATIVE_SHAPE_LINE_END_STYLES.has(shape.lineEndStyle)
-            )
-        ) {
-            return false;
-        }
-
-        if (shape.type === 'rectangle' || shape.type === 'circle') {
-            return hasNativeShapeRectGeometry(shape);
-        }
-        if (shape.type === 'line' || shape.type === 'arrow') {
-            return hasNativeShapeLineGeometry(shape);
-        }
-        if (shape.pdfSubtype === 'Ink') {
-            return areNativeShapeStrokesEligible(shape.strokes)
-                || areNativeShapePointsEligible(shape.points);
-        }
-        return areNativeShapePointsEligible(shape.points);
-    }
-
-    function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShapeAnnotation {
-        const nativeShape: IPdfNativeShapeAnnotation = {
-            id: shape.id,
-            type: shape.type,
-            pageIndex: shape.pageIndex,
-            x: shape.x,
-            y: shape.y,
-            width: shape.width,
-            height: shape.height,
-            x2: shape.x2 ?? null,
-            y2: shape.y2 ?? null,
-            color: shape.color,
-            fillColor: shape.fillColor ?? null,
-            opacity: shape.opacity,
-            strokeWidth: shape.strokeWidth,
-            annotationId: normalizePdfJsAnnotationId(shape.annotationId) ?? null,
-            stableKey: shape.stableKey ?? null,
-            pdfSubtype: shape.pdfSubtype ?? null,
-            lineStartStyle: shape.lineStartStyle ?? null,
-            lineEndStyle: shape.lineEndStyle ?? null,
-            createdAt: typeof shape.createdAt === 'number' && Number.isFinite(shape.createdAt)
-                ? Math.trunc(shape.createdAt)
-                : null,
-            modifiedAt: typeof shape.modifiedAt === 'number' && Number.isFinite(shape.modifiedAt)
-                ? Math.trunc(shape.modifiedAt)
-                : null,
-        };
-        if (shape.points) {
-            nativeShape.points = shape.points.map(point => ({...point}));
-        }
-        if (shape.strokes) {
-            nativeShape.strokes = shape.strokes.map(points => points.map(point => ({...point})));
-        }
-        return nativeShape;
-    }
-
-    function buildNativeShapesMutationForSave(shapeStateDirty: boolean) {
-        if (!shapeStateDirty) {
-            return null;
-        }
-        const totalPageCount = totalPages?.value ?? pdfDocument.value?.numPages ?? 0;
-        const shapes = getAllShapes?.() ?? null;
-        if (!shapes || totalPageCount <= 0) {
-            return null;
-        }
-        if (!shapes.every(shape => isNativeShapeEligible(shape, totalPageCount))) {
-            return null;
-        }
-
-        return {
-            totalPages: totalPageCount,
-            rewriteShapeState: true,
-            shapes: shapes.map(toNativeShapeAnnotation),
-            deletedAnnotationIds: getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
-            deletedStableKeys: getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        };
-    }
-
-    function isNativeMarkupSubtype(value: unknown): value is TMarkupSubtype {
-        return typeof value === 'string' && NATIVE_MARKUP_SUBTYPES.has(value as TMarkupSubtype);
-    }
-
-    function isNativeMarkupHintEligible(hint: IMarkupSubtypeHint) {
-        return isNativeMarkupSubtype(hint.subtype)
-            && Number.isSafeInteger(hint.pageIndex)
-            && hint.pageIndex >= 0
-            && Boolean(normalizeMarkerRect(hint.markerRect));
-    }
-
-    function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSubtypeHint | null {
-        if (!isNativeMarkupHintEligible(hint)) {
-            return null;
-        }
-        const markerRect = normalizeMarkerRect(hint.markerRect);
-        if (!markerRect) {
-            return null;
-        }
-        return {
-            subtype: hint.subtype,
-            pageIndex: hint.pageIndex,
-            markerRect,
-            annotationId: hint.annotationId ?? null,
-            color: hint.color ?? null,
-            id: hint.id ?? null,
-            pageMarkupIndex: typeof hint.pageMarkupIndex === 'number' && Number.isSafeInteger(hint.pageMarkupIndex)
-                ? hint.pageMarkupIndex
-                : null,
-            source: hint.source ?? null,
-        };
-    }
-
-    function buildNativeMarkupMutationForSave(
-        annotationCommentsSnapshot: IAnnotationCommentSummary[],
-        annotationWorkDirty: boolean,
+    function logNativePdfMutationSkip(
+        opts: {
+            pendingTexts: Map<string, string> | null;
+            pendingDeletes: IAnnotationCommentSummary[] | null;
+            shapeStateDirty: boolean;
+            forcePdfjsMaterialize: boolean;
+            savedPdfjsAnnotationBaselineDirty?: boolean;
+            includeManagedShapesForLiveSource: boolean;
+            forceRewrite: boolean;
+            pageLabelsDirty: boolean;
+            bookmarksDirty: boolean;
+        },
+        event: string,
+        reason: string,
+        details: Record<string, unknown> = {},
     ) {
-        if (!annotationWorkDirty) {
-            return null;
-        }
-        const overrides = Array.from(getMarkupSubtypeOverrides?.()?.entries() ?? [])
-            .filter((entry): entry is [string, TMarkupSubtype] =>
-                typeof entry[0] === 'string'
-                && entry[0].trim().length > 0
-                && isNativeMarkupSubtype(entry[1]))
-            .map(([
-                id,
-                subtype,
-            ]) => [
-                id.trim(),
-                subtype,
-            ] as const);
-        const liveHints = (getMarkupSubtypeHints?.() ?? [])
-            .map(toNativeMarkupHint)
-            .filter((hint): hint is IPdfNativeMarkupSubtypeHint => hint !== null);
-        const editedCommentHints = collectMarkupSubtypeHints(annotationCommentsSnapshot)
-            // Full rewrites need all preservation hints; incremental native markup should touch
-            // only hints that represent a user-visible markup edit.
-            .filter(hint => hint.color !== null || hint.source === 'editor')
-            .map(toNativeMarkupHint)
-            .filter((hint): hint is IPdfNativeMarkupSubtypeHint => hint !== null);
-        if (overrides.length + liveHints.length + editedCommentHints.length === 0) {
-            return null;
-        }
-        return {
-            overrides,
-            hints: [
-                ...liveHints,
-                ...editedCommentHints,
-            ],
-        };
-    }
-
-    function buildNativePdfMutationPlanForSave(opts: {
-        mode: 'save' | 'save_as';
-        pendingTexts: Map<string, string> | null;
-        pendingDeletes: IAnnotationCommentSummary[] | null;
-        annotationCommentsSnapshot: IAnnotationCommentSummary[];
-        shapeStateDirty: boolean;
-        forcePdfjsMaterialize: boolean;
-        savedPdfjsAnnotationBaselineDirty: boolean;
-        includeManagedShapesForLiveSource: boolean;
-        forceRewrite: boolean;
-    }): INativePdfMutationPlan | null {
-        const skip = (reason: string, details: Record<string, unknown> = {}) => {
-            BrowserLogger.debug('workspace', 'Skipped native PDF mutation save fast path', () => ({
-                reason,
-                pendingTexts: opts.pendingTexts?.size ?? 0,
-                pendingDeletes: opts.pendingDeletes?.length ?? 0,
-                shapeStateDirty: opts.shapeStateDirty,
-                forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
-                savedPdfjsAnnotationBaselineDirty: opts.savedPdfjsAnnotationBaselineDirty,
-                includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
-                forceRewrite: opts.forceRewrite,
-                pageLabelsDirty: pageLabelsDirty.value,
-                bookmarksDirty: bookmarksDirty.value,
-                ...details,
-            }));
-            return null;
-        };
-
-        if (opts.mode !== 'save') {
-            return skip('not-save-mode', {mode: opts.mode});
-        }
-        if (!hasNativePdfMutationCapability()) {
-            return skip('native-save-capability-unavailable');
-        }
-        if (opts.includeManagedShapesForLiveSource) {
-            return skip('managed-shapes-require-materialization');
-        }
-
-        const nativeNoteTextUpdates = opts.pendingTexts?.size
-            ? buildNativeNoteTextUpdatesForSave(opts)
-            : null;
-        const nativeFreeTextNotes = buildNativeFreeTextNotesForSave(opts);
-        const nativeAnnotationDeletes = buildNativeAnnotationDeletesForSave(opts);
-        const pendingTextsCoveredByNativeChanges = arePendingTextsCoveredByNativeChanges({
-            pendingTexts: opts.pendingTexts,
-            annotationCommentsSnapshot: opts.annotationCommentsSnapshot,
-            nativeNoteTextUpdates,
-            nativeFreeTextNotes,
-        });
-        const noteTextUpdates = nativeNoteTextUpdates ?? [];
-        const freeTextNotes = nativeFreeTextNotes ?? [];
-        const annotationDeletes = nativeAnnotationDeletes ?? [];
-        const nativeNoteMutationCount = noteTextUpdates.length + freeTextNotes.length + annotationDeletes.length;
-        if (opts.savedPdfjsAnnotationBaselineDirty && nativeNoteMutationCount === 0) {
-            // A preserved live PDF.js session can hide deleted/undone existing
-            // markup outside annotationStorage until PDF.js serializes it.
-            // Native markup hints only rewrite visible annotations, so do not
-            // let them mask a deletion that must be materialized by PDF.js.
-            return skip('saved-pdfjs-baseline-dirty-requires-materialization');
-        }
-        const annotationWorkDirty = annotationDirty.value || (hasAnnotationChanges() && !opts.shapeStateDirty);
-        const markup = buildNativeMarkupMutationForSave(opts.annotationCommentsSnapshot, annotationWorkDirty);
-        const hasMarkupMutations = Boolean(markup);
-        const hasUncoveredLivePdfJsAnnotationChanges = hasLivePdfJsAnnotationChanges?.() ?? false;
-        if (opts.forcePdfjsMaterialize && !hasMarkupMutations) {
-            return skip('pdfjs-materialize-required');
-        }
-        if (opts.forceRewrite) {
-            return skip('rewrite-forced');
-        }
-        if (!pendingTextsCoveredByNativeChanges) {
-            return skip('pending-texts-not-covered-by-native-mutations');
-        }
-        if (opts.pendingDeletes?.length && annotationDeletes.length !== opts.pendingDeletes.length) {
-            return skip('pending-deletes-not-covered-by-native-mutations', {
-                requestedDeletes: opts.pendingDeletes.length,
-                nativeDeletes: annotationDeletes.length,
-            });
-        }
-        if (hasUncoveredLivePdfJsAnnotationChanges && nativeNoteMutationCount === 0) {
-            return skip('live-pdfjs-annotation-work-not-covered-by-native-mutations');
-        }
-        if (
-            (
-                annotationDirty.value
-                || (hasAnnotationChanges() && !opts.shapeStateDirty)
-            )
-            && nativeNoteMutationCount === 0
-            && !hasMarkupMutations
-        ) {
-            return skip('annotation-work-not-covered-by-native-mutations');
-        }
-
-        const shapes = buildNativeShapesMutationForSave(opts.shapeStateDirty);
-        const hasShapeMutations = Boolean(shapes);
-        if (opts.shapeStateDirty && !hasShapeMutations) {
-            return skip('shape-payload-unavailable');
-        }
-        const pageLabels = buildNativePageLabelsMutationForSave();
-        const bookmarks = buildNativeBookmarksMutationForSave();
-        const hasMetadataMutations = Boolean(pageLabels || bookmarks);
-        if ((pageLabelsDirty.value || bookmarksDirty.value) && !hasMetadataMutations) {
-            return skip('metadata-payload-unavailable');
-        }
-        if ((hasMetadataMutations || hasShapeMutations) && !canPersistNativeMetadataMutations()) {
-            return skip('native-structured-save-capability-unavailable');
-        }
-        if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations) {
-            return null;
-        }
-
-        return {
-            mutations: {
-                ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
-                ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-                ...(annotationDeletes.length > 0 ? {deletes: annotationDeletes} : {}),
-                ...(pageLabels ? {pageLabels} : {}),
-                ...(bookmarks ? {bookmarks} : {}),
-                ...(shapes ? {shapes} : {}),
-                ...(markup ? {markup} : {}),
-            },
-            noteTextUpdates,
-            freeTextNotes,
-            annotationDeletes,
-            hasMetadataMutations,
-            hasShapeMutations,
-            hasMarkupMutations,
-            phase: hasMetadataMutations || hasShapeMutations || hasMarkupMutations
-                ? 'persist-native-pdf-mutations'
-                : annotationDeletes.length
-                    ? 'persist-native-annotation-changes'
-                    : freeTextNotes.length
-                        ? 'persist-native-note-changes'
-                        : 'persist-native-note-text-updates',
-        };
+        BrowserLogger.debug('workspace', event, () => ({
+            reason,
+            pendingTexts: opts.pendingTexts?.size ?? 0,
+            pendingDeletes: opts.pendingDeletes?.length ?? 0,
+            shapeStateDirty: opts.shapeStateDirty,
+            forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
+            savedPdfjsAnnotationBaselineDirty: opts.savedPdfjsAnnotationBaselineDirty,
+            includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
+            forceRewrite: opts.forceRewrite,
+            pageLabelsDirty: opts.pageLabelsDirty,
+            bookmarksDirty: opts.bookmarksDirty,
+            ...details,
+        }));
     }
 
     function persistNativePdfMutationPlan(
@@ -1822,17 +1006,52 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 });
                 finalizedReloadWaiter = true;
             } else {
-                const nativeMutationPlan = buildNativePdfMutationPlanForSave({
+                const hasAnnotationChangesSnapshot = hasAnnotationChanges();
+                const totalPageCount = totalPages?.value ?? pdfDocument.value?.numPages ?? 0;
+                const annotationWorkDirty = annotationDirty.value || (hasAnnotationChangesSnapshot && !shapeStateDirty);
+                const annotationSavePlan = buildAnnotationSavePlan({
+                    pendingTexts,
+                    pendingDeletes,
+                });
+                const nativeMutationPlanContext = {
                     mode: config.mode,
                     pendingTexts,
                     pendingDeletes,
-                    annotationCommentsSnapshot,
                     shapeStateDirty,
                     forcePdfjsMaterialize,
                     includeManagedShapesForLiveSource,
                     forceRewrite: config.forceRewrite === true,
                     savedPdfjsAnnotationBaselineDirty,
+                    pageLabelsDirty: pageLabelsDirty.value,
+                    bookmarksDirty: bookmarksDirty.value,
+                };
+                const nativeMutationPlanResult = buildNativePdfMutationPlanForSave({
+                    ...nativeMutationPlanContext,
+                    annotationCommentsSnapshot,
+                    hasNativePdfMutationCapability: hasNativePdfMutationCapability(),
+                    annotationSavePlan,
+                    annotationDirty: annotationDirty.value,
+                    hasAnnotationChanges: hasAnnotationChangesSnapshot,
+                    hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
+                    canPersistNativeMetadataMutations: canPersistNativeMetadataMutations(),
+                    totalPageCount,
+                    pageLabelRanges: pageLabelRanges?.value ?? null,
+                    bookmarkItems: bookmarkItems?.value ?? null,
+                    untitledBookmarkLabel,
+                    shapes: shapeStateDirty ? getAllShapes?.() ?? null : null,
+                    deletedEmbeddedShapeAnnotationIds: shapeStateDirty ? getDeletedEmbeddedShapeAnnotationIds?.() ?? [] : [],
+                    deletedEmbeddedShapeStableKeys: shapeStateDirty ? getDeletedEmbeddedShapeStableKeys?.() ?? [] : [],
+                    markupSubtypeOverrides: annotationWorkDirty ? getMarkupSubtypeOverrides?.() : undefined,
+                    markupSubtypeHints: annotationWorkDirty ? getMarkupSubtypeHints?.() ?? [] : [],
                 });
+                nativeMutationPlanResult.skipEvents.forEach(({
+                    event,
+                    reason,
+                    details,
+                }) => {
+                    logNativePdfMutationSkip(nativeMutationPlanContext, event, reason, details);
+                });
+                const nativeMutationPlan = nativeMutationPlanResult.plan;
                 if (nativeMutationPlan) {
                     const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
                         expectedWorkingPath,

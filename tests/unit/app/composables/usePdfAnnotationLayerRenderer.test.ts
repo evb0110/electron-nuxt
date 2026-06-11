@@ -6,7 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
+import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 
 const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});

@@ -17,8 +17,8 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import { useFileOperations } from '@app/composables/useFileOperations';
-import type { IFileOperationsDeps } from '@app/composables/useFileOperations';
+import { useFileOperations } from '@app/modules/workspace-shell/composables/useFileOperations';
+import type { IFileOperationsDeps } from '@app/modules/workspace-shell/composables/useFileOperations';
 import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/getEmbeddedMutationBaseData';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/getSearchCapability';

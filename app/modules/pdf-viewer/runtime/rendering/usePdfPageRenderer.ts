@@ -15,7 +15,7 @@ import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRenderer';
-import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
+import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import { setupPagePlaceholderSizes } from '@app/utils/pdf-viewer/pdf-page-buffer-manager/setupPagePlaceholderSizes';
 import { normalizePageMetrics } from '@app/utils/pdf-viewer/pdf-page-layout/normalizePageMetrics';
 import { BrowserLogger } from '@app/utils/browserLogger';

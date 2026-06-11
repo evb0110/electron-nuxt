@@ -16,6 +16,11 @@ import type {
     IPdfjsEditor,
     IPdfjsHighlightBox,
 } from '@app/types/pdfjs';
+import type {
+    ICreateTextMarkupFromTextOptions,
+    ICreateTextMarkupFromTextResult,
+    TAgentTextMarkupKind,
+} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import { markerRectCenterDistance } from '@app/utils/pdf-viewer/annotations/annotation-rules/markerRectCenterDistance';
 import { getCommentText } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/getCommentText';
 import { toMarkerRectFromEditor } from '@app/utils/pdf-viewer/pdf-annotation-editor-utils/toMarkerRectFromEditor';
@@ -117,28 +122,6 @@ interface IHighlightCommentContext {
 interface IEditorSnapshot {
     editorsBeforeRefs: Set<IPdfjsEditor>;
     editorsBeforeIds: Set<string>;
-}
-
-export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
-
-export interface ICreateTextMarkupFromTextOptions {
-    pageNumber: number;
-    text: string;
-    occurrence?: number | undefined;
-    markup?: TAgentTextMarkupKind | undefined;
-    caseSensitive?: boolean | undefined;
-    wholeWord?: boolean | undefined;
-    withNote?: boolean | undefined;
-}
-
-export interface ICreateTextMarkupFromTextResult {
-    created: boolean;
-    pageNumber: number;
-    requestedText: string;
-    matchedText: string | null;
-    occurrence: number;
-    subtype: TMarkupSubtype;
-    reason?: string | undefined;
 }
 
 export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) => {

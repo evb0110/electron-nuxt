@@ -3,7 +3,7 @@ import type {
     TAnnotationTool,
     TDrawableShapeType,
 } from '@app/types/annotations';
-import type { TAgentTextMarkupKind } from '@app/composables/pdf/annotations/useAnnotationHighlight';
+import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/public';
 import type {
     TAgentOcrPageRange,
     TWorkspaceAgentSidebarTab,

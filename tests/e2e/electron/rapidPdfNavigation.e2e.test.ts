@@ -390,7 +390,7 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
     await delay(1_000);
 }
 
-describe('Electron E2E - Phase 1 (PDF Page Jump Rendering)', () => {
+describe('Electron E2E - PDF Page Jump Rendering', () => {
     let session: IElectronE2ESession | null = null;
 
     beforeAll(async () => {

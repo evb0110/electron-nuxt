@@ -115,6 +115,91 @@
     }
 
     #[test]
+    fn validates_incremental_append_tail_without_full_document_load() {
+        let (mut document, target_id, popup_id) = create_test_note_pdf();
+        let input_path = temp_pdf_path("append-tail-valid-input");
+        let output_path = temp_pdf_path("append-tail-valid-output");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&input_path, &original_bytes).unwrap();
+        write(&output_path, &original_bytes).unwrap();
+        let previous_document = Document::load(&input_path).unwrap();
+
+        append_note_text_update(
+            &input_path,
+            &output_path,
+            &[NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "tail validation".to_string(),
+            }],
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        validate_incremental_append_output(
+            &output_path,
+            original_bytes.len(),
+            previous_document.xref_start,
+            &[target_id, popup_id],
+        )
+        .unwrap();
+
+        let _ = remove_file(input_path);
+        let _ = remove_file(output_path);
+    }
+
+    #[test]
+    fn rejects_incremental_append_tail_with_corrupt_object_header() {
+        let (mut document, target_id, popup_id) = create_test_note_pdf();
+        document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+        let input_path = temp_pdf_path("append-tail-corrupt-input");
+        let output_path = temp_pdf_path("append-tail-corrupt-output");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&input_path, &original_bytes).unwrap();
+        write(&output_path, &original_bytes).unwrap();
+        let previous_document = Document::load(&input_path).unwrap();
+
+        append_note_text_update(
+            &input_path,
+            &output_path,
+            &[NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "tail corruption".to_string(),
+            }],
+            "D:20260609123456+03'00'",
+        )
+        .unwrap();
+
+        let mut output_bytes = read(&output_path).unwrap();
+        let object_header = format!("{} {} obj", target_id.0, target_id.1);
+        let appended_offset = output_bytes[original_bytes.len()..]
+            .windows(object_header.len())
+            .position(|window| window == object_header.as_bytes())
+            .unwrap()
+            + original_bytes.len();
+        let corrupt_header = vec![b'x'; object_header.len()];
+        output_bytes[appended_offset..appended_offset + object_header.len()]
+            .copy_from_slice(&corrupt_header);
+        write(&output_path, &output_bytes).unwrap();
+
+        let error = validate_incremental_append_output(
+            &output_path,
+            original_bytes.len(),
+            previous_document.xref_start,
+            &[target_id, popup_id],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("does not point to its object header"));
+
+        let _ = remove_file(input_path);
+        let _ = remove_file(output_path);
+    }
+
+    #[test]
     fn append_note_text_update_requires_output_copy() {
         let (mut document, target_id, _) = create_test_note_pdf();
         let input_path = temp_pdf_path("append-copy-input");

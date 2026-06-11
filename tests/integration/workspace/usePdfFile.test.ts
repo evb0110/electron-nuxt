@@ -21,6 +21,7 @@ const mockDocuments = {
     readFile: vi.fn(),
     readFileRange: vi.fn(),
     writeFile: vi.fn(),
+    createWorkingCopyFromData: vi.fn(),
     createWorkingCopyFromPath: vi.fn(),
     saveFile: vi.fn(),
     savePdfNoteTextUpdates: vi.fn(),
@@ -69,7 +70,7 @@ vi.stubGlobal('window', {
     electronAPI: mockElectronAPI,
 });
 
-const { usePdfFile } = await import('@app/composables/usePdfFile');
+const { usePdfFile } = await import('@app/modules/workspace-shell/composables/usePdfFile');
 
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
@@ -87,6 +88,7 @@ describe('usePdfFile', () => {
         vi.clearAllMocks();
         mockHasElectronAPI.mockReturnValue(true);
         mockDocuments.cleanupFile.mockResolvedValue(undefined);
+        mockDocuments.createWorkingCopyFromData.mockReset();
         mockDocuments.createWorkingCopyFromPath.mockReset();
         mockDocuments.openPdfDirectBatch.mockResolvedValue(null);
         mockDocuments.validatePdfData.mockResolvedValue({
@@ -785,6 +787,65 @@ describe('usePdfFile', () => {
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-large-base.pdf');
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-large-crop.pdf');
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/undo-large.pdf');
+        });
+
+        it('stores medium in-memory PDF undo snapshots as disk-backed history entries', async () => {
+            const historyThresholdBytes = 8 * 1024 * 1024;
+            const bytes1 = new Uint8Array(historyThresholdBytes + 1).fill(1);
+            const bytes2 = new Uint8Array(historyThresholdBytes + 1).fill(2);
+            const bytesByPath = new Map<string, Uint8Array>();
+            bytesByPath.set('/tmp/undo-medium.pdf', bytes1);
+            let historyPathIndex = 0;
+            let restoredPathIndex = 0;
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/undo-medium.pdf',
+                workingPath: '/tmp/undo-medium.pdf',
+            });
+            mockDocuments.statFile.mockImplementation(async (path: string) => ({size: bytesByPath.get(path)?.byteLength ?? 0}));
+            mockDocuments.readFileRange.mockImplementation(async (
+                path: string,
+                offset: number,
+                length: number,
+            ) => bytesByPath.get(path)?.slice(offset, offset + length) ?? new Uint8Array());
+            mockDocuments.createWorkingCopyFromData.mockImplementation(async (
+                _fileName: string,
+                data: Uint8Array,
+            ) => {
+                historyPathIndex += 1;
+                const path = `/tmp/history-medium-${historyPathIndex}.pdf`;
+                bytesByPath.set(path, data.slice());
+                return path;
+            });
+            mockDocuments.createWorkingCopyFromPath.mockImplementation(async (sourcePath: string) => {
+                restoredPathIndex += 1;
+                const path = `/tmp/restored-medium-${restoredPathIndex}.pdf`;
+                bytesByPath.set(path, bytesByPath.get(sourcePath)?.slice() ?? new Uint8Array());
+                return path;
+            });
+
+            const file = usePdfFile();
+            await file.openFile();
+            await file.loadPdfFromData(bytes2);
+
+            expect(file.canUndo.value).toBe(true);
+            expect(mockDocuments.createWorkingCopyFromData).toHaveBeenCalledTimes(2);
+
+            await expect(file.undo()).resolves.toBe(true);
+
+            expect(mockDocuments.createWorkingCopyFromPath).toHaveBeenCalledWith(
+                '/tmp/history-medium-1.pdf',
+                '/undo-medium.pdf',
+            );
+            expect(file.workingCopyPath.value).toBe('/tmp/restored-medium-1.pdf');
+            expect(file.pdfData.value?.byteLength).toBe(bytes1.byteLength);
+            expect(file.pdfData.value?.[0]).toBe(1);
+
+            file.closeFile();
+
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-medium-1.pdf');
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-medium-2.pdf');
         });
 
         it('updates the live PDF source blob when persisting silently', async () => {

@@ -1,4 +1,4 @@
-import { usePdfFile } from '@app/composables/usePdfFile';
+import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables/useWorkspaceFileSwitch';

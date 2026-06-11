@@ -1,4 +1,8 @@
 export {
+    getDjvuPageSizesForViewing,
+    renderDjvuPagePreview,
+} from '@electron/features/djvu/main/pagePreview';
+export {
     convertDjvuPageToImage,
     convertDjvuToPdfFile,
 } from '@electron/features/djvu/main/ddjvuConversion';

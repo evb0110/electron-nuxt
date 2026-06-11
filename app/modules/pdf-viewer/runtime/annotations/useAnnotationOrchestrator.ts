@@ -16,14 +16,14 @@ import type { IAnnotationContextMenuPayload } from '@app/utils/pdf-viewer/annota
 import type { IScrollToPageOptions } from '@app/composables/pdf/usePdfScroll';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { groupBy } from 'es-toolkit/array';
-import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';
-import { useAnnotationSync } from '@app/composables/pdf/annotations/useAnnotationSync';
-import { useAnnotationEditorBridge } from '@app/composables/pdf/annotations/useAnnotationEditorBridge';
-import { useAnnotationToolState } from '@app/composables/pdf/annotations/useAnnotationToolState';
-import { useAnnotationHighlight } from '@app/composables/pdf/annotations/useAnnotationHighlight';
-import { useAnnotationCrud } from '@app/composables/pdf/annotations/useAnnotationCrud';
-import { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
-import { useAnnotationMarkerViewModel } from '@app/composables/pdf/annotations/useAnnotationMarkerViewModel';
+import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
+import { useAnnotationSync } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync';
+import { useAnnotationEditorBridge } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge';
+import { useAnnotationToolState } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState';
+import { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight';
+import { useAnnotationCrud } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud';
+import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/useFreeTextResize';
+import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;

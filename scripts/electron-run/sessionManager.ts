@@ -98,6 +98,8 @@ const RENDERER_READY_TIMEOUT_MS = 15_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
 const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const ELECTRON_START_TIMEOUT_MS = 45_000;
+const ELECTRON_LAUNCH_ATTEMPTS = 3;
+const ELECTRON_LAUNCH_RETRY_DELAY_MS = 5_000;
 const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
 const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -987,10 +989,10 @@ async function launchAutomationSessionWithRecovery(options: {
     let nuxtProcess = options.nuxtProcess;
     let launchError: unknown = null;
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < ELECTRON_LAUNCH_ATTEMPTS; attempt += 1) {
         if (attempt > 0) {
             cdpPort = await findFreePort();
-            console.log(`[Recovery] Retrying launch (attempt ${attempt + 1}/2) with CDP port ${cdpPort}`);
+            console.log(`[Recovery] Retrying launch (attempt ${attempt + 1}/${ELECTRON_LAUNCH_ATTEMPTS}) with CDP port ${cdpPort}`);
         }
 
         let electronProcess: ChildProcess | null = null;
@@ -1036,9 +1038,9 @@ async function launchAutomationSessionWithRecovery(options: {
                 continue;
             }
 
-            if (attempt === 0) {
+            if (attempt < ELECTRON_LAUNCH_ATTEMPTS - 1) {
                 console.log('[Recovery] Electron launch failed before readiness — retrying...');
-                await delay(2000);
+                await delay(ELECTRON_LAUNCH_RETRY_DELAY_MS);
                 continue;
             }
 
@@ -1480,7 +1482,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
     }
     clearSessionStarting(name);
 
-    await delay(250);
+    await delay(options.keepNuxt ? 1000 : 250);
     console.log(`Session '${name}' stopped.`);
 }
 

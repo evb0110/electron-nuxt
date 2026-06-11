@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import { usePdfAppAnnotationHistory } from '@app/composables/pdf/usePdfAppAnnotationHistory';
+import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import type { IAnnotationEditorState } from '@app/types/annotations';
 
 function createAnnotationState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {

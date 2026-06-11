@@ -335,7 +335,7 @@ export async function renderPdfPagesForBrowserPrint(
 
     const pdfjsLib = await getPdfjsPrintLib();
     const pdfData = printablePdf instanceof Blob
-        ? clonePdfBytes(new Uint8Array(await printablePdf.arrayBuffer()))
+        ? new Uint8Array(await printablePdf.arrayBuffer())
         : clonePdfBytes(printablePdf);
     const loadingTask = pdfjsLib.getDocument({
         data: pdfData,
