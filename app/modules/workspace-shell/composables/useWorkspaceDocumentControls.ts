@@ -65,6 +65,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         resetSearchCache,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
+        isDocumentOperationInProgress,
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,
@@ -117,6 +118,9 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache,
+        ...(options.runWithDocumentOperationLease !== undefined
+            ? { runWithDocumentOperationLease: options.runWithDocumentOperationLease }
+            : {}),
     });
 
     const pageFileOperations = usePageFileOperations({
@@ -126,6 +130,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         isHistoryBusy,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
+        ...(isDocumentOperationInProgress !== undefined ? { isDocumentOperationInProgress } : {}),
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,

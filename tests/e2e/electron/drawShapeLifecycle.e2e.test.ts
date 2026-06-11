@@ -729,6 +729,23 @@ async function waitForNoShapeSelectionUi(page: Page) {
     }, { timeout: 10_000 });
 }
 
+async function waitForShapeSelectionUi(page: Page) {
+    await waitForFunctionInPage(page, () => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const host = (activeHost && visibleHosts.includes(activeHost))
+            ? activeHost
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+        return Boolean(host?.querySelector('.pdf-shape-overlay.has-selection > g.is-selected'));
+    }, { timeout: 10_000 });
+}
+
 async function waitForActiveColorIndicator(page: Page) {
     await waitForFunctionInPage(page, () => {
         const isVisibleHost = (element: HTMLElement) => {
@@ -1078,12 +1095,6 @@ async function getManagedShapeDebugState(page: Page) {
         deletedStableKeys: deletedStableKeys.value ?? [],
         hiddenIds: viewerState.hiddenEmbeddedAnnotationIds ?? [],
     };
-}
-
-async function expectAnyManagedShapeSelected(page: Page) {
-    const state = await getManagedShapeDebugState(page);
-    expect(state.selectedShapeId).not.toBeNull();
-    return state;
 }
 
 async function getPointInteractionDebugState(page: Page, point: {
@@ -2228,7 +2239,8 @@ async function deleteScenarioShape(
     }
 
     await clickPagePoint(page, shape.hit);
-    const stateAfterClick = await expectAnyManagedShapeSelected(page);
+    await waitForShapeSelectionUi(page);
+    const stateAfterClick = await getManagedShapeDebugState(page);
     if (step.via === 'popup') {
         await deleteSelectedShapeViaPropertiesPopup(page);
     } else {
@@ -2265,39 +2277,54 @@ async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDele
     await waitForPdfLoaded(page);
 
     let shapeCount = 0;
-    for (const step of scenario.steps) {
-        switch (step.action) {
-            case 'draw':
-                await drawScenarioShapes(page, scenario, step);
-                shapeCount = step.expectCount;
-                break;
-            case 'save':
-                await saveForScenario(page, step, shapeCount);
-                if (typeof step.expectDiskCount === 'number') {
-                    await expectScenarioAnnotationCount(scenario, fixturePath, step.expectDiskCount);
+    for (const [
+        stepIndex,
+        step,
+    ] of scenario.steps.entries()) {
+        try {
+            switch (step.action) {
+                case 'draw':
+                    await drawScenarioShapes(page, scenario, step);
+                    shapeCount = step.expectCount;
+                    break;
+                case 'save':
+                    await saveForScenario(page, step, shapeCount);
+                    if (typeof step.expectDiskCount === 'number') {
+                        await expectScenarioAnnotationCount(scenario, fixturePath, step.expectDiskCount);
+                    }
+                    if (step.expectNoCanvasInkForShapes) {
+                        await expectNoCanvasInkForScenarioShapes(page, scenario, step.expectNoCanvasInkForShapes);
+                    }
+                    break;
+                case 'delete':
+                    await deleteScenarioShape(page, scenario, fixturePath, step);
+                    shapeCount = step.expectCount;
+                    break;
+                case 'reopen':
+                    await openPdfInApp(page, fixturePath);
+                    await waitForPdfLoaded(page);
+                    await waitForViewerInteractive(page);
+                    shapeCount = step.expectCount;
+                    await waitForShapeCount(page, shapeCount);
+                    if (step.expectNoCanvasInkForShapes) {
+                        await expectNoCanvasInkForScenarioShapes(page, scenario, step.expectNoCanvasInkForShapes);
+                    }
+                    break;
+                default: {
+                    const exhaustiveStep: never = step;
+                    throw new Error(`Unsupported scenario step: ${JSON.stringify(exhaustiveStep)}`);
                 }
-                if (step.expectNoCanvasInkForShapes) {
-                    await expectNoCanvasInkForScenarioShapes(page, scenario, step.expectNoCanvasInkForShapes);
-                }
-                break;
-            case 'delete':
-                await deleteScenarioShape(page, scenario, fixturePath, step);
-                shapeCount = step.expectCount;
-                break;
-            case 'reopen':
-                await openPdfInApp(page, fixturePath);
-                await waitForPdfLoaded(page);
-                await waitForViewerInteractive(page);
-                shapeCount = step.expectCount;
-                await waitForShapeCount(page, shapeCount);
-                if (step.expectNoCanvasInkForShapes) {
-                    await expectNoCanvasInkForScenarioShapes(page, scenario, step.expectNoCanvasInkForShapes);
-                }
-                break;
-            default: {
-                const exhaustiveStep: never = step;
-                throw new Error(`Unsupported scenario step: ${JSON.stringify(exhaustiveStep)}`);
             }
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            const managedShapeState = await getManagedShapeDebugState(page);
+            throw new Error([
+                `${scenario.name}: step ${stepIndex + 1} (${step.action}) failed`,
+                `step=${JSON.stringify(step)}`,
+                `shapeCount=${shapeCount}`,
+                `detail=${detail}`,
+                `managedShapeState=${JSON.stringify(managedShapeState)}`,
+            ].join('\n'));
         }
     }
 }
@@ -2495,20 +2522,13 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForShapeSidebarCount(page, 1);
     });
 
-    it('keeps saved stroke and line delete permutations stable without ghost shapes', async () => {
-        const session = await startDrawShapeSession();
-        if (!session) {
-            return;
-        }
-        const { page } = session;
-
-        for (const scenario of savedShapeDeleteScenarios) {
-            try {
-                await runSavedShapeDeleteScenario(page, scenario);
-            } catch (error) {
-                const detail = error instanceof Error ? error.message : String(error);
-                throw new Error(`${scenario.name} failed:\n${detail}`);
+    for (const scenario of savedShapeDeleteScenarios) {
+        it(scenario.name, async () => {
+            const session = await startDrawShapeSession();
+            if (!session) {
+                return;
             }
-        }
-    });
+            await runSavedShapeDeleteScenario(session.page, scenario);
+        });
+    }
 });

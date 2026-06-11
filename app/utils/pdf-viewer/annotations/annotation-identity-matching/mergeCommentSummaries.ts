@@ -262,6 +262,7 @@ export function mergeCommentSummaries(
         modifiedAt,
         sortIndex,
         annotationId: existing.annotationId ?? incoming.annotationId,
+        annotationName: existing.annotationName ?? incoming.annotationName,
         uid: existing.uid ?? incoming.uid,
         subtype,
         color: mergeColorField(existing, incoming),

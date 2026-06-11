@@ -100,7 +100,10 @@ vi.mock('fs/promises', () => ({
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedWritePath: (path: string) => mocks.resolveAllowedWritePath(path)}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args)}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
+    normalizePathForLookup: (path: string) => path.trim(),
+}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [
         0,

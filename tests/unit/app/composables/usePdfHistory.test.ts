@@ -16,6 +16,10 @@ import type { IScrollSnapshot } from '@app/types/pdf';
 import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
 import { cast } from '@tests/helpers/cast';
 
+const loggerWarn = vi.fn();
+
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: (...args: unknown[]) => loggerWarn(...args)}}));
+
 function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> = {}) {
     return cast<Parameters<typeof usePdfHistory>[0]>({
         pdfDocument: ref<PDFDocumentProxy | null>(null),
@@ -49,6 +53,7 @@ function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> 
 describe('usePdfHistory', () => {
     beforeEach(() => {
         vi.useFakeTimers();
+        loggerWarn.mockClear();
     });
 
     it('sets isHistoryBusy during undo and clears it after', async () => {
@@ -158,6 +163,135 @@ describe('usePdfHistory', () => {
 
         expect(redoAnnotation).toHaveBeenCalledOnce();
         expect(deps.redoHistory).not.toHaveBeenCalled();
+    });
+
+    it('routes annotation-context undo to timeline history when the resolver prefers timeline', async () => {
+        const undoAnnotation = vi.fn();
+        const shouldPreferTimelineUndo = vi.fn(() => true);
+        const deps = createMockDeps({
+            isAnnotationUndoContext: ref(true),
+            shouldPreferTimelineUndo,
+            undoHistory: vi.fn(async () => false),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                undoAnnotation,
+                redoAnnotation: vi.fn(),
+            }),
+        });
+        const { handleUndo } = usePdfHistory(deps);
+
+        await handleUndo();
+
+        expect(shouldPreferTimelineUndo).toHaveBeenCalledWith('undo', 'file');
+        expect(undoAnnotation).not.toHaveBeenCalled();
+        expect(deps.undoHistory).toHaveBeenCalledOnce();
+    });
+
+    it('routes annotation-context redo to timeline history when the resolver prefers timeline', async () => {
+        const redoAnnotation = vi.fn();
+        const shouldPreferTimelineUndo = vi.fn(() => true);
+        const deps = createMockDeps({
+            isAnnotationUndoContext: ref(true),
+            shouldPreferTimelineUndo,
+            redoHistory: vi.fn(async () => false),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                undoAnnotation: vi.fn(),
+                redoAnnotation,
+            }),
+        });
+        const { handleRedo } = usePdfHistory(deps);
+
+        await handleRedo();
+
+        expect(shouldPreferTimelineUndo).toHaveBeenCalledWith('redo', 'file');
+        expect(redoAnnotation).not.toHaveBeenCalled();
+        expect(deps.redoHistory).toHaveBeenCalledOnce();
+    });
+
+    it('keeps redo on the timeline after a preferred timeline undo', async () => {
+        const nextUndoSource = ref<TWorkspaceUndoSource | null>('file');
+        const nextRedoSource = ref<TWorkspaceUndoSource | null>(null);
+        const redoAnnotation = vi.fn();
+        const shouldPreferTimelineUndo = vi.fn()
+            .mockReturnValueOnce(true)
+            .mockReturnValue(false);
+        const deps = createMockDeps({
+            isAnnotationUndoContext: ref(true),
+            nextUndoSource,
+            nextRedoSource,
+            shouldPreferTimelineUndo,
+            undoHistory: vi.fn(async () => {
+                nextUndoSource.value = null;
+                nextRedoSource.value = 'file';
+                return true;
+            }),
+            redoHistory: vi.fn(async () => true),
+            pdfViewerRef: ref({
+                scrollToPage: vi.fn(),
+                undoAnnotation: vi.fn(),
+                redoAnnotation,
+            }),
+        });
+        const {
+            handleUndo,
+            handleRedo,
+        } = usePdfHistory(deps);
+
+        const undoPromise = handleUndo();
+        await vi.advanceTimersByTimeAsync(9000);
+        await undoPromise;
+
+        const redoPromise = handleRedo();
+        await vi.advanceTimersByTimeAsync(9000);
+        await redoPromise;
+
+        expect(shouldPreferTimelineUndo).toHaveBeenNthCalledWith(1, 'undo', 'file');
+        expect(shouldPreferTimelineUndo).toHaveBeenNthCalledWith(2, 'redo', 'file');
+        expect(redoAnnotation).not.toHaveBeenCalled();
+        expect(deps.redoHistory).toHaveBeenCalledOnce();
+    });
+
+    it('logs when undo is available but the next undo source is missing', async () => {
+        const deps = createMockDeps({ nextUndoSource: ref<TWorkspaceUndoSource | null>(null) });
+        const { handleUndo } = usePdfHistory(deps);
+
+        await handleUndo();
+
+        expect(loggerWarn).toHaveBeenCalledWith(
+            'pdf-history',
+            'Undo requested but no timeline history source was available',
+            {
+                direction: 'undo',
+                canUndo: true,
+                canRedo: true,
+                isAnnotationUndoContext: false,
+                shouldPreferTimelineUndo: false,
+            },
+        );
+        expect(deps.undoHistory).not.toHaveBeenCalled();
+        expect(deps.isHistoryBusy.value).toBe(false);
+    });
+
+    it('logs when redo is available but the next redo source is missing', async () => {
+        const deps = createMockDeps({ nextRedoSource: ref<TWorkspaceUndoSource | null>(null) });
+        const { handleRedo } = usePdfHistory(deps);
+
+        await handleRedo();
+
+        expect(loggerWarn).toHaveBeenCalledWith(
+            'pdf-history',
+            'Redo requested but no timeline history source was available',
+            {
+                direction: 'redo',
+                canUndo: true,
+                canRedo: true,
+                isAnnotationUndoContext: false,
+                shouldPreferTimelineUndo: false,
+            },
+        );
+        expect(deps.redoHistory).not.toHaveBeenCalled();
+        expect(deps.isHistoryBusy.value).toBe(false);
     });
 
     it('clears OCR cache before undo', async () => {

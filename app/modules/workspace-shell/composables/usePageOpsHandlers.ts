@@ -4,6 +4,7 @@ import { range } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
+import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 
@@ -34,6 +35,10 @@ export interface IPageOpsHandlersDeps {
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
@@ -53,6 +58,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         clearOcrCache,
         resetSearchCache,
         ensureWorkingCopyFreshForRead,
+        runWithDocumentOperationLease,
     } = deps;
 
     const {
@@ -74,6 +80,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         resetSearchCache,
         ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),
         ...(onExtractedDocument !== undefined ? { onExtractedDocument } : {}),
+        ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 
     function handlePageContextMenuDelete() {

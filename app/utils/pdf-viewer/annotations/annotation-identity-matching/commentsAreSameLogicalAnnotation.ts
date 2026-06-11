@@ -10,6 +10,10 @@ export function commentsAreSameLogicalAnnotation(
         return false;
     }
 
+    if (left.annotationName && right.annotationName) {
+        return left.annotationName === right.annotationName;
+    }
+
     if (left.annotationId && right.annotationId) {
         return left.annotationId === right.annotationId;
     }

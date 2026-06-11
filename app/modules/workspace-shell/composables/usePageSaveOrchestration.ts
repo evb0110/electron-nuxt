@@ -19,6 +19,7 @@ import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import { useFileOperations } from '@app/modules/workspace-shell/composables/useFileOperations';
 import type { IFileOperationsDeps } from '@app/modules/workspace-shell/composables/useFileOperations';
+import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/getEmbeddedMutationBaseData';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
@@ -109,6 +110,10 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     currentPage: Ref<number>;
     waitForPdfReload: (page: number) => Promise<void>;
     resetSearchCache: () => void;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
@@ -163,6 +168,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         currentPage,
         waitForPdfReload,
         resetSearchCache,
+        runWithDocumentOperationLease,
     } = deps;
 
     const {
@@ -269,6 +275,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         ),
         adoptPersistedShapeStateForNextReload: () => pdfViewerRef.value?.adoptPersistedManagedShapesOnNextImport?.(),
         clearPendingPersistedShapeStateForNextReload: () => pdfViewerRef.value?.clearPendingManagedShapeImportAdoption?.(),
+        ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
     });
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);

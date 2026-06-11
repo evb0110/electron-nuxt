@@ -62,7 +62,10 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
 }));
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+    normalizePathForLookup: (path: string) => path.trim(),
+}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({

@@ -122,6 +122,7 @@ export interface IAnnotationCommentSummary {
     strokeWidth?: number | null | undefined;
     uid: string | null;
     annotationId: string | null;
+    annotationName?: string | null | undefined;
     source: 'editor' | 'pdf' | 'shape';
     hasNote?: boolean | undefined;
     markerRect?: IAnnotationMarkerRect | null | undefined;

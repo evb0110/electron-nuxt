@@ -654,7 +654,7 @@ export const useAnnotationShapes = () => {
     function getAllShapes() {
         const all: IShapeAnnotation[] = [];
         for (const pageShapes of shapes.value.values()) {
-            all.push(...pageShapes);
+            all.push(...pageShapes.map(shape => cloneShape(shape)));
         }
         return all;
     }

@@ -29,6 +29,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { collectPagePdfSnapshotEntries } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
+import { collectPdfAnnotationNamesByPage } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
 import { loadPdfPageAnnotations } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { resolveEditorMarkerRect } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/utils/pdf-viewer/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
@@ -410,13 +411,25 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             computeStableKey: identity.computeSummaryStableKey,
             resolveKindLabel: resolveAnnotationKindLabel,
         };
+        const annotationNamesByPage = await collectPdfAnnotationNamesByPage(doc).catch((error: unknown) => {
+            BrowserLogger.debug(
+                'annotations',
+                'Failed to collect PDF annotation names',
+                error,
+            );
+            return null;
+        });
 
         for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
             if (localToken !== syncToken) {
                 return null;
             }
 
-            const pageBundle = await loadPdfPageAnnotations(doc, pageNumber);
+            const pageBundle = await loadPdfPageAnnotations(
+                doc,
+                pageNumber,
+                annotationNamesByPage?.get(pageNumber - 1),
+            );
             if (!pageBundle) {
                 continue;
             }

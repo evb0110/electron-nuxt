@@ -22,6 +22,8 @@ import { serializePdfEdits } from '@app/utils/pdf-viewer/pdf-serialization-opera
 import { updateEmbeddedAnnotationText } from '@app/utils/pdf-viewer/pdf-serialization-operations/updateEmbeddedAnnotationText';
 import type { IPdfSerializationSavePayload } from '@app/utils/pdf-viewer/pdf-serialization-operations/pdfSerializationSavePayload';
 import { importEmbeddedShapeAnnotations } from '@app/utils/pdf-viewer/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { readManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/readManagedShapeStableKey';
+import { writeManagedShapeStableKey } from '@app/utils/pdf-viewer/pdf-serialization-refs/writeManagedShapeStableKey';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import {
     getPdfDictContents,
@@ -318,6 +320,19 @@ describe('serializePdfEdits force rewrite', () => {
 });
 
 describe('serializePdfEdits embedded geometric shapes', () => {
+    it('backfills EVBShapeKey when a managed shape only has /NM', async () => {
+        const doc = await PDFDocument.create();
+        const dict = PDFDict.withContext(doc.context);
+        dict.set(PDFName.of('NM'), PDFHexString.fromText('evb-shape:managed-square'));
+
+        expect(readManagedShapeStableKey(dict)).toBe('evb-shape:managed-square');
+        expect(writeManagedShapeStableKey(dict, 'evb-shape:managed-square')).toBe(true);
+        expect(getPdfStringValue(dict.get(PDFName.of('EVBShapeKey'))))
+            .toBe('evb-shape:managed-square');
+        expect(getPdfStringValue(dict.get(PDFName.of('NM'))))
+            .toBe('evb-shape:managed-square');
+    });
+
     it('updates imported geometric annotations in place and deletes removed ones by ref', async () => {
         const {
             bytes,
@@ -626,6 +641,8 @@ describe('serializePdfEdits embedded geometric shapes', () => {
 
         expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
         expect(importedShapes).toHaveLength(1);
+        expect(getPdfStringValue(getAnnotDict(doc, squareRef)?.get(PDFName.of('NM'))))
+            .toBe('evb-shape:managed-square');
         expect(importedShapes[0]).toMatchObject({
             stableKey: 'evb-shape:managed-square',
             pdfSubtype: 'Square',
@@ -901,6 +918,8 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             201 / 255,
             219 / 255,
         ]);
+        expect(getPdfStringValue(dict?.get(PDFName.of('NM'))))
+            .toMatch(/^evb-markup:/u);
         expect(dict?.lookupMaybe(PDFName.of('CA'), PDFNumber)?.asNumber()).toBe(1);
         expect(dict?.get(PDFName.of('AP'))).toBeUndefined();
     });

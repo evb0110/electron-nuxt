@@ -13,10 +13,6 @@ export { createBrowserSearchCapability } from '@app/platform/browser-api/createB
 export { createCombinedPdfFromPaths } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 export { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
-export { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 export { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 export type { IDjvuPageSize } from '@app/platform/browser-api/djvujsLoader';
-export type {
-    IPendingBrowserWorkerRequest,
-    TBrowserWorkerResult,
-} from '@app/platform/browser-api/settleBrowserWorkerResult';
+export type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';

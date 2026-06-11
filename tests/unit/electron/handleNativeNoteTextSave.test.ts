@@ -27,7 +27,9 @@ const mocks = vi.hoisted(() => ({
     isNativePageOpsDisabled: vi.fn(),
     resolveNativePageOpsPath: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
+    getWorkingCopyOriginalFileExpectation: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
+    refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     isAllowedOriginalSavePath: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
@@ -42,7 +44,10 @@ vi.mock('@electron/features/page-ops/public', () => ({
 }));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     getWorkingCopyOriginalPath: (...args: unknown[]) => mocks.getWorkingCopyOriginalPath(...args),
+    getWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.getWorkingCopyOriginalFileExpectation(...args),
     findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
+    normalizePathForLookup: (path: string) => path.trim(),
+    refreshWorkingCopyOriginalFileExpectation: (...args: unknown[]) => mocks.refreshWorkingCopyOriginalFileExpectation(...args),
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: (...args: unknown[]) => mocks.isAllowedOriginalSavePath(...args)}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
@@ -63,6 +68,8 @@ describe('handleNativeNoteTextSave', () => {
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(null);
+        mocks.refreshWorkingCopyOriginalFileExpectation.mockReturnValue(true);
         mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
             await copyFile(sourcePath, targetPath);
             await unlink(sourcePath);
@@ -127,8 +134,9 @@ describe('handleNativeNoteTextSave', () => {
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(update-note-text)'}),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, latestWorkingPath);
-        expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native incremental update');
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
+        expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
     it('runs the native note changes append command for FreeText note upserts', async () => {
@@ -221,8 +229,9 @@ describe('handleNativeNoteTextSave', () => {
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-note-changes)'}),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, latestWorkingPath);
-        expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native note changes');
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native note changes');
+        expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
     it('runs the generic native mutation append command for metadata changes', async () => {
@@ -392,11 +401,12 @@ describe('handleNativeNoteTextSave', () => {
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-mutations)'}),
         );
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, latestWorkingPath);
-        expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native metadata changes');
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata changes');
+        expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
-    it('queues refreshed working-copy sync behind that working copy mutation queue', async () => {
+    it('refreshes only the requesting working copy when another current copy is queued', async () => {
         const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
         const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
         const originalPath = join(tempRoot, 'original.pdf');
@@ -419,17 +429,53 @@ describe('handleNativeNoteTextSave', () => {
             generationNumber: 0,
             text: 'Updated note',
         }], 'D:20260609133855+03\'00\'');
-        await waitForSettledQueueTurn();
-
+        await expect(savePromise).resolves.toMatchObject({applied: true});
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(originalPath, requestedWorkingPath);
         expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, latestWorkingPath);
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
 
         blockedLatestMutation.resolve(undefined);
         await blockingMutation;
-        await expect(savePromise).resolves.toMatchObject({applied: true});
-        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(originalPath, latestWorkingPath);
-        expect(readFileSyncUtf8(latestWorkingPath)).toContain('% native incremental update');
+    });
+
+    it('skips original-path native saves when the original no longer matches the working-copy base', async () => {
+        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
+        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
+        const originalPath = join(tempRoot, 'original.pdf');
+        const tempPath = `${originalPath}.tmp`;
+        writeFileSync(requestedWorkingPath, 'working-before');
+        writeFileSync(latestWorkingPath, 'latest-before');
+        writeFileSync(originalPath, 'external-change');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            mtimeMs: 1,
+            size: 1,
+        });
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await appendFile(tempPath, '\n% native incremental update');
+        });
+        const { handleNativeNoteTextSave } = await import('@electron/features/documents/main/handleNativeNoteTextSave');
+
+        const result = await handleNativeNoteTextSave(event, requestedWorkingPath, [{
+            objectNumber: 42,
+            generationNumber: 0,
+            text: 'Updated note',
+        }], 'D:20260609133855+03\'00\'');
+
+        expect(result).toEqual({
+            applied: false,
+            validation: null,
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledWith(requestedWorkingPath, tempPath);
+        expect(mocks.copyFileCopyOnWrite).not.toHaveBeenCalledWith(originalPath, requestedWorkingPath);
+        expect(readFileSyncUtf8(requestedWorkingPath)).toBe('working-before');
+        expect(readFileSyncUtf8(originalPath)).toBe('external-change');
+        expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
     it('skips working-copy native mutations when the queued base expectation changes', async () => {

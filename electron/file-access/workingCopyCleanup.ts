@@ -16,6 +16,8 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     clearRetiredWorkingCopyOriginals,
+    clearWorkingCopyOriginalPaths,
+    forgetWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
     rememberRetiredWorkingCopyOriginal,
     workingCopyMap,
@@ -175,8 +177,12 @@ export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: nu
         normalizedPath,
         originalEntry.originalPath,
         ownerWebContentsId,
+        {
+            ...(originalEntry.originalFileExpectation ? {originalFileExpectation: originalEntry.originalFileExpectation} : {}),
+            role: originalEntry.role,
+        },
     );
-    workingCopyMap.delete(normalizedPath);
+    forgetWorkingCopyOriginalPath(normalizedPath);
     cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {
         logger.warn(`Failed to cleanup working copy directory "${normalizedPath}": ${getErrorMessage(err)}`);
     });
@@ -184,7 +190,7 @@ export function cleanupWorkingCopy(workingPath: string, senderWebContentsId?: nu
 
 export async function clearAllWorkingCopies() {
     const paths = [...workingCopyMap.keys()];
-    workingCopyMap.clear();
+    clearWorkingCopyOriginalPaths();
     clearRetiredWorkingCopyOriginals();
     await Promise.allSettled(
         paths.map(workingPath => cleanupWorkingCopyDirectory(workingPath)),

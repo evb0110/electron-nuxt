@@ -9,6 +9,10 @@ import {
     getDocumentsCapability,
     getPageOpsCapability,
 } from '@app/utils/platformDocuments';
+import {
+    runWithoutDocumentOperationLease,
+    type TDocumentOperationKind,
+} from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 
 type TPageOpsRotation = 90 | 180 | 270;
 interface IPageOpsResult {success: boolean;}
@@ -43,6 +47,10 @@ export const usePageOperations = (deps: {
     resetSearchCache: () => void;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }) => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
@@ -55,6 +63,7 @@ export const usePageOperations = (deps: {
         resetSearchCache,
         onExtractedDocument,
         ensureWorkingCopyFreshForRead,
+        runWithDocumentOperationLease = runWithoutDocumentOperationLease,
     } = deps;
 
     const isOperationInProgress = ref(false);
@@ -88,16 +97,6 @@ export const usePageOperations = (deps: {
         error.value = null;
 
         try {
-            if (options.shouldReload) {
-                const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
-                if (!didPrimeHistory) {
-                    return false;
-                }
-                if (workingCopyPath.value !== path) {
-                    return false;
-                }
-            }
-
             if (options.beforeRun) {
                 const canRun = await options.beforeRun();
                 if (!canRun || workingCopyPath.value !== path) {
@@ -105,30 +104,45 @@ export const usePageOperations = (deps: {
                 }
             }
 
-            const result = await options.run(path);
-            const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
-            if (!isSuccessful(result)) {
-                return false;
-            }
-
-            if (workingCopyPath.value !== path) {
-                return false;
-            }
-
-            if (options.shouldReload) {
-                invalidateCaches(path);
-                const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
-                if (!didReload || workingCopyPath.value !== path) {
+            return await runWithDocumentOperationLease('page-operation', async () => {
+                if (workingCopyPath.value !== path) {
                     return false;
                 }
-            }
+                if (options.shouldReload) {
+                    const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
+                    if (!didPrimeHistory) {
+                        return false;
+                    }
+                    if (workingCopyPath.value !== path) {
+                        return false;
+                    }
+                }
 
-            if (workingCopyPath.value !== path) {
-                return false;
-            }
-            await options.onSuccess?.(result);
+                const result = await options.run(path);
+                const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
+                if (!isSuccessful(result)) {
+                    return false;
+                }
 
-            return true;
+                if (workingCopyPath.value !== path) {
+                    return false;
+                }
+
+                if (options.shouldReload) {
+                    invalidateCaches(path);
+                    const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
+                    if (!didReload || workingCopyPath.value !== path) {
+                        return false;
+                    }
+                }
+
+                if (workingCopyPath.value !== path) {
+                    return false;
+                }
+                await options.onSuccess?.(result);
+
+                return true;
+            });
         } catch (e) {
             BrowserLogger.error('page-ops', `${options.operationName} failed`, e);
             reportRuntimeError({

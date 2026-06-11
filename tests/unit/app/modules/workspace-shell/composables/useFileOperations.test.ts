@@ -274,6 +274,52 @@ describe('useFileOperations', () => {
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
+    it('waits for the document operation lease before saving the working copy', async () => {
+        const leaseRelease = createDeferred<undefined>();
+        const runWithDocumentOperationLease = vi.fn(async (_kind: 'save', operation: () => Promise<boolean>) => {
+            await leaseRelease.promise;
+            return operation();
+        });
+        const { deps } = createDeps({ runWithDocumentOperationLease: cast(runWithDocumentOperationLease) });
+        const { handleSave } = useFileOperations(deps);
+
+        const savePromise = handleSave();
+        await Promise.resolve();
+
+        expect(runWithDocumentOperationLease).toHaveBeenCalledWith('save', expect.any(Function));
+        expect(deps.isSaving.value).toBe(true);
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
+
+        leaseRelease.resolve(undefined);
+        await expect(savePromise).resolves.toBe(true);
+
+        expect(deps.validatePdfPath).toHaveBeenCalledOnce();
+        expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
+        expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('serializes when the saved PDF.js annotation baseline is dirty', async () => {
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
+            saveDocument: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.validatePdfPath).not.toHaveBeenCalled();
+        expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([9]),
+            expect.objectContaining({ forceRewrite: false }),
+        );
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
     it('repair-saves by forcing a serialized rewrite even when the document is clean', async () => {
         const {
             deps,
@@ -1764,6 +1810,7 @@ describe('useFileOperations', () => {
             await vi.advanceTimersByTimeAsync(0);
             expect(deps.saveDocument).toHaveBeenCalledOnce();
             await vi.advanceTimersByTimeAsync(PDF_SAVE_TIMEOUT_MS);
+            await vi.advanceTimersByTimeAsync(2_000);
             await savePromise;
 
             expect(deps.serializePdfForSave).not.toHaveBeenCalled();

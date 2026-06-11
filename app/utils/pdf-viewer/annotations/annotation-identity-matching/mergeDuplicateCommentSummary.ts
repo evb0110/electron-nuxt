@@ -115,6 +115,7 @@ export function mergeDuplicateCommentSummary(
     secondary: IAnnotationCommentSummary,
 ): IAnnotationCommentSummary {
     const merged = mergeCommentSummaries(primary, secondary);
+    const annotationName = primary.annotationName ?? secondary.annotationName ?? null;
     const annotationId = primary.annotationId ?? secondary.annotationId ?? null;
     const uid = primary.uid ?? secondary.uid ?? null;
     const markerRect = pickPreferredMarkerRect(primary, secondary);
@@ -130,6 +131,7 @@ export function mergeDuplicateCommentSummary(
         ...merged,
         id,
         sortIndex,
+        annotationName,
         annotationId,
         uid,
         source,

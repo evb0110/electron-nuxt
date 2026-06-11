@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
+import type { TDocumentOperationKind } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 
 const pageOpsApi = {
     delete: vi.fn(),
@@ -31,6 +32,7 @@ type TBatchProgressListener = (progress: {
 const progressListeners = new Set<TBatchProgressListener>();
 
 const loggerError = vi.fn();
+const loggerWarn = vi.fn();
 const reportRuntimeError = vi.fn();
 
 vi.mock('@app/utils/platformDocuments', () => ({
@@ -50,7 +52,10 @@ vi.mock('@app/utils/platformDocuments', () => ({
     },
 }));
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    error: (...args: unknown[]) => loggerError(...args),
+    warn: (...args: unknown[]) => loggerWarn(...args),
+}}));
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({ reportRuntimeError })}));
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
@@ -71,7 +76,10 @@ function deferred<T>() {
     };
 }
 
-function createHarness(path: string | null = '/tmp/work.pdf', options: {ensureWorkingCopyFreshForRead?: () => Promise<boolean>;} = {}) {
+function createHarness(path: string | null = '/tmp/work.pdf', options: {
+    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+    runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
+} = {}) {
     const workingCopyPath = ref<string | null>(path);
     const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
     const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
@@ -86,6 +94,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {ensureWo
         resetSearchCache,
         onExtractedDocument,
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
+        ...(options.runWithDocumentOperationLease ? { runWithDocumentOperationLease: options.runWithDocumentOperationLease } : {}),
     });
 
     return {
@@ -218,6 +227,34 @@ describe('usePageOperations', () => {
         expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
         expect(pageOpsApi.extract).toHaveBeenCalledWith('/tmp/work.pdf', [3]);
         expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
+    });
+
+    it('runs page mutations inside the document operation lease', async () => {
+        const leaseRelease = deferred<undefined>();
+        const runWithDocumentOperationLeaseSpy = vi.fn();
+        const runWithDocumentOperationLease = async <T>(
+            kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ): Promise<T> => {
+            runWithDocumentOperationLeaseSpy(kind, operation);
+            await leaseRelease.promise;
+            return operation();
+        };
+        const { pageOps } = createHarness('/tmp/work.pdf', { runWithDocumentOperationLease });
+        pageOpsApi.rotate.mockResolvedValueOnce({ success: true });
+
+        const rotatePromise = pageOps.rotatePages([1], 90);
+        await Promise.resolve();
+
+        expect(runWithDocumentOperationLeaseSpy).toHaveBeenCalledWith('page-operation', expect.any(Function));
+        expect(pageOps.isOperationInProgress.value).toBe(true);
+        expect(pageOpsApi.rotate).not.toHaveBeenCalled();
+
+        leaseRelease.resolve(undefined);
+        await expect(rotatePromise).resolves.toBe(true);
+
+        expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 90);
+        expect(pageOps.isOperationInProgress.value).toBe(false);
     });
 
     it('does not extract pages when pending changes cannot be persisted', async () => {

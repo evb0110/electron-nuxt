@@ -23,10 +23,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import {
-    delay,
-    withTimeout,
-} from 'es-toolkit/promise';
+import {delay} from 'es-toolkit/promise';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -45,9 +42,14 @@ import {
 } from '@app/services/pdf-save/buildNativePdfMutationPlanForSave';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/services/pdf-save/nativeFreeTextNotes';
 import type { IMarkupSubtypeHint } from '@app/utils/pdf-viewer/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import {
+    runWithoutDocumentOperationLease,
+    type TDocumentOperationKind,
+} from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
 
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
+const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
 
 interface IPersistSerializedOptions {
     saveMode: TPdfSaveMode;
@@ -56,7 +58,7 @@ interface IPersistSerializedOptions {
 }
 
 class SaveDocumentTimeoutError extends Error {
-    constructor() {
+    constructor(public readonly settlePromise: Promise<void>) {
         super('PDF.js saveDocument timed out');
         this.name = 'SaveDocumentTimeoutError';
     }
@@ -67,6 +69,34 @@ interface ISerializationBasePdfBytesOptions {
     pendingDeletes?: IAnnotationCommentSummary[] | null;
     pendingTexts?: Map<string, string> | null;
 }
+
+interface IDocumentDirtyState {
+    annotationDirty: boolean;
+    annotationChanges: boolean;
+    bookmarks: boolean;
+    livePdfJsAnnotations: boolean;
+    pageLabels: boolean;
+    pendingDeletes: boolean;
+    pendingTexts: boolean;
+    preservedAnnotationSource: boolean;
+    savedPdfjsAnnotationBaseline: boolean;
+    shapes: boolean;
+}
+
+type TDocumentDirtySource = keyof IDocumentDirtyState;
+
+const SHOULD_SERIALIZE_DIRTY_SOURCES = {
+    annotationChanges: state => state.annotationChanges,
+    annotationDirty: state => state.annotationDirty,
+    bookmarks: state => state.bookmarks,
+    livePdfJsAnnotations: state => state.livePdfJsAnnotations,
+    pageLabels: state => state.pageLabels,
+    pendingDeletes: state => state.pendingDeletes,
+    pendingTexts: state => state.pendingTexts,
+    preservedAnnotationSource: state => state.preservedAnnotationSource,
+    savedPdfjsAnnotationBaseline: state => state.savedPdfjsAnnotationBaseline,
+    shapes: state => state.shapes,
+} satisfies Record<TDocumentDirtySource, (state: IDocumentDirtyState) => boolean>;
 
 export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
@@ -163,6 +193,10 @@ export interface IFileOperationsDeps {
     restorePreparedPersistedShapeState?: (snapshot: unknown) => Promise<void> | void;
     adoptPersistedShapeStateForNextReload?: () => void;
     clearPendingPersistedShapeStateForNextReload?: () => void;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
@@ -222,6 +256,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         restorePreparedPersistedShapeState,
         adoptPersistedShapeStateForNextReload,
         clearPendingPersistedShapeStateForNextReload,
+        runWithDocumentOperationLease = runWithoutDocumentOperationLease,
     } = deps;
 
     let saveOperationInProgress = false;
@@ -452,17 +487,54 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return true;
     }
 
+    async function runSaveDocumentAttemptWithTimeout() {
+        const savePromise = (async () => {
+            const data = await saveDocument();
+            if (!data) {
+                throw new Error('saveDocument returned no data');
+            }
+            return data;
+        })();
+        const settlePromise = savePromise.then(() => undefined, () => undefined);
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+            timeoutHandle = setTimeout(() => {
+                timeoutHandle = null;
+                reject(new SaveDocumentTimeoutError(settlePromise));
+            }, PDF_SAVE_TIMEOUT_MS);
+        });
+
+        try {
+            return await Promise.race([
+                savePromise,
+                timeoutPromise,
+            ]);
+        } finally {
+            if (timeoutHandle !== null) {
+                clearTimeout(timeoutHandle);
+            }
+        }
+    }
+
+    async function waitForTimedOutSaveDocumentToQuiesce(error: SaveDocumentTimeoutError) {
+        const didSettle = await Promise.race([
+            error.settlePromise.then(() => true),
+            delay(PDF_SAVE_TIMEOUT_QUIESCE_MS).then(() => false),
+        ]);
+        if (!didSettle) {
+            BrowserLogger.warn('workspace', 'Skipped source-byte fallback because timed-out PDF.js saveDocument is still running', {
+                timeoutMs: PDF_SAVE_TIMEOUT_MS,
+                quiesceMs: PDF_SAVE_TIMEOUT_QUIESCE_MS,
+            });
+        }
+        return didSettle;
+    }
+
     async function saveDocumentWithRetry(maxAttempts = 4, retryDelayMs = 50) {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
             const attemptStartedAtMs = nowMs();
             try {
-                const data = await withTimeout(async () => {
-                    const data = await saveDocument();
-                    if (!data) {
-                        throw new Error('saveDocument returned no data');
-                    }
-                    return data;
-                }, PDF_SAVE_TIMEOUT_MS);
+                const data = await runSaveDocumentAttemptWithTimeout();
                 logSavePhase('pdfjs-save-document', attemptStartedAtMs, {
                     attempt,
                     maxAttempts,
@@ -470,7 +542,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 });
                 return data;
             } catch (error) {
-                const timedOut = isTimeoutError(error);
+                const timedOut = error instanceof SaveDocumentTimeoutError || isTimeoutError(error);
                 const durationMs = Math.round(nowMs() - attemptStartedAtMs);
                 BrowserLogger.warn(
                     'workspace',
@@ -487,7 +559,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 );
 
                 if (timedOut) {
-                    throw new SaveDocumentTimeoutError();
+                    if (error instanceof SaveDocumentTimeoutError) {
+                        throw error;
+                    }
+                    throw new SaveDocumentTimeoutError(Promise.resolve());
                 }
 
                 if (attempt === maxAttempts) {
@@ -697,6 +772,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         try {
             return await saveDocumentWithRetry();
         } catch (error) {
+            if (
+                error instanceof SaveDocumentTimeoutError
+                && !await waitForTimedOutSaveDocumentToQuiesce(error)
+            ) {
+                throw error;
+            }
             if (!canUseSourceBytesForReplayableEmbeddedChanges(opts)) {
                 throw error;
             }
@@ -863,6 +944,25 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         };
     }
 
+    function collectDocumentDirtyState(options: {
+        hasPendingDeletes: boolean;
+        hasPendingTexts: boolean;
+        shapeStateDirty: boolean;
+    }): IDocumentDirtyState {
+        return {
+            annotationChanges: hasAnnotationChanges(),
+            annotationDirty: annotationDirty.value,
+            bookmarks: bookmarksDirty.value,
+            livePdfJsAnnotations: hasLivePdfJsAnnotationChanges?.() ?? false,
+            pageLabels: pageLabelsDirty.value,
+            pendingDeletes: options.hasPendingDeletes,
+            pendingTexts: options.hasPendingTexts,
+            preservedAnnotationSource: hasPreservedAnnotationSourceChanges?.() ?? false,
+            savedPdfjsAnnotationBaseline: hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
+            shapes: options.shapeStateDirty,
+        };
+    }
+
     function resolveExpectedWorkingPathForPersistence(
         initialWorkingPath: TDocumentRef | null,
         initialOriginalPath: TDocumentRef | null,
@@ -883,6 +983,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function runSaveFlow(
         config: {
             mode: 'save' | 'save_as';
+            operationKind: TDocumentOperationKind;
             saveMode: TPdfSaveMode;
             persistOpenNotesAbortMessage: string;
             totalPhase: 'handle-save-total' | 'handle-save-as-total';
@@ -914,284 +1015,282 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         let pendingDeletes: IAnnotationCommentSummary[] | null = null;
         const expectedWorkingPath = workingCopyPath.value;
         const expectedOriginalPath = originalPath.value;
-        try {
-            if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
-                return false;
-            }
-            const pendingChanges = consumePendingEmbeddedAnnotationChanges();
-            ({
-                pendingTexts,
-                pendingDeletes,
-            } = pendingChanges);
-            const {
-                hasPendingTexts,
-                hasPendingDeletes,
-            } = pendingChanges;
-            const shapeStateDirty = hasShapeChanges?.() ?? false;
-            const savedPdfjsAnnotationBaselineDirty = hasSavedPdfJsAnnotationBaselineChanges?.() ?? false;
-            const preservedAnnotationSourceDirty = hasPreservedAnnotationSourceChanges?.() ?? false;
-            const shouldSerialize = computeShouldSerializeFlag(
-                shapeStateDirty,
-                hasPendingTexts,
-                hasPendingDeletes,
-                preservedAnnotationSourceDirty,
-            ) || config.forceSerialize === true;
-            const preserveLivePdfjsAnnotationSession = shouldPreserveLiveAnnotationSession({
-                mode: config.mode,
-                shouldSerialize,
-                shapeStateDirty,
-                hasPendingTexts,
-                hasPendingDeletes,
-                hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
-                hasPreservedAnnotationSourceChanges: preservedAnnotationSourceDirty,
-            });
-            reloadWaiter = preserveLivePdfjsAnnotationSession
-                ? null
-                : (preparePostSaveReload?.() ?? null);
-            const forcePdfjsMaterialize = preservedAnnotationSourceDirty;
-            const includeManagedShapesForLiveSource = forcePdfjsMaterialize && (hasManagedShapes?.() ?? false);
-            const annotationCommentsSnapshot = getAnnotationCommentsForSave();
-
-            if (config.mode === 'save') {
-                BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
-                    hasWorkingCopyPath: Boolean(workingCopyPath.value),
-                    annotationDirty: annotationDirty.value,
-                    pageLabelsDirty: pageLabelsDirty.value,
-                    bookmarksDirty: bookmarksDirty.value,
-                    hasAnnotationChanges: hasAnnotationChanges(),
-                    hasShapeChanges: shapeStateDirty,
+        return runWithDocumentOperationLease(config.operationKind, async () => {
+            try {
+                if (!await persistOpenAnnotationNotes(config.persistOpenNotesAbortMessage)) {
+                    return false;
+                }
+                const pendingChanges = consumePendingEmbeddedAnnotationChanges();
+                ({
+                    pendingTexts,
+                    pendingDeletes,
+                } = pendingChanges);
+                const {
                     hasPendingTexts,
                     hasPendingDeletes,
-                    forceSerialize: config.forceSerialize === true,
-                    forceRewrite: config.forceRewrite === true,
-                    preserveLivePdfjsAnnotationSession,
-                    savedPdfjsAnnotationBaselineDirty,
-                    preservedAnnotationSourceDirty,
-                    includeManagedShapesForLiveSource,
-                    annotationNoteWindowsCount: annotationNoteWindowsCount.value,
-                }));
-            }
-
-            let saveSucceeded = false;
-            if (config.shouldPreferWorkingCopy && workingCopyPath.value && !shouldSerialize) {
-                saveSucceeded = await saveUnserializedWorkingCopy(
-                    config.saveMode,
+                } = pendingChanges;
+                const shapeStateDirty = hasShapeChanges?.() ?? false;
+                const dirtyState = collectDocumentDirtyState({
+                    hasPendingTexts,
+                    hasPendingDeletes,
                     shapeStateDirty,
-                    reloadWaiter,
-                    config.mode,
-                    config.persistUnserialized,
-                    expectedWorkingPath,
-                );
-                clearSaveIndicator(config.mode);
-                await finalizeSaveReload(reloadWaiter, saveSucceeded, {
-                    completeSaveStateOnSuccess: Boolean(reloadWaiter),
-                    markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
-                    resetAnnotationStorageOnSuccess: false,
                 });
-                finalizedReloadWaiter = true;
-            } else if (config.mode === 'save_as' && !shouldSerialize) {
-                saveSucceeded = await saveUnserializedWorkingCopy(
-                    config.saveMode,
-                    shapeStateDirty,
-                    reloadWaiter,
-                    config.mode,
-                    config.persistUnserialized,
-                    expectedWorkingPath,
-                );
-                clearSaveIndicator(config.mode);
-                await finalizeSaveReload(reloadWaiter, saveSucceeded, {
-                    completeSaveStateOnSuccess: Boolean(reloadWaiter),
-                    markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
-                    resetAnnotationStorageOnSuccess: false,
-                });
-                finalizedReloadWaiter = true;
-            } else {
-                const hasAnnotationChangesSnapshot = hasAnnotationChanges();
-                const totalPageCount = totalPages?.value ?? pdfDocument.value?.numPages ?? 0;
-                const annotationWorkDirty = annotationDirty.value || (hasAnnotationChangesSnapshot && !shapeStateDirty);
-                const annotationSavePlan = buildAnnotationSavePlan({
-                    pendingTexts,
-                    pendingDeletes,
-                });
-                const nativeMutationPlanContext = {
+                const savedPdfjsAnnotationBaselineDirty = dirtyState.savedPdfjsAnnotationBaseline;
+                const preservedAnnotationSourceDirty = dirtyState.preservedAnnotationSource;
+                const shouldSerialize = computeShouldSerializeFlag(dirtyState) || config.forceSerialize === true;
+                const preserveLivePdfjsAnnotationSession = shouldPreserveLiveAnnotationSession({
                     mode: config.mode,
-                    pendingTexts,
-                    pendingDeletes,
-                    shapeStateDirty,
-                    forcePdfjsMaterialize,
-                    includeManagedShapesForLiveSource,
-                    forceRewrite: config.forceRewrite === true,
-                    savedPdfjsAnnotationBaselineDirty,
-                    pageLabelsDirty: pageLabelsDirty.value,
-                    bookmarksDirty: bookmarksDirty.value,
-                };
-                const nativeMutationPlanResult = buildNativePdfMutationPlanForSave({
-                    ...nativeMutationPlanContext,
-                    annotationCommentsSnapshot,
-                    hasNativePdfMutationCapability: hasNativePdfMutationCapability(),
-                    annotationSavePlan,
-                    annotationDirty: annotationDirty.value,
-                    hasAnnotationChanges: hasAnnotationChangesSnapshot,
-                    hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
-                    canPersistNativeMetadataMutations: canPersistNativeMetadataMutations(),
-                    totalPageCount,
-                    pageLabelRanges: pageLabelRanges?.value ?? null,
-                    bookmarkItems: bookmarkItems?.value ?? null,
-                    untitledBookmarkLabel,
-                    shapes: shapeStateDirty ? getAllShapes?.() ?? null : null,
-                    deletedEmbeddedShapeAnnotationIds: shapeStateDirty ? getDeletedEmbeddedShapeAnnotationIds?.() ?? [] : [],
-                    deletedEmbeddedShapeStableKeys: shapeStateDirty ? getDeletedEmbeddedShapeStableKeys?.() ?? [] : [],
-                    markupSubtypeOverrides: annotationWorkDirty ? getMarkupSubtypeOverrides?.() : undefined,
-                    markupSubtypeHints: annotationWorkDirty ? getMarkupSubtypeHints?.() ?? [] : [],
+                    shouldSerialize,
+                    dirtyState,
                 });
-                nativeMutationPlanResult.skipEvents.forEach(({
-                    event,
-                    reason,
-                    details,
-                }) => {
-                    logNativePdfMutationSkip(nativeMutationPlanContext, event, reason, details);
-                });
-                const nativeMutationPlan = nativeMutationPlanResult.plan;
-                if (nativeMutationPlan) {
+                reloadWaiter = preserveLivePdfjsAnnotationSession
+                    ? null
+                    : (preparePostSaveReload?.() ?? null);
+                const forcePdfjsMaterialize = preservedAnnotationSourceDirty;
+                const includeManagedShapesForLiveSource = forcePdfjsMaterialize && (hasManagedShapes?.() ?? false);
+                const annotationCommentsSnapshot = getAnnotationCommentsForSave();
+
+                if (config.mode === 'save') {
+                    BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
+                        hasWorkingCopyPath: Boolean(workingCopyPath.value),
+                        annotationDirty: annotationDirty.value,
+                        pageLabelsDirty: pageLabelsDirty.value,
+                        bookmarksDirty: bookmarksDirty.value,
+                        hasAnnotationChanges: dirtyState.annotationChanges,
+                        hasShapeChanges: shapeStateDirty,
+                        hasPendingTexts,
+                        hasPendingDeletes,
+                        hasLivePdfJsAnnotationChanges: dirtyState.livePdfJsAnnotations,
+                        forceSerialize: config.forceSerialize === true,
+                        forceRewrite: config.forceRewrite === true,
+                        preserveLivePdfjsAnnotationSession,
+                        savedPdfjsAnnotationBaselineDirty,
+                        preservedAnnotationSourceDirty,
+                        includeManagedShapesForLiveSource,
+                        annotationNoteWindowsCount: annotationNoteWindowsCount.value,
+                    }));
+                }
+
+                let saveSucceeded = false;
+                if (config.shouldPreferWorkingCopy && workingCopyPath.value && !shouldSerialize) {
+                    saveSucceeded = await saveUnserializedWorkingCopy(
+                        config.saveMode,
+                        shapeStateDirty,
+                        reloadWaiter,
+                        config.mode,
+                        config.persistUnserialized,
+                        expectedWorkingPath,
+                    );
+                    clearSaveIndicator(config.mode);
+                    await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+                        completeSaveStateOnSuccess: Boolean(reloadWaiter),
+                        markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+                        resetAnnotationStorageOnSuccess: false,
+                    });
+                    finalizedReloadWaiter = true;
+                } else if (config.mode === 'save_as' && !shouldSerialize) {
+                    saveSucceeded = await saveUnserializedWorkingCopy(
+                        config.saveMode,
+                        shapeStateDirty,
+                        reloadWaiter,
+                        config.mode,
+                        config.persistUnserialized,
+                        expectedWorkingPath,
+                    );
+                    clearSaveIndicator(config.mode);
+                    await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+                        completeSaveStateOnSuccess: Boolean(reloadWaiter),
+                        markShapeStateSavedOnSuccess: Boolean(reloadWaiter),
+                        resetAnnotationStorageOnSuccess: false,
+                    });
+                    finalizedReloadWaiter = true;
+                } else {
+                    const totalPageCount = totalPages?.value ?? pdfDocument.value?.numPages ?? 0;
+                    const annotationWorkDirty = dirtyState.annotationDirty || (dirtyState.annotationChanges && !dirtyState.shapes);
+                    const annotationSavePlan = buildAnnotationSavePlan({
+                        pendingTexts,
+                        pendingDeletes,
+                    });
+                    const nativeMutationPlanContext = {
+                        mode: config.mode,
+                        pendingTexts,
+                        pendingDeletes,
+                        shapeStateDirty,
+                        forcePdfjsMaterialize,
+                        includeManagedShapesForLiveSource,
+                        forceRewrite: config.forceRewrite === true,
+                        savedPdfjsAnnotationBaselineDirty,
+                        pageLabelsDirty: dirtyState.pageLabels,
+                        bookmarksDirty: dirtyState.bookmarks,
+                    };
+                    const nativeMutationPlanResult = buildNativePdfMutationPlanForSave({
+                        ...nativeMutationPlanContext,
+                        annotationCommentsSnapshot,
+                        hasNativePdfMutationCapability: hasNativePdfMutationCapability(),
+                        annotationSavePlan,
+                        annotationDirty: dirtyState.annotationDirty,
+                        hasAnnotationChanges: dirtyState.annotationChanges,
+                        hasLivePdfJsAnnotationChanges: dirtyState.livePdfJsAnnotations,
+                        canPersistNativeMetadataMutations: canPersistNativeMetadataMutations(),
+                        totalPageCount,
+                        pageLabelRanges: pageLabelRanges?.value ?? null,
+                        bookmarkItems: bookmarkItems?.value ?? null,
+                        untitledBookmarkLabel,
+                        shapes: shapeStateDirty ? getAllShapes?.() ?? null : null,
+                        deletedEmbeddedShapeAnnotationIds: shapeStateDirty ? getDeletedEmbeddedShapeAnnotationIds?.() ?? [] : [],
+                        deletedEmbeddedShapeStableKeys: shapeStateDirty ? getDeletedEmbeddedShapeStableKeys?.() ?? [] : [],
+                        markupSubtypeOverrides: annotationWorkDirty ? getMarkupSubtypeOverrides?.() : undefined,
+                        markupSubtypeHints: annotationWorkDirty ? getMarkupSubtypeHints?.() ?? [] : [],
+                    });
+                    nativeMutationPlanResult.skipEvents.forEach(({
+                        event,
+                        reason,
+                        details,
+                    }) => {
+                        logNativePdfMutationSkip(nativeMutationPlanContext, event, reason, details);
+                    });
+                    const nativeMutationPlan = nativeMutationPlanResult.plan;
+                    if (nativeMutationPlan) {
+                        const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
+                            expectedWorkingPath,
+                            expectedOriginalPath,
+                        );
+                        const preserveLiveSessionForNativeNoteChanges = true;
+                        let preparedShapeStateSnapshot: unknown = null;
+                        try {
+                            const persisted = persistenceExpectedWorkingPath
+                                ? await timedSavePhase(
+                                    nativeMutationPlan.phase,
+                                    () => persistNativePdfMutationPlan(nativeMutationPlan, {
+                                        saveMode: config.saveMode,
+                                        preserveLoadedSource: preserveLiveSessionForNativeNoteChanges,
+                                        expectedWorkingPath: persistenceExpectedWorkingPath,
+                                        modifiedAt: toPdfDateString(new Date()),
+                                    }),
+                                    result => ({
+                                        applied: result !== null,
+                                        success: result?.success ?? false,
+                                        updateCount: nativeMutationPlan.noteTextUpdates.length,
+                                        freeTextNoteCount: nativeMutationPlan.freeTextNotes.length,
+                                        deleteCount: nativeMutationPlan.annotationDeletes.length,
+                                        pageLabels: nativeMutationPlan.mutations.pageLabels !== undefined,
+                                        bookmarks: nativeMutationPlan.mutations.bookmarks !== undefined,
+                                        shapes: nativeMutationPlan.mutations.shapes?.shapes.length ?? 0,
+                                        markupOverrides: nativeMutationPlan.mutations.markup?.overrides.length ?? 0,
+                                        markupHints: nativeMutationPlan.mutations.markup?.hints.length ?? 0,
+                                        preserveLoadedSource: preserveLiveSessionForNativeNoteChanges,
+                                    }),
+                                )
+                                : null;
+                            if (persisted) {
+                                let canMarkShapeStateSaved = !nativeMutationPlan.hasShapeMutations;
+                                if (nativeMutationPlan.hasShapeMutations) {
+                                    const savedNativeBytes = await timedSavePhase(
+                                        'read-native-shape-saved-bytes',
+                                        getSourcePdfData,
+                                        result => ({bytes: result?.byteLength ?? null}),
+                                    );
+                                    if (savedNativeBytes) {
+                                        preparedShapeStateSnapshot = await primePersistedShapeStateForSave(
+                                            savedNativeBytes,
+                                            true,
+                                        );
+                                        canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
+                                    }
+                                }
+                                armPersistedShapeStateAdoption(nativeMutationPlan.hasShapeMutations && canMarkShapeStateSaved);
+                                if (reloadWaiter && preserveLiveSessionForNativeNoteChanges) {
+                                    reloadWaiter.cancel();
+                                    reloadWaiter = null;
+                                }
+                                clearSaveIndicator(config.mode);
+                                saveSucceeded = finalizeSuccessfulSave(persisted, {
+                                    completeSaveState: !reloadWaiter,
+                                    markShapeStateSaved: !reloadWaiter && canMarkShapeStateSaved,
+                                    preserveLivePdfjsSession: preserveLiveSessionForNativeNoteChanges && !reloadWaiter,
+                                });
+                                if (saveSucceeded) {
+                                    preparedShapeStateSnapshot = null;
+                                    if (nativeMutationPlan.freeTextNotes.length) {
+                                        markNativeFreeTextNotesSaved?.(nativeMutationPlan.freeTextNotes);
+                                    }
+                                    if (nativeMutationPlan.annotationDeletes.length) {
+                                        markNativeFreeTextNotesDeleted?.(nativeMutationPlan.annotationDeletes);
+                                    }
+                                    trackSaveCompleted(config.mode, persisted, true);
+                                }
+                                await finalizeSaveReload(reloadWaiter, saveSucceeded, {
+                                    completeSaveStateOnSuccess: Boolean(reloadWaiter),
+                                    markShapeStateSavedOnSuccess: Boolean(reloadWaiter) && canMarkShapeStateSaved,
+                                    preserveLivePdfjsSessionOnSuccess: preserveLiveSessionForNativeNoteChanges && Boolean(reloadWaiter),
+                                });
+                                finalizedReloadWaiter = true;
+                            }
+                        } finally {
+                            await restorePreparedShapeState(preparedShapeStateSnapshot);
+                        }
+                    }
+                }
+
+                if (!finalizedReloadWaiter) {
+                    const rawData = await getSerializationBasePdfBytes({
+                        forcePdfjsMaterialize: forcePdfjsMaterialize || savedPdfjsAnnotationBaselineDirty,
+                        pendingDeletes,
+                        pendingTexts,
+                    });
                     const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
                         expectedWorkingPath,
                         expectedOriginalPath,
                     );
-                    const preserveLiveSessionForNativeNoteChanges = true;
-                    let preparedShapeStateSnapshot: unknown = null;
-                    try {
-                        const persisted = persistenceExpectedWorkingPath
-                            ? await timedSavePhase(
-                                nativeMutationPlan.phase,
-                                () => persistNativePdfMutationPlan(nativeMutationPlan, {
-                                    saveMode: config.saveMode,
-                                    preserveLoadedSource: preserveLiveSessionForNativeNoteChanges,
-                                    expectedWorkingPath: persistenceExpectedWorkingPath,
-                                    modifiedAt: toPdfDateString(new Date()),
-                                }),
-                                result => ({
-                                    applied: result !== null,
-                                    success: result?.success ?? false,
-                                    updateCount: nativeMutationPlan.noteTextUpdates.length,
-                                    freeTextNoteCount: nativeMutationPlan.freeTextNotes.length,
-                                    deleteCount: nativeMutationPlan.annotationDeletes.length,
-                                    pageLabels: nativeMutationPlan.mutations.pageLabels !== undefined,
-                                    bookmarks: nativeMutationPlan.mutations.bookmarks !== undefined,
-                                    shapes: nativeMutationPlan.mutations.shapes?.shapes.length ?? 0,
-                                    markupOverrides: nativeMutationPlan.mutations.markup?.overrides.length ?? 0,
-                                    markupHints: nativeMutationPlan.mutations.markup?.hints.length ?? 0,
-                                    preserveLoadedSource: preserveLiveSessionForNativeNoteChanges,
-                                }),
-                            )
-                            : null;
-                        if (persisted) {
-                            let canMarkShapeStateSaved = !nativeMutationPlan.hasShapeMutations;
-                            if (nativeMutationPlan.hasShapeMutations) {
-                                const savedNativeBytes = await timedSavePhase(
-                                    'read-native-shape-saved-bytes',
-                                    getSourcePdfData,
-                                    result => ({bytes: result?.byteLength ?? null}),
-                                );
-                                if (savedNativeBytes) {
-                                    preparedShapeStateSnapshot = await primePersistedShapeStateForSave(
-                                        savedNativeBytes,
-                                        true,
-                                    );
-                                    canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
-                                }
-                            }
-                            armPersistedShapeStateAdoption(nativeMutationPlan.hasShapeMutations && canMarkShapeStateSaved);
-                            if (reloadWaiter && preserveLiveSessionForNativeNoteChanges) {
-                                reloadWaiter.cancel();
-                                reloadWaiter = null;
-                            }
-                            clearSaveIndicator(config.mode);
-                            saveSucceeded = finalizeSuccessfulSave(persisted, {
-                                completeSaveState: !reloadWaiter,
-                                markShapeStateSaved: !reloadWaiter && canMarkShapeStateSaved,
-                                preserveLivePdfjsSession: preserveLiveSessionForNativeNoteChanges && !reloadWaiter,
-                            });
-                            if (saveSucceeded) {
-                                preparedShapeStateSnapshot = null;
-                                if (nativeMutationPlan.freeTextNotes.length) {
-                                    markNativeFreeTextNotesSaved?.(nativeMutationPlan.freeTextNotes);
-                                }
-                                if (nativeMutationPlan.annotationDeletes.length) {
-                                    markNativeFreeTextNotesDeleted?.(nativeMutationPlan.annotationDeletes);
-                                }
-                                trackSaveCompleted(config.mode, persisted, true);
-                            }
-                            await finalizeSaveReload(reloadWaiter, saveSucceeded, {
-                                completeSaveStateOnSuccess: Boolean(reloadWaiter),
-                                markShapeStateSavedOnSuccess: Boolean(reloadWaiter) && canMarkShapeStateSaved,
-                                preserveLivePdfjsSessionOnSuccess: preserveLiveSessionForNativeNoteChanges && Boolean(reloadWaiter),
-                            });
-                            finalizedReloadWaiter = true;
-                        }
-                    } finally {
-                        await restorePreparedShapeState(preparedShapeStateSnapshot);
+                    if (persistenceExpectedWorkingPath) {
+                        saveSucceeded = await runSerializedSaveFlow(
+                            rawData,
+                            pendingTexts,
+                            pendingDeletes,
+                            annotationCommentsSnapshot,
+                            shapeStateDirty,
+                            reloadWaiter,
+                            config.mode,
+                            config.saveMode,
+                            config.persistSerialized,
+                            preserveLivePdfjsAnnotationSession,
+                            includeManagedShapesForLiveSource,
+                            config.forceRewrite === true,
+                            persistenceExpectedWorkingPath,
+                            () => clearSaveIndicator(config.mode),
+                        );
                     }
+                    finalizedReloadWaiter = true;
                 }
-            }
 
-            if (!finalizedReloadWaiter) {
-                const rawData = await getSerializationBasePdfBytes({
-                    forcePdfjsMaterialize: forcePdfjsMaterialize || savedPdfjsAnnotationBaselineDirty,
-                    pendingDeletes,
-                    pendingTexts,
-                });
-                const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
-                    expectedWorkingPath,
-                    expectedOriginalPath,
-                );
-                if (persistenceExpectedWorkingPath) {
-                    saveSucceeded = await runSerializedSaveFlow(
-                        rawData,
-                        pendingTexts,
-                        pendingDeletes,
-                        annotationCommentsSnapshot,
-                        shapeStateDirty,
-                        reloadWaiter,
-                        config.mode,
-                        config.saveMode,
-                        config.persistSerialized,
-                        preserveLivePdfjsAnnotationSession,
-                        includeManagedShapesForLiveSource,
-                        config.forceRewrite === true,
-                        persistenceExpectedWorkingPath,
-                        () => clearSaveIndicator(config.mode),
-                    );
+                if (!saveSucceeded) {
+                    restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
                 }
-                finalizedReloadWaiter = true;
-            }
-
-            if (!saveSucceeded) {
+                saveSucceededForTelemetry = saveSucceeded;
+                return saveSucceeded;
+            } catch (error) {
                 restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+                BrowserLogger.error('workspace', config.failureLogMessage, error);
+                toast.add({
+                    color: 'error',
+                    title: t('errors.file.save'),
+                    description: getErrorMessage(error),
+                });
+                return false;
+            } finally {
+                if (reloadWaiter && !finalizedReloadWaiter) {
+                    reloadWaiter.cancel();
+                }
+                logSavePhase(
+                    config.totalPhase,
+                    saveStartedAtMs,
+                    { success: saveSucceededForTelemetry },
+                    SLOW_SAVE_TOTAL_WARN_MS,
+                );
+                saveOperationInProgress = false;
+                config.saveIndicator.value = false;
             }
-            saveSucceededForTelemetry = saveSucceeded;
-            return saveSucceeded;
-        } catch (error) {
-            restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
-            BrowserLogger.error('workspace', config.failureLogMessage, error);
-            toast.add({
-                color: 'error',
-                title: t('errors.file.save'),
-                description: getErrorMessage(error),
-            });
-            return false;
-        } finally {
-            if (reloadWaiter && !finalizedReloadWaiter) {
-                reloadWaiter.cancel();
-            }
-            logSavePhase(
-                config.totalPhase,
-                saveStartedAtMs,
-                { success: saveSucceededForTelemetry },
-                SLOW_SAVE_TOTAL_WARN_MS,
-            );
-            saveOperationInProgress = false;
-            config.saveIndicator.value = false;
-        }
+        });
     }
 
     function restorePendingEmbeddedAnnotationChanges(
@@ -1303,44 +1402,28 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return true;
     }
 
-    function computeShouldSerializeFlag(
-        shapeStateDirty: boolean,
-        hasPendingTexts: boolean,
-        hasPendingDeletes: boolean,
-        preservedAnnotationSourceDirty: boolean,
-    ) {
-        return annotationDirty.value
-            || hasAnnotationChanges()
-            || shapeStateDirty
-            || pageLabelsDirty.value
-            || bookmarksDirty.value
-            || hasPendingTexts
-            || hasPendingDeletes
-            || preservedAnnotationSourceDirty;
+    function computeShouldSerializeFlag(dirtyState: IDocumentDirtyState) {
+        return Object.values(SHOULD_SERIALIZE_DIRTY_SOURCES).some(hasDirtySource => hasDirtySource(dirtyState));
     }
 
     function shouldPreserveLiveAnnotationSession(options: {
         mode: 'save' | 'save_as';
         shouldSerialize: boolean;
-        shapeStateDirty: boolean;
-        hasPendingTexts: boolean;
-        hasPendingDeletes: boolean;
-        hasLivePdfJsAnnotationChanges: boolean;
-        hasPreservedAnnotationSourceChanges: boolean;
+        dirtyState: IDocumentDirtyState;
     }) {
         // Embedded deletes need the saved PDF bytes to become the live source;
         // otherwise old PDF.js annotations can outlive their persisted removal.
         return options.mode === 'save'
             && options.shouldSerialize
-            && !options.hasPendingDeletes
-            && !pageLabelsDirty.value
-            && !bookmarksDirty.value
+            && !options.dirtyState.pendingDeletes
+            && !options.dirtyState.pageLabels
+            && !options.dirtyState.bookmarks
             && (
-                options.shapeStateDirty
-                || options.hasPendingTexts
-                || options.hasLivePdfJsAnnotationChanges
-                || options.hasPreservedAnnotationSourceChanges
-                || hasAnnotationChanges()
+                options.dirtyState.shapes
+                || options.dirtyState.pendingTexts
+                || options.dirtyState.livePdfJsAnnotations
+                || options.dirtyState.preservedAnnotationSource
+                || options.dirtyState.annotationChanges
             );
     }
 
@@ -1397,6 +1480,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function handleSave() {
         return runSaveFlow({
             mode: 'save',
+            operationKind: 'save',
             saveMode: 'rewrite',
             persistOpenNotesAbortMessage: 'Save aborted because annotation note persistence failed',
             totalPhase: 'handle-save-total',
@@ -1411,6 +1495,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function handleSaveAs() {
         return runSaveFlow({
             mode: 'save_as',
+            operationKind: 'save-as',
             saveMode: 'save_as_rewrite',
             persistOpenNotesAbortMessage: 'Save As aborted because annotation note persistence failed',
             totalPhase: 'handle-save-as-total',
@@ -1425,6 +1510,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function handleRepairSave() {
         return runSaveFlow({
             mode: 'save',
+            operationKind: 'repair-save',
             saveMode: 'rewrite',
             persistOpenNotesAbortMessage: 'Repair save aborted because annotation note persistence failed',
             totalPhase: 'handle-save-total',

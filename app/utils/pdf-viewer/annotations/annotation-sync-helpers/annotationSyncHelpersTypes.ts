@@ -7,6 +7,7 @@ import type {
 
 export interface IPdfAnnotationRecord {
     id?: string;
+    annotationName?: string | null;
     pageIndex?: number;
     rect?: number[];
     contents?: string;
@@ -38,6 +39,7 @@ export interface IComputeSummaryStableKeyParams {
     source: IAnnotationCommentSummary['source'];
     uid?: string | null;
     annotationId?: string | null;
+    annotationName?: string | null | undefined;
 }
 
 export type TComputeSummaryStableKey = (params: IComputeSummaryStableKeyParams) => string;

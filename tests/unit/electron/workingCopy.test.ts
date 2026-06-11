@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {
     existsSync,
+    mkdirSync,
     mkdtempSync,
     readFileSync,
     realpathSync,
@@ -19,6 +20,7 @@ import {
     join,
 } from 'path';
 import { tmpdir } from 'os';
+import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 
 let tempRoot = '';
 
@@ -186,4 +188,124 @@ describe('workingCopy', () => {
 
         await clearAllWorkingCopies();
     });
+
+    it('keeps snapshot clones out of original-path current resolution', async () => {
+        const {
+            createWorkingCopyFromData,
+            createWorkingCopyFromPath,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {
+            findWorkingCopyPathByOriginalPath,
+            getWorkingCopyOriginalPath,
+            getWorkingCopyRole,
+        } = await import('@electron/file-access/workingCopyStore');
+        const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
+        const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+        const originalPath = join(tempRoot, 'snapshot-original.pdf');
+        writeFileSync(originalPath, new Uint8Array([
+            10,
+            11,
+            12,
+        ]));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const currentWorkingPath = await createWorkingCopyFromPath(trustedOriginalPath!);
+        const snapshotWorkingPath = await createWorkingCopyFromPath(currentWorkingPath as TOpenPath, originalPath);
+        const dataSnapshotWorkingPath = await createWorkingCopyFromData(
+            'snapshot-original.pdf',
+            new Uint8Array([
+                13,
+                14,
+                15,
+            ]),
+            originalPath,
+        );
+
+        expect(snapshotWorkingPath).not.toBe(currentWorkingPath);
+        expect(getWorkingCopyRole(snapshotWorkingPath)).toBe('snapshot');
+        expect(getWorkingCopyRole(dataSnapshotWorkingPath)).toBe('snapshot');
+        expect(getWorkingCopyOriginalPath(snapshotWorkingPath)).toMatchObject({originalPath});
+        expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(currentWorkingPath);
+
+        await clearAllWorkingCopies();
+    });
+
+    it('promotes the newest remaining current copy when the current mapping is retired', async () => {
+        const {
+            findWorkingCopyPathByOriginalPath,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {
+            cleanupWorkingCopy,
+            clearAllWorkingCopies,
+        } = await import('@electron/file-access/workingCopyCleanup');
+        const originalPath = join(tempRoot, 'promote-original.pdf');
+        const firstWorkingPath = join(tempRoot, 'pdf-work-promote-1', 'promote-original.pdf');
+        const secondWorkingPath = join(tempRoot, 'pdf-work-promote-2', 'promote-original.pdf');
+        writeFileSync(originalPath, new Uint8Array([1]));
+        mkdirSync(dirname(firstWorkingPath), {recursive: true});
+        mkdirSync(dirname(secondWorkingPath), {recursive: true});
+        writeFileSync(firstWorkingPath, new Uint8Array([1]));
+        writeFileSync(secondWorkingPath, new Uint8Array([1]));
+
+        setWorkingCopyOriginalPath(firstWorkingPath, originalPath);
+        setWorkingCopyOriginalPath(secondWorkingPath, originalPath);
+
+        expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(secondWorkingPath);
+        cleanupWorkingCopy(secondWorkingPath);
+
+        expect(findWorkingCopyPathByOriginalPath(originalPath)).toBe(firstWorkingPath);
+
+        await clearAllWorkingCopies();
+    });
+
+    it('serializes mutation queue entries that use different spellings of one Windows path', async () => {
+        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+        const blockedMutation = deferred<undefined>();
+        const operations: string[] = [];
+
+        const firstMutation = enqueueWorkingCopyMutation('C:\\Temp\\pdf-work-1\\Book.pdf', async () => {
+            operations.push('first-start');
+            await blockedMutation.promise;
+            operations.push('first-end');
+        });
+        const secondMutation = enqueueWorkingCopyMutation('\\\\?\\c:\\temp\\pdf-work-1\\book.pdf', async () => {
+            operations.push('second-start');
+        });
+        await waitForSettledQueueTurn();
+
+        expect(operations).toEqual(['first-start']);
+
+        blockedMutation.resolve(undefined);
+        await Promise.all([
+            firstMutation,
+            secondMutation,
+        ]);
+
+        expect(operations).toEqual([
+            'first-start',
+            'first-end',
+            'second-start',
+        ]);
+    });
 });
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
+
+async function waitForSettledQueueTurn() {
+    await new Promise(resolve => setTimeout(resolve, 20));
+}

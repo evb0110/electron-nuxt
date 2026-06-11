@@ -6,6 +6,7 @@ import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getCompactSearchIndexPath } from '@electron/search/searchIndexSidecar';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 
 const log = createLogger('workingCopyMutationQueue');
 const workingCopyMutationQueue = new Map<string, Promise<void>>();
@@ -32,7 +33,8 @@ export function enqueueWorkingCopyMutation<T>(
     workingCopyPath: string,
     operation: () => Promise<T>,
 ) {
-    const previousTail = workingCopyMutationQueue.get(workingCopyPath) ?? Promise.resolve();
+    const queueKey = normalizePathForLookup(workingCopyPath) || workingCopyPath;
+    const previousTail = workingCopyMutationQueue.get(queueKey) ?? Promise.resolve();
     const operationPromise = previousTail
         .then(operation)
         .finally(() => {
@@ -42,12 +44,12 @@ export function enqueueWorkingCopyMutation<T>(
     const nextTail = operationPromise
         .then(() => undefined, () => undefined)
         .finally(() => {
-            if (workingCopyMutationQueue.get(workingCopyPath) === nextTail) {
-                workingCopyMutationQueue.delete(workingCopyPath);
+            if (workingCopyMutationQueue.get(queueKey) === nextTail) {
+                workingCopyMutationQueue.delete(queueKey);
             }
         });
 
-    workingCopyMutationQueue.set(workingCopyPath, nextTail);
+    workingCopyMutationQueue.set(queueKey, nextTail);
     return operationPromise;
 }
 

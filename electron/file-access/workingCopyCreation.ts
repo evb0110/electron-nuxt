@@ -23,7 +23,10 @@ import {
 import {
     forgetRetiredWorkingCopyOriginal,
     getWorkingCopyOriginalPath,
+    getWorkingCopyRole,
+    isKnownWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
+    type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
@@ -31,6 +34,13 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const logger = createLogger('working-copy');
+
+function resolveWorkingCopyRoleForPathClone(
+    sourcePath: string,
+    ownerWebContentsId?: number,
+): TWorkingCopyRole {
+    return getWorkingCopyOriginalPath(sourcePath, ownerWebContentsId) ? 'snapshot' : 'current';
+}
 
 export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number) {
     const workDir = createWorkingDirectory();
@@ -74,7 +84,8 @@ export async function createWorkingCopyFromPath(
         await copyFileCopyOnWrite(sourcePath, workingPath);
         await decryptPdfFileIfNeeded(workingPath);
 
-        setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId);
+        const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
+        setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {role});
 
         return workingPath;
     } catch (error) {
@@ -108,7 +119,8 @@ export async function createWorkingCopyFromData(
         await decryptPdfFileIfNeeded(workingPath);
 
         if (normalizedOriginalPath) {
-            setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId);
+            const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
+            setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {role});
         }
 
         return workingPath;
@@ -154,7 +166,8 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         await decryptPdfFileIfNeeded(normalizedWorkingPath);
     }
     if (mapping.retired) {
-        setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId);
+        const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';
+        setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
         forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
     }
     logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);

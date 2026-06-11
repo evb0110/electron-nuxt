@@ -2,13 +2,13 @@ import type { TestProjectConfiguration } from 'vitest/config';
 import AutoImport from 'unplugin-auto-import/vite';
 import { vitestResolveAlias } from './scripts/vitestResolveAlias';
 
-export const vitestResolveConfig = { alias: vitestResolveAlias };
+const vitestResolveConfig = { alias: vitestResolveAlias };
 
-export const unitTestSetupFiles = ['tests/setup.ts'];
+const unitTestSetupFiles = ['tests/setup.ts'];
 export const unitSlowTestThresholdMs = 300;
 export const electronE2ETeardownTimeoutMs = 30_000;
 
-export const vitestProjectNames = {
+const vitestProjectNames = {
     unit: 'unit',
     bundleIntegrity: 'bundle-integrity',
     electronE2ESmoke: 'e2e-smoke',
@@ -18,9 +18,9 @@ export const vitestProjectNames = {
     electronE2EQuarantine: 'e2e-quarantine',
 } as const;
 
-export const bundleIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
+const bundleIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
 
-export const electronE2ESmokeTestFiles = [
+const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/startupHydration.e2e.test.ts',
     'tests/e2e/electron/recentFiles.e2e.test.ts',
     'tests/e2e/electron/viewerSmoke.e2e.test.ts',
@@ -30,10 +30,10 @@ export const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 
-export const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
-export const electronE2ELargePdfTestFiles = ['tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts'];
-export const electronE2ERapidNavigationTestFiles = ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts'];
-export const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
+const electronE2EDrawShapeTestFiles = ['tests/e2e/electron/drawShapeLifecycle.e2e.test.ts'];
+const electronE2ELargePdfTestFiles = ['tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts'];
+const electronE2ERapidNavigationTestFiles = ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts'];
+const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -71,7 +71,7 @@ function createBundleIntegrityTestProject() {
     } satisfies TestProjectConfiguration;
 }
 
-export function createElectronE2ETestProject(
+function createElectronE2ETestProject(
     name: string,
     include: string[],
 ) {
