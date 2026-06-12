@@ -17,7 +17,10 @@ import {
 } from 'node:url';
 import desktopSchema from '@i18n-app/messages/en';
 
-interface ILocaleDefinitionLike {code: string;}
+interface ILocaleDefinitionLike {
+    code: string;
+    file: string;
+}
 
 type TLocaleTarget = 'app' | 'landing' | 'all';
 
@@ -195,11 +198,11 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
 
 async function loadLocaleMessages(relativeDirectory: string): Promise<Record<string, unknown>> {
-    const entries = await Promise.all(LOCALE_CODES.map(async (localeCode) => {
-        const localePath = path.join(projectRoot, relativeDirectory, `${localeCode}.ts`);
+    const entries = await Promise.all(LOCALE_DEFINITIONS.map(async (localeDefinition) => {
+        const localePath = path.join(projectRoot, relativeDirectory, localeDefinition.file);
         const localeModule = await import(pathToFileURL(localePath).href) as {default?: unknown;};
         return [
-            localeCode,
+            localeDefinition.code,
             localeModule.default,
         ] as const;
     }));

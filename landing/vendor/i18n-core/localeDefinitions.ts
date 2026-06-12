@@ -2,7 +2,7 @@ import type { TLocale } from './localeCodes';
 
 interface ICoreLocaleDefinition<TLocaleCode extends string = string> {
     code: TLocaleCode;
-    file: `${TLocaleCode}.ts`;
+    file: `${string}.ts`;
     name: string;
     language: string;
 }
@@ -52,7 +52,7 @@ export const LOCALE_DEFINITIONS = [
     },
     {
         code: 'pt-BR',
-        file: 'pt-BR.ts',
+        file: 'ptBr.ts',
         name: 'Português (Brasil)',
         language: 'pt-BR',
     },
