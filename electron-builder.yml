@@ -154,9 +154,9 @@ dmg:
     height: 450
   contents:
     - x: 160
-      y: 240
+      y: 185
     - x: 440
-      y: 240
+      y: 185
       type: link
       path: /Applications
 
