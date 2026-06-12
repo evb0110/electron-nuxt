@@ -822,6 +822,7 @@ export default {
         'languageSpanish': 'Español',
         'languageItalian': 'Italiano',
         'languagePortuguese': 'Portugués',
+        'languagePortugueseBr': 'Portugués (Brasil)',
         'languageDutch': 'Neerlandés',
         'uiScale': 'Tamaño de la interfaz',
         'uiScaleDescription': 'Auto se ajusta en pantallas de Windows escaladas por encima del 100%. Elige un preajuste para anular.',

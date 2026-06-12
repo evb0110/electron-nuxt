@@ -114,6 +114,11 @@ const LOCALE_OPTION_DEFINITIONS = [
         labelKey: 'settings.languagePortuguese',
     },
     {
+        value: 'pt-BR',
+        icon: 'i-circle-flags-br',
+        labelKey: 'settings.languagePortugueseBr',
+    },
+    {
         value: 'nl',
         icon: 'i-circle-flags-nl',
         labelKey: 'settings.languageDutch',

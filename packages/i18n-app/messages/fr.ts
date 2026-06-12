@@ -834,6 +834,7 @@ export default {
         'languageSpanish': 'Espagnol',
         'languageItalian': 'Italien',
         'languagePortuguese': 'Portugais',
+        'languagePortugueseBr': 'Portugais (Brésil)',
         'languageDutch': 'Néerlandais',
         'uiScale': 'Taille de l’interface',
         'uiScaleDescription': 'Auto s’adapte aux écrans Windows mis à l’échelle au-delà de 100 %. Choisissez un préréglage pour passer outre.',
