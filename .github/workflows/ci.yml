@@ -61,7 +61,7 @@ jobs:
           changed_files="$(git diff --name-only "$base_sha" "$HEAD_SHA")"
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(landing/|packages/contracts/|packages/i18n-core/|packages/release-selection/)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^landing/'; then
             echo "landing=true" >> "$GITHUB_OUTPUT"
           else
             echo "landing=false" >> "$GITHUB_OUTPUT"
